@@ -1,0 +1,78 @@
+{
+  if (initialized) {
+    return false;
+  }
+  if (out_stream != null) {
+    response=out_stream.getResponse();
+    response.http_resp=this;
+    out_stream=null;
+  }
+  doModules:   while (true) {
+    Phase1:     for (int idx=0; idx < modules.length && !aborted; idx++) {
+      try {
+        modules[idx].responsePhase1Handler(response,request);
+      }
+ catch (      RetryException re) {
+        if (re.restart) {
+          continue doModules;
+        }
+ else {
+          throw re;
+        }
+      }
+    }
+    Phase2:     for (int idx=0; idx < modules.length && !aborted; idx++) {
+      int sts=modules[idx].responsePhase2Handler(response,request);
+switch (sts) {
+case RSP_CONTINUE:
+        break;
+case RSP_RESTART:
+      idx=-1;
+    continue doModules;
+case RSP_SHORTCIRC:
+  break doModules;
+case RSP_REQUEST:
+case RSP_NEWCON_REQ:
+response.getInputStream().close();
+if (handle_trailers) {
+invokeTrailerHandlers(true);
+}
+if (request.internal_subrequest) {
+return true;
+}
+request.getConnection().handleRequest(request,this,response,true);
+if (initialized) {
+break doModules;
+}
+idx=-1;
+continue doModules;
+case RSP_SEND:
+case RSP_NEWCON_SND:
+response.getInputStream().close();
+if (handle_trailers) {
+invokeTrailerHandlers(true);
+}
+if (request.internal_subrequest) {
+return true;
+}
+request.getConnection().handleRequest(request,this,response,false);
+idx=-1;
+continue doModules;
+default :
+throw new Error("HTTPClient Internal Error: invalid status" + " " + sts + " returned by module "+ modules[idx].getClass().getName());
+}
+}
+Phase3: for (int idx=0; idx < modules.length && !aborted; idx++) {
+modules[idx].responsePhase3Handler(response,request);
+}
+break doModules;
+}
+response.getStatusCode();
+if (!request.internal_subrequest) {
+init(response);
+}
+if (handle_trailers) {
+invokeTrailerHandlers(false);
+}
+return false;
+}
