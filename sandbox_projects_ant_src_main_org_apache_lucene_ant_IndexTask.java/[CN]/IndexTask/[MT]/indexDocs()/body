@@ -1,0 +1,85 @@
+{
+  Date start=new Date();
+  boolean create=overwrite;
+  if (indexPath.mkdirs() && !overwrite) {
+    create=true;
+  }
+  Searcher searcher=null;
+  Analyzer analyzer=new StopAnalyzer();
+  boolean checkLastModified=false;
+  if (!create) {
+    try {
+      searcher=new IndexSearcher(indexPath.getAbsolutePath());
+      checkLastModified=true;
+    }
+ catch (    IOException ioe) {
+      log("IOException: " + ioe.getMessage());
+    }
+  }
+  log("checkLastModified = " + checkLastModified);
+  IndexWriter writer=new IndexWriter(indexPath,analyzer,create);
+  int totalFiles=0;
+  int totalIndexed=0;
+  int totalIgnored=0;
+  try {
+    writer.mergeFactor=mergeFactor;
+    for (int i=0; i < filesets.size(); i++) {
+      FileSet fs=(FileSet)filesets.elementAt(i);
+      if (fs != null) {
+        DirectoryScanner ds=fs.getDirectoryScanner(project);
+        String[] dsfiles=ds.getIncludedFiles();
+        File baseDir=ds.getBasedir();
+        for (int j=0; j < dsfiles.length; j++) {
+          File file=new File(baseDir,dsfiles[j]);
+          totalFiles++;
+          if (!file.exists() || !file.canRead()) {
+            throw new BuildException("File \"" + file.getAbsolutePath() + "\" does not exist or is not readable.");
+          }
+          boolean indexIt=true;
+          if (checkLastModified) {
+            Hits hits=null;
+            Term pathTerm=new Term("path",file.getPath());
+            TermQuery query=new TermQuery(pathTerm);
+            hits=searcher.search(query);
+            if (hits.length() > 0) {
+              Document doc=hits.doc(0);
+              String indexModified=doc.get("modified");
+              if (indexModified != null) {
+                if (DateField.stringToTime(indexModified) == file.lastModified()) {
+                  indexIt=false;
+                }
+              }
+            }
+          }
+          if (indexIt) {
+            try {
+              log("Indexing " + file.getPath(),Project.MSG_VERBOSE);
+              Document doc=handler.getDocument(file);
+              if (doc == null) {
+                totalIgnored++;
+              }
+ else {
+                doc.add(Field.Keyword("path",file.getPath()));
+                doc.add(Field.Keyword("modified",DateField.timeToString(file.lastModified())));
+                writer.addDocument(doc);
+                totalIndexed++;
+              }
+            }
+ catch (            DocumentHandlerException e) {
+              throw new BuildException(e);
+            }
+          }
+        }
+      }
+    }
+    writer.optimize();
+  }
+  finally {
+    writer.close();
+    if (searcher != null) {
+      searcher.close();
+    }
+  }
+  Date end=new Date();
+  log(totalIndexed + " out of " + totalFiles+ " indexed ("+ totalIgnored+ " ignored) in "+ (end.getTime() - start.getTime())+ " milliseconds");
+}
