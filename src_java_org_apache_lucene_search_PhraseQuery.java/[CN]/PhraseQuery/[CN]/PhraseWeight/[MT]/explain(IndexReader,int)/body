@@ -1,0 +1,43 @@
+{
+  Explanation result=new Explanation();
+  result.setDescription("weight(" + getQuery() + " in "+ doc+ "), product of:");
+  StringBuffer docFreqs=new StringBuffer();
+  StringBuffer query=new StringBuffer();
+  query.append('\"');
+  for (int i=0; i < terms.size(); i++) {
+    if (i != 0) {
+      docFreqs.append(" ");
+      query.append(" ");
+    }
+    Term term=(Term)terms.elementAt(i);
+    docFreqs.append(term.text());
+    docFreqs.append("=");
+    docFreqs.append(searcher.docFreq(term));
+    query.append(term.text());
+  }
+  query.append('\"');
+  Explanation idfExpl=new Explanation(idf,"idf(" + field + ": "+ docFreqs+ ")");
+  Explanation queryExpl=new Explanation();
+  queryExpl.setDescription("queryWeight(" + getQuery() + "), product of:");
+  Explanation boostExpl=new Explanation(getBoost(),"boost");
+  if (getBoost() != 1.0f)   queryExpl.addDetail(boostExpl);
+  queryExpl.addDetail(idfExpl);
+  Explanation queryNormExpl=new Explanation(queryNorm,"queryNorm");
+  queryExpl.addDetail(queryNormExpl);
+  queryExpl.setValue(boostExpl.getValue() * idfExpl.getValue() * queryNormExpl.getValue());
+  result.addDetail(queryExpl);
+  Explanation fieldExpl=new Explanation();
+  fieldExpl.setDescription("fieldWeight(" + field + ":"+ query+ " in "+ doc+ "), product of:");
+  Explanation tfExpl=scorer(reader).explain(doc);
+  fieldExpl.addDetail(tfExpl);
+  fieldExpl.addDetail(idfExpl);
+  Explanation fieldNormExpl=new Explanation();
+  fieldNormExpl.setValue(Similarity.decodeNorm(reader.norms(field)[doc]));
+  fieldNormExpl.setDescription("fieldNorm(field=" + field + ", doc="+ doc+ ")");
+  fieldExpl.addDetail(fieldNormExpl);
+  fieldExpl.setValue(tfExpl.getValue() * idfExpl.getValue() * fieldNormExpl.getValue());
+  result.addDetail(fieldExpl);
+  result.setValue(queryExpl.getValue() * fieldExpl.getValue());
+  if (queryExpl.getValue() == 1.0f)   return fieldExpl;
+  return result;
+}
