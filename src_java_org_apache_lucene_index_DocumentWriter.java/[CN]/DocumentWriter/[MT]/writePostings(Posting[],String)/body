@@ -1,33 +1,77 @@
 {
   OutputStream freq=null, prox=null;
   TermInfosWriter tis=null;
+  TermVectorsWriter termVectorWriter=null;
   try {
     freq=directory.createFile(segment + ".frq");
     prox=directory.createFile(segment + ".prx");
     tis=new TermInfosWriter(directory,segment,fieldInfos);
     TermInfo ti=new TermInfo();
+    String currentField=null;
     for (int i=0; i < postings.length; i++) {
       Posting posting=postings[i];
       ti.set(1,freq.getFilePointer(),prox.getFilePointer(),-1);
       tis.add(posting.term,ti);
-      int f=posting.freq;
-      if (f == 1)       freq.writeVInt(1);
+      int postingFreq=posting.freq;
+      if (postingFreq == 1)       freq.writeVInt(1);
  else {
         freq.writeVInt(0);
-        freq.writeVInt(f);
+        freq.writeVInt(postingFreq);
       }
       int lastPosition=0;
       int[] positions=posting.positions;
-      for (int j=0; j < f; j++) {
+      for (int j=0; j < postingFreq; j++) {
         int position=positions[j];
         prox.writeVInt(position - lastPosition);
         lastPosition=position;
       }
+      String termField=posting.term.field();
+      if (currentField != termField) {
+        currentField=termField;
+        FieldInfo fi=fieldInfos.fieldInfo(currentField);
+        if (fi.storeTermVector) {
+          if (termVectorWriter == null) {
+            termVectorWriter=new TermVectorsWriter(directory,segment,fieldInfos);
+            termVectorWriter.openDocument();
+          }
+          termVectorWriter.openField(currentField);
+        }
+ else         if (termVectorWriter != null) {
+          termVectorWriter.closeField();
+        }
+      }
+      if (termVectorWriter != null && termVectorWriter.isFieldOpen()) {
+        termVectorWriter.addTerm(posting.term.text(),postingFreq);
+      }
     }
+    if (termVectorWriter != null)     termVectorWriter.closeDocument();
   }
   finally {
-    if (freq != null)     freq.close();
-    if (prox != null)     prox.close();
-    if (tis != null)     tis.close();
+    IOException keep=null;
+    if (freq != null)     try {
+      freq.close();
+    }
+ catch (    IOException e) {
+      if (keep == null)       keep=e;
+    }
+    if (prox != null)     try {
+      prox.close();
+    }
+ catch (    IOException e) {
+      if (keep == null)       keep=e;
+    }
+    if (tis != null)     try {
+      tis.close();
+    }
+ catch (    IOException e) {
+      if (keep == null)       keep=e;
+    }
+    if (termVectorWriter != null)     try {
+      termVectorWriter.close();
+    }
+ catch (    IOException e) {
+      if (keep == null)       keep=e;
+    }
+    if (keep != null)     throw (IOException)keep.fillInStackTrace();
   }
 }

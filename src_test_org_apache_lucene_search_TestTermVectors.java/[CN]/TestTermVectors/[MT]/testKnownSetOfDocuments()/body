@@ -1,0 +1,86 @@
+{
+  String[] termArray={"eating","chocolate","in","a","computer","lab","grows","old","colored","with","an"};
+  String test1="eating chocolate in a computer lab";
+  String test2="computer in a computer lab";
+  String test3="a chocolate lab grows old";
+  String test4="eating chocolate with a chocolate lab in an old chocolate colored computer lab";
+  Map test4Map=new HashMap();
+  test4Map.put("chocolate",new Integer(3));
+  test4Map.put("lab",new Integer(2));
+  test4Map.put("eating",new Integer(1));
+  test4Map.put("computer",new Integer(1));
+  test4Map.put("with",new Integer(1));
+  test4Map.put("a",new Integer(1));
+  test4Map.put("colored",new Integer(1));
+  test4Map.put("in",new Integer(1));
+  test4Map.put("an",new Integer(1));
+  test4Map.put("computer",new Integer(1));
+  test4Map.put("old",new Integer(1));
+  Document testDoc1=new Document();
+  setupDoc(testDoc1,test1);
+  Document testDoc2=new Document();
+  setupDoc(testDoc2,test2);
+  Document testDoc3=new Document();
+  setupDoc(testDoc3,test3);
+  Document testDoc4=new Document();
+  setupDoc(testDoc4,test4);
+  Directory dir=new RAMDirectory();
+  try {
+    IndexWriter writer=new IndexWriter(dir,new SimpleAnalyzer(),true);
+    assertTrue(writer != null);
+    writer.addDocument(testDoc1);
+    writer.addDocument(testDoc2);
+    writer.addDocument(testDoc3);
+    writer.addDocument(testDoc4);
+    writer.close();
+    IndexSearcher knownSearcher=new IndexSearcher(dir);
+    TermEnum termEnum=knownSearcher.reader.terms();
+    TermDocs termDocs=knownSearcher.reader.termDocs();
+    Similarity sim=knownSearcher.getSimilarity();
+    while (termEnum.next() == true) {
+      Term term=termEnum.term();
+      termDocs.seek(term);
+      while (termDocs.next()) {
+        int docId=termDocs.doc();
+        int freq=termDocs.freq();
+        TermFreqVector vector=knownSearcher.reader.getTermFreqVector(docId,"field");
+        float tf=sim.tf(freq);
+        float idf=sim.idf(term,knownSearcher);
+        float lNorm=sim.lengthNorm("field",vector.getTerms().length);
+        assertTrue(vector != null);
+        String[] vTerms=vector.getTerms();
+        int[] freqs=vector.getTermFrequencies();
+        for (int i=0; i < vTerms.length; i++) {
+          if (term.text().equals(vTerms[i]) == true) {
+            assertTrue(freqs[i] == freq);
+          }
+        }
+      }
+    }
+    Query query=new TermQuery(new Term("field","chocolate"));
+    Hits hits=knownSearcher.search(query);
+    assertTrue(hits.length() == 3);
+    float score=hits.score(0);
+    assertTrue(testDoc3.toString().equals(hits.doc(0).toString()));
+    assertTrue(testDoc4.toString().equals(hits.doc(1).toString()));
+    assertTrue(testDoc1.toString().equals(hits.doc(2).toString()));
+    TermFreqVector vector=knownSearcher.reader.getTermFreqVector(hits.id(1),"field");
+    assertTrue(vector != null);
+    String[] terms=vector.getTerms();
+    int[] freqs=vector.getTermFrequencies();
+    assertTrue(terms != null && terms.length == 10);
+    for (int i=0; i < terms.length; i++) {
+      String term=terms[i];
+      int freq=freqs[i];
+      assertTrue(test4.indexOf(term) != -1);
+      Integer freqInt=(Integer)test4Map.get(term);
+      assertTrue(freqInt != null);
+      assertTrue(freqInt.intValue() == freq);
+    }
+    knownSearcher.close();
+  }
+ catch (  IOException e) {
+    e.printStackTrace();
+    assertTrue(false);
+  }
+}
