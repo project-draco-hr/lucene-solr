@@ -1,0 +1,177 @@
+{
+  DataOutputStream dataout=new DataOutputStream(hdr_buf);
+  String[] con_hdrs={"",""};
+  NVPair[] hdrs=req.getHeaders();
+  int ho_idx=-1;
+  int ct_idx=-1;
+  int ua_idx=-1;
+  int co_idx=-1;
+  int pc_idx=-1;
+  int ka_idx=-1;
+  int ex_idx=-1;
+  int te_idx=-1;
+  int tc_idx=-1;
+  int ug_idx=-1;
+  for (int idx=0; idx < hdrs.length; idx++) {
+    String name=hdrs[idx].getName().trim().toLowerCase();
+    if (name.equals("host")) {
+      ho_idx=idx;
+    }
+ else     if (name.equals("content-type")) {
+      ct_idx=idx;
+    }
+ else     if (name.equals("user-agent")) {
+      ua_idx=idx;
+    }
+ else     if (name.equals("connection")) {
+      co_idx=idx;
+    }
+ else     if (name.equals("proxy-connection")) {
+      pc_idx=idx;
+    }
+ else     if (name.equals("keep-alive")) {
+      ka_idx=idx;
+    }
+ else     if (name.equals("expect")) {
+      ex_idx=idx;
+    }
+ else     if (name.equals("te")) {
+      te_idx=idx;
+    }
+ else     if (name.equals("transfer-encoding")) {
+      tc_idx=idx;
+    }
+ else     if (name.equals("upgrade")) {
+      ug_idx=idx;
+    }
+  }
+  String file=Util.escapeUnsafeChars(req.getRequestURI());
+  if (Proxy_Host != null && Protocol != HTTPS && !file.equals("*")) {
+    dataout.writeBytes(req.getMethod() + " http://" + Host+ ":"+ Port+ file+ " "+ RequestProtocolVersion+ "\r\n");
+  }
+ else {
+    dataout.writeBytes(req.getMethod() + " " + file+ " "+ RequestProtocolVersion+ "\r\n");
+  }
+  String h_hdr=(ho_idx >= 0) ? hdrs[ho_idx].getValue().trim() : Host;
+  if (Port != URI.defaultPort(getProtocol())) {
+    dataout.writeBytes("Host: " + h_hdr + ":"+ Port+ "\r\n");
+  }
+ else {
+    dataout.writeBytes("Host: " + h_hdr + "\r\n");
+  }
+  String co_hdr=null;
+  if (!(ServProtVersKnown && ServerProtocolVersion >= HTTP_1_1 && co_idx == -1)) {
+    if (co_idx == -1) {
+      co_hdr="Keep-Alive";
+      con_hdrs[0]="Keep-Alive";
+    }
+ else {
+      con_hdrs[0]=hdrs[co_idx].getValue().trim();
+      co_hdr=con_hdrs[0];
+    }
+    try {
+      if (ka_idx != -1 && Util.hasToken(con_hdrs[0],"keep-alive")) {
+        dataout.writeBytes("Keep-Alive: " + hdrs[ka_idx].getValue().trim() + "\r\n");
+      }
+    }
+ catch (    ParseException pe) {
+      throw new IOException(pe.toString());
+    }
+  }
+  if ((Proxy_Host != null && Protocol != HTTPS) && !(ServProtVersKnown && ServerProtocolVersion >= HTTP_1_1)) {
+    if (co_hdr != null) {
+      dataout.writeBytes("Proxy-Connection: ");
+      dataout.writeBytes(co_hdr);
+      dataout.writeBytes("\r\n");
+      co_hdr=null;
+    }
+  }
+  if (co_hdr != null) {
+    try {
+      if (!Util.hasToken(co_hdr,"TE")) {
+        co_hdr+=", TE";
+      }
+    }
+ catch (    ParseException pe) {
+      throw new IOException(pe.toString());
+    }
+  }
+ else {
+    co_hdr="TE";
+  }
+  if (ug_idx != -1) {
+    co_hdr+=", Upgrade";
+  }
+  if (co_hdr != null) {
+    dataout.writeBytes("Connection: ");
+    dataout.writeBytes(co_hdr);
+    dataout.writeBytes("\r\n");
+  }
+  if (te_idx != -1) {
+    dataout.writeBytes("TE: ");
+    Vector pte;
+    try {
+      pte=Util.parseHeader(hdrs[te_idx].getValue());
+    }
+ catch (    ParseException pe) {
+      throw new IOException(pe.toString());
+    }
+    if (!pte.contains(new HttpHeaderElement("trailers"))) {
+      dataout.writeBytes("trailers, ");
+    }
+    dataout.writeBytes(hdrs[te_idx].getValue().trim() + "\r\n");
+  }
+ else {
+    dataout.writeBytes("TE: trailers\r\n");
+  }
+  if (ua_idx != -1) {
+    dataout.writeBytes("User-Agent: " + hdrs[ua_idx].getValue().trim() + "\r\n");
+  }
+ else {
+    dataout.writeBytes("User-Agent: " + version + "\r\n");
+  }
+  for (int idx=0; idx < hdrs.length; idx++) {
+    if (idx != ct_idx && idx != ua_idx && idx != co_idx && idx != pc_idx && idx != ka_idx && idx != ex_idx && idx != te_idx && idx != ho_idx) {
+      dataout.writeBytes(hdrs[idx].getName().trim() + ": " + hdrs[idx].getValue().trim()+ "\r\n");
+    }
+  }
+  if (req.getData() != null || req.getStream() != null) {
+    dataout.writeBytes("Content-type: ");
+    if (ct_idx != -1) {
+      dataout.writeBytes(hdrs[ct_idx].getValue().trim());
+    }
+ else {
+      dataout.writeBytes("application/octet-stream");
+    }
+    dataout.writeBytes("\r\n");
+    if (req.getData() != null) {
+      dataout.writeBytes("Content-length: " + req.getData().length + "\r\n");
+    }
+ else     if (req.getStream().getLength() != -1 && tc_idx == -1) {
+      dataout.writeBytes("Content-length: " + req.getStream().getLength() + "\r\n");
+    }
+    if (ex_idx != -1) {
+      con_hdrs[1]=hdrs[ex_idx].getValue().trim();
+      dataout.writeBytes("Expect: " + con_hdrs[1] + "\r\n");
+    }
+  }
+ else   if (ex_idx != -1) {
+    Vector expect_tokens;
+    try {
+      expect_tokens=Util.parseHeader(hdrs[ex_idx].getValue());
+    }
+ catch (    ParseException pe) {
+      throw new IOException(pe.toString());
+    }
+    HttpHeaderElement cont=new HttpHeaderElement("100-continue");
+    while (expect_tokens.removeElement(cont)) {
+      ;
+    }
+    if (!expect_tokens.isEmpty()) {
+      con_hdrs[1]=Util.assembleHeader(expect_tokens);
+      dataout.writeBytes("Expect: " + con_hdrs[1] + "\r\n");
+    }
+  }
+  dataout.writeBytes("\r\n");
+  return con_hdrs;
+}

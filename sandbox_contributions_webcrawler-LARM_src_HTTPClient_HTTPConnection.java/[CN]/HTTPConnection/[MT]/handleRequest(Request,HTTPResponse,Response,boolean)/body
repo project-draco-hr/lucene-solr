@@ -1,0 +1,92 @@
+{
+  Response[] rsp_arr={resp};
+  HTTPClientModule[] modules=http_resp.getModules();
+  if (usemodules) {
+    doModules:     for (int idx=0; idx < modules.length; idx++) {
+      int sts=modules[idx].requestHandler(req,rsp_arr);
+switch (sts) {
+case REQ_CONTINUE:
+        break;
+case REQ_RESTART:
+      idx=-1;
+    continue doModules;
+case REQ_SHORTCIRC:
+  break doModules;
+case REQ_RESPONSE:
+case REQ_RETURN:
+if (rsp_arr[0] == null) {
+  throw new Error("HTTPClient Internal Error: no " + "response returned by module " + modules[idx].getClass().getName());
+}
+http_resp.set(req,rsp_arr[0]);
+if (req.getStream() != null) {
+req.getStream().ignoreData(req);
+}
+if (req.internal_subrequest) {
+return;
+}
+if (sts == REQ_RESPONSE) {
+http_resp.handleResponse();
+}
+ else {
+http_resp.init(rsp_arr[0]);
+}
+return;
+case REQ_NEWCON_RST:
+if (req.internal_subrequest) {
+return;
+}
+req.getConnection().handleRequest(req,http_resp,rsp_arr[0],true);
+return;
+case REQ_NEWCON_SND:
+if (req.internal_subrequest) {
+return;
+}
+req.getConnection().handleRequest(req,http_resp,rsp_arr[0],false);
+return;
+default :
+throw new Error("HTTPClient Internal Error: invalid status" + " " + sts + " returned by module "+ modules[idx].getClass().getName());
+}
+}
+}
+if (req.internal_subrequest) {
+return;
+}
+if (req.getStream() != null && req.getStream().getLength() == -1) {
+if (!ServProtVersKnown || ServerProtocolVersion < HTTP_1_1 || no_chunked) {
+req.getStream().goAhead(req,null,http_resp.getTimeout());
+http_resp.set(req,req.getStream());
+}
+ else {
+int idx;
+NVPair[] hdrs=req.getHeaders();
+for (idx=0; idx < hdrs.length; idx++) {
+if (hdrs[idx].getName().equalsIgnoreCase("Transfer-Encoding")) {
+break;
+}
+}
+if (idx == hdrs.length) {
+hdrs=Util.resizeArray(hdrs,idx + 1);
+hdrs[idx]=new NVPair("Transfer-Encoding","chunked");
+req.setHeaders(hdrs);
+}
+ else {
+String v=hdrs[idx].getValue();
+try {
+if (!Util.hasToken(v,"chunked")) {
+hdrs[idx]=new NVPair("Transfer-Encoding",v + ", chunked");
+}
+}
+ catch (ParseException pe) {
+throw new IOException(pe.toString());
+}
+}
+http_resp.set(req,sendRequest(req,http_resp.getTimeout()));
+}
+}
+ else {
+http_resp.set(req,sendRequest(req,http_resp.getTimeout()));
+}
+if (req.aborted) {
+throw new IOException("Request aborted by user");
+}
+}

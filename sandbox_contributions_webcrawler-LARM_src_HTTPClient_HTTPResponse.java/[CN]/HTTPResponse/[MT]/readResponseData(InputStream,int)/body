@@ -1,0 +1,67 @@
+{
+  boolean readUnlimited=(max == -1);
+  if (ContentLength == 0) {
+    return;
+  }
+  if (Data == null) {
+    Data=new byte[0];
+  }
+  int off=Data.length;
+  try {
+    if (getHeader("Content-Length") != null) {
+      int rcvd=0;
+      int total=max > 1 ? Math.min(ContentLength,max) : ContentLength;
+      Data=new byte[total];
+      do {
+        off+=rcvd;
+        rcvd=inp.read(Data,off,total - off);
+      }
+ while (rcvd != -1 && off + rcvd < total);
+    }
+ else {
+      java.util.LinkedList blocks=new java.util.LinkedList();
+      int total=0;
+      int secondBlockSize=10 * 2000;
+      byte[] secondBlock=new byte[secondBlockSize];
+      int offInSecondBlock=0;
+      int rcvd=0;
+      do {
+        int bytesToRead=secondBlockSize - offInSecondBlock;
+        if (bytesToRead < 1) {
+          blocks.addLast(secondBlock);
+          secondBlock=new byte[secondBlockSize];
+          offInSecondBlock=0;
+          bytesToRead=secondBlockSize;
+        }
+        rcvd=inp.read(secondBlock,offInSecondBlock,bytesToRead);
+        if (rcvd != -1) {
+          offInSecondBlock+=rcvd;
+          total+=rcvd;
+          max-=rcvd;
+        }
+      }
+ while (rcvd != -1 && (readUnlimited || max > 0));
+      Data=new byte[total];
+      int offset=0;
+      while (blocks.size() > 0) {
+        byte[] block=(byte[])blocks.removeFirst();
+        System.arraycopy(block,0,Data,offset,block.length);
+        offset+=block.length;
+      }
+      if (offInSecondBlock > 0) {
+        System.arraycopy(secondBlock,0,Data,offset,offInSecondBlock);
+      }
+    }
+  }
+ catch (  IOException ioe) {
+    Data=Util.resizeArray(Data,off);
+    throw ioe;
+  }
+ finally {
+    try {
+      inp.close();
+    }
+ catch (    IOException ioe) {
+    }
+  }
+}

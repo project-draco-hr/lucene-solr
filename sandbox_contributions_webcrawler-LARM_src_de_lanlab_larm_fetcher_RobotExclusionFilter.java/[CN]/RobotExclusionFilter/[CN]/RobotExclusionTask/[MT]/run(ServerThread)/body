@@ -1,0 +1,70 @@
+{
+  String threadName=Thread.currentThread().getName();
+  log.logThreadSafe("task " + threadName + ": starting to load "+ hostInfo.hostName);
+  String[] disallows=null;
+  boolean errorOccured=false;
+  try {
+    log.logThreadSafe("task " + threadName + ": getting connection");
+    HTTPConnection conn=new HTTPConnection(hostInfo.hostName);
+    conn.setTimeout(30000);
+    HTTPResponse res=conn.Get("/robots.txt",(String)null,headers);
+    log.logThreadSafe("task " + threadName + ": got connection.");
+    if (res.getStatusCode() != 200) {
+      errorOccured=true;
+    }
+ else {
+      log.logThreadSafe("task " + threadName + ": reading");
+      byte[] file=res.getData(40000);
+      log.logThreadSafe("task " + threadName + ": reading done. parsing");
+      disallows=parse(new BufferedReader(new InputStreamReader(new ByteArrayInputStream(file))));
+      log.logThreadSafe("task " + threadName + ": parsing done. found "+ disallows.length+ " disallows");
+      log.logThreadSafe("task " + threadName + ": setting disallows");
+    }
+  }
+ catch (  java.net.UnknownHostException e) {
+    hostInfo.setReachable(false);
+    log.logThreadSafe("task " + threadName + ": unknown host. setting to unreachable");
+    errorOccured=true;
+  }
+catch (  java.net.NoRouteToHostException e) {
+    hostInfo.setReachable(false);
+    log.logThreadSafe("task " + threadName + ": no route to. setting to unreachable");
+    errorOccured=true;
+  }
+catch (  java.net.ConnectException e) {
+    hostInfo.setReachable(false);
+    log.logThreadSafe("task " + threadName + ": connect exception. setting to unreachable");
+    errorOccured=true;
+  }
+catch (  java.io.InterruptedIOException e) {
+    hostInfo.setReachable(false);
+    log.logThreadSafe("task " + threadName + ": time out. setting to unreachable");
+    errorOccured=true;
+  }
+catch (  Throwable e) {
+    errorOccured=true;
+    log.log("task " + threadName + ": unknown exception: "+ e.getClass().getName()+ ": "+ e.getMessage()+ ". continuing");
+    log.log(e);
+  }
+ finally {
+    if (errorOccured) {
+synchronized (hostInfo) {
+        hostInfo.setRobotsChecked(true,null);
+        hostInfo.setLoadingRobotsTxt(false);
+        log.logThreadSafe("task " + threadName + ": error occured");
+        log.logThreadSafe("task " + threadName + ": now put "+ hostInfo.queuedRequests.size()+ " queueud requests back");
+        hostInfo.isLoadingRobotsTxt=false;
+        putBackURLs();
+      }
+    }
+ else {
+synchronized (hostInfo) {
+        hostInfo.setRobotsChecked(true,disallows);
+        log.logThreadSafe("task " + threadName + ": done");
+        log.logThreadSafe("task " + threadName + ": now put "+ hostInfo.queuedRequests.size()+ " queueud requests back");
+        hostInfo.isLoadingRobotsTxt=false;
+        putBackURLs();
+      }
+    }
+  }
+}

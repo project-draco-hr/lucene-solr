@@ -1,0 +1,146 @@
+{
+  taskState.setState(FT_STARTED);
+  log=thread.getLog();
+  HostManager hm=((FetcherThread)thread).getHostManager();
+  errorLog=thread.getErrorLog();
+  int threadNr=((FetcherThread)thread).getThreadNumber();
+  log.log("start");
+  base=contextUrl=actURLMessage.getUrl();
+  String urlString=actURLMessage.getURLString();
+  String host=contextUrl.getHost();
+  int hostPos=urlString.indexOf(host);
+  int hostLen=host.length();
+  HostInfo hi=hm.getHostInfo(host);
+  if (!hi.isHealthy()) {
+    log.log("Bad Host: " + contextUrl + "; returning");
+    System.out.println("[" + threadNr + "] bad host: "+ this.actURLMessage.getUrl());
+    taskState.setState(FT_READY,null);
+    return;
+  }
+  foundUrls=new java.util.LinkedList();
+  HTTPConnection conn=null;
+  title="*untitled*";
+  int size=1;
+  InputStream in=null;
+  bytesRead=0;
+  try {
+    URL ipURL=contextUrl;
+    taskState.setState(FT_OPENCONNECTION,urlString);
+    log.log("connecting to " + ipURL.getHost());
+    taskState.setState(FT_CONNECTING,ipURL);
+    conn=new HTTPConnection(host);
+    conn.setDefaultTimeout(75000);
+    conn.setDefaultAllowUserInteraction(false);
+    taskState.setState(this.FT_GETTING,ipURL);
+    log.log("getting");
+    HTTPResponse response=conn.Get(ipURL.getFile(),"",headers);
+    response.setReadIncrement(2720);
+    int statusCode=response.getStatusCode();
+    byte[] fullBuffer=null;
+    String contentType="";
+    int contentLength=0;
+    if (statusCode != 404 && statusCode != 403) {
+      taskState.setState(FT_READING,ipURL);
+      contentType=response.getHeader("Content-Type");
+      String length=response.getHeader("Content-Length");
+      if (length != null) {
+        contentLength=Integer.parseInt(length);
+      }
+      log.log("reading");
+      fullBuffer=response.getData(Constants.FETCHERTASK_MAXFILESIZE);
+      if (fullBuffer != null) {
+        contentLength=fullBuffer.length;
+        this.bytesRead+=contentLength;
+      }
+    }
+    if (isInterrupted) {
+      System.out.println("FetcherTask: interrupted while reading. File truncated");
+      log.log("interrupted while reading. File truncated");
+    }
+ else {
+      if (fullBuffer != null) {
+        taskState.setState(FT_SCANNING,ipURL);
+        log.log("read file (" + fullBuffer.length + " bytes). Now scanning.");
+        if (contentType.startsWith("text/html")) {
+          char[] fullCharBuffer=new char[contentLength];
+          new InputStreamReader(new ByteArrayInputStream(fullBuffer)).read(fullCharBuffer);
+          Tokenizer tok=new Tokenizer();
+          tok.setLinkHandler(this);
+          tok.parse(new SimpleCharArrayReader(fullCharBuffer));
+        }
+ else {
+          errorLog.log("[" + threadNr + "] Discovered unknown content type at "+ urlString+ ": "+ contentType+ ". just storing");
+        }
+        log.log("scanned");
+      }
+      taskState.setState(FT_STORING,ipURL);
+      messageHandler.putMessages(foundUrls);
+      storage.store(new WebDocument(contextUrl,contentType,fullBuffer,statusCode,actURLMessage.getReferer(),contentLength,title));
+      log.log("stored");
+    }
+  }
+ catch (  InterruptedIOException e) {
+    System.out.println("[" + threadNr + "] FetcherTask: Timeout while opening: "+ this.actURLMessage.getUrl());
+    errorLog.log("error: Timeout: " + this.actURLMessage.getUrl());
+    hi.badRequest();
+  }
+catch (  FileNotFoundException e) {
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "] FetcherTask: File not Found: "+ this.actURLMessage.getUrl());
+    errorLog.log("error: File not Found: " + this.actURLMessage.getUrl());
+  }
+catch (  NoRouteToHostException e) {
+    hi.setReachable(false);
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "] "+ e.getClass().getName()+ ": "+ e.getMessage());
+    errorLog.log("error: " + e.getClass().getName() + ": "+ e.getMessage());
+  }
+catch (  ConnectException e) {
+    hi.setReachable(false);
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "] "+ e.getClass().getName()+ ": "+ e.getMessage());
+    errorLog.log("error: " + e.getClass().getName() + ": "+ e.getMessage());
+  }
+catch (  SocketException e) {
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "]: SocketException:"+ e.getMessage());
+    errorLog.log("error: " + e.getClass().getName() + ": "+ e.getMessage());
+  }
+catch (  UnknownHostException e) {
+    hi.setReachable(false);
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "] "+ e.getClass().getName()+ ": "+ e.getMessage());
+    errorLog.log("error: " + e.getClass().getName() + ": "+ e.getMessage());
+  }
+catch (  IOException e) {
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "] "+ e.getClass().getName()+ ": "+ e.getMessage());
+    errorLog.log("error: IOException: " + e.getClass().getName() + ": "+ e.getMessage());
+  }
+catch (  OutOfMemoryError ome) {
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "] Task "+ this.taskNr+ " OutOfMemory after "+ size+ " bytes");
+    errorLog.log("error: OutOfMemory after " + size + " bytes");
+  }
+catch (  Throwable e) {
+    taskState.setState(FT_EXCEPTION);
+    System.out.println("[" + threadNr + "] "+ e.getMessage()+ " type: "+ e.getClass().getName());
+    e.printStackTrace();
+    System.out.println("[" + threadNr + "]: stopping");
+    errorLog.log("error: " + e.getClass().getName() + ": "+ e.getMessage()+ "; stopping");
+  }
+ finally {
+    if (isInterrupted) {
+      System.out.println("Task was interrupted");
+      log.log("interrupted");
+      taskState.setState(FT_INTERRUPTED);
+    }
+  }
+  if (isInterrupted) {
+    System.out.println("Task: closed everything");
+  }
+  taskState.setState(FT_CLOSING);
+  conn.stop();
+  taskState.setState(FT_READY);
+  foundUrls=null;
+}

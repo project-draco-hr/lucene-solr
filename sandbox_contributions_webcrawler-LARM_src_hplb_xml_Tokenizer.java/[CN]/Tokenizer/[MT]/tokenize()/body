@@ -1,0 +1,259 @@
+{
+  int c;
+  while ((c=read()) != -1) {
+switch (state) {
+case ST_START:
+switch (c) {
+case '<':
+        state=ST_TAG_LT;
+      isStartTag=true;
+    tagname.reset();
+  break;
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+if (!rcgnzWS) break;
+default :
+state=ST_PCDATA;
+}
+break;
+case ST_PCDATA:
+if (c == '<') {
+gotPCDATA(true);
+state=ST_TAG_LT;
+}
+break;
+case ST_TAG_LT:
+switch (c) {
+case '/':
+isStartTag=false;
+state=ST_TAG_NAME;
+break;
+case '!':
+c=read();
+if ((c == '-' && !rcgnzComments) || (c == '[' && !rcgnzCDATA)) {
+state=ST_PCDATA;
+break;
+}
+if (c == '-') state=ST_COMMENT;
+ else if (c == '[') parseCDATA();
+ else {
+warning("Bad markup " + buf);
+state=ST_PCDATA;
+}
+break;
+case '?':
+parsePI();
+break;
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+state=ST_TAG_WS;
+break;
+default :
+tagname.write(c);
+state=ST_TAG_NAME;
+}
+break;
+case ST_TAG_NAME:
+switch (c) {
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+state=ST_TAG_WS;
+break;
+case '/':
+state=ST_EMPTY_TAG_SLASH;
+break;
+case '>':
+gotTag(false);
+break;
+default :
+tagname.write(c);
+}
+break;
+case ST_TAG_WS:
+switch (c) {
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+break;
+case '/':
+state=ST_EMPTY_TAG_SLASH;
+break;
+case '>':
+gotTag(false);
+break;
+case '?':
+if (inXMLDecl) {
+if ((c=read()) != '>') {
+errHandler.warning("XML PI not terminated properly",sysID,_line,_column);
+}
+toStart();
+break;
+}
+default :
+if (!isStartTag) {
+errHandler.warning("Malformed tag: " + buf,sysID,_line,_column);
+if (c == '<') {
+gotPCDATA(true);
+state=ST_TAG_LT;
+}
+ else {
+state=ST_PCDATA;
+}
+}
+ else {
+attrName.write(c);
+state=ST_NAME;
+}
+}
+break;
+case ST_EMPTY_TAG_SLASH:
+if (c == '>') {
+gotTag(true);
+break;
+}
+ else {
+state=ST_PCDATA;
+}
+break;
+case ST_NAME:
+switch (c) {
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+if (attrName.size() > 0) {
+state=ST_NAME_WS;
+}
+break;
+case '>':
+if (attrName.size() > 0) gotAttr(true);
+gotTag(false);
+break;
+case '=':
+state=ST_EQ;
+break;
+default :
+if (isCtlOrTspecial(c)) {
+state=ST_PCDATA;
+}
+ else {
+attrName.write(c);
+}
+}
+break;
+case ST_NAME_WS:
+switch (c) {
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+break;
+case '=':
+state=ST_EQ;
+break;
+case '>':
+gotAttr(true);
+gotTag(false);
+break;
+default :
+if (isNameChar(c)) {
+gotAttr(true);
+attrName.write(c);
+state=ST_TAG_WS;
+}
+ else {
+state=ST_PCDATA;
+}
+}
+break;
+case ST_EQ:
+switch (c) {
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+break;
+case '"':
+qchar='"';
+state=ST_VALUE_QUOTED;
+break;
+case '\'':
+qchar='\'';
+state=ST_VALUE_QUOTED;
+break;
+default :
+if (isCtlOrTspecial(c)) {
+state=ST_PCDATA;
+}
+ else {
+attrValue.write(c);
+state=ST_VALUE;
+}
+}
+break;
+case ST_VALUE:
+switch (c) {
+case ' ':
+case '\t':
+case '\r':
+case '\n':
+gotAttr(false);
+state=ST_TAG_WS;
+break;
+case '>':
+gotAttr(false);
+gotTag(false);
+break;
+case '/':
+gotAttr(false);
+state=ST_EMPTY_TAG_SLASH;
+break;
+default :
+if (isCtlOrTspecial(c)) {
+state=ST_PCDATA;
+}
+ else {
+attrValue.write(c);
+}
+}
+break;
+case ST_VALUE_QUOTED:
+if (c == qchar) {
+gotAttr(false);
+state=ST_TAG_WS;
+}
+ else {
+attrValue.write(c);
+}
+break;
+case ST_COMMENT:
+try {
+if (c != '-') {
+warning("Bad comment");
+state=ST_PCDATA;
+break;
+}
+while (true) {
+while (read_ex() != '-') ;
+if (read_ex() == '-') break;
+}
+gotComment();
+}
+ catch (EmptyInputStream ex) {
+gotPCDATA(false);
+break;
+}
+}
+}
+if (buf.size() > 0) {
+gotPCDATA(false);
+buf.reset();
+}
+}
