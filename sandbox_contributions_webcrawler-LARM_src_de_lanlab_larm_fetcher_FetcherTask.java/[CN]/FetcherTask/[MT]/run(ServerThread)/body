@@ -1,16 +1,16 @@
 {
   taskState.setState(FT_STARTED);
   log=thread.getLog();
-  HostManager hm=((FetcherThread)thread).getHostManager();
+  hostManager=((FetcherThread)thread).getHostManager();
   errorLog=thread.getErrorLog();
   int threadNr=((FetcherThread)thread).getThreadNumber();
   log.log("start");
   base=contextUrl=actURLMessage.getUrl();
   String urlString=actURLMessage.getURLString();
-  String host=contextUrl.getHost();
+  String host=contextUrl.getHost().toLowerCase();
   int hostPos=urlString.indexOf(host);
   int hostLen=host.length();
-  HostInfo hi=hm.getHostInfo(host);
+  HostInfo hi=hostManager.getHostInfo(host);
   if (!hi.isHealthy()) {
     log.log("Bad Host: " + contextUrl + "; returning");
     System.out.println("[" + threadNr + "] bad host: "+ this.actURLMessage.getUrl());
@@ -39,15 +39,18 @@
     byte[] fullBuffer=null;
     String contentType="";
     int contentLength=0;
+    Date date=null;
     if (statusCode != 404 && statusCode != 403) {
       taskState.setState(FT_READING,ipURL);
       contentType=response.getHeader("Content-Type");
       String length=response.getHeader("Content-Length");
+      date=response.getHeaderAsDate("Last-Modified");
       if (length != null) {
         contentLength=Integer.parseInt(length);
       }
       log.log("reading");
       fullBuffer=response.getData(Constants.FETCHERTASK_MAXFILESIZE);
+      base=contextUrl=response.getEffectiveURI().toURL();
       if (fullBuffer != null) {
         contentLength=fullBuffer.length;
         this.bytesRead+=contentLength;
@@ -75,7 +78,7 @@
       }
       taskState.setState(FT_STORING,ipURL);
       linkStorage.storeLinks(foundUrls);
-      docStorage.store(new WebDocument(contextUrl,contentType,fullBuffer,statusCode,actURLMessage.getReferer(),contentLength,title));
+      docStorage.store(new WebDocument(contextUrl,contentType,fullBuffer,statusCode,actURLMessage.getReferer(),contentLength,title,hostManager));
       log.log("stored");
     }
   }
