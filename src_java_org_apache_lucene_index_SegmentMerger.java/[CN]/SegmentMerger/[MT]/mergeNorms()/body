@@ -1,22 +1,20 @@
 {
+  int docCount=0;
   for (int i=0; i < fieldInfos.size(); i++) {
     FieldInfo fi=fieldInfos.fieldInfo(i);
     if (fi.isIndexed) {
       OutputStream output=directory.createFile(segment + ".f" + i);
       try {
         for (int j=0; j < readers.size(); j++) {
-          SegmentReader reader=(SegmentReader)readers.elementAt(j);
-          BitVector deletedDocs=reader.deletedDocs;
-          InputStream input=reader.normStream(fi.name);
+          IndexReader reader=(IndexReader)readers.elementAt(j);
+          byte[] input=reader.norms(fi.name);
           int maxDoc=reader.maxDoc();
-          try {
-            for (int k=0; k < maxDoc; k++) {
-              byte norm=input != null ? input.readByte() : (byte)0;
-              if (deletedDocs == null || !deletedDocs.get(k))               output.writeByte(norm);
+          for (int k=0; k < maxDoc; k++) {
+            byte norm=input != null ? input[k] : (byte)0;
+            if (!reader.isDeleted(k)) {
+              output.writeByte(norm);
+              docCount++;
             }
-          }
-  finally {
-            if (input != null)             input.close();
           }
         }
       }
@@ -25,4 +23,5 @@
       }
     }
   }
+  return docCount;
 }
