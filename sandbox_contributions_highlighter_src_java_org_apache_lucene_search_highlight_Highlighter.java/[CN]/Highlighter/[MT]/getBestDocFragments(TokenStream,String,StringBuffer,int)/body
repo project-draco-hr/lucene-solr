@@ -11,26 +11,40 @@
     int endOffset;
     int lastEndOffset=0;
     textFragmenter.start(text);
+    TokenGroup tokenGroup=new TokenGroup();
     while ((token=tokenStream.next()) != null) {
-      startOffset=token.startOffset();
-      endOffset=token.endOffset();
-      tokenText=text.substring(startOffset,endOffset);
-      if (startOffset > lastEndOffset)       newText.append(text.substring(lastEndOffset,startOffset));
-      float score=fragmentScorer.getTokenScore(token);
-      newText.append(formatter.highlightTerm(tokenText,token.termText(),score,startOffset));
-      if (textFragmenter.isNewFragment(token)) {
-        currentFrag.setScore(fragmentScorer.getFragmentScore());
-        currentFrag.textEndPos=newText.length();
-        currentFrag=new TextFragment(newText.length(),docFrags.size());
-        fragmentScorer.startFragment(currentFrag);
-        docFrags.add(currentFrag);
+      if ((tokenGroup.numTokens > 0) && (tokenGroup.isDistinct(token))) {
+        startOffset=tokenGroup.startOffset;
+        endOffset=tokenGroup.endOffset;
+        tokenText=text.substring(startOffset,endOffset);
+        String markedUpText=formatter.highlightTerm(tokenText,tokenGroup);
+        if (startOffset > lastEndOffset)         newText.append(text.substring(lastEndOffset,startOffset));
+        newText.append(markedUpText);
+        lastEndOffset=endOffset;
+        tokenGroup.clear();
+        if (textFragmenter.isNewFragment(token)) {
+          currentFrag.setScore(fragmentScorer.getFragmentScore());
+          currentFrag.textEndPos=newText.length();
+          currentFrag=new TextFragment(newText.length(),docFrags.size());
+          fragmentScorer.startFragment(currentFrag);
+          docFrags.add(currentFrag);
+        }
       }
-      lastEndOffset=endOffset;
+      tokenGroup.addToken(token,fragmentScorer.getTokenScore(token));
       if (lastEndOffset > maxDocBytesToAnalyze) {
         break;
       }
     }
     currentFrag.setScore(fragmentScorer.getFragmentScore());
+    if (tokenGroup.numTokens > 0) {
+      startOffset=tokenGroup.startOffset;
+      endOffset=tokenGroup.endOffset;
+      tokenText=text.substring(startOffset,endOffset);
+      String markedUpText=formatter.highlightTerm(tokenText,tokenGroup);
+      if (startOffset > lastEndOffset)       newText.append(text.substring(lastEndOffset,startOffset));
+      newText.append(markedUpText);
+      lastEndOffset=endOffset;
+    }
     if (lastEndOffset < text.length())     newText.append(text.substring(lastEndOffset));
     currentFrag.textEndPos=newText.length();
     int minScore=0;
