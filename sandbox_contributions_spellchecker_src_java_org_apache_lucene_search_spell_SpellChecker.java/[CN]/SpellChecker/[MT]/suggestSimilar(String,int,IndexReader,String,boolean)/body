@@ -1,0 +1,59 @@
+{
+  final TRStringDistance sd=new TRStringDistance(word);
+  final int lengthWord=word.length();
+  final int goalFreq=(morePopular && ir != null) ? ir.docFreq(new Term(field,word)) : 0;
+  if (!morePopular && goalFreq > 0) {
+    return new String[]{word};
+  }
+  BooleanQuery query=new BooleanQuery();
+  String[] grams;
+  String key;
+  for (int ng=getMin(lengthWord); ng <= getMax(lengthWord); ng++) {
+    key="gram" + ng;
+    grams=formGrams(word,ng);
+    if (grams.length == 0) {
+      continue;
+    }
+    if (bStart > 0) {
+      add(query,"start" + ng,grams[0],bStart);
+    }
+    if (bEnd > 0) {
+      add(query,"end" + ng,grams[grams.length - 1],bEnd);
+    }
+    for (int i=0; i < grams.length; i++) {
+      add(query,key,grams[i]);
+    }
+  }
+  IndexSearcher searcher=new IndexSearcher(this.spellindex);
+  Hits hits=searcher.search(query);
+  SuggestWordQueue sugqueue=new SuggestWordQueue(num_sug);
+  int stop=Math.min(hits.length(),10 * num_sug);
+  SuggestWord sugword=new SuggestWord();
+  for (int i=0; i < stop; i++) {
+    sugword.string=hits.doc(i).get(F_WORD);
+    if (sugword.string == word) {
+      continue;
+    }
+    sugword.score=1.0f - ((float)sd.getDistance(sugword.string) / Math.min(sugword.string.length(),lengthWord));
+    if (sugword.score < min) {
+      continue;
+    }
+    if (ir != null) {
+      sugword.freq=ir.docFreq(new Term(field,sugword.string));
+      if ((morePopular && goalFreq > sugword.freq) || sugword.freq < 1) {
+        continue;
+      }
+    }
+    sugqueue.insert(sugword);
+    if (sugqueue.size() == num_sug) {
+      min=((SuggestWord)sugqueue.top()).score;
+    }
+    sugword=new SuggestWord();
+  }
+  String[] list=new String[sugqueue.size()];
+  for (int i=sugqueue.size() - 1; i >= 0; i--) {
+    list[i]=((SuggestWord)sugqueue.pop()).string;
+  }
+  searcher.close();
+  return list;
+}
