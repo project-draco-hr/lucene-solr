@@ -1,0 +1,33 @@
+{
+  if (!exists(files,txn))   throw new IOException("File does not exist: " + getName());
+  Dbc cursor=null;
+  try {
+    try {
+      byte[] bytes=getKey();
+      int ulen=bytes.length + 8;
+      byte[] cursorBytes=new byte[ulen];
+      Dbt cursorKey=new Dbt(cursorBytes);
+      Dbt cursorData=new Dbt(null);
+      System.arraycopy(bytes,0,cursorBytes,0,bytes.length);
+      cursorKey.setUserBufferLength(ulen);
+      cursorKey.setFlags(Db.DB_DBT_USERMEM);
+      cursorData.setPartialLength(0);
+      cursorData.setFlags(Db.DB_DBT_PARTIAL);
+      cursor=blocks.cursor(txn,0);
+      if (cursor.get(cursorKey,cursorData,Db.DB_SET_RANGE) != Db.DB_NOTFOUND) {
+        cursor.delete(0);
+        while (cursor.get(cursorKey,cursorData,Db.DB_NEXT) != Db.DB_NOTFOUND) {
+          for (int i=0; i < bytes.length; i++)           if (bytes[i] != cursorBytes[i])           return;
+          cursor.delete(0);
+        }
+      }
+      files.delete(txn,key,0);
+    }
+  finally {
+      if (cursor != null)       cursor.close();
+    }
+  }
+ catch (  DbException e) {
+    throw new IOException(e.getMessage());
+  }
+}
