@@ -1,0 +1,49 @@
+{
+  File contentFile=new File((String)metadata.get("filePath"));
+  doc.add(Field.Keyword("filePath",contentFile.toString()));
+  doc.add(Field.Text("fileName",contentFile.getName()));
+  doc.add(Field.Keyword("fileLastModifiedDate",DateField.timeToString(contentFile.lastModified())));
+  doc.add(Field.Keyword("fileSize",String.valueOf(contentFile.length())));
+  doc.add(Field.Text("fileFormat",IOUtils.getFileExtension(contentFile)));
+  if (parentDoc == null) {
+    for (Iterator it=customFields.keySet().iterator(); it.hasNext(); ) {
+      String field=(String)it.next();
+      String value=(String)metadata.get(field);
+      String type=(String)customFields.get(field);
+      addFieldToDoc(type,field,value);
+    }
+    doc.add(Field.UnIndexed(DataSource.OBJECT_CLASS,(String)metadata.get(DataSource.OBJECT_CLASS)));
+    doc.add(Field.Text(DataSource.OBJECT_IDENTIFIER,(String)metadata.get(DataSource.OBJECT_IDENTIFIER)));
+  }
+ else {
+    for (Iterator it=customFields.keySet().iterator(); it.hasNext(); ) {
+      String field=(String)it.next();
+      String value=parentDoc.get(field);
+      String type=(String)customFields.get(field);
+      addFieldToDoc(type,field,value);
+    }
+    doc.add(Field.UnIndexed(DataSource.OBJECT_CLASS,parentDoc.get(DataSource.OBJECT_CLASS)));
+    doc.add(Field.Text(DataSource.OBJECT_IDENTIFIER,parentDoc.get(DataSource.OBJECT_IDENTIFIER)));
+  }
+  if (!metadata.containsKey("fileContents")) {
+    String extension=IOUtils.getFileExtension(contentFile);
+    FileContentHandler cHandler=ContentHandlerFactory.getContentHandler(extension);
+    if (cHandler != null) {
+      cHandler.parse(doc,contentFile);
+      if (cHandler.isNested()) {
+        List nestedData=cHandler.getNestedData();
+        cat.debug("Nested data list size:" + nestedData.size());
+        for (int i=0; i < nestedData.size(); i++) {
+          Map dataMap=(Map)nestedData.get(i);
+          DocumentHandler handler=new DocumentHandler(writer,doc);
+          handler.process(dataMap);
+        }
+      }
+    }
+ else {
+      cat.warn("FileContentHandler not found for " + contentFile.getName());
+    }
+  }
+ else   doc.add(Field.Text("fileContents",(String)metadata.get("fileContents")));
+  addToWriter();
+}
