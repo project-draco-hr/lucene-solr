@@ -6,9 +6,13 @@
     int fieldNumber=fieldInfos.fieldNumber(fieldName);
     int length=fieldLengths[fieldNumber];
     int position=fieldPositions[fieldNumber];
+    int offset=fieldOffsets[fieldNumber];
     if (field.isIndexed()) {
       if (!field.isTokenized()) {
-        addPosition(fieldName,field.stringValue(),position++);
+        String stringValue=field.stringValue();
+        if (field.isStoreOffsetWithTermVector())         addPosition(fieldName,stringValue,position++,new TermVectorOffsetInfo(offset,offset + stringValue.length()));
+ else         addPosition(fieldName,stringValue,position++,null);
+        offset+=stringValue.length();
         length++;
       }
  else {
@@ -18,11 +22,15 @@
  else         throw new IllegalArgumentException("field must have either String or Reader value");
         TokenStream stream=analyzer.tokenStream(fieldName,reader);
         try {
+          Token lastToken=null;
           for (Token t=stream.next(); t != null; t=stream.next()) {
             position+=(t.getPositionIncrement() - 1);
-            addPosition(fieldName,t.termText(),position++);
+            if (field.isStoreOffsetWithTermVector())             addPosition(fieldName,t.termText(),position++,new TermVectorOffsetInfo(offset + t.startOffset(),offset + t.endOffset()));
+ else             addPosition(fieldName,t.termText(),position++,null);
+            lastToken=t;
             if (++length > maxFieldLength)             break;
           }
+          if (lastToken != null)           offset+=lastToken.endOffset() + 1;
         }
   finally {
           stream.close();
@@ -31,6 +39,7 @@
       fieldLengths[fieldNumber]=length;
       fieldPositions[fieldNumber]=position;
       fieldBoosts[fieldNumber]*=field.getBoost();
+      fieldOffsets[fieldNumber]=offset;
     }
   }
 }

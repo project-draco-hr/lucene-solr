@@ -1,12 +1,46 @@
 {
-  Query query=new TermQuery(new Term("field","fifty"));
+  Query query=new TermQuery(new Term("field","zero"));
   try {
     Hits hits=searcher.search(query);
-    assertEquals(100,hits.length());
+    assertEquals(1,hits.length());
     for (int i=0; i < hits.length(); i++) {
       TermFreqVector[] vector=searcher.reader.getTermFreqVectors(hits.id(i));
       assertTrue(vector != null);
       assertTrue(vector.length == 1);
+      boolean shouldBePosVector=(hits.id(i) % 2 == 0) ? true : false;
+      assertTrue((shouldBePosVector == false) || (shouldBePosVector == true && (vector[0] instanceof TermPositionVector == true)));
+      boolean shouldBeOffVector=(hits.id(i) % 3 == 0) ? true : false;
+      assertTrue((shouldBeOffVector == false) || (shouldBeOffVector == true && (vector[0] instanceof TermPositionVector == true)));
+      if (shouldBePosVector || shouldBeOffVector) {
+        TermPositionVector posVec=(TermPositionVector)vector[0];
+        String[] terms=posVec.getTerms();
+        assertTrue(terms != null && terms.length > 0);
+        for (int j=0; j < terms.length; j++) {
+          int[] positions=posVec.getTermPositions(j);
+          TermVectorOffsetInfo[] offsets=posVec.getOffsets(j);
+          if (shouldBePosVector) {
+            assertTrue(positions != null);
+            assertTrue(positions.length > 0);
+          }
+ else           assertTrue(positions == null);
+          if (shouldBeOffVector) {
+            assertTrue(offsets != null);
+            assertTrue(offsets.length > 0);
+          }
+ else           assertTrue(offsets == null);
+        }
+      }
+ else {
+        try {
+          TermPositionVector posVec=(TermPositionVector)vector[0];
+          assertTrue(false);
+        }
+ catch (        ClassCastException ignore) {
+          TermFreqVector freqVec=vector[0];
+          String[] terms=freqVec.getTerms();
+          assertTrue(terms != null && terms.length > 0);
+        }
+      }
     }
   }
  catch (  IOException e) {

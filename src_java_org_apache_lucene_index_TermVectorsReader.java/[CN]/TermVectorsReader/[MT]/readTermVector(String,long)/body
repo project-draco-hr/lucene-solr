@@ -2,9 +2,24 @@
   tvf.seek(tvfPointer);
   int numTerms=tvf.readVInt();
   if (numTerms == 0)   return new SegmentTermVector(field,null,null);
-  tvf.readVInt();
+  boolean storePositions;
+  boolean storeOffsets;
+  if (tvfFormat == TermVectorsWriter.FORMAT_VERSION) {
+    byte bits=tvf.readByte();
+    storePositions=(bits & TermVectorsWriter.STORE_POSITIONS_WITH_TERMVECTOR) != 0;
+    storeOffsets=(bits & TermVectorsWriter.STORE_OFFSET_WITH_TERMVECTOR) != 0;
+  }
+ else {
+    tvf.readVInt();
+    storePositions=false;
+    storeOffsets=false;
+  }
   String terms[]=new String[numTerms];
   int termFreqs[]=new int[numTerms];
+  int positions[][]=null;
+  TermVectorOffsetInfo offsets[][]=null;
+  if (storePositions)   positions=new int[numTerms][];
+  if (storeOffsets)   offsets=new TermVectorOffsetInfo[numTerms][];
   int start=0;
   int deltaLength=0;
   int totalLength=0;
@@ -21,8 +36,35 @@
     tvf.readChars(buffer,start,deltaLength);
     terms[i]=new String(buffer,0,totalLength);
     previousString=terms[i];
-    termFreqs[i]=tvf.readVInt();
+    int freq=tvf.readVInt();
+    termFreqs[i]=freq;
+    if (storePositions) {
+      int[] pos=new int[freq];
+      positions[i]=pos;
+      int prevPosition=0;
+      for (int j=0; j < freq; j++) {
+        pos[j]=prevPosition + tvf.readVInt();
+        prevPosition=pos[j];
+      }
+    }
+    if (storeOffsets) {
+      TermVectorOffsetInfo[] offs=new TermVectorOffsetInfo[freq];
+      offsets[i]=offs;
+      int prevOffset=0;
+      for (int j=0; j < freq; j++) {
+        int startOffset=prevOffset + tvf.readVInt();
+        int endOffset=startOffset + tvf.readVInt();
+        offs[j]=new TermVectorOffsetInfo(startOffset,endOffset);
+        prevOffset=endOffset;
+      }
+    }
   }
-  SegmentTermVector tv=new SegmentTermVector(field,terms,termFreqs);
+  SegmentTermVector tv;
+  if (storePositions || storeOffsets) {
+    tv=new SegmentTermPositionVector(field,terms,termFreqs,positions,offsets);
+  }
+ else {
+    tv=new SegmentTermVector(field,terms,termFreqs);
+  }
   return tv;
 }
