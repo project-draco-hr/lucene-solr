@@ -8,18 +8,27 @@
     int fieldNumber=fieldsStream.readVInt();
     FieldInfo fi=fieldInfos.fieldInfo(fieldNumber);
     byte bits=fieldsStream.readByte();
-    if ((bits & 2) != 0) {
+    boolean compressed=(bits & FieldsWriter.FIELD_IS_COMPRESSED) != 0;
+    boolean tokenize=(bits & FieldsWriter.FIELD_IS_TOKENIZED) != 0;
+    if ((bits & FieldsWriter.FIELD_IS_BINARY) != 0) {
       final byte[] b=new byte[fieldsStream.readVInt()];
       fieldsStream.readBytes(b,0,b.length);
-      doc.add(new Field(fi.name,b));
+      if (compressed)       doc.add(new Field(fi.name,uncompress(b),Field.Store.COMPRESS));
+ else       doc.add(new Field(fi.name,b,Field.Store.YES));
     }
  else {
       Field.Index index;
-      boolean tokenize=(bits & 1) != 0;
+      Field.Store store=Field.Store.YES;
       if (fi.isIndexed && tokenize)       index=Field.Index.TOKENIZED;
  else       if (fi.isIndexed && !tokenize)       index=Field.Index.UN_TOKENIZED;
  else       index=Field.Index.NO;
-      doc.add(new Field(fi.name,fieldsStream.readString(),Field.Store.YES,index,fi.storeTermVector ? Field.TermVector.YES : Field.TermVector.NO));
+      if (compressed) {
+        store=Field.Store.COMPRESS;
+        final byte[] b=new byte[fieldsStream.readVInt()];
+        fieldsStream.readBytes(b,0,b.length);
+        doc.add(new Field(fi.name,new String(uncompress(b),"UTF-8"),store,index,fi.storeTermVector ? Field.TermVector.YES : Field.TermVector.NO));
+      }
+ else       doc.add(new Field(fi.name,fieldsStream.readString(),store,index,fi.storeTermVector ? Field.TermVector.YES : Field.TermVector.NO));
     }
   }
   return doc;
