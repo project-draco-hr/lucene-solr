@@ -1,0 +1,33 @@
+{
+  Set already=new HashSet();
+  List top=new LinkedList();
+  if (field == null)   field="contents";
+  if (a == null)   a=new StandardAnalyzer();
+  TokenStream ts=a.tokenStream(field,new StringReader(query));
+  org.apache.lucene.analysis.Token t;
+  while ((t=ts.next()) != null) {
+    String word=t.termText();
+    if (already.add(word))     top.add(word);
+  }
+  BooleanQuery tmp=new BooleanQuery();
+  Iterator it=top.iterator();
+  while (it.hasNext()) {
+    String word=(String)it.next();
+    TermQuery tq=new TermQuery(new Term(field,word));
+    tmp.add(tq,BooleanClause.Occur.SHOULD);
+    Hits hits=syns.search(new TermQuery(new Term(Syns2Index.F_WORD,word)));
+    for (int i=0; i < hits.length(); i++) {
+      Document doc=hits.doc(i);
+      String[] values=doc.getValues(Syns2Index.F_SYN);
+      for (int j=0; j < values.length; j++) {
+        String syn=values[j];
+        if (already.add(syn)) {
+          tq=new TermQuery(new Term(field,syn));
+          if (boost > 0)           tq.setBoost(boost);
+          tmp.add(tq,BooleanClause.Occur.SHOULD);
+        }
+      }
+    }
+  }
+  return tmp;
+}
