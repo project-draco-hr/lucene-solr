@@ -1,16 +1,24 @@
 {
   optimize();
   String mergedName=newSegmentName();
-  SegmentMerger merger=new SegmentMerger(directory,mergedName,false);
-  if (segmentInfos.size() == 1)   merger.add(new SegmentReader(segmentInfos.info(0)));
+  SegmentMerger merger=new SegmentMerger(directory,mergedName,useCompoundFile);
+  final Vector segmentsToDelete=new Vector();
+  IndexReader sReader=null;
+  if (segmentInfos.size() == 1) {
+    sReader=new SegmentReader(segmentInfos.info(0));
+    merger.add(sReader);
+    segmentsToDelete.addElement(sReader);
+  }
   for (int i=0; i < readers.length; i++)   merger.add(readers[i]);
   int docCount=merger.merge();
   segmentInfos.setSize(0);
   segmentInfos.addElement(new SegmentInfo(mergedName,docCount,directory));
+  if (sReader != null)   sReader.close();
 synchronized (directory) {
     new Lock.With(directory.makeLock("commit.lock"),COMMIT_LOCK_TIMEOUT){
       public Object doBody() throws IOException {
         segmentInfos.write(directory);
+        deleteSegments(segmentsToDelete);
         return null;
       }
     }
