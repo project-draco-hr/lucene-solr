@@ -1,24 +1,36 @@
 {
+  final String field=fieldname.intern();
   return new ScoreDocLookupComparator(){
     protected final int[] fieldOrder=generateSortIndex();
+    protected String[] terms;
     private final int[] generateSortIndex() throws IOException {
       final int[] retArray=new int[reader.maxDoc()];
+      final String[] mterms=new String[reader.maxDoc()];
       TermDocs termDocs=reader.termDocs();
+      int t=0;
       try {
-        int t=0;
         do {
           Term term=enumerator.term();
           if (term.field() != field)           break;
-          t++;
+          if (t >= mterms.length)           throw new RuntimeException("there are more terms than documents in field \"" + field + "\"");
+          mterms[t]=term.text();
           termDocs.seek(enumerator);
           while (termDocs.next()) {
             retArray[termDocs.doc()]=t;
           }
+          t++;
         }
  while (enumerator.next());
       }
   finally {
         termDocs.close();
+      }
+      if (t < mterms.length) {
+        terms=new String[t];
+        System.arraycopy(mterms,0,terms,0,t);
+      }
+ else {
+        terms=mterms;
       }
       return retArray;
     }
@@ -40,10 +52,10 @@
       return fieldOrder.length == n;
     }
     public Object sortValue(    final ScoreDoc i){
-      return new Integer(fieldOrder[i.doc]);
+      return terms[fieldOrder[i.doc]];
     }
     public int sortType(){
-      return SortField.INT;
+      return SortField.STRING;
     }
   }
 ;
