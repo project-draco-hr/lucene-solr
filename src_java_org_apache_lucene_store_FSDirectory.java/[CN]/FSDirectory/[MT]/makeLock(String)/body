@@ -1,5 +1,24 @@
 {
-  final File lockFile=new File(directory,name);
+  String fullName;
+  try {
+    fullName=new File(directory,name).getCanonicalPath();
+  }
+ catch (  IOException e) {
+    throw new RuntimeException(e.toString());
+  }
+  byte digest[];
+synchronized (DIGESTER) {
+    digest=DIGESTER.digest(fullName.getBytes());
+  }
+  StringBuffer buf=new StringBuffer();
+  buf.append("lucene-");
+  for (int i=0; i < digest.length; i++) {
+    int b=digest[i];
+    buf.append(HEX_DIGITS[(b >> 4) & 0xf]);
+    buf.append(HEX_DIGITS[b & 0xf]);
+  }
+  buf.append(".lock");
+  final File lockFile=new File(System.getProperty("java.io.tmpdir"),buf.toString());
   return new Lock(){
     public boolean obtain() throws IOException {
       if (DISABLE_LOCKS)       return true;
@@ -8,6 +27,10 @@
     public void release(){
       if (DISABLE_LOCKS)       return;
       lockFile.delete();
+    }
+    public boolean isLocked(){
+      if (DISABLE_LOCKS)       return false;
+      return lockFile.exists();
     }
     public String toString(){
       return "Lock@" + lockFile;
