@@ -1,0 +1,62 @@
+{
+  if (clauses.size() == 1)   return ((SpanQuery)clauses.get(0)).getSpans(reader);
+  return new Spans(){
+    private List all=new ArrayList(clauses.size());
+    private SpanQueue queue=new SpanQueue(clauses.size());
+{
+      Iterator i=clauses.iterator();
+      while (i.hasNext()) {
+        all.add(((SpanQuery)i.next()).getSpans(reader));
+      }
+    }
+    private boolean firstTime=true;
+    public boolean next() throws IOException {
+      if (firstTime) {
+        for (int i=0; i < all.size(); i++) {
+          Spans spans=(Spans)all.get(i);
+          if (spans.next()) {
+            queue.put(spans);
+          }
+        }
+        firstTime=false;
+        return queue.size() != 0;
+      }
+      if (queue.size() == 0) {
+        return false;
+      }
+      if (top().next()) {
+        queue.adjustTop();
+        return true;
+      }
+      queue.pop();
+      return queue.size() != 0;
+    }
+    private Spans top(){
+      return (Spans)queue.top();
+    }
+    public boolean skipTo(    int target) throws IOException {
+      queue.clear();
+      for (int i=0; i < all.size(); i++) {
+        Spans spans=(Spans)all.get(i);
+        if (spans.skipTo(target)) {
+          queue.put(spans);
+        }
+      }
+      firstTime=false;
+      return queue.size() != 0;
+    }
+    public int doc(){
+      return top().doc();
+    }
+    public int start(){
+      return top().start();
+    }
+    public int end(){
+      return top().end();
+    }
+    public String toString(){
+      return "spans(" + SpanOrQuery.this.toString() + ")";
+    }
+  }
+;
+}
