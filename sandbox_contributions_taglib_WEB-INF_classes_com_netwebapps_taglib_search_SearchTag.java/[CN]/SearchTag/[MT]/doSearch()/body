@@ -1,6 +1,17 @@
 {
   try {
-    searcher=new IndexSearcher(IndexReader.open(collection));
+    if (idxArray.size() > 0) {
+      IndexSearcher[] idxToArray=new IndexSearcher[idxArray.size()];
+      Iterator idxIter=idxArray.iterator();
+      int arrayCount=0;
+      while (idxIter.hasNext()) {
+        idxToArray[arrayCount++]=(IndexSearcher)idxIter.next();
+      }
+      msearcher=new MultiSearcher(idxToArray);
+    }
+ else {
+      throw new JspException("No collection has been specified");
+    }
   }
  catch (  IOException e) {
     if (throwOnException) {
@@ -9,70 +20,131 @@
     abort=true;
   }
   if (!abort) {
-    analyzer=new StopAnalyzer();
-    try {
-      query=QueryParser.parse(criteria,"contents",analyzer);
-    }
- catch (    ParseException e) {
-      if (throwOnException) {
-        throw new JspException("QueryParser.parse(criteria,contents,analyzer): " + e);
+switch (analyzerType) {
+case GERMANAN_ALYZER:
+      if (stopWords.length > 0) {
+        analyzer=new GermanAnalyzer(stopWords);
       }
-      abort=true;
-    }
-    if (!abort) {
-      try {
-        hits=searcher.search(query);
-      }
- catch (      IOException e) {
+ else {
         if (throwOnException) {
-          throw new JspException("searcher.search(query): " + e);
+          throw new JspException("In order to use a GermanAnalyzer you must provide a list of stop words");
         }
         abort=true;
       }
-      if (!abort) {
-        hitCount=new Integer(hits.length()).toString();
-        HITCOUNT=hits.length();
-        PAGECOUNT=PAGECOUNT=(int)(((double)startRow) / maxRows);
-        pageCount=new Integer(PAGECOUNT).toString();
-        thispage=maxRows;
-        if ((startRow + maxRows) > hits.length()) {
-          thispage=hits.length() - startRow;
-        }
-        hitArray=new ArrayList();
-        for (int i=startRow; i < (thispage + startRow); i++) {
-          hitMap=new HashMap();
-          Document doc=null;
-          try {
-            doc=hits.doc(i);
-          }
- catch (          IOException e) {
-            if (throwOnException) {
-              throw new JspException("hits.doc(i) : " + e);
-            }
-            abort=true;
-          }
-          if (!abort) {
-            try {
-              hitMap.put("score",new Float(hits.score(i)).toString());
-            }
- catch (            IOException e) {
-              if (throwOnException) {
-                throw new JspException("hitMap.put(score,new Float(hits.score(i)).toString()); : " + e);
-              }
-              abort=true;
-            }
-            if (!abort) {
-              fields=doc.fields();
-              while (fields.hasMoreElements()) {
-                Field field=(Field)fields.nextElement();
-                String fieldName=field.name();
-                hitMap.put(fieldName,doc.get(fieldName));
-              }
-              hitArray.add(hitMap);
-            }
-          }
-        }
-      }
-    }
-  }
+    break;
+case SIMPLE_ANALYZER:
+  analyzer=new SimpleAnalyzer();
+break;
+case STANDARD_ANALYZER:
+if (stopWords.length > 0) {
+analyzer=new StandardAnalyzer(stopWords);
+}
+ else {
+analyzer=new StandardAnalyzer();
+}
+break;
+case STOP_ANALYZER:
+if (stopWords.length > 0) {
+analyzer=new StopAnalyzer(stopWords);
+}
+ else {
+analyzer=new StopAnalyzer();
+}
+break;
+case WHITESPACE_ANALYZER:
+analyzer=new WhitespaceAnalyzer();
+break;
+default :
+if (stopWords.length > 0) {
+analyzer=new StandardAnalyzer(stopWords);
+}
+ else {
+analyzer=new StandardAnalyzer();
+}
+break;
+}
+try {
+if (fieldList.length > 0) {
+if (flagList.length > 0) {
+query=MultiFieldQueryParser.parse(criteria,fieldList,flagList,analyzer);
+}
+ else {
+query=MultiFieldQueryParser.parse(criteria,fieldList,analyzer);
+}
+}
+ else {
+query=QueryParser.parse(criteria,search,analyzer);
+}
+}
+ catch (ParseException e) {
+if (throwOnException) {
+throw new JspException("If using fieldList and or flagList check to see you have the same number of items in each: " + e);
+}
+abort=true;
+}
+if (!abort) {
+try {
+hits=msearcher.search(query);
+}
+ catch (IOException e) {
+if (throwOnException) {
+throw new JspException("msearcher.search(query): " + e);
+}
+abort=true;
+}
+if (!abort) {
+hitCount=hits.length();
+HITCOUNT=hits.length();
+PAGECOUNT=(int)(((double)startRow) / maxRows);
+pageCount=PAGECOUNT;
+thispage=maxRows;
+if ((startRow + maxRows) > hits.length()) {
+thispage=hits.length() - startRow;
+}
+hitArray=new ArrayList();
+for (int i=startRow; i < (thispage + startRow); i++) {
+hitMap=new HashMap();
+try {
+doc=hits.doc(i);
+}
+ catch (IOException e) {
+if (throwOnException) {
+throw new JspException("hits.doc(i) : " + e);
+}
+abort=true;
+}
+if (!abort) {
+try {
+hitMap.put("score",new Float(hits.score(i)).toString());
+}
+ catch (IOException e) {
+if (throwOnException) {
+throw new JspException("hitMap.put(score,new Float(hits.score(i)).toString()); : " + e);
+}
+abort=true;
+}
+if (!abort) {
+fields=doc.fields();
+while (fields.hasMoreElements()) {
+Field field=(Field)fields.nextElement();
+String fieldName=field.name();
+hitMap.put(fieldName,doc.get(fieldName));
+}
+hitArray.add(hitMap);
+}
+}
+}
+}
+}
+}
+if (msearcher != null) {
+try {
+msearcher.close();
+}
+ catch (IOException e) {
+if (throwOnException) {
+throw new JspException("A problem occured trying to close the searcher : " + e);
+}
+}
+}
 }
