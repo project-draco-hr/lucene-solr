@@ -1,5 +1,11 @@
 {
   String threadName=Thread.currentThread().getName();
+synchronized (hostInfo) {
+    if (hostInfo.isRobotTxtChecked()) {
+      log.logThreadSafe("task " + threadName + ": already loaded "+ hostInfo.getHostName());
+      return;
+    }
+  }
   log.logThreadSafe("task " + threadName + ": starting to load "+ hostInfo.getHostName());
   String[] disallows=null;
   boolean errorOccured=false;
@@ -11,6 +17,7 @@
     log.logThreadSafe("task " + threadName + ": got connection.");
     if (res.getStatusCode() != 200) {
       errorOccured=true;
+      log.log("task " + threadName + ": return code was "+ res.getStatusCode());
     }
  else {
       log.logThreadSafe("task " + threadName + ": reading");
@@ -23,22 +30,22 @@
   }
  catch (  java.net.UnknownHostException e) {
     hostInfo.setReachable(false);
-    log.logThreadSafe("task " + threadName + ": unknown host. setting to unreachable");
+    log.logThreadSafe("task " + threadName + ": unknown host '"+ hostInfo.getHostName()+ "'. setting to unreachable");
     errorOccured=true;
   }
 catch (  java.net.NoRouteToHostException e) {
     hostInfo.setReachable(false);
-    log.logThreadSafe("task " + threadName + ": no route to. setting to unreachable");
+    log.logThreadSafe("task " + threadName + ": no route to '"+ hostInfo.getHostName()+ "'. setting to unreachable");
     errorOccured=true;
   }
 catch (  java.net.ConnectException e) {
     hostInfo.setReachable(false);
-    log.logThreadSafe("task " + threadName + ": connect exception. setting to unreachable");
+    log.logThreadSafe("task " + threadName + ": connect exception while connecting to '"+ hostInfo.getHostName()+ "'. setting to unreachable");
     errorOccured=true;
   }
 catch (  java.io.InterruptedIOException e) {
     hostInfo.setReachable(false);
-    log.logThreadSafe("task " + threadName + ": time out. setting to unreachable");
+    log.logThreadSafe("task " + threadName + ": time out while connecting to '"+ hostInfo.getHostName()+ "'. setting to unreachable");
     errorOccured=true;
   }
 catch (  Throwable e) {
@@ -48,16 +55,16 @@ catch (  Throwable e) {
   }
  finally {
     if (errorOccured) {
+      log.logThreadSafe("task " + threadName + ": error occured. putback...");
 synchronized (hostInfo) {
         hostInfo.setRobotsChecked(true,null);
         hostInfo.setLoadingRobotsTxt(false);
-        log.logThreadSafe("task " + threadName + ": error occured");
         log.logThreadSafe("task " + threadName + ": now put "+ hostInfo.getQueueSize()+ " queueud requests back");
-        hostInfo.setLoadingRobotsTxt(false);
         putBackURLs();
       }
     }
  else {
+      log.logThreadSafe("task " + threadName + ": finished. putback...");
 synchronized (hostInfo) {
         hostInfo.setRobotsChecked(true,disallows);
         log.logThreadSafe("task " + threadName + ": done");
