@@ -1,0 +1,43 @@
+{
+  final String mergedName=newSegmentName();
+  if (infoStream != null)   infoStream.print("merging segments");
+  SegmentMerger merger=new SegmentMerger(this,mergedName);
+  final Vector segmentsToDelete=new Vector();
+  for (int i=minSegment; i < end; i++) {
+    SegmentInfo si=segmentInfos.info(i);
+    if (infoStream != null)     infoStream.print(" " + si.name + " ("+ si.docCount+ " docs)");
+    IndexReader reader=SegmentReader.get(si);
+    merger.add(reader);
+    if ((reader.directory() == this.directory) || (reader.directory() == this.ramDirectory))     segmentsToDelete.addElement(reader);
+  }
+  int mergedDocCount=merger.merge();
+  if (infoStream != null) {
+    infoStream.println(" into " + mergedName + " ("+ mergedDocCount+ " docs)");
+  }
+  for (int i=end - 1; i >= minSegment; i--)   segmentInfos.remove(i);
+  segmentInfos.addElement(new SegmentInfo(mergedName,mergedDocCount,directory));
+  merger.closeReaders();
+synchronized (directory) {
+    new Lock.With(directory.makeLock(COMMIT_LOCK_NAME),COMMIT_LOCK_TIMEOUT){
+      public Object doBody() throws IOException {
+        segmentInfos.write(directory);
+        deleteSegments(segmentsToDelete);
+        return null;
+      }
+    }
+.run();
+  }
+  if (useCompoundFile) {
+    final Vector filesToDelete=merger.createCompoundFile(mergedName + ".tmp");
+synchronized (directory) {
+      new Lock.With(directory.makeLock(COMMIT_LOCK_NAME),COMMIT_LOCK_TIMEOUT){
+        public Object doBody() throws IOException {
+          directory.renameFile(mergedName + ".tmp",mergedName + ".cfs");
+          deleteFiles(filesToDelete);
+          return null;
+        }
+      }
+.run();
+    }
+  }
+}
