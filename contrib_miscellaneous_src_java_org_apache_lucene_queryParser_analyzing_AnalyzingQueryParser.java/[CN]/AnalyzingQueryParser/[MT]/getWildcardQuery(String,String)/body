@@ -1,0 +1,81 @@
+{
+  List tlist=new ArrayList();
+  List wlist=new ArrayList();
+  boolean isWithinToken=(!termStr.startsWith("?") && !termStr.startsWith("*"));
+  StringBuffer tmpBuffer=new StringBuffer();
+  char[] chars=termStr.toCharArray();
+  for (int i=0; i < termStr.length(); i++) {
+    if (chars[i] == '?' || chars[i] == '*') {
+      if (isWithinToken) {
+        tlist.add(tmpBuffer.toString());
+        tmpBuffer.setLength(0);
+      }
+      isWithinToken=false;
+    }
+ else {
+      if (!isWithinToken) {
+        wlist.add(tmpBuffer.toString());
+        tmpBuffer.setLength(0);
+      }
+      isWithinToken=true;
+    }
+    tmpBuffer.append(chars[i]);
+  }
+  if (isWithinToken) {
+    tlist.add(tmpBuffer.toString());
+  }
+ else {
+    wlist.add(tmpBuffer.toString());
+  }
+  TokenStream source=getAnalyzer().tokenStream(field,new StringReader(termStr));
+  org.apache.lucene.analysis.Token t;
+  int countTokens=0;
+  while (true) {
+    try {
+      t=source.next();
+    }
+ catch (    IOException e) {
+      t=null;
+    }
+    if (t == null) {
+      break;
+    }
+    if (!"".equals(t.termText())) {
+      try {
+        tlist.set(countTokens++,t.termText());
+      }
+ catch (      IndexOutOfBoundsException ioobe) {
+        countTokens=-1;
+      }
+    }
+  }
+  try {
+    source.close();
+  }
+ catch (  IOException e) {
+  }
+  if (countTokens != tlist.size()) {
+    throw new ParseException("Cannot build WildcardQuery with analyzer " + getAnalyzer().getClass() + " - tokens added or lost");
+  }
+  if (tlist.size() == 0) {
+    return null;
+  }
+ else   if (tlist.size() == 1) {
+    if (wlist != null && wlist.size() == 1) {
+      return super.getWildcardQuery(field,(String)tlist.get(0) + (((String)wlist.get(0)).toString()));
+    }
+ else {
+      throw new IllegalArgumentException("getWildcardQuery called without wildcard");
+    }
+  }
+ else {
+    StringBuffer sb=new StringBuffer();
+    for (int i=0; i < tlist.size(); i++) {
+      sb.append((String)tlist.get(i));
+      if (wlist != null && wlist.size() > i) {
+        sb.append((String)wlist.get(i));
+      }
+    }
+    return super.getWildcardQuery(field,sb.toString());
+  }
+}
