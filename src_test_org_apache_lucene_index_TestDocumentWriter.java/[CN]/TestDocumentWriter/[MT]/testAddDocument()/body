@@ -1,41 +1,48 @@
 {
-  Analyzer analyzer=new WhitespaceAnalyzer();
-  Similarity similarity=Similarity.getDefault();
-  DocumentWriter writer=new DocumentWriter(dir,analyzer,similarity,50);
-  assertTrue(writer != null);
-  try {
-    String segName="test";
-    writer.addDocument(segName,testDoc);
-    SegmentReader reader=SegmentReader.get(new SegmentInfo(segName,1,dir));
-    assertTrue(reader != null);
-    Document doc=reader.document(0);
-    assertTrue(doc != null);
-    Field[] fields=doc.getFields("textField2");
-    assertTrue(fields != null && fields.length == 1);
-    assertTrue(fields[0].stringValue().equals(DocHelper.FIELD_2_TEXT));
-    assertTrue(fields[0].isTermVectorStored() == true);
-    fields=doc.getFields("textField1");
-    assertTrue(fields != null && fields.length == 1);
-    assertTrue(fields[0].stringValue().equals(DocHelper.FIELD_1_TEXT));
-    assertTrue(fields[0].isTermVectorStored() == false);
-    fields=doc.getFields("keyField");
-    assertTrue(fields != null && fields.length == 1);
-    assertTrue(fields[0].stringValue().equals(DocHelper.KEYWORD_TEXT));
-    fields=doc.getFields(DocHelper.NO_NORMS_KEY);
-    assertTrue(fields != null && fields.length == 1);
-    assertTrue(fields[0].stringValue().equals(DocHelper.NO_NORMS_TEXT));
-    fields=doc.getFields(DocHelper.TEXT_FIELD_3_KEY);
-    assertTrue(fields != null && fields.length == 1);
-    assertTrue(fields[0].stringValue().equals(DocHelper.FIELD_3_TEXT));
-    for (int i=0; i < reader.fieldInfos.size(); i++) {
-      FieldInfo fi=reader.fieldInfos.fieldInfo(i);
-      if (fi.isIndexed) {
-        assertTrue(fi.omitNorms == !dir.fileExists(segName + ".f" + i));
-      }
+  Analyzer analyzer=new Analyzer(){
+    public TokenStream tokenStream(    String fieldName,    Reader reader){
+      return new WhitespaceTokenizer(reader);
+    }
+    public int getPositionIncrementGap(    String fieldName){
+      return 500;
     }
   }
- catch (  IOException e) {
-    e.printStackTrace();
-    assertTrue(false);
+;
+  Similarity similarity=Similarity.getDefault();
+  DocumentWriter writer=new DocumentWriter(dir,analyzer,similarity,50);
+  String segName="test";
+  writer.addDocument(segName,testDoc);
+  SegmentReader reader=SegmentReader.get(new SegmentInfo(segName,1,dir));
+  assertTrue(reader != null);
+  Document doc=reader.document(0);
+  assertTrue(doc != null);
+  Field[] fields=doc.getFields("textField2");
+  assertTrue(fields != null && fields.length == 1);
+  assertTrue(fields[0].stringValue().equals(DocHelper.FIELD_2_TEXT));
+  assertTrue(fields[0].isTermVectorStored());
+  fields=doc.getFields("textField1");
+  assertTrue(fields != null && fields.length == 1);
+  assertTrue(fields[0].stringValue().equals(DocHelper.FIELD_1_TEXT));
+  assertFalse(fields[0].isTermVectorStored());
+  fields=doc.getFields("keyField");
+  assertTrue(fields != null && fields.length == 1);
+  assertTrue(fields[0].stringValue().equals(DocHelper.KEYWORD_TEXT));
+  fields=doc.getFields(DocHelper.NO_NORMS_KEY);
+  assertTrue(fields != null && fields.length == 1);
+  assertTrue(fields[0].stringValue().equals(DocHelper.NO_NORMS_TEXT));
+  fields=doc.getFields(DocHelper.TEXT_FIELD_3_KEY);
+  assertTrue(fields != null && fields.length == 1);
+  assertTrue(fields[0].stringValue().equals(DocHelper.FIELD_3_TEXT));
+  for (int i=0; i < reader.fieldInfos.size(); i++) {
+    FieldInfo fi=reader.fieldInfos.fieldInfo(i);
+    if (fi.isIndexed) {
+      assertTrue(fi.omitNorms == !dir.fileExists(segName + ".f" + i));
+    }
   }
+  TermPositions termPositions=reader.termPositions(new Term(DocHelper.REPEATED_KEY,"repeated"));
+  assertTrue(termPositions.next());
+  int freq=termPositions.freq();
+  assertEquals(2,freq);
+  assertEquals(0,termPositions.nextPosition());
+  assertEquals(502,termPositions.nextPosition());
 }
