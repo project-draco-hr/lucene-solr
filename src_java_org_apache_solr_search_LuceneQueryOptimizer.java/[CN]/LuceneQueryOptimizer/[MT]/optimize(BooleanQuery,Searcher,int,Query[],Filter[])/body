@@ -1,0 +1,35 @@
+{
+  BooleanQuery query=new BooleanQuery();
+  BooleanQuery filterQuery=null;
+  BooleanClause[] clauses=original.getClauses();
+  for (int i=0; i < clauses.length; i++) {
+    BooleanClause c=clauses[i];
+    if (c.required && c.query.getBoost() == 0.0f && c.query instanceof TermQuery && (searcher.docFreq(((TermQuery)c.query).getTerm()) / (float)searcher.maxDoc()) >= threshold) {
+      if (filterQuery == null)       filterQuery=new BooleanQuery();
+      filterQuery.add(c.query,true,false);
+    }
+ else {
+      query.add(c);
+    }
+  }
+  Filter filter=null;
+  if (filterQuery != null) {
+synchronized (cache) {
+      filter=(Filter)cache.get(filterQuery);
+    }
+    if (filter == null) {
+      filter=new QueryFilter(filterQuery);
+synchronized (cache) {
+        cache.put(filterQuery,filter);
+      }
+    }
+  }
+  if (queryOut != null && filterOut != null) {
+    queryOut[0]=query;
+    filterOut[0]=filter;
+    return null;
+  }
+ else {
+    return searcher.search(query,filter,numHits);
+  }
+}

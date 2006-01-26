@@ -1,0 +1,52 @@
+{
+  QueryResultKey key=null;
+  int maxDoc=offset + len;
+  int supersetMaxDoc=maxDoc;
+  DocList superset;
+  if (queryResultCache != null && filter == null) {
+    key=new QueryResultKey(query,filterList,lsort,flags);
+    if ((flags & NO_CHECK_QCACHE) == 0) {
+      superset=(DocList)queryResultCache.get(key);
+      if (superset != null) {
+        if ((flags & GET_SCORES) == 0 || superset.hasScores()) {
+          out.docList=superset.subset(offset,len);
+        }
+      }
+      if (out.docList != null)       return;
+    }
+    if (maxDoc < queryResultWindowSize) {
+      supersetMaxDoc=queryResultWindowSize;
+    }
+ else {
+      supersetMaxDoc=((maxDoc - 1) / queryResultWindowSize + 1) * queryResultWindowSize;
+    }
+  }
+  boolean useFilterCache=false;
+  if ((flags & (GET_SCORES | NO_CHECK_FILTERCACHE)) == 0 && useFilterForSortedQuery && lsort != null && filterCache != null) {
+    useFilterCache=true;
+    SortField[] sfields=lsort.getSort();
+    for (    SortField sf : sfields) {
+      if (sf.getType() == SortField.SCORE) {
+        useFilterCache=false;
+        break;
+      }
+    }
+  }
+  if (useFilterCache) {
+    if (out.docSet == null) {
+      out.docSet=getDocSet(query,filter);
+      DocSet bigFilt=getDocSet(filterList);
+      if (bigFilt != null)       out.docSet=out.docSet.intersection(bigFilt);
+    }
+    superset=sortDocSet(out.docSet,lsort,supersetMaxDoc);
+    out.docList=superset.subset(offset,len);
+  }
+ else {
+    DocSet theFilt=filter != null ? filter : getDocSet(filterList);
+    superset=getDocListNC(query,theFilt,lsort,0,supersetMaxDoc,flags);
+    out.docList=superset.subset(offset,len);
+  }
+  if (key != null) {
+    queryResultCache.put(key,superset);
+  }
+}

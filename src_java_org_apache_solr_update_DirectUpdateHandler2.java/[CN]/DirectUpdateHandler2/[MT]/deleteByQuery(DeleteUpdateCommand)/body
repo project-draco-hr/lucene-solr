@@ -1,0 +1,38 @@
+{
+  deleteByQueryCommands.incrementAndGet();
+  deleteByQueryCommandsCumulative.incrementAndGet();
+  if (!cmd.fromPending && !cmd.fromCommitted) {
+    numErrors.incrementAndGet();
+    numErrorsCumulative.incrementAndGet();
+    throw new SolrException(400,"meaningless command: " + cmd);
+  }
+  if (!cmd.fromPending || !cmd.fromCommitted) {
+    numErrors.incrementAndGet();
+    numErrorsCumulative.incrementAndGet();
+    throw new SolrException(400,"operation not supported" + cmd);
+  }
+  boolean madeIt=false;
+  try {
+    Query q=QueryParsing.parseQuery(cmd.query,schema);
+    int totDeleted=0;
+synchronized (this) {
+      doDeletions();
+      closeWriter();
+      openSearcher();
+      final DeleteHitCollector deleter=new DeleteHitCollector(searcher);
+      searcher.search(q,null,deleter);
+      totDeleted=deleter.deleted;
+    }
+    if (SolrCore.log.isLoggable(Level.FINE)) {
+      SolrCore.log.fine("docs deleted by query:" + totDeleted);
+    }
+    numDocsDeleted.getAndAdd(totDeleted);
+    madeIt=true;
+  }
+  finally {
+    if (!madeIt) {
+      numErrors.incrementAndGet();
+      numErrorsCumulative.incrementAndGet();
+    }
+  }
+}

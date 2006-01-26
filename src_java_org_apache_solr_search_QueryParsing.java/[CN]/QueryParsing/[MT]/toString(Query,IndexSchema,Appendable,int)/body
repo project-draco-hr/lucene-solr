@@ -1,0 +1,132 @@
+{
+  boolean writeBoost=true;
+  if (query instanceof TermQuery) {
+    TermQuery q=(TermQuery)query;
+    Term t=q.getTerm();
+    FieldType ft=writeFieldName(t.field(),schema,out,flags);
+    writeFieldVal(t.text(),ft,out,flags);
+  }
+ else   if (query instanceof RangeQuery) {
+    RangeQuery q=(RangeQuery)query;
+    String fname=q.getField();
+    FieldType ft=writeFieldName(fname,schema,out,flags);
+    out.append(q.isInclusive() ? '[' : '{');
+    Term lt=q.getLowerTerm();
+    Term ut=q.getUpperTerm();
+    if (lt == null) {
+      out.append('*');
+    }
+ else {
+      writeFieldVal(lt.text(),ft,out,flags);
+    }
+    out.append(" TO ");
+    if (ut == null) {
+      out.append('*');
+    }
+ else {
+      writeFieldVal(ut.text(),ft,out,flags);
+    }
+    out.append(q.isInclusive() ? ']' : '}');
+  }
+ else   if (query instanceof ConstantScoreRangeQuery) {
+    ConstantScoreRangeQuery q=(ConstantScoreRangeQuery)query;
+    String fname=q.getField();
+    FieldType ft=writeFieldName(fname,schema,out,flags);
+    out.append(q.includesLower() ? '[' : '{');
+    String lt=q.getLowerVal();
+    String ut=q.getUpperVal();
+    if (lt == null) {
+      out.append('*');
+    }
+ else {
+      writeFieldVal(lt,ft,out,flags);
+    }
+    out.append(" TO ");
+    if (ut == null) {
+      out.append('*');
+    }
+ else {
+      writeFieldVal(ut,ft,out,flags);
+    }
+    out.append(q.includesUpper() ? ']' : '}');
+  }
+ else   if (query instanceof BooleanQuery) {
+    BooleanQuery q=(BooleanQuery)query;
+    boolean needParens=false;
+    if (q.getBoost() != 1.0 || q.getMinimumNumberShouldMatch() != 0) {
+      needParens=true;
+    }
+    if (needParens) {
+      out.append('(');
+    }
+    BooleanClause[] clauses=q.getClauses();
+    boolean first=true;
+    for (    BooleanClause c : clauses) {
+      if (!first) {
+        out.append(' ');
+      }
+ else {
+        first=false;
+      }
+      if (c.prohibited) {
+        out.append('-');
+      }
+ else       if (c.required) {
+        out.append('+');
+      }
+      Query subQuery=c.query;
+      boolean wrapQuery=false;
+      if (subQuery instanceof BooleanQuery) {
+        wrapQuery=true;
+      }
+      if (wrapQuery) {
+        out.append('(');
+      }
+      toString(subQuery,schema,out,flags);
+      if (wrapQuery) {
+        out.append(')');
+      }
+    }
+    if (needParens) {
+      out.append(')');
+    }
+    if (q.getMinimumNumberShouldMatch() > 0) {
+      out.append('~');
+      out.append(Integer.toString(q.getMinimumNumberShouldMatch()));
+    }
+  }
+ else   if (query instanceof PrefixQuery) {
+    PrefixQuery q=(PrefixQuery)query;
+    Term prefix=q.getPrefix();
+    FieldType ft=writeFieldName(prefix.field(),schema,out,flags);
+    out.append(prefix.text());
+    out.append('*');
+  }
+ else   if (query instanceof ConstantScorePrefixQuery) {
+    ConstantScorePrefixQuery q=(ConstantScorePrefixQuery)query;
+    Term prefix=q.getPrefix();
+    FieldType ft=writeFieldName(prefix.field(),schema,out,flags);
+    out.append(prefix.text());
+    out.append('*');
+  }
+ else   if (query instanceof WildcardQuery) {
+    out.append(query.toString());
+    writeBoost=false;
+  }
+ else   if (query instanceof FuzzyQuery) {
+    out.append(query.toString());
+    writeBoost=false;
+  }
+ else   if (query instanceof ConstantScoreQuery) {
+    out.append(query.toString());
+    writeBoost=false;
+  }
+ else {
+    out.append(query.getClass().getSimpleName() + '(' + query.toString()+ ')');
+    writeBoost=false;
+  }
+  if (writeBoost && query.getBoost() != 1.0f) {
+    out.append("^");
+    out.append(Float.toString(query.getBoost()));
+  }
+}

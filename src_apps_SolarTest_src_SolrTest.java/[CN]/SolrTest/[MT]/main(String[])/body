@@ -1,0 +1,93 @@
+{
+  int readers=1;
+  int requests=1;
+  int writers=0;
+  Logger log=Logger.getLogger("solar");
+  log.setUseParentHandlers(false);
+  log.setLevel(Level.FINEST);
+  Handler handler=new ConsoleHandler();
+  handler.setLevel(Level.FINEST);
+  log.addHandler(handler);
+  String filename="dict.txt";
+  String updateFilename="update_dict.txt";
+  String luceneDir=null;
+  String schemaFile="schema.xml";
+  String testFile=null;
+  boolean b_numUpdates=false;
+  boolean b_writers=false;
+  int i=0;
+  String arg;
+  while (i < args.length && args[i].startsWith("-")) {
+    arg=args[i++];
+    if (arg.equals("-verbose")) {
+      verbose=true;
+    }
+ else     if (arg.equals("-dict")) {
+      filename=args[i++];
+    }
+ else     if (arg.equals("-index")) {
+      luceneDir=args[i++];
+    }
+ else     if (arg.equals("-readers")) {
+      readers=Integer.parseInt(args[i++]);
+    }
+ else     if (arg.equals("-numRequests")) {
+      requests=Integer.parseInt(args[i++]);
+    }
+ else     if (arg.equals("-writers")) {
+      writers=Integer.parseInt(args[i++]);
+      b_writers=true;
+    }
+ else     if (arg.equals("-schema")) {
+      schemaFile=args[i++];
+    }
+ else     if (arg.equals("-test")) {
+      testFile=args[i++];
+    }
+ else     if (arg.equals("-noValidate")) {
+      doValidate=false;
+    }
+ else {
+      System.out.println("Unknown option: " + arg);
+      return;
+    }
+  }
+  try {
+    IndexSchema schema=new IndexSchema(schemaFile);
+    countdown=requests;
+    core=new SolrCore(luceneDir,schema);
+    try {
+      if (readers > 0)       requestDict=readDict(filename);
+      if (writers > 0)       updateDict=readDict(updateFilename);
+      if (testFile != null) {
+        testDict=readDict(testFile);
+        testDictLineno=lineno;
+      }
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+      System.out.println("Can't read " + filename);
+      return;
+    }
+    SolrTest[] clients=new SolrTest[readers + writers];
+    for (i=0; i < readers; i++) {
+      clients[i]=new SolrTest();
+      if (testFile != null)       clients[i].sequenceTest=true;
+      clients[i].start();
+    }
+    for (i=readers; i < readers + writers; i++) {
+      clients[i]=new SolrTest();
+      clients[i].isWriter=true;
+      clients[i].start();
+    }
+    for (i=0; i < readers; i++) {
+      clients[i].join();
+    }
+    for (i=readers; i < readers + writers; i++) {
+      clients[i].join();
+    }
+  }
+  finally {
+    if (core != null)     core.close();
+  }
+}

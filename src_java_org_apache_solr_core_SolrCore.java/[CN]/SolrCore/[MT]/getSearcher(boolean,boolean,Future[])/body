@@ -1,0 +1,154 @@
+{
+synchronized (searcherLock) {
+    if (_searcher != null && !forceNew) {
+      if (returnSearcher) {
+        _searcher.incref();
+        return _searcher;
+      }
+ else {
+        return null;
+      }
+    }
+    if (onDeckSearchers > 0 && !forceNew && _searcher == null) {
+      try {
+        searcherLock.wait();
+      }
+ catch (      InterruptedException e) {
+        log.info(SolrException.toStr(e));
+      }
+    }
+    if (_searcher != null && !forceNew) {
+      if (returnSearcher) {
+        _searcher.incref();
+        return _searcher;
+      }
+ else {
+        return null;
+      }
+    }
+    onDeckSearchers++;
+  }
+  SolrIndexSearcher tmp;
+  try {
+    if (onDeckSearchers < 1) {
+      log.severe("ERROR!!! onDeckSearchers is " + onDeckSearchers);
+      onDeckSearchers=1;
+    }
+ else     if (onDeckSearchers > 1) {
+      log.info("PERFORMANCE WARNING: Overlapping onDeckSearchers=" + onDeckSearchers);
+    }
+    tmp=new SolrIndexSearcher(schema,"main",index_path,true);
+  }
+ catch (  Throwable th) {
+synchronized (searcherLock) {
+      onDeckSearchers--;
+      searcherLock.notify();
+    }
+    throw new RuntimeException(th);
+  }
+  final SolrIndexSearcher newSearcher=tmp;
+  RefCounted<SolrIndexSearcher> currSearcherHolder=null;
+  final RefCounted<SolrIndexSearcher> newSearchHolder=newHolder(newSearcher);
+  if (returnSearcher)   newSearchHolder.incref();
+  final boolean[] decrementOnDeckCount=new boolean[1];
+  decrementOnDeckCount[0]=true;
+  try {
+synchronized (searcherLock) {
+      if (_searcher == null) {
+        registerSearcher(newSearchHolder);
+        decrementOnDeckCount[0]=false;
+      }
+ else {
+        currSearcherHolder=_searcher;
+        currSearcherHolder.incref();
+      }
+    }
+    final SolrIndexSearcher currSearcher=currSearcherHolder == null ? null : currSearcherHolder.get();
+    Future future=null;
+    if (currSearcher != null) {
+      future=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            newSearcher.warm(currSearcher);
+          }
+ catch (          Throwable e) {
+            SolrException.logOnce(log,null,e);
+          }
+          return null;
+        }
+      }
+);
+    }
+    if (currSearcher == null && firstSearcherListeners.size() > 0) {
+      future=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            for (            SolrEventListener listener : firstSearcherListeners) {
+              listener.newSearcher(newSearcher,null);
+            }
+          }
+ catch (          Throwable e) {
+            SolrException.logOnce(log,null,e);
+          }
+          return null;
+        }
+      }
+);
+    }
+    if (currSearcher != null && newSearcherListeners.size() > 0) {
+      future=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            for (            SolrEventListener listener : newSearcherListeners) {
+              listener.newSearcher(newSearcher,null);
+            }
+          }
+ catch (          Throwable e) {
+            SolrException.logOnce(log,null,e);
+          }
+          return null;
+        }
+      }
+);
+    }
+    final RefCounted<SolrIndexSearcher> currSearcherHolderF=currSearcherHolder;
+    Future finalFuture=null;
+    if (currSearcherHolder != null) {
+      finalFuture=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            decrementOnDeckCount[0]=false;
+            registerSearcher(newSearchHolder);
+          }
+ catch (          Throwable e) {
+            SolrException.logOnce(log,null,e);
+          }
+ finally {
+            currSearcherHolderF.decref();
+          }
+          return null;
+        }
+      }
+);
+    }
+    if (waitSearcher != null) {
+      waitSearcher[0]=finalFuture;
+    }
+    return returnSearcher ? newSearchHolder : null;
+  }
+ catch (  Exception e) {
+    SolrException.logOnce(log,null,e);
+    if (currSearcherHolder != null)     currSearcherHolder.decref();
+synchronized (searcherLock) {
+      if (decrementOnDeckCount[0]) {
+        onDeckSearchers--;
+      }
+      if (onDeckSearchers < 0) {
+        log.severe("ERROR!!! onDeckSearchers after decrement=" + onDeckSearchers);
+        onDeckSearchers=0;
+      }
+      searcherLock.notify();
+    }
+    return returnSearcher ? newSearchHolder : null;
+  }
+}

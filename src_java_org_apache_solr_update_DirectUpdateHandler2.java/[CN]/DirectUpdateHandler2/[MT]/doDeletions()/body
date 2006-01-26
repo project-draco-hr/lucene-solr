@@ -1,0 +1,40 @@
+{
+  if (pset.size() > 0) {
+    log.info("DirectUpdateHandler2 deleting and removing dups for " + pset.size() + " ids");
+    int numDeletes=0;
+    closeWriter();
+    openSearcher();
+    IndexReader reader=searcher.getReader();
+    TermDocs tdocs=reader.termDocs();
+    String fieldname=idField.getName();
+    for (    Map.Entry<String,Integer> entry : pset.entrySet()) {
+      String id=entry.getKey();
+      int saveLast=entry.getValue();
+      if (docnums == null || saveLast > docnums.length) {
+        docnums=new int[saveLast];
+      }
+      for (int i=0; i < saveLast; i++) {
+        docnums[i]=-1;
+      }
+      tdocs.seek(new Term(fieldname,id));
+      int pos=0;
+      while (tdocs.next()) {
+        if (saveLast == 0) {
+          reader.delete(tdocs.doc());
+          numDeletes++;
+          continue;
+        }
+        int prev=docnums[pos];
+        docnums[pos]=tdocs.doc();
+        if (prev != -1) {
+          reader.delete(prev);
+          numDeletes++;
+        }
+        if (++pos >= saveLast)         pos=0;
+      }
+    }
+    pset.clear();
+    log.info("DirectUpdateHandler2 docs deleted=" + numDeletes);
+    numDocsDeleted.addAndGet(numDeletes);
+  }
+}
