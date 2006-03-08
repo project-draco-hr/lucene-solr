@@ -22,16 +22,34 @@
       final BitSet bitset=filter.bits(indexReader);
       return new Scorer(similarity){
         public boolean next() throws IOException {
-          return scorer.next();
+          do {
+            if (!scorer.next()) {
+              return false;
+            }
+          }
+ while (!bitset.get(scorer.doc()));
+          return true;
         }
         public int doc(){
           return scorer.doc();
         }
         public boolean skipTo(        int i) throws IOException {
-          return scorer.skipTo(i);
+          if (!scorer.skipTo(i)) {
+            return false;
+          }
+          while (!bitset.get(scorer.doc())) {
+            int nextFiltered=bitset.nextSetBit(scorer.doc() + 1);
+            if (nextFiltered == -1) {
+              return false;
+            }
+ else             if (!scorer.skipTo(nextFiltered)) {
+              return false;
+            }
+          }
+          return true;
         }
         public float score() throws IOException {
-          return (bitset.get(scorer.doc())) ? scorer.score() : 0.0f;
+          return scorer.score();
         }
         public Explanation explain(        int i) throws IOException {
           Explanation exp=scorer.explain(i);
