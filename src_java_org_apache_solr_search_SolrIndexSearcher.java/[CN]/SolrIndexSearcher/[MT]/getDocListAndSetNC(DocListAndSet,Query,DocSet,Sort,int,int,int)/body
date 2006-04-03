@@ -1,0 +1,86 @@
+{
+  final int lastDocRequested=offset + len;
+  int nDocsReturned;
+  int totalHits;
+  float maxScore;
+  int[] ids;
+  float[] scores;
+  final DocSetHitCollector setHC=new DocSetHitCollector(maxDoc());
+  if (lastDocRequested <= 0) {
+    final DocSet filt=filter;
+    final float[] topscore=new float[]{Float.NEGATIVE_INFINITY};
+    final int[] numHits=new int[1];
+    searcher.search(query,new HitCollector(){
+      public void collect(      int doc,      float score){
+        setHC.collect(doc,score);
+        if (filt != null && !filt.exists(doc))         return;
+        numHits[0]++;
+        if (score > topscore[0])         topscore[0]=score;
+      }
+    }
+);
+    nDocsReturned=0;
+    ids=new int[nDocsReturned];
+    scores=new float[nDocsReturned];
+    totalHits=numHits[0];
+    maxScore=totalHits > 0 ? topscore[0] : 0.0f;
+  }
+ else   if (lsort != null) {
+    final DocSet filt=filter;
+    final int[] numHits=new int[1];
+    final FieldSortedHitQueue hq=new FieldSortedHitQueue(reader,lsort.getSort(),offset + len);
+    searcher.search(query,new HitCollector(){
+      public void collect(      int doc,      float score){
+        setHC.collect(doc,score);
+        if (filt != null && !filt.exists(doc))         return;
+        numHits[0]++;
+        hq.insert(new FieldDoc(doc,score));
+      }
+    }
+);
+    totalHits=numHits[0];
+    maxScore=totalHits > 0 ? hq.getMaxScore() : 0.0f;
+    nDocsReturned=hq.size();
+    ids=new int[nDocsReturned];
+    scores=(flags & GET_SCORES) != 0 ? new float[nDocsReturned] : null;
+    for (int i=nDocsReturned - 1; i >= 0; i--) {
+      FieldDoc fieldDoc=(FieldDoc)hq.pop();
+      ids[i]=fieldDoc.doc;
+      if (scores != null)       scores[i]=fieldDoc.score;
+    }
+  }
+ else {
+    final DocSet filt=filter;
+    final ScorePriorityQueue hq=new ScorePriorityQueue(lastDocRequested);
+    final int[] numHits=new int[1];
+    searcher.search(query,new HitCollector(){
+      float minScore=Float.NEGATIVE_INFINITY;
+      public void collect(      int doc,      float score){
+        setHC.collect(doc,score);
+        if (filt != null && !filt.exists(doc))         return;
+        if (numHits[0]++ < lastDocRequested || score >= minScore) {
+          hq.insert(new ScoreDoc(doc,score));
+          minScore=((ScoreDoc)hq.top()).score;
+        }
+      }
+    }
+);
+    totalHits=numHits[0];
+    nDocsReturned=hq.size();
+    ids=new int[nDocsReturned];
+    scores=(flags & GET_SCORES) != 0 ? new float[nDocsReturned] : null;
+    ScoreDoc sdoc=null;
+    for (int i=nDocsReturned - 1; i >= 0; i--) {
+      sdoc=(ScoreDoc)hq.pop();
+      ids[i]=sdoc.doc;
+      if (scores != null)       scores[i]=sdoc.score;
+    }
+    maxScore=sdoc == null ? 0.0f : sdoc.score;
+  }
+  int sliceLen=Math.min(lastDocRequested,nDocsReturned) - offset;
+  if (sliceLen < 0)   sliceLen=0;
+  out.docList=new DocSlice(offset,sliceLen,ids,scores,totalHits,maxScore);
+  DocSet qDocSet=setHC.getDocSet();
+  out.docSet=filter == null ? qDocSet : qDocSet.intersection(filter);
+  return qDocSet;
+}
