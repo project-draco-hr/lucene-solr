@@ -1,0 +1,85 @@
+{
+  numRequests++;
+  try {
+    SolrIndexSearcher s=req.getSearcher();
+    IndexSchema schema=req.getSchema();
+    Map<String,Float> queryFields=U.parseFieldBoosts(U.getParam(req,params.QF,params.qf));
+    Map<String,Float> phraseFields=U.parseFieldBoosts(U.getParam(req,params.PF,params.pf));
+    float tiebreaker=U.getNumberParam(req,params.TIE,params.tiebreaker).floatValue();
+    int pslop=U.getNumberParam(req,params.PS,params.pslop).intValue();
+    QueryParser p=new SolrQueryParser(schema,null);
+    U.DisjunctionMaxQueryParser up=new U.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
+    up.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,queryFields);
+    U.DisjunctionMaxQueryParser pp=new U.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
+    pp.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,phraseFields);
+    pp.setPhraseSlop(pslop);
+    String userQuery=U.partialEscape(U.stripUnbalancedQuotes(req.getQueryString())).toString();
+    BooleanQuery query=new BooleanQuery(true);
+    String minShouldMatch=U.getParam(req,params.MM,params.mm);
+    Query dis=up.parse(userQuery);
+    if (dis instanceof BooleanQuery) {
+      BooleanQuery t=new BooleanQuery();
+      U.flatenBooleanQuery(t,(BooleanQuery)dis);
+      U.setMinShouldMatch(t,minShouldMatch);
+      query.add(t,Occur.MUST);
+    }
+ else {
+      query.add(dis,Occur.MUST);
+    }
+    String userPhraseQuery=userQuery.replace("\"","");
+    Query phrase=pp.parse("\"" + userPhraseQuery + "\"");
+    if (null != phrase) {
+      query.add(phrase,Occur.SHOULD);
+    }
+    String boostQuery=U.getParam(req,params.BQ,params.bq);
+    if (null != boostQuery && !boostQuery.equals("")) {
+      Query tmp=p.parse(boostQuery);
+      if (1.0f == tmp.getBoost() && tmp instanceof BooleanQuery) {
+        for (        BooleanClause c : ((BooleanQuery)tmp).getClauses()) {
+          query.add(c);
+        }
+      }
+ else {
+        query.add(tmp,BooleanClause.Occur.SHOULD);
+      }
+    }
+    String boostFunc=U.getParam(req,params.BF,params.bf);
+    if (null != boostFunc && !boostFunc.equals("")) {
+      List<Query> funcs=U.parseFuncs(schema,boostFunc);
+      for (      Query f : funcs) {
+        query.add(f,Occur.SHOULD);
+      }
+    }
+    List<Query> restrictions=new ArrayList<Query>(1);
+    String filterQueryString=U.getParam(req,params.FQ,params.fq);
+    Query filterQuery=null;
+    if (null != filterQueryString && !filterQueryString.equals("")) {
+      filterQuery=p.parse(filterQueryString);
+      restrictions.add(filterQuery);
+    }
+    DocList results=s.getDocList(query,restrictions,SolrPluginUtils.getSort(req),req.getStart(),req.getLimit(),SolrIndexSearcher.GET_SCORES);
+    rsp.add("search-results",results);
+    U.setReturnFields(U.getParam(req,params.FL,params.fl),rsp);
+    try {
+      NamedList debug=U.doStandardDebug(req,userQuery,query,results);
+      if (null != debug) {
+        debug.add("boostquery",boostQuery);
+        debug.add("boostfunc",boostFunc);
+        debug.add("filterquery",filterQueryString);
+        if (null != filterQuery) {
+          debug.add("parsedfilterquery",QueryParsing.toString(filterQuery,schema));
+        }
+        rsp.add("debug",debug);
+      }
+    }
+ catch (    Exception e) {
+      SolrException.logOnce(SolrCore.log,"Exception durring debug",e);
+      rsp.add("exception_during_debug",SolrException.toStr(e));
+    }
+  }
+ catch (  Exception e) {
+    SolrException.log(SolrCore.log,e);
+    rsp.setException(e);
+    numErrors++;
+  }
+}
