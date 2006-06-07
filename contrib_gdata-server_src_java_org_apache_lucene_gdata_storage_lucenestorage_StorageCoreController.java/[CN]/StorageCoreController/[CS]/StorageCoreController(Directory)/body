@@ -1,0 +1,39 @@
+{
+synchronized (StorageCoreController.class) {
+    try {
+      this.idGenerator=new IDGenerator(10);
+    }
+ catch (    Exception e) {
+      throw new StorageException("Can't create ID Generator",e);
+    }
+    boolean createNewStorage=false;
+    if (dir == null) {
+      this.configurator=StorageConfigurator.getStorageConfigurator();
+      String storageDirPath=this.configurator.getStorageDirectory();
+      File storeDir=new File(storageDirPath);
+      File storageLog=new File(storeDir.getAbsolutePath() + System.getProperty("file.separator") + STORAGELOG);
+      try {
+        if (storeDir.isDirectory() && !storageLog.exists()) {
+          if (createLuceneStorageLog(storeDir)) {
+            this.storageDir=FSDirectory.getDirectory(storeDir,true);
+            createNewStorage=true;
+          }
+ else           throw new StorageException("could not create storage log file in " + storageDirPath);
+        }
+ else         this.storageDir=FSDirectory.getDirectory(storeDir,false);
+      }
+ catch (      IOException e) {
+        storageLog.delete();
+        throw e;
+      }
+      this.indexOptimizeInterval=this.configurator.getIndexOptimizeInterval();
+      this.storageBufferSize=this.configurator.getStorageBufferSize() < DEFAULT_STORAGE_BUFFER_SIZE ? DEFAULT_STORAGE_BUFFER_SIZE : this.configurator.getStorageBufferSize();
+      this.storagePersistFactor=this.configurator.getStoragepersistFactor() < DEFAULT_STORAGE_PERSIST_FACTOR ? DEFAULT_STORAGE_PERSIST_FACTOR : this.configurator.getStoragepersistFactor();
+    }
+ else     this.storageDir=dir;
+    this.currentBuffer=new StorageBuffer(this.storageBufferSize);
+    this.modifier=createStorageModifier(createNewStorage);
+    this.searcher=new IndexSearcher(this.storageDir);
+    GDataServerRegistry.getRegistry().registerStorage(this);
+  }
+}
