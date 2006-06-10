@@ -1,0 +1,31 @@
+{
+  indexStream.seek(n * 8L);
+  long position=indexStream.readLong();
+  fieldsStream.seek(position);
+  Document doc=new Document();
+  int numFields=fieldsStream.readVInt();
+  for (int i=0; i < numFields; i++) {
+    int fieldNumber=fieldsStream.readVInt();
+    FieldInfo fi=fieldInfos.fieldInfo(fieldNumber);
+    FieldSelectorResult acceptField=fieldSelector == null ? FieldSelectorResult.LOAD : fieldSelector.accept(fi.name);
+    boolean lazy=acceptField.equals(FieldSelectorResult.LAZY_LOAD) == true;
+    byte bits=fieldsStream.readByte();
+    boolean compressed=(bits & FieldsWriter.FIELD_IS_COMPRESSED) != 0;
+    boolean tokenize=(bits & FieldsWriter.FIELD_IS_TOKENIZED) != 0;
+    boolean binary=(bits & FieldsWriter.FIELD_IS_BINARY) != 0;
+    if (acceptField.equals(FieldSelectorResult.LOAD) == true) {
+      addField(doc,fi,binary,compressed,tokenize);
+    }
+ else     if (acceptField.equals(FieldSelectorResult.LOAD_AND_BREAK) == true) {
+      addField(doc,fi,binary,compressed,tokenize);
+      break;
+    }
+ else     if (lazy == true) {
+      addFieldLazy(doc,fi,binary,compressed,tokenize);
+    }
+ else {
+      skipField(binary,compressed);
+    }
+  }
+  return doc;
+}
