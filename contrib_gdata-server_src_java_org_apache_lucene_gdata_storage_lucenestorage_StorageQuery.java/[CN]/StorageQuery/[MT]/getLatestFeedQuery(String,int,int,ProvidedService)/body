@@ -1,0 +1,50 @@
+{
+  DateTime updated=null;
+  Hits feedHits=storageFeedQuery(feedId);
+  if (feedHits.length() == 0)   return null;
+  BaseFeed retVal=buildFeedFromLuceneDocument(feedHits.doc(0),config);
+  List<BaseEntry> returnList=new ArrayList<BaseEntry>(resultCount);
+  List<StorageEntryWrapper> bufferedWrapperList=this.buffer.getSortedEntries(feedId);
+  int alreadyAdded=0;
+  int offset=startIndex - 1;
+  if (bufferedWrapperList != null && bufferedWrapperList.size() >= startIndex) {
+    updated=bufferedWrapperList.get(0).getEntry().getUpdated();
+    for (; alreadyAdded < resultCount; alreadyAdded++) {
+      if ((bufferedWrapperList.size() - offset) > 0) {
+        StorageEntryWrapper wrappedEntry=bufferedWrapperList.get(offset++);
+        returnList.add(wrappedEntry.getEntry());
+      }
+ else       break;
+    }
+    offset=startIndex - 1;
+    if (alreadyAdded == resultCount) {
+      retVal.getEntries().addAll(returnList);
+      retVal.setUpdated(updated);
+      return retVal;
+    }
+  }
+ else {
+    if (bufferedWrapperList != null)     offset=startIndex - 1 - bufferedWrapperList.size();
+  }
+  Hits hits=storageFeedQuery(feedId,this.timeStampSort);
+  if (hits.length() > 0) {
+    for (; (offset < hits.length()) && (alreadyAdded < resultCount); offset++, alreadyAdded++) {
+      Document doc=hits.doc(offset);
+      BaseEntry entry=buildEntryFromLuceneDocument(doc,config);
+      returnList.add(entry);
+    }
+    if (updated == null) {
+      try {
+        long updatedTimeStamp=Long.parseLong(hits.doc(0).get(StorageEntryWrapper.FIELD_TIMESTAMP));
+        updated=new DateTime(updatedTimeStamp);
+      }
+ catch (      Exception e) {
+        LOG.warn("could not create DateTime -- " + e.getMessage(),e);
+        updated=buildEntryFromLuceneDocument(hits.doc(0),config).getUpdated();
+      }
+    }
+  }
+  retVal.setUpdated(updated);
+  retVal.getEntries().addAll(returnList);
+  return retVal;
+}
