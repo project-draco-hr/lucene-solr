@@ -1,7 +1,19 @@
 {
-synchronized (this.storageControllerLock) {
+  if (this.isClosed.get())   throw new IllegalStateException("StorageController is already closed -- server is shutting down");
+  this.storageControllerLock.lock();
+  try {
+    if (this.isClosed.get())     throw new IllegalStateException("StorageController is already closed -- server is shutting down");
+    this.isClosed.set(true);
+    while (this.storageControllerLock.getQueueLength() > 0)     try {
+      this.closeCondition.await();
+    }
+ catch (    Exception e) {
+    }
     if (LOG.isInfoEnabled())     LOG.info("StorageController has been closed -- server is shutting down -- release all resources");
     if (this.storageQuery != null)     this.storageQuery.decrementRef();
     this.modifier.close();
+  }
+  finally {
+    this.storageControllerLock.unlock();
   }
 }

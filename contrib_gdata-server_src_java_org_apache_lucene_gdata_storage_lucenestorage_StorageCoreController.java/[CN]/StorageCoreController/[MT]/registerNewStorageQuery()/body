@@ -1,9 +1,16 @@
 {
-  if (LOG.isInfoEnabled())   LOG.info("new StorageQuery requested -- create new storage buffer");
-synchronized (this.storageControllerLock) {
+  if (this.isClosed.get())   throw new IllegalStateException("StorageController is already closed -- server is shutting down");
+  this.storageControllerLock.lock();
+  try {
+    if (this.isClosed.get())     throw new IllegalStateException("StorageController is already closed -- server is shutting down");
+    if (LOG.isInfoEnabled())     LOG.info("new StorageQuery requested -- create new storage buffer");
     if (this.storageQuery != null)     this.storageQuery.decrementRef();
     this.searcher=new IndexSearcher(this.storageDir);
     this.storageQuery=null;
     this.currentBuffer=new StorageBuffer(this.storageBufferSize);
+  }
+  finally {
+    this.closeCondition.signalAll();
+    this.storageControllerLock.unlock();
   }
 }
