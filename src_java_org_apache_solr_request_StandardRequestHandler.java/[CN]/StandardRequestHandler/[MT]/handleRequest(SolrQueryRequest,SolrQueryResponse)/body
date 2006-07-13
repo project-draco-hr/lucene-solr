@@ -2,20 +2,12 @@
   numRequests++;
   try {
     String sreq=req.getQueryString();
-    String debug=req.getParam("debugQuery");
-    String defaultField=req.getParam("df");
-    String fl=req.getParam("fl");
+    String debug=U.getParam(req,params.DEBUG_QUERY,params.debugQuery);
+    String defaultField=U.getParam(req,params.DF,params.df);
+    String fl=U.getParam(req,params.FL,params.fl);
     int flags=0;
     if (fl != null) {
-      String[] flst=splitList.split(fl,0);
-      if (flst.length > 0 && !(flst.length == 1 && flst[0].length() == 0)) {
-        Set<String> set=new HashSet<String>();
-        for (        String fname : flst) {
-          if ("score".equals(fname))           flags|=SolrIndexSearcher.GET_SCORES;
-          set.add(fname);
-        }
-        rsp.setReturnFields(set);
-      }
+      flags|=U.setReturnFields(fl,rsp);
     }
     if (sreq == null)     throw new SolrException(400,"Missing queryString");
     List<String> commands=StrUtils.splitSmart(sreq,';');
@@ -30,25 +22,16 @@
     }
     DocList results=req.getSearcher().getDocList(query,null,sort,req.getStart(),req.getLimit(),flags);
     rsp.add(null,results);
-    if (debug != null) {
-      NamedList dbg=new NamedList();
-      try {
-        dbg.add("querystring",qs);
-        dbg.add("parsedquery",QueryParsing.toString(query,req.getSchema()));
-        dbg.add("explain",getExplainList(query,results,req.getSearcher(),req.getSchema()));
-        String otherQueryS=req.getParam("explainOther");
-        if (otherQueryS != null && otherQueryS.length() > 0) {
-          DocList otherResults=doQuery(otherQueryS,req.getSearcher(),req.getSchema(),0,10);
-          dbg.add("otherQuery",otherQueryS);
-          dbg.add("explainOther",getExplainList(query,otherResults,req.getSearcher(),req.getSchema()));
-        }
-      }
- catch (      Exception e) {
-        SolrException.logOnce(SolrCore.log,"Exception during debug:",e);
-        dbg.add("exception_during_debug",SolrException.toStr(e));
-      }
-      rsp.add("debug",dbg);
+    try {
+      NamedList dbg=U.doStandardDebug(req,qs,query,results,params);
+      if (null != dbg)       rsp.add("debug",dbg);
     }
+ catch (    Exception e) {
+      SolrException.logOnce(SolrCore.log,"Exception durring debug",e);
+      rsp.add("exception_during_debug",SolrException.toStr(e));
+    }
+    NamedList sumData=SolrPluginUtils.doStandardHighlighting(results,query,req,params,new String[]{defaultField});
+    if (sumData != null)     rsp.add("highlighting",sumData);
   }
  catch (  SolrException e) {
     rsp.setException(e);
