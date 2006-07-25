@@ -1,0 +1,25 @@
+{
+  if (componentClass == null)   throw new IllegalArgumentException("component class must not be null");
+  if (!checkSuperType(componentClass,ServerComponent.class))   throw new RegistryException("can not register component. the given class does not implement ServerComponent interface -- " + componentClass.getName());
+  try {
+    Component annotation=componentClass.getAnnotation(Component.class);
+    if (annotation == null)     throw new RegistryException("can not register component. the given class is not a component -- " + componentClass.getName());
+    ComponentType type=annotation.componentType();
+    if (this.componentMap.containsKey(type))     throw new RegistryException("component already registered -- " + type.name());
+    Class superType=type.getClass().getField(type.name()).getAnnotation(SuperType.class).superType();
+    if (!checkSuperType(componentClass,superType))     throw new RegistryException("Considered Supertype <" + superType.getName() + "> is not a super type of <"+ componentClass+ ">");
+    ServerComponent comp=componentClass.newInstance();
+    if (configuration == null) {
+      if (LOGGER.isInfoEnabled())       LOGGER.info("no configuration for ComponentType: " + type.name());
+    }
+ else     configureComponent(comp,type,configuration);
+    comp.initialize();
+    ComponentBean bean=new ComponentBean(comp,superType);
+    this.componentMap.put(type,bean);
+    if (checkSuperType(componentClass,ScopeVisitor.class))     this.registerScopeVisitor((ScopeVisitor)comp);
+  }
+ catch (  Exception e) {
+    e.printStackTrace();
+    throw new RegistryException("Can not register component -- " + e.getMessage(),e);
+  }
+}

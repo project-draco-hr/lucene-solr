@@ -1,6 +1,7 @@
 {
   ServerBaseEntry entry=buildEntry(request,response);
   entry.setFeedId(request.getFeedId());
+  setVersionId(entry,request,response);
   entry.setServiceConfig(request.getConfigurator());
   if (LOGGER.isInfoEnabled())   LOGGER.info("update Entry" + entry.getId() + " for feedId: "+ request.getFeedId());
   if (entry.getId() == null) {
@@ -12,7 +13,10 @@
     response.setError(HttpServletResponse.SC_BAD_REQUEST);
     throw new ServiceException("Entry id in the entry xml does not match the requested resource");
   }
-  setTimeStamps(entry.getEntry());
+  BaseEntry tempEntry=entry.getEntry();
+  tempEntry.setUpdated(getCurrentDateTime());
+  Link selfLink=entry.getSelfLink();
+  if (selfLink != null)   entry.getLinks().remove(selfLink);
   BaseEntry retVal=null;
   try {
     retVal=this.storage.updateEntry(entry);
@@ -20,6 +24,12 @@
  catch (  ResourceNotFoundException e) {
     response.setError(HttpServletResponse.SC_BAD_REQUEST);
     ServiceException ex=new ServiceException("Could not update entry",e);
+    ex.setStackTrace(e.getStackTrace());
+    throw ex;
+  }
+catch (  ModificationConflictException e) {
+    response.setError(HttpServletResponse.SC_CONFLICT);
+    ServiceException ex=new ServiceException("Could not update entry - version confilict",e);
     ex.setStackTrace(e.getStackTrace());
     throw ex;
   }

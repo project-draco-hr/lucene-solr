@@ -1,11 +1,18 @@
 {
   if (entry == null)   throw new StorageException("Entry is null");
+  if (entry.getId() == null)   throw new StorageException("Entry id is null");
+  if (entry.getFeedId() == null)   throw new StorageException("feed id is null");
   if (LOG.isInfoEnabled())   LOG.info("delete entry " + entry.getId() + " -- feed: "+ entry.getFeedId());
   StorageModifier modifier=this.controller.getStorageModifier();
   ReferenceCounter<StorageQuery> query=this.controller.getStorageQuery();
+  String key=entry.getId();
+  setLock(key);
   try {
     if (query.get().isEntryStored(entry.getId(),entry.getFeedId())) {
-      modifier.deleteEntry(new StorageEntryWrapper(entry,StorageOperation.DELETE));
+      if (query.get().checkEntryVersion(entry.getId(),entry.getFeedId(),entry.getVersion())) {
+        modifier.deleteEntry(new StorageEntryWrapper(entry,StorageOperation.DELETE));
+      }
+ else       throw new ModificationConflictException("The entry version does not match -- entry " + entry.getId() + " feed:"+ entry.getFeedId()+ " version: "+ entry.getVersion());
     }
  else     throw new ResourceNotFoundException("Entry for entry id: " + entry.getId() + " is not stored");
   }
@@ -13,6 +20,7 @@
     throw new StorageException("Can not access storage");
   }
  finally {
-    query.decrementRef();
+    if (query != null)     query.decrementRef();
+    releaseLock(key);
   }
 }
