@@ -1,0 +1,35 @@
+{
+  if (entry == null)   throw new StorageException("Can not update entry -- is null");
+  if (entry.getFeedId() == null)   throw new StorageException("can not delete entry -- feed id is null");
+  if (entry.getId() == null)   throw new StorageException("Can not delete entry -- id is null");
+  DB4oEntry persistentEntry=getInternalEntry(entry.getId());
+  createSemaphore(entry.getId());
+  refreshPersistentObject(persistentEntry);
+  if (persistentEntry.getVersion() != entry.getVersion())   throw new ModificationConflictException("Current version does not match given version  -- currentVersion: " + persistentEntry.getVersion() + "; given Version: "+ entry.getVersion());
+  setUpdated(entry,persistentEntry);
+  BaseFeed<BaseFeed,BaseEntry> feed=getFeedOnly(entry.getFeedId());
+  refreshPersistentObject(feed);
+  BaseEntry retVal=entry.getEntry();
+  DB4oEntry newEntry=new DB4oEntry();
+  newEntry.setEntry(retVal);
+  newEntry.setUpdateTime(entry.getUpdated().getValue());
+  newEntry.setFeedId(feed.getId());
+  newEntry.setVersion((entry.getVersion()) + 1);
+  setUpdated(entry,feed);
+  try {
+    this.container.set(feed);
+    this.container.set(newEntry);
+    this.container.delete(persistentEntry.getEntry());
+    this.container.delete(persistentEntry);
+    this.container.commit();
+  }
+ catch (  Exception e) {
+    LOG.error("Error occured on persisting changes -- rollback changes");
+    this.container.rollback();
+    throw new StorageException("Can not persist changes -- " + e.getMessage(),e);
+  }
+ finally {
+    releaseSemaphore(entry.getId());
+  }
+  return retVal;
+}

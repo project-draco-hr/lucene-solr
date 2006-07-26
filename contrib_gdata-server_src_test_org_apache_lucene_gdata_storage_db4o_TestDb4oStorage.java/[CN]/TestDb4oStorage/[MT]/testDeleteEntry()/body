@@ -1,0 +1,68 @@
+{
+  ObjectContainer container=getContainer();
+  storeServerBaseFeed();
+  Storage storage=this.controller.getStorage();
+  ServerBaseEntry e=createServerBaseEntry();
+  storage.storeEntry(e);
+  ServerBaseEntry e1=createServerBaseEntry();
+  storage.storeEntry(e1);
+  storage.deleteEntry(e);
+  container.close();
+  container=getContainer();
+  Query query=container.query();
+  query.constrain(BaseEntry.class);
+  query.descend("id").constrain(e.getId());
+  ObjectSet resultSet=query.execute();
+  assertEquals(0,resultSet.size());
+  ServerBaseEntry eVersion=createServerBaseEntry();
+  storage.storeEntry(eVersion);
+  eVersion.setVersion(33);
+  try {
+    storage.deleteEntry(eVersion);
+    fail("version does not match");
+  }
+ catch (  Exception ex) {
+  }
+  storage=this.controller.getStorage();
+  storage.deleteEntry(e1);
+  container.close();
+  container=getContainer();
+  query=container.query();
+  query.constrain(BaseEntry.class);
+  query.descend("id").constrain(e1.getId());
+  resultSet=query.execute();
+  assertEquals(0,resultSet.size());
+  Object monitor=new Object();
+  AtomicBoolean reached=new AtomicBoolean(false);
+  MultiThreadEntryStub concuEntry=new MultiThreadEntryStub();
+  concuEntry.setId(System.currentTimeMillis() + "");
+  ProvidedServiceConfig conf=new ProvidedServiceConfig();
+  conf.setName(SERVICENAME);
+  concuEntry.setServiceConfig(conf);
+  concuEntry.setUpdated(DateTime.now());
+  concuEntry.setFeedId(FEEDID);
+  storage=this.controller.getStorage();
+  storage.storeEntry(concuEntry);
+  storage.close();
+  concuEntry.acceptGetVersionVisitor(getMonitorVisitor(monitor,reached));
+  Thread t1=getDelThread(controller,concuEntry,false);
+  Thread t2=getDelThread(controller,concuEntry,true);
+  t1.start();
+  while (true) {
+synchronized (monitor) {
+      if (reached.get())       break;
+      monitor.wait(10);
+    }
+  }
+  t2.start();
+  t2.join(800);
+  while (true) {
+synchronized (monitor) {
+      if (!reached.get())       break;
+      monitor.notifyAll();
+    }
+  }
+  t1.join(300);
+  if (fail)   fail("thread failed -- see stacktrace");
+  container.close();
+}

@@ -1,0 +1,26 @@
+{
+  if (feedId == null)   throw new StorageException("can not delete feed -- feed id is null");
+  Query query=this.container.query();
+  query.constrain(ServerBaseFeed.class);
+  query.descend("feed").descend("id").constrain(feedId).equal();
+  ObjectSet set=query.execute();
+  if (set.size() > 1)   throw new StorageException("Feed query returned not a unique result");
+  if (set.size() == 0)   throw new StorageException("no feed with feedID: " + feedId + " stored -- query returned no result");
+  ServerBaseFeed feed=(ServerBaseFeed)set.next();
+  refreshPersistentObject(feed);
+  ObjectSet entrySet=getEnriesForFeedID(feed.getId());
+  try {
+    this.container.delete(feed);
+    this.container.delete(feed.getFeed());
+    for (    Object object : entrySet) {
+      refreshPersistentObject(object);
+      this.container.delete(object);
+    }
+    this.container.commit();
+  }
+ catch (  Exception e) {
+    LOG.error("Error occured on persisting changes -- rollback changes");
+    this.container.rollback();
+    throw new StorageException("Can not persist changes -- " + e.getMessage(),e);
+  }
+}

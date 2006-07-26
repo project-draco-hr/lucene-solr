@@ -1,0 +1,34 @@
+{
+  if (entry == null)   throw new StorageException("Can not store entry -- is null");
+  if (entry.getFeedId() == null)   throw new StorageException("can not store entry -- feed id is null");
+  if (LOG.isDebugEnabled())   LOG.debug("Storing entry for feed: " + entry.getFeedId());
+  BaseFeed<BaseFeed,BaseEntry> feed=getFeedOnly(entry.getFeedId());
+  refreshPersistentObject(feed);
+  try {
+    StringBuilder idBuilder=new StringBuilder(entry.getFeedId());
+    idBuilder.append(this.controller.releaseId());
+    entry.setId(idBuilder.toString());
+  }
+ catch (  StorageException e) {
+    LOG.error("Can not create uid for entry -- " + e.getMessage(),e);
+    throw new StorageException("Can not create uid for entry -- " + e.getMessage(),e);
+  }
+  setUpdated(entry,feed);
+  DB4oEntry intEntry=new DB4oEntry();
+  intEntry.setEntry(entry.getEntry());
+  intEntry.setUpdateTime(entry.getUpdated().getValue());
+  intEntry.setFeedId(feed.getId());
+  intEntry.setVersion(entry.getVersion());
+  try {
+    this.container.set(feed);
+    this.container.set(intEntry);
+    this.container.commit();
+  }
+ catch (  Exception e) {
+    LOG.error("Error occured on persisting changes -- rollback changes");
+    this.container.rollback();
+    throw new StorageException("Can not persist changes -- " + e.getMessage(),e);
+  }
+  if (LOG.isInfoEnabled())   LOG.info("Stored Entry for entryID: " + entry.getId() + " -- feedID: "+ entry.getFeedId());
+  return entry.getEntry();
+}
