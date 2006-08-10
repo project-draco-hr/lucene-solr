@@ -1,0 +1,42 @@
+{
+  String translatedQuery=request.getTranslatedQuery();
+  ProvidedService service=request.getConfigurator();
+  QueryParser parser=new GDataQueryParser(service.getIndexSchema());
+  Query query;
+  try {
+    query=parser.parse(translatedQuery);
+  }
+ catch (  ParseException e1) {
+    throw new ServiceException("Search Failed -- Can not parse query",e1,GDataResponse.BAD_REQUEST);
+  }
+  if (LOG.isInfoEnabled())   LOG.info("Fire search for user query  query: " + query.toString());
+  this.searcher=SEARCHCOMPONENT.getServiceSearcher(service);
+  List<String> result;
+  try {
+    result=this.searcher.search(query,request.getItemsPerPage(),request.getStartIndex(),request.getFeedId());
+  }
+ catch (  IOException e) {
+    throw new ServiceException("Search Failed -- Searcher throws IOException",e,GDataResponse.SERVER_ERROR);
+  }
+  if (LOG.isInfoEnabled())   LOG.info("Fetching results for user query result size: " + result.size());
+  ServerBaseFeed requestFeed=new ServerBaseFeed();
+  requestFeed.setServiceConfig(service);
+  requestFeed.setStartIndex(0);
+  requestFeed.setItemsPerPage(0);
+  requestFeed.setId(request.getFeedId());
+  BaseFeed feed=this.storage.getFeed(requestFeed);
+  for (  String entryId : result) {
+    ServerBaseEntry requestEntry=new ServerBaseEntry();
+    requestEntry.setId(entryId);
+    requestEntry.setServiceConfig(service);
+    try {
+      BaseEntry entry=this.storage.getEntry(requestEntry);
+      feed.getEntries().add(entry);
+    }
+ catch (    StorageException e) {
+      LOG.error("StorageException caught while fetching query results -- skip entry -- " + e.getMessage(),e);
+    }
+  }
+  dynamicElementFeedStragey(feed,request);
+  return feed;
+}

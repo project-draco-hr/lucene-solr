@@ -1,0 +1,32 @@
+{
+  if (this.action.size() == 0)   return;
+  if (LOG.isInfoEnabled())   LOG.info("Deleting documents and duplicates from index, size of IndexDocuments " + this.action.size());
+  closeWriter();
+  openSearcher();
+  IndexReader reader=this.searcher.getIndexReader();
+  TermDocs termDocs=reader.termDocs();
+  for (  Map.Entry<IndexDocument,Integer> entry : this.action.entrySet()) {
+    IndexDocument indexDocument=entry.getKey();
+    Integer docToKeep=entry.getValue();
+    if (this.documentNumber == null || docToKeep > this.documentNumber.length)     this.documentNumber=new int[docToKeep];
+    for (int i=0; i < this.documentNumber.length; i++) {
+      this.documentNumber[i]=-1;
+    }
+    termDocs.seek(indexDocument.getDeletealbe());
+    int pos=0;
+    while (termDocs.next()) {
+      if (docToKeep == 0) {
+        reader.deleteDocument(termDocs.doc());
+        continue;
+      }
+      int prev=this.documentNumber[pos];
+      this.documentNumber[pos]=termDocs.doc();
+      if (prev != -1) {
+        reader.deleteDocument(prev);
+      }
+      if (++pos >= docToKeep)       pos=0;
+    }
+  }
+  this.action.clear();
+  closeSearcher();
+}
