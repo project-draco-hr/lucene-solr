@@ -3,13 +3,14 @@
   int storedCount=0;
   Enumeration fields=doc.fields();
   while (fields.hasMoreElements()) {
-    Field field=(Field)fields.nextElement();
+    Fieldable field=(Fieldable)fields.nextElement();
     if (field.isStored())     storedCount++;
   }
   fieldsStream.writeVInt(storedCount);
   fields=doc.fields();
   while (fields.hasMoreElements()) {
-    Field field=(Field)fields.nextElement();
+    Fieldable field=(Fieldable)fields.nextElement();
+    boolean disableCompression=(field instanceof FieldsReader.FieldForMerge);
     if (field.isStored()) {
       fieldsStream.writeVInt(fieldInfos.fieldNumber(field.name()));
       byte bits=0;
@@ -19,11 +20,16 @@
       fieldsStream.writeByte(bits);
       if (field.isCompressed()) {
         byte[] data=null;
-        if (field.isBinary()) {
-          data=compress(field.binaryValue());
+        if (disableCompression) {
+          data=field.binaryValue();
         }
  else {
-          data=compress(field.stringValue().getBytes("UTF-8"));
+          if (field.isBinary()) {
+            data=compress(field.binaryValue());
+          }
+ else {
+            data=compress(field.stringValue().getBytes("UTF-8"));
+          }
         }
         final int len=data.length;
         fieldsStream.writeVInt(len);
