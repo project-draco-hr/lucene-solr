@@ -1,22 +1,24 @@
 {
   numRequests++;
   try {
+    U.setDefaults(req,defaults);
+    SolrParams params=req.getParams();
     int flags=0;
     SolrIndexSearcher s=req.getSearcher();
     IndexSchema schema=req.getSchema();
-    Map<String,Float> queryFields=U.parseFieldBoosts(U.getParam(req,params.QF,params.qf));
-    Map<String,Float> phraseFields=U.parseFieldBoosts(U.getParam(req,params.PF,params.pf));
-    float tiebreaker=U.getNumberParam(req,params.TIE,params.tiebreaker).floatValue();
-    int pslop=U.getNumberParam(req,params.PS,params.pslop).intValue();
+    Map<String,Float> queryFields=U.parseFieldBoosts(params.get(DMP.QF));
+    Map<String,Float> phraseFields=U.parseFieldBoosts(params.get(DMP.PF));
+    float tiebreaker=params.getFloat(DMP.TIE,0.0f);
+    int pslop=params.getInt(DMP.PS,0);
     QueryParser p=new SolrQueryParser(schema,null);
     U.DisjunctionMaxQueryParser up=new U.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
     up.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,queryFields);
     U.DisjunctionMaxQueryParser pp=new U.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
     pp.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,phraseFields);
     pp.setPhraseSlop(pslop);
-    String userQuery=U.partialEscape(U.stripUnbalancedQuotes(req.getQueryString())).toString();
+    String userQuery=U.partialEscape(U.stripUnbalancedQuotes(params.get(Q))).toString();
     BooleanQuery query=new BooleanQuery(true);
-    String minShouldMatch=U.getParam(req,params.MM,params.mm);
+    String minShouldMatch=params.get(DMP.MM,"100%");
     Query dis=up.parse(userQuery);
     if (dis instanceof BooleanQuery) {
       BooleanQuery t=new BooleanQuery();
@@ -32,7 +34,7 @@
     if (null != phrase) {
       query.add(phrase,Occur.SHOULD);
     }
-    String boostQuery=U.getParam(req,params.BQ,params.bq);
+    String boostQuery=params.get(DMP.BQ);
     if (null != boostQuery && !boostQuery.equals("")) {
       Query tmp=p.parse(boostQuery);
       if (1.0f == tmp.getBoost() && tmp instanceof BooleanQuery) {
@@ -44,7 +46,7 @@
         query.add(tmp,BooleanClause.Occur.SHOULD);
       }
     }
-    String boostFunc=U.getParam(req,params.BF,params.bf);
+    String boostFunc=params.get(DMP.BF);
     if (null != boostFunc && !boostFunc.equals("")) {
       List<Query> funcs=U.parseFuncs(schema,boostFunc);
       for (      Query f : funcs) {
@@ -52,17 +54,17 @@
       }
     }
     List<Query> restrictions=new ArrayList<Query>(1);
-    String filterQueryString=U.getParam(req,params.FQ,params.fq);
+    String filterQueryString=params.get(DMP.FQ);
     Query filterQuery=null;
     if (null != filterQueryString && !filterQueryString.equals("")) {
       filterQuery=p.parse(filterQueryString);
       restrictions.add(filterQuery);
     }
-    flags|=U.setReturnFields(U.getParam(req,SolrParams.FL,params.fl),rsp);
+    flags|=U.setReturnFields(req,rsp);
     DocList results=s.getDocList(query,restrictions,SolrPluginUtils.getSort(req),req.getStart(),req.getLimit(),flags);
     rsp.add("search-results",results);
     try {
-      NamedList debug=U.doStandardDebug(req,userQuery,query,results,params);
+      NamedList debug=U.doStandardDebug(req,userQuery,query,results);
       if (null != debug) {
         debug.add("boostquery",boostQuery);
         debug.add("boostfunc",boostFunc);
