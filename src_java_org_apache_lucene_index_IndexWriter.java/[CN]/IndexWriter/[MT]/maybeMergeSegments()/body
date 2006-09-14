@@ -1,15 +1,42 @@
 {
-  long targetMergeDocs=minMergeDocs;
-  while (targetMergeDocs <= maxMergeDocs) {
-    int minSegment=segmentInfos.size() - singleDocSegmentsCount;
-    int mergeDocs=singleDocSegmentsCount;
+  long lowerBound=0;
+  long upperBound=minMergeDocs;
+  while (upperBound * mergeFactor <= maxMergeDocs) {
+    int minSegment=segmentInfos.size();
+    int maxSegment=-1;
     while (--minSegment >= 0) {
       SegmentInfo si=segmentInfos.info(minSegment);
-      if (si.docCount >= targetMergeDocs)       break;
-      mergeDocs+=si.docCount;
+      if (maxSegment == -1 && si.docCount > lowerBound && si.docCount <= upperBound) {
+        maxSegment=minSegment;
+      }
+ else       if (si.docCount > upperBound) {
+        break;
+      }
     }
-    if (mergeDocs >= targetMergeDocs)     mergeSegments(minSegment + 1);
- else     break;
-    targetMergeDocs*=mergeFactor;
+    minSegment++;
+    maxSegment++;
+    int numSegments=maxSegment - minSegment;
+    if (numSegments < mergeFactor) {
+      break;
+    }
+ else {
+      boolean exceedsUpperLimit=false;
+      while (numSegments >= mergeFactor) {
+        int docCount=mergeSegments(segmentInfos,minSegment,minSegment + mergeFactor);
+        numSegments-=mergeFactor;
+        if (docCount > upperBound) {
+          minSegment++;
+          exceedsUpperLimit=true;
+        }
+ else         if (docCount > 0) {
+          numSegments++;
+        }
+      }
+      if (!exceedsUpperLimit) {
+        break;
+      }
+    }
+    lowerBound=upperBound;
+    upperBound*=mergeFactor;
   }
 }

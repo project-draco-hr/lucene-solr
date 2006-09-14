@@ -2,23 +2,32 @@
   final String mergedName=newSegmentName();
   if (infoStream != null)   infoStream.print("merging segments");
   SegmentMerger merger=new SegmentMerger(this,mergedName);
+  boolean fromRAM=false;
   final Vector segmentsToDelete=new Vector();
   for (int i=minSegment; i < end; i++) {
-    SegmentInfo si=segmentInfos.info(i);
+    SegmentInfo si=sourceSegments.info(i);
     if (infoStream != null)     infoStream.print(" " + si.name + " ("+ si.docCount+ " docs)");
     IndexReader reader=SegmentReader.get(si);
     merger.add(reader);
     if ((reader.directory() == this.directory) || (reader.directory() == this.ramDirectory))     segmentsToDelete.addElement(reader);
-  }
-  if (singleDocSegmentsCount > 0) {
-    singleDocSegmentsCount=Math.min(singleDocSegmentsCount,segmentInfos.size() - end);
+    if (!fromRAM && (reader.directory() == this.ramDirectory)) {
+      fromRAM=true;
+    }
   }
   int mergedDocCount=merger.merge();
   if (infoStream != null) {
     infoStream.println(" into " + mergedName + " ("+ mergedDocCount+ " docs)");
   }
-  for (int i=end - 1; i > minSegment; i--)   segmentInfos.remove(i);
-  segmentInfos.set(minSegment,new SegmentInfo(mergedName,mergedDocCount,directory));
+  SegmentInfo newSegment=new SegmentInfo(mergedName,mergedDocCount,directory);
+  if (fromRAM) {
+    sourceSegments.removeAllElements();
+    if (mergedDocCount > 0)     segmentInfos.addElement(newSegment);
+  }
+ else {
+    for (int i=end - 1; i > minSegment; i--)     sourceSegments.remove(i);
+    if (mergedDocCount > 0)     segmentInfos.set(minSegment,newSegment);
+ else     sourceSegments.remove(minSegment);
+  }
   merger.closeReaders();
 synchronized (directory) {
     new Lock.With(directory.makeLock(COMMIT_LOCK_NAME),commitLockTimeout){
@@ -43,4 +52,5 @@ synchronized (directory) {
     }
     deleteFiles(filesToDelete);
   }
+  return mergedDocCount;
 }
