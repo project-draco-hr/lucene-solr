@@ -1,0 +1,33 @@
+{
+  FieldCache.StringIndex si=FieldCache.DEFAULT.getStringIndex(searcher.getReader(),fieldName);
+  int[] count=new int[si.lookup.length];
+  DocIterator iter=docs.iterator();
+  while (iter.hasNext()) {
+    count[si.order[iter.nextDoc()]]++;
+  }
+  FieldType ft=searcher.getSchema().getFieldType(fieldName);
+  NamedList res=new NamedList();
+  BoundedTreeSet<CountPair<String,Integer>> queue=null;
+  if (limit >= 0) {
+    queue=new BoundedTreeSet<CountPair<String,Integer>>(limit);
+  }
+  int min=-1;
+  for (int i=1; i < count.length; i++) {
+    int c=count[i];
+    if (c == 0 && !zeros)     continue;
+    if (limit < 0) {
+      res.add(ft.indexedToReadable(si.lookup[i]),c);
+    }
+ else     if (c > min) {
+      queue.add(new CountPair<String,Integer>(ft.indexedToReadable(si.lookup[i]),c));
+      if (queue.size() >= limit)       min=queue.last().val;
+    }
+  }
+  if (limit >= 0) {
+    for (    CountPair<String,Integer> p : queue) {
+      res.add(p.key,p.val);
+    }
+  }
+  if (missing)   res.add(null,count[0]);
+  return res;
+}
