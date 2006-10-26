@@ -1,0 +1,58 @@
+{
+  flushRamSegments();
+  int start=segmentInfos.size();
+  int startUpperBound=minMergeDocs;
+  try {
+    for (int i=0; i < dirs.length; i++) {
+      if (directory == dirs[i]) {
+        throw new IllegalArgumentException("Cannot add this index to itself");
+      }
+      SegmentInfos sis=new SegmentInfos();
+      sis.read(dirs[i]);
+      for (int j=0; j < sis.size(); j++) {
+        SegmentInfo info=sis.info(j);
+        segmentInfos.addElement(info);
+        while (startUpperBound < info.docCount) {
+          startUpperBound*=mergeFactor;
+          if (startUpperBound > maxMergeDocs) {
+            throw new IllegalArgumentException("Upper bound cannot exceed maxMergeDocs");
+          }
+        }
+      }
+    }
+  }
+ catch (  IllegalArgumentException e) {
+    for (int i=segmentInfos.size() - 1; i >= start; i--) {
+      segmentInfos.remove(i);
+    }
+    throw e;
+  }
+  maybeMergeSegments(startUpperBound);
+  int segmentCount=segmentInfos.size();
+  int numTailSegments=0;
+  while (numTailSegments < segmentCount && startUpperBound >= segmentInfos.info(segmentCount - 1 - numTailSegments).docCount) {
+    numTailSegments++;
+  }
+  if (numTailSegments == 0) {
+    return;
+  }
+  if (checkNonDecreasingLevels(segmentCount - numTailSegments)) {
+    int numSegmentsToCopy=0;
+    while (numSegmentsToCopy < segmentCount && directory != segmentInfos.info(segmentCount - 1 - numSegmentsToCopy).dir) {
+      numSegmentsToCopy++;
+    }
+    if (numSegmentsToCopy == 0) {
+      return;
+    }
+    for (int i=segmentCount - numSegmentsToCopy; i < segmentCount; i++) {
+      mergeSegments(segmentInfos,i,i + 1);
+    }
+    if (checkNonDecreasingLevels(segmentCount - numSegmentsToCopy)) {
+      return;
+    }
+  }
+  mergeSegments(segmentInfos,segmentCount - numTailSegments,segmentCount);
+  if (segmentInfos.info(segmentInfos.size() - 1).docCount > startUpperBound) {
+    maybeMergeSegments(startUpperBound * mergeFactor);
+  }
+}
