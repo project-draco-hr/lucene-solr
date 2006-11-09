@@ -2,38 +2,48 @@
   addCommands.incrementAndGet();
   addCommandsCumulative.incrementAndGet();
   int rc=-1;
+  iwAccess.lock();
   try {
-    if (!cmd.allowDups && !cmd.overwritePending && !cmd.overwriteCommitted) {
-      throw new SolrException(400,"unsupported param combo:" + cmd);
+synchronized (this) {
+      if (!cmd.allowDups && !cmd.overwritePending && !cmd.overwriteCommitted) {
+        throw new SolrException(400,"unsupported param combo:" + cmd);
+      }
+ else       if (!cmd.allowDups && !cmd.overwritePending && cmd.overwriteCommitted) {
+        rc=addConditionally(cmd);
+      }
+ else       if (!cmd.allowDups && cmd.overwritePending && !cmd.overwriteCommitted) {
+        throw new SolrException(400,"unsupported param combo:" + cmd);
+      }
+ else       if (!cmd.allowDups && cmd.overwritePending && cmd.overwriteCommitted) {
+        rc=overwriteBoth(cmd);
+      }
+ else       if (cmd.allowDups && !cmd.overwritePending && !cmd.overwriteCommitted) {
+        rc=allowDups(cmd);
+      }
+ else       if (cmd.allowDups && !cmd.overwritePending && cmd.overwriteCommitted) {
+        throw new SolrException(400,"unsupported param combo:" + cmd);
+      }
+ else       if (cmd.allowDups && cmd.overwritePending && !cmd.overwriteCommitted) {
+        throw new SolrException(400,"unsupported param combo:" + cmd);
+      }
+ else       if (cmd.allowDups && cmd.overwritePending && cmd.overwriteCommitted) {
+        rc=overwriteBoth(cmd);
+      }
+      if (rc == -1)       throw new SolrException(400,"unsupported param combo:" + cmd);
+      if (rc == 1) {
+        closeSearcher();
+        openWriter();
+        tracker.increment(1);
+      }
+ else {
+        return rc;
+      }
     }
- else     if (!cmd.allowDups && !cmd.overwritePending && cmd.overwriteCommitted) {
-      rc=addConditionally(cmd);
-      return rc;
-    }
- else     if (!cmd.allowDups && cmd.overwritePending && !cmd.overwriteCommitted) {
-      throw new SolrException(400,"unsupported param combo:" + cmd);
-    }
- else     if (!cmd.allowDups && cmd.overwritePending && cmd.overwriteCommitted) {
-      rc=overwriteBoth(cmd);
-      return rc;
-    }
- else     if (cmd.allowDups && !cmd.overwritePending && !cmd.overwriteCommitted) {
-      rc=allowDups(cmd);
-      return rc;
-    }
- else     if (cmd.allowDups && !cmd.overwritePending && cmd.overwriteCommitted) {
-      throw new SolrException(400,"unsupported param combo:" + cmd);
-    }
- else     if (cmd.allowDups && cmd.overwritePending && !cmd.overwriteCommitted) {
-      throw new SolrException(400,"unsupported param combo:" + cmd);
-    }
- else     if (cmd.allowDups && cmd.overwritePending && cmd.overwriteCommitted) {
-      rc=overwriteBoth(cmd);
-      return rc;
-    }
-    throw new SolrException(400,"unsupported param combo:" + cmd);
+    assert(rc == 1);
+    writer.addDocument(cmd.doc);
   }
   finally {
+    iwAccess.unlock();
     if (rc != 1) {
       numErrors.incrementAndGet();
       numErrorsCumulative.incrementAndGet();
@@ -42,4 +52,6 @@
       numDocsPending.incrementAndGet();
     }
   }
+  checkCommit(true);
+  return rc;
 }
