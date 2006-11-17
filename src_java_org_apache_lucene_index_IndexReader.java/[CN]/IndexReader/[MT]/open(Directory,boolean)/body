@@ -1,17 +1,27 @@
 {
-synchronized (directory) {
-    return (IndexReader)new Lock.With(directory.makeLock(IndexWriter.COMMIT_LOCK_NAME),IndexWriter.COMMIT_LOCK_TIMEOUT){
-      public Object doBody() throws IOException {
-        SegmentInfos infos=new SegmentInfos();
-        infos.read(directory);
-        if (infos.size() == 1) {
-          return SegmentReader.get(infos,infos.info(0),closeDirectory);
-        }
+  return (IndexReader)new SegmentInfos.FindSegmentsFile(directory){
+    public Object doBody(    String segmentFileName) throws IOException {
+      SegmentInfos infos=new SegmentInfos();
+      infos.read(directory,segmentFileName);
+      if (infos.size() == 1) {
+        return SegmentReader.get(infos,infos.info(0),closeDirectory);
+      }
+ else {
         IndexReader[] readers=new IndexReader[infos.size()];
-        for (int i=0; i < infos.size(); i++)         readers[i]=SegmentReader.get(infos.info(i));
+        for (int i=infos.size() - 1; i >= 0; i--) {
+          try {
+            readers[i]=SegmentReader.get(infos.info(i));
+          }
+ catch (          IOException e) {
+            for (i++; i < infos.size(); i++) {
+              readers[i].close();
+            }
+            throw e;
+          }
+        }
         return new MultiReader(directory,infos,closeDirectory,readers);
       }
     }
-.run();
   }
+.run();
 }

@@ -12,29 +12,19 @@
   for (int i=0; i < readers.length; i++)   merger.add(readers[i]);
   int docCount=merger.merge();
   segmentInfos.setSize(0);
-  segmentInfos.addElement(new SegmentInfo(mergedName,docCount,directory));
+  SegmentInfo info=new SegmentInfo(mergedName,docCount,directory,false);
+  segmentInfos.addElement(info);
   if (sReader != null)   sReader.close();
-synchronized (directory) {
-    new Lock.With(directory.makeLock(COMMIT_LOCK_NAME),commitLockTimeout){
-      public Object doBody() throws IOException {
-        segmentInfos.write(directory);
-        return null;
-      }
-    }
-.run();
-  }
-  deleteSegments(segmentsToDelete);
+  String segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
+  segmentInfos.write(directory);
+  deleter.deleteFile(segmentsInfosFileName);
+  deleter.deleteSegments(segmentsToDelete);
   if (useCompoundFile) {
-    final Vector filesToDelete=merger.createCompoundFile(mergedName + ".tmp");
-synchronized (directory) {
-      new Lock.With(directory.makeLock(COMMIT_LOCK_NAME),commitLockTimeout){
-        public Object doBody() throws IOException {
-          directory.renameFile(mergedName + ".tmp",mergedName + ".cfs");
-          return null;
-        }
-      }
-.run();
-    }
-    deleteFiles(filesToDelete);
+    Vector filesToDelete=merger.createCompoundFile(mergedName + ".cfs");
+    segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
+    info.setUseCompoundFile(true);
+    segmentInfos.write(directory);
+    deleter.deleteFile(segmentsInfosFileName);
+    deleter.deleteFiles(filesToDelete);
   }
 }

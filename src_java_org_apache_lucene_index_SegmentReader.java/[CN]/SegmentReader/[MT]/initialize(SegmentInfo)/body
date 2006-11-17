@@ -1,18 +1,30 @@
 {
   segment=si.name;
-  Directory cfsDir=directory();
-  if (directory().fileExists(segment + ".cfs")) {
-    cfsReader=new CompoundFileReader(directory(),segment + ".cfs");
-    cfsDir=cfsReader;
+  this.si=si;
+  boolean success=false;
+  try {
+    Directory cfsDir=directory();
+    if (si.getUseCompoundFile()) {
+      cfsReader=new CompoundFileReader(directory(),segment + ".cfs");
+      cfsDir=cfsReader;
+    }
+    fieldInfos=new FieldInfos(cfsDir,segment + ".fnm");
+    fieldsReader=new FieldsReader(cfsDir,segment,fieldInfos);
+    tis=new TermInfosReader(cfsDir,segment,fieldInfos);
+    if (hasDeletions(si)) {
+      deletedDocs=new BitVector(directory(),si.getDelFileName());
+    }
+    freqStream=cfsDir.openInput(segment + ".frq");
+    proxStream=cfsDir.openInput(segment + ".prx");
+    openNorms(cfsDir);
+    if (fieldInfos.hasVectors()) {
+      termVectorsReaderOrig=new TermVectorsReader(cfsDir,segment,fieldInfos);
+    }
+    success=true;
   }
-  fieldInfos=new FieldInfos(cfsDir,segment + ".fnm");
-  fieldsReader=new FieldsReader(cfsDir,segment,fieldInfos);
-  tis=new TermInfosReader(cfsDir,segment,fieldInfos);
-  if (hasDeletions(si))   deletedDocs=new BitVector(directory(),segment + ".del");
-  freqStream=cfsDir.openInput(segment + ".frq");
-  proxStream=cfsDir.openInput(segment + ".prx");
-  openNorms(cfsDir);
-  if (fieldInfos.hasVectors()) {
-    termVectorsReaderOrig=new TermVectorsReader(cfsDir,segment,fieldInfos);
+  finally {
+    if (!success) {
+      doClose();
+    }
   }
 }

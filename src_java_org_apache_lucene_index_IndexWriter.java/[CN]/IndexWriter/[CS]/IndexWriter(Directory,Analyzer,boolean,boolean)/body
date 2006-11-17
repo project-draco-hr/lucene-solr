@@ -6,16 +6,22 @@
   if (!writeLock.obtain(writeLockTimeout))   throw new IOException("Index locked for write: " + writeLock);
   this.writeLock=writeLock;
   try {
-synchronized (directory) {
-      new Lock.With(directory.makeLock(IndexWriter.COMMIT_LOCK_NAME),commitLockTimeout){
-        public Object doBody() throws IOException {
-          if (create)           segmentInfos.write(directory);
- else           segmentInfos.read(directory);
-          return null;
-        }
+    if (create) {
+      try {
+        segmentInfos.read(directory);
+        segmentInfos.clear();
       }
-.run();
+ catch (      IOException e) {
+      }
+      segmentInfos.write(directory);
     }
+ else {
+      segmentInfos.read(directory);
+    }
+    deleter=new IndexFileDeleter(segmentInfos,directory);
+    deleter.setInfoStream(infoStream);
+    deleter.findDeletableFiles();
+    deleter.deleteFiles();
   }
  catch (  IOException e) {
     this.writeLock.release();
