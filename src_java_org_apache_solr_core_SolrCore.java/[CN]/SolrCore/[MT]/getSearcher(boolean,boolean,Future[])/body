@@ -53,10 +53,14 @@ synchronized (searcherLock) {
   final boolean[] decrementOnDeckCount=new boolean[1];
   decrementOnDeckCount[0]=true;
   try {
+    boolean alreadyRegistered=false;
 synchronized (searcherLock) {
       if (_searcher == null) {
-        registerSearcher(newSearchHolder);
-        decrementOnDeckCount[0]=false;
+        if (SolrConfig.config.getBool("query/useColdSearcher",false)) {
+          registerSearcher(newSearchHolder);
+          decrementOnDeckCount[0]=false;
+          alreadyRegistered=true;
+        }
       }
  else {
         currSearcherHolder=_searcher;
@@ -112,9 +116,8 @@ synchronized (searcherLock) {
 );
     }
     final RefCounted<SolrIndexSearcher> currSearcherHolderF=currSearcherHolder;
-    Future finalFuture=null;
-    if (currSearcherHolder != null) {
-      finalFuture=searcherExecutor.submit(new Callable(){
+    if (!alreadyRegistered) {
+      future=searcherExecutor.submit(new Callable(){
         public Object call() throws Exception {
           try {
             decrementOnDeckCount[0]=false;
@@ -124,7 +127,7 @@ synchronized (searcherLock) {
             SolrException.logOnce(log,null,e);
           }
  finally {
-            currSearcherHolderF.decref();
+            if (currSearcherHolderF != null)             currSearcherHolderF.decref();
           }
           return null;
         }
@@ -132,7 +135,7 @@ synchronized (searcherLock) {
 );
     }
     if (waitSearcher != null) {
-      waitSearcher[0]=finalFuture;
+      waitSearcher[0]=future;
     }
     return returnSearcher ? newSearchHolder : null;
   }
