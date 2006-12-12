@@ -1,28 +1,21 @@
 {
   if (clauses.size() == 1)   return ((SpanQuery)clauses.get(0)).getSpans(reader);
   return new Spans(){
-    private List all=new ArrayList(clauses.size());
-    private SpanQueue queue=new SpanQueue(clauses.size());
-{
+    private SpanQueue queue=null;
+    private boolean initSpanQueue(    int target) throws IOException {
+      queue=new SpanQueue(clauses.size());
       Iterator i=clauses.iterator();
       while (i.hasNext()) {
-        all.add(((SpanQuery)i.next()).getSpans(reader));
-      }
-    }
-    private boolean firstTime=true;
-    public boolean next() throws IOException {
-      if (firstTime) {
-        for (int i=0; i < all.size(); i++) {
-          Spans spans=(Spans)all.get(i);
-          if (spans.next()) {
-            queue.put(spans);
-          }
- else {
-            all.remove(i--);
-          }
+        Spans spans=((SpanQuery)i.next()).getSpans(reader);
+        if (((target == -1) && spans.next()) || ((target != -1) && spans.skipTo(target))) {
+          queue.put(spans);
         }
-        firstTime=false;
-        return queue.size() != 0;
+      }
+      return queue.size() != 0;
+    }
+    public boolean next() throws IOException {
+      if (queue == null) {
+        return initSpanQueue(-1);
       }
       if (queue.size() == 0) {
         return false;
@@ -31,33 +24,22 @@
         queue.adjustTop();
         return true;
       }
-      all.remove(queue.pop());
+      queue.pop();
       return queue.size() != 0;
     }
     private Spans top(){
       return (Spans)queue.top();
     }
     public boolean skipTo(    int target) throws IOException {
-      if (firstTime) {
-        for (int i=0; i < all.size(); i++) {
-          Spans spans=(Spans)all.get(i);
-          if (spans.skipTo(target)) {
-            queue.put(spans);
-          }
- else {
-            all.remove(i--);
-          }
-        }
-        firstTime=false;
+      if (queue == null) {
+        return initSpanQueue(target);
       }
+      while (queue.size() != 0 && top().doc() < target) {
+        if (top().skipTo(target)) {
+          queue.adjustTop();
+        }
  else {
-        while (queue.size() != 0 && top().doc() < target) {
-          if (top().skipTo(target)) {
-            queue.adjustTop();
-          }
- else {
-            all.remove(queue.pop());
-          }
+          queue.pop();
         }
       }
       return queue.size() != 0;
@@ -72,7 +54,7 @@
       return top().end();
     }
     public String toString(){
-      return "spans(" + SpanOrQuery.this + ")@"+ (firstTime ? "START" : (queue.size() > 0 ? (doc() + ":" + start()+ "-"+ end()) : "END"));
+      return "spans(" + SpanOrQuery.this + ")@"+ ((queue == null) ? "START" : (queue.size() > 0 ? (doc() + ":" + start()+ "-"+ end()) : "END"));
     }
   }
 ;
