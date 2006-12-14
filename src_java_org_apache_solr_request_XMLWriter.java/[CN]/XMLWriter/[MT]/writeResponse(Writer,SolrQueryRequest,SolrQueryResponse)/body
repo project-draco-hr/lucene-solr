@@ -1,5 +1,4 @@
 {
-  int qtime=(int)(rsp.getEndTime() - req.getStartTime());
   String ver=req.getParam("version");
   writer.write(XML_START1);
   String stylesheet=req.getParam("stylesheet");
@@ -11,11 +10,6 @@
   String noSchema=req.getParam("noSchema");
   if (false && noSchema == null)   writer.write(XML_START2_SCHEMA);
  else   writer.write(XML_START2_NOSCHEMA);
-  writer.write("<responseHeader><status>");
-  writer.write('0');
-  writer.write("</status><QTime>");
-  writer.write(Integer.toString((int)qtime));
-  writer.write("</QTime></responseHeader>\n");
   XMLWriter xw=new XMLWriter(writer,req.getSchema(),req.getSearcher(),ver);
   xw.defaultFieldList=rsp.getReturnFields();
   String indent=req.getParam("indent");
@@ -29,7 +23,29 @@
   }
   NamedList lst=rsp.getValues();
   int sz=lst.size();
-  for (int i=0; i < sz; i++) {
+  int start=0;
+  if (xw.version <= 2100 && sz > 0) {
+    Object header=lst.getVal(0);
+    if (header instanceof NamedList && "responseHeader".equals(lst.getName(0))) {
+      writer.write("<responseHeader>");
+      xw.incLevel();
+      NamedList nl=(NamedList)header;
+      for (int i=0; i < nl.size(); i++) {
+        String name=nl.getName(i);
+        Object val=nl.getVal(i);
+        if ("status".equals(name) || "QTime".equals(name)) {
+          xw.writePrim(name,null,val.toString(),false);
+        }
+ else {
+          xw.writeVal(name,val);
+        }
+      }
+      xw.decLevel();
+      writer.write("</responseHeader>");
+      start=1;
+    }
+  }
+  for (int i=start; i < sz; i++) {
     xw.writeVal(lst.getName(i),lst.getVal(i));
   }
   writer.write("\n</response>\n");
