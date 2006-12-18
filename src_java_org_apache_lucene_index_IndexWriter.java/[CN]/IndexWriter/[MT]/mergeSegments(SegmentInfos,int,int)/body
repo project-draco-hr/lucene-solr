@@ -3,37 +3,100 @@
   if (infoStream != null)   infoStream.print("merging segments");
   SegmentMerger merger=new SegmentMerger(this,mergedName);
   final Vector segmentsToDelete=new Vector();
-  for (int i=minSegment; i < end; i++) {
-    SegmentInfo si=sourceSegments.info(i);
-    if (infoStream != null)     infoStream.print(" " + si.name + " ("+ si.docCount+ " docs)");
-    IndexReader reader=SegmentReader.get(si);
-    merger.add(reader);
-    if ((reader.directory() == this.directory) || (reader.directory() == this.ramDirectory))     segmentsToDelete.addElement(reader);
+  String segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
+  String nextSegmentsFileName=segmentInfos.getNextSegmentFileName();
+  SegmentInfo newSegment=null;
+  int mergedDocCount;
+  try {
+    for (int i=minSegment; i < end; i++) {
+      SegmentInfo si=sourceSegments.info(i);
+      if (infoStream != null)       infoStream.print(" " + si.name + " ("+ si.docCount+ " docs)");
+      IndexReader reader=SegmentReader.get(si);
+      merger.add(reader);
+      if ((reader.directory() == this.directory) || (reader.directory() == this.ramDirectory))       segmentsToDelete.addElement(reader);
+    }
+    SegmentInfos rollback=null;
+    boolean success=false;
+    try {
+      mergedDocCount=merger.merge();
+      if (infoStream != null) {
+        infoStream.println(" into " + mergedName + " ("+ mergedDocCount+ " docs)");
+      }
+      newSegment=new SegmentInfo(mergedName,mergedDocCount,directory,false);
+      if (sourceSegments == ramSegmentInfos) {
+        segmentInfos.addElement(newSegment);
+      }
+ else {
+        if (!inTransaction) {
+          rollback=(SegmentInfos)segmentInfos.clone();
+        }
+        for (int i=end - 1; i > minSegment; i--)         sourceSegments.remove(i);
+        segmentInfos.set(minSegment,newSegment);
+      }
+      if (!inTransaction) {
+        segmentInfos.write(directory);
+      }
+ else {
+        commitPending=true;
+      }
+      success=true;
+    }
+  finally {
+      if (success) {
+        if (sourceSegments == ramSegmentInfos) {
+          ramSegmentInfos.removeAllElements();
+        }
+      }
+ else       if (!inTransaction) {
+        if (sourceSegments == ramSegmentInfos) {
+          if (newSegment != null && segmentInfos.size() > 0 && segmentInfos.info(segmentInfos.size() - 1) == newSegment) {
+            segmentInfos.remove(segmentInfos.size() - 1);
+          }
+        }
+ else         if (rollback != null) {
+          segmentInfos.clear();
+          segmentInfos.addAll(rollback);
+        }
+        deleter.deleteFile(nextSegmentsFileName);
+        deleter.findDeletableFiles();
+        deleter.deleteFiles();
+      }
+    }
   }
-  int mergedDocCount=merger.merge();
-  if (infoStream != null) {
-    infoStream.println(" into " + mergedName + " ("+ mergedDocCount+ " docs)");
+  finally {
+    merger.closeReaders();
   }
-  SegmentInfo newSegment=new SegmentInfo(mergedName,mergedDocCount,directory,false);
-  if (sourceSegments == ramSegmentInfos) {
-    sourceSegments.removeAllElements();
-    segmentInfos.addElement(newSegment);
+  if (!inTransaction) {
+    deleter.deleteFile(segmentsInfosFileName);
+    deleter.deleteSegments(segmentsToDelete);
   }
  else {
-    for (int i=end - 1; i > minSegment; i--)     sourceSegments.remove(i);
-    segmentInfos.set(minSegment,newSegment);
+    deleter.addPendingFile(segmentsInfosFileName);
+    deleter.deleteSegments(segmentsToDelete,protectedSegments);
   }
-  merger.closeReaders();
-  String segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
-  segmentInfos.write(directory);
-  deleter.deleteFile(segmentsInfosFileName);
-  deleter.deleteSegments(segmentsToDelete);
   if (useCompoundFile) {
-    Vector filesToDelete=merger.createCompoundFile(mergedName + ".cfs");
-    segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
-    newSegment.setUseCompoundFile(true);
-    segmentInfos.write(directory);
-    deleter.deleteFile(segmentsInfosFileName);
+    segmentsInfosFileName=nextSegmentsFileName;
+    nextSegmentsFileName=segmentInfos.getNextSegmentFileName();
+    Vector filesToDelete;
+    boolean success=false;
+    try {
+      filesToDelete=merger.createCompoundFile(mergedName + ".cfs");
+      newSegment.setUseCompoundFile(true);
+      if (!inTransaction) {
+        segmentInfos.write(directory);
+      }
+      success=true;
+    }
+  finally {
+      if (!success && !inTransaction) {
+        newSegment.setUseCompoundFile(false);
+        deleter.deleteFile(mergedName + ".cfs");
+        deleter.deleteFile(nextSegmentsFileName);
+      }
+    }
+    if (!inTransaction) {
+      deleter.deleteFile(segmentsInfosFileName);
+    }
     deleter.deleteFiles(filesToDelete);
   }
   return mergedDocCount;

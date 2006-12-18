@@ -6,12 +6,26 @@
     }
     if (directoryOwner) {
       deleter.clearPendingFiles();
-      doCommit();
       String oldInfoFileName=segmentInfos.getCurrentSegmentFileName();
-      segmentInfos.write(directory);
+      String nextSegmentsFileName=segmentInfos.getNextSegmentFileName();
+      startCommit();
+      boolean success=false;
+      try {
+        doCommit();
+        segmentInfos.write(directory);
+        success=true;
+      }
+  finally {
+        if (!success) {
+          rollbackCommit();
+          deleter.clearPendingFiles();
+          deleter.deleteFile(nextSegmentsFileName);
+          deleter.findDeletableFiles();
+          deleter.deleteFiles();
+        }
+      }
       deleter.deleteFile(oldInfoFileName);
       deleter.commitPendingFiles();
-      deleter.deleteFiles();
       if (writeLock != null) {
         writeLock.release();
         writeLock=null;

@@ -1,17 +1,32 @@
 {
   optimize();
   int start=segmentInfos.size();
-  for (int i=0; i < dirs.length; i++) {
-    SegmentInfos sis=new SegmentInfos();
-    sis.read(dirs[i]);
-    for (int j=0; j < sis.size(); j++) {
-      segmentInfos.addElement(sis.info(j));
+  boolean success=false;
+  startTransaction();
+  try {
+    for (int i=0; i < dirs.length; i++) {
+      SegmentInfos sis=new SegmentInfos();
+      sis.read(dirs[i]);
+      for (int j=0; j < sis.size(); j++) {
+        segmentInfos.addElement(sis.info(j));
+      }
     }
+    while (segmentInfos.size() > start + mergeFactor) {
+      for (int base=start; base < segmentInfos.size(); base++) {
+        int end=Math.min(segmentInfos.size(),base + mergeFactor);
+        if (end - base > 1) {
+          mergeSegments(segmentInfos,base,end);
+        }
+      }
+    }
+    success=true;
   }
-  while (segmentInfos.size() > start + mergeFactor) {
-    for (int base=start; base < segmentInfos.size(); base++) {
-      int end=Math.min(segmentInfos.size(),base + mergeFactor);
-      if (end - base > 1)       mergeSegments(segmentInfos,base,end);
+  finally {
+    if (success) {
+      commitTransaction();
+    }
+ else {
+      rollbackTransaction();
     }
   }
   optimize();
