@@ -1,68 +1,46 @@
 {
   if (sortSpec == null || sortSpec.length() == 0)   return null;
-  String[] parts=sortSeparator.split(sortSpec.trim(),0);
+  String[] parts=sortSep.split(sortSpec.trim());
   if (parts.length == 0)   return null;
-  ArrayList<SortField> lst=new ArrayList<SortField>();
-  int num=-1;
-  int pos=0;
-  String fn;
-  boolean top=true;
-  boolean normalSortOnScore=false;
-  while (pos < parts.length) {
-    String str=parts[pos];
-    if ("top".equals(str) || "bottom".equals(str) || "asc".equals(str)|| "desc".equals(str)) {
-      fn="score";
+  SortField[] lst=new SortField[parts.length];
+  for (int i=0; i < parts.length; i++) {
+    String part=parts[i].trim();
+    boolean top=true;
+    int idx=part.indexOf(' ');
+    if (idx > 0) {
+      String order=part.substring(idx + 1).trim();
+      if ("desc".equals(order) || "top".equals(order)) {
+        top=true;
+      }
+ else       if ("asc".equals(order) || "bottom".equals(order)) {
+        top=false;
+      }
+ else {
+        throw new SolrException(400,"Unknown sort order: " + order);
+      }
+      part=part.substring(0,idx).trim();
     }
  else {
-      fn=str;
-      pos++;
+      throw new SolrException(400,"Missing sort order.");
     }
-    str=parts[pos];
-    if ("top".equals(str) || "desc".equals(str)) {
-      top=true;
-    }
- else     if ("bottom".equals(str) || "asc".equals(str)) {
-      top=false;
-    }
- else {
-      return null;
-    }
-    if ("score".equals(fn)) {
+    if ("score".equals(part)) {
       if (top) {
-        normalSortOnScore=true;
-        lst.add(SortField.FIELD_SCORE);
+        if (parts.length == 1) {
+          return null;
+        }
+        lst[i]=SortField.FIELD_SCORE;
       }
  else {
-        lst.add(new SortField(null,SortField.SCORE,true));
+        lst[i]=new SortField(null,SortField.SCORE,true);
       }
     }
  else {
-      try {
-        SchemaField f=schema.getField(fn);
-        if (f == null || !f.indexed())         return null;
-        lst.add(f.getType().getSortField(f,top));
+      SchemaField f=schema.getField(part);
+      if (f == null || !f.indexed()) {
+        throw new SolrException(400,"can not sort on unindexed field: " + part);
       }
- catch (      Exception e) {
-        return null;
-      }
-    }
-    pos++;
-    if (pos + 1 == parts.length) {
-      try {
-        num=Integer.parseInt(parts[pos]);
-      }
- catch (      Exception e) {
-        return null;
-      }
-      pos++;
+      lst[i]=f.getType().getSortField(f,top);
     }
   }
-  Sort sort;
-  if (normalSortOnScore && lst.size() == 1) {
-    sort=null;
-  }
- else {
-    sort=new Sort((SortField[])lst.toArray(new SortField[lst.size()]));
-  }
-  return new SortSpec(sort,num);
+  return new SortSpec(new Sort(lst),-1);
 }
