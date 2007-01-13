@@ -1,0 +1,44 @@
+{
+  int res=0;
+  boolean closeReader=false;
+  IndexReader ir=getRunData().getIndexReader();
+  if (ir == null) {
+    Directory dir=getRunData().getDirectory();
+    ir=IndexReader.open(dir);
+    closeReader=true;
+  }
+  if (withWarm()) {
+    Document doc=null;
+    for (int m=0; m < ir.maxDoc(); m++) {
+      if (!ir.isDeleted(m)) {
+        doc=ir.document(m);
+        res+=(doc == null ? 0 : 1);
+      }
+    }
+  }
+  if (withSearch()) {
+    res++;
+    IndexSearcher searcher=new IndexSearcher(ir);
+    QueryMaker queryMaker=getQueryMaker();
+    Query q=queryMaker.makeQuery();
+    Hits hits=searcher.search(q);
+    if (withTraverse()) {
+      Document doc=null;
+      if (hits != null && hits.length() > 0) {
+        for (int m=0; m < hits.length(); m++) {
+          int id=hits.id(m);
+          res++;
+          if (withRetrieve()) {
+            doc=ir.document(id);
+            res+=(doc == null ? 0 : 1);
+          }
+        }
+      }
+    }
+    searcher.close();
+  }
+  if (closeReader) {
+    ir.close();
+  }
+  return res;
+}
