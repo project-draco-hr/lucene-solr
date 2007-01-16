@@ -1,0 +1,44 @@
+{
+  FieldCache.StringIndex si=FieldCache.DEFAULT.getStringIndex(searcher.getReader(),fieldName);
+  final int[] count=new int[si.lookup.length];
+  DocIterator iter=docs.iterator();
+  while (iter.hasNext()) {
+    count[si.order[iter.nextDoc()]]++;
+  }
+  FieldType ft=searcher.getSchema().getFieldType(fieldName);
+  NamedList res=new NamedList();
+  int off=offset;
+  int lim=limit >= 0 ? limit : Integer.MAX_VALUE;
+  if (sort) {
+    int maxsize=limit > 0 ? offset + limit : Integer.MAX_VALUE - 1;
+    final BoundedTreeSet<CountPair<String,Integer>> queue=new BoundedTreeSet<CountPair<String,Integer>>(maxsize);
+    int min=mincount - 1;
+    for (int i=1; i < count.length; i++) {
+      int c=count[i];
+      if (c > min) {
+        queue.add(new CountPair<String,Integer>(ft.indexedToReadable(si.lookup[i]),c));
+        if (queue.size() >= maxsize)         min=queue.last().val;
+      }
+    }
+    for (    CountPair<String,Integer> p : queue) {
+      if (--off >= 0)       continue;
+      if (--lim < 0)       break;
+      res.add(p.key,p.val);
+    }
+  }
+ else   if (mincount <= 0) {
+    for (int i=offset + 1; i < offset + 1 + limit; i++) {
+      res.add(ft.indexedToReadable(si.lookup[i]),count[i]);
+    }
+  }
+ else {
+    for (int i=1; i < count.length; i++) {
+      int c=count[i];
+      if (c < mincount || --off >= 0)       continue;
+      if (--lim < 0)       break;
+      res.add(ft.indexedToReadable(si.lookup[i]),c);
+    }
+  }
+  if (missing)   res.add(null,count[0]);
+  return res;
+}

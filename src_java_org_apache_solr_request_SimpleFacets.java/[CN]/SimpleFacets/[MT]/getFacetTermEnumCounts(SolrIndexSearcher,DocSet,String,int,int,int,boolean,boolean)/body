@@ -1,0 +1,44 @@
+{
+  IndexSchema schema=searcher.getSchema();
+  IndexReader r=searcher.getReader();
+  FieldType ft=schema.getFieldType(field);
+  final int maxsize=limit >= 0 ? offset + limit : Integer.MAX_VALUE - 1;
+  final BoundedTreeSet<CountPair<String,Integer>> queue=sort ? new BoundedTreeSet<CountPair<String,Integer>>(maxsize) : null;
+  final NamedList res=new NamedList();
+  int min=mincount - 1;
+  int off=offset;
+  int lim=limit >= 0 ? limit : Integer.MAX_VALUE;
+  TermEnum te=r.terms(new Term(field,""));
+  do {
+    Term t=te.term();
+    if (null == t || !t.field().equals(field))     break;
+    int df=te.docFreq();
+    if (df > 0) {
+      int c=searcher.numDocs(new TermQuery(t),docs);
+      if (sort) {
+        if (c > min) {
+          queue.add(new CountPair<String,Integer>(t.text(),c));
+          if (queue.size() >= maxsize)           min=queue.last().val;
+        }
+      }
+ else {
+        if (c >= mincount && --off < 0) {
+          if (--lim < 0)           break;
+          res.add(ft.indexedToReadable(t.text()),c);
+        }
+      }
+    }
+  }
+ while (te.next());
+  if (sort) {
+    for (    CountPair<String,Integer> p : queue) {
+      if (--off >= 0)       continue;
+      if (--lim < 0)       break;
+      res.add(ft.indexedToReadable(p.key),p.val);
+    }
+  }
+  if (missing) {
+    res.add(null,getFieldMissingCount(searcher,docs,field));
+  }
+  return res;
+}
