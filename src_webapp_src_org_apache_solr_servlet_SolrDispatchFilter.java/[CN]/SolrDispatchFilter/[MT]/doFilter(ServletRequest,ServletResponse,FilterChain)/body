@@ -1,0 +1,35 @@
+{
+  if (request instanceof HttpServletRequest) {
+    HttpServletRequest req=(HttpServletRequest)request;
+    try {
+      String path=req.getServletPath();
+      if (req.getPathInfo() != null) {
+        path+=req.getPathInfo();
+      }
+      int idx=path.indexOf(':');
+      if (idx > 0) {
+        path=path.substring(0,idx);
+      }
+      SolrRequestHandler handler=core.getRequestHandler(path);
+      if (handler != null) {
+        SolrQueryRequest solrReq=parsers.parse(path,req);
+        SolrQueryResponse solrRsp=new SolrQueryResponse();
+        core.execute(handler,solrReq,solrRsp);
+        if (solrRsp.getException() != null) {
+          sendError((HttpServletResponse)response,solrRsp.getException());
+          return;
+        }
+        QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
+        response.setContentType(responseWriter.getContentType(solrReq,solrRsp));
+        PrintWriter out=response.getWriter();
+        responseWriter.write(out,solrReq,solrRsp);
+        return;
+      }
+    }
+ catch (    Throwable ex) {
+      sendError((HttpServletResponse)response,ex);
+      return;
+    }
+  }
+  chain.doFilter(request,response);
+}

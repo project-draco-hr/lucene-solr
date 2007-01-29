@@ -1,0 +1,142 @@
+{
+  SolrCore core=SolrCore.getSolrCore();
+  IndexSchema schema=core.getSchema();
+  UpdateHandler updateHandler=core.getUpdateHandler();
+  NamedList res=new NamedList();
+  XmlPullParser xpp=factory.newPullParser();
+  long startTime=System.currentTimeMillis();
+  xpp.setInput(reader);
+  xpp.nextTag();
+  String currTag=xpp.getName();
+  if ("add".equals(currTag)) {
+    log.finest("SolrCore.update(add)");
+    AddUpdateCommand cmd=new AddUpdateCommand();
+    cmd.allowDups=false;
+    int status=0;
+    boolean pendingAttr=false, committedAttr=false;
+    int attrcount=xpp.getAttributeCount();
+    for (int i=0; i < attrcount; i++) {
+      String attrName=xpp.getAttributeName(i);
+      String attrVal=xpp.getAttributeValue(i);
+      if ("allowDups".equals(attrName)) {
+        cmd.allowDups=StrUtils.parseBoolean(attrVal);
+      }
+ else       if ("overwritePending".equals(attrName)) {
+        cmd.overwritePending=StrUtils.parseBoolean(attrVal);
+        pendingAttr=true;
+      }
+ else       if ("overwriteCommitted".equals(attrName)) {
+        cmd.overwriteCommitted=StrUtils.parseBoolean(attrVal);
+        committedAttr=true;
+      }
+ else {
+        log.warning("Unknown attribute id in add:" + attrName);
+      }
+    }
+    if (!pendingAttr)     cmd.overwritePending=!cmd.allowDups;
+    if (!committedAttr)     cmd.overwriteCommitted=!cmd.allowDups;
+    DocumentBuilder builder=new DocumentBuilder(schema);
+    SchemaField uniqueKeyField=schema.getUniqueKeyField();
+    int eventType=0;
+    List<String> added=new ArrayList<String>(10);
+    while (true) {
+      cmd.indexedId=null;
+      if (eventType != 0) {
+        eventType=xpp.getEventType();
+        if (eventType == XmlPullParser.END_DOCUMENT)         break;
+      }
+      eventType=xpp.nextTag();
+      if (eventType == XmlPullParser.END_TAG || eventType == XmlPullParser.END_DOCUMENT)       break;
+      readDoc(builder,xpp);
+      builder.endDoc();
+      cmd.doc=builder.getDoc();
+      log.finest("adding doc...");
+      updateHandler.addDoc(cmd);
+      String docId=null;
+      if (uniqueKeyField != null)       docId=schema.printableUniqueKey(cmd.doc);
+      added.add(docId);
+    }
+    StringBuilder out=new StringBuilder();
+    for (    String docId : added)     if (docId != null)     out.append(docId + ",");
+    String outMsg=out.toString();
+    if (outMsg.length() > 0)     outMsg=outMsg.substring(0,outMsg.length() - 1);
+    log.info("added id={" + outMsg + "} in "+ (System.currentTimeMillis() - startTime)+ "ms");
+    res.add("added",outMsg);
+  }
+ else   if ("commit".equals(currTag) || "optimize".equals(currTag)) {
+    log.finest("parsing " + currTag);
+    CommitUpdateCommand cmd=new CommitUpdateCommand("optimize".equals(currTag));
+    boolean sawWaitSearcher=false, sawWaitFlush=false;
+    int attrcount=xpp.getAttributeCount();
+    for (int i=0; i < attrcount; i++) {
+      String attrName=xpp.getAttributeName(i);
+      String attrVal=xpp.getAttributeValue(i);
+      if ("waitFlush".equals(attrName)) {
+        cmd.waitFlush=StrUtils.parseBoolean(attrVal);
+        sawWaitFlush=true;
+      }
+ else       if ("waitSearcher".equals(attrName)) {
+        cmd.waitSearcher=StrUtils.parseBoolean(attrVal);
+        sawWaitSearcher=true;
+      }
+ else {
+        log.warning("unexpected attribute commit/@" + attrName);
+      }
+    }
+    if (sawWaitFlush && !sawWaitSearcher) {
+      cmd.waitSearcher=false;
+    }
+    updateHandler.commit(cmd);
+    if ("optimize".equals(currTag)) {
+      log.info("optimize 0 " + (System.currentTimeMillis() - startTime));
+    }
+ else {
+      log.info("commit 0 " + (System.currentTimeMillis() - startTime));
+    }
+    while (true) {
+      int eventType=xpp.nextTag();
+      if (eventType == XmlPullParser.END_TAG)       break;
+    }
+    res.add(cmd.optimize ? "optimize" : "commit","");
+  }
+ else   if ("delete".equals(currTag)) {
+    log.finest("parsing delete");
+    DeleteUpdateCommand cmd=new DeleteUpdateCommand();
+    cmd.fromPending=true;
+    cmd.fromCommitted=true;
+    int attrcount=xpp.getAttributeCount();
+    for (int i=0; i < attrcount; i++) {
+      String attrName=xpp.getAttributeName(i);
+      String attrVal=xpp.getAttributeValue(i);
+      if ("fromPending".equals(attrName)) {
+        cmd.fromPending=StrUtils.parseBoolean(attrVal);
+      }
+ else       if ("fromCommitted".equals(attrName)) {
+        cmd.fromCommitted=StrUtils.parseBoolean(attrVal);
+      }
+ else {
+        log.warning("unexpected attribute delete/@" + attrName);
+      }
+    }
+    int eventType=xpp.nextTag();
+    currTag=xpp.getName();
+    String val=xpp.nextText();
+    if ("id".equals(currTag)) {
+      cmd.id=val;
+      updateHandler.delete(cmd);
+      log.info("delete(id " + val + ") 0 "+ (System.currentTimeMillis() - startTime));
+    }
+ else     if ("query".equals(currTag)) {
+      cmd.query=val;
+      updateHandler.deleteByQuery(cmd);
+      log.info("deleteByQuery(query " + val + ") 0 "+ (System.currentTimeMillis() - startTime));
+    }
+ else {
+      log.warning("unexpected XML tag /delete/" + currTag);
+      throw new SolrException(400,"unexpected XML tag /delete/" + currTag);
+    }
+    res.add("delete","");
+    while (xpp.nextTag() != XmlPullParser.END_TAG)     ;
+  }
+  return res;
+}

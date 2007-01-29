@@ -1,0 +1,55 @@
+{
+  SolrParams p=req.getParams();
+  String sreq=p.get(Q);
+  String defaultField=p.get(DF);
+  String fl=p.get(SolrParams.FL);
+  int flags=0;
+  if (fl != null) {
+    flags|=U.setReturnFields(fl,rsp);
+  }
+  if (sreq == null)   throw new SolrException(400,"Missing queryString");
+  List<String> commands=StrUtils.splitSmart(sreq,';');
+  String qs=commands.size() >= 1 ? commands.get(0) : "";
+  Query query=QueryParsing.parseQuery(qs,defaultField,p,req.getSchema());
+  Sort sort=null;
+  if (commands.size() >= 2) {
+    QueryParsing.SortSpec sortSpec=QueryParsing.parseSort(commands.get(1),req.getSchema());
+    if (sortSpec != null) {
+      sort=sortSpec.getSort();
+    }
+  }
+  DocListAndSet results=new DocListAndSet();
+  NamedList facetInfo=null;
+  List<Query> filters=U.parseFilterQueries(req);
+  SolrIndexSearcher s=req.getSearcher();
+  if (p.getBool(FACET,false)) {
+    results=s.getDocListAndSet(query,filters,sort,p.getInt(START,0),p.getInt(ROWS,10),flags);
+    facetInfo=getFacetInfo(req,rsp,results.docSet);
+  }
+ else {
+    results.docList=s.getDocList(query,filters,sort,p.getInt(START,0),p.getInt(ROWS,10),flags);
+  }
+  U.optimizePreFetchDocs(results.docList,query,req,rsp);
+  rsp.add("response",results.docList);
+  if (null != facetInfo)   rsp.add("facet_counts",facetInfo);
+  try {
+    NamedList dbg=U.doStandardDebug(req,qs,query,results.docList);
+    if (null != dbg) {
+      if (null != filters) {
+        dbg.add("filter_queries",req.getParams().getParams(FQ));
+        List<String> fqs=new ArrayList<String>(filters.size());
+        for (        Query fq : filters) {
+          fqs.add(QueryParsing.toString(fq,req.getSchema()));
+        }
+        dbg.add("parsed_filter_queries",fqs);
+      }
+      rsp.add("debug",dbg);
+    }
+  }
+ catch (  Exception e) {
+    SolrException.logOnce(SolrCore.log,"Exception during debug",e);
+    rsp.add("exception_during_debug",SolrException.toStr(e));
+  }
+  NamedList sumData=HighlightingUtils.doHighlighting(results.docList,query,req,new String[]{defaultField});
+  if (sumData != null)   rsp.add("highlighting",sumData);
+}
