@@ -1,0 +1,28 @@
+{
+  DirectUpdateHandler2 updater=(DirectUpdateHandler2)SolrCore.getSolrCore().getUpdateHandler();
+  DirectUpdateHandler2.CommitTracker tracker=updater.tracker;
+  tracker.timeUpperBound=500;
+  tracker.docsUpperBound=-1;
+  XmlUpdateRequestHandler handler=new XmlUpdateRequestHandler();
+  handler.init(null);
+  SolrCore core=SolrCore.getSolrCore();
+  MapSolrParams params=new MapSolrParams(new HashMap<String,String>());
+  SolrQueryResponse rsp=new SolrQueryResponse();
+  SolrQueryRequestBase req=new SolrQueryRequestBase(core,params){
+  }
+;
+  req.setContentStreams(toContentStreams(adoc("id","529","field_t","what's inside?","subject","info"),null));
+  handler.handleRequest(req,rsp);
+  assertQ("shouldn't find any",req("id:529"),"//result[@numFound=0]");
+  Thread.sleep(1000);
+  assertQ("should find one",req("id:529"),"//result[@numFound=1]");
+  req.setContentStreams(toContentStreams(adoc("id","500"),null));
+  for (int i=0; i < 10; i++) {
+    handler.handleRequest(req,rsp);
+  }
+  assertQ("should not be there yet",req("id:500"),"//result[@numFound=0]");
+  assertEquals(1,tracker.autoCommitCount);
+  Thread.sleep(1000);
+  assertQ("now it should",req("id:500"),"//result[@numFound=1]");
+  assertEquals(2,tracker.autoCommitCount);
+}
