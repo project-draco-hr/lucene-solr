@@ -6,15 +6,31 @@
       if (req.getPathInfo() != null) {
         path+=req.getPathInfo();
       }
+      if (pathPrefix != null && path.startsWith(pathPrefix)) {
+        path=path.substring(pathPrefix.length());
+      }
       int idx=path.indexOf(':');
       if (idx > 0) {
         path=path.substring(0,idx);
       }
+      SolrQueryRequest solrReq=null;
       SolrRequestHandler handler=core.getRequestHandler(path);
+      if (handler == null && handleSelect) {
+        if ("/select".equals(path) || "/select/".equals(path)) {
+          solrReq=parsers.parse(path,req);
+          String qt=solrReq.getParams().get(SolrParams.QT);
+          handler=core.getRequestHandler(qt);
+          if (handler == null) {
+            throw new SolrException(400,"unknown handler: " + qt);
+          }
+        }
+      }
       if (handler != null) {
-        SolrQueryRequest solrReq=parsers.parse(path,req);
+        if (solrReq == null) {
+          solrReq=parsers.parse(path,req);
+        }
         SolrQueryResponse solrRsp=new SolrQueryResponse();
-        core.execute(handler,solrReq,solrRsp);
+        this.execute(req,handler,solrReq,solrRsp);
         if (solrRsp.getException() != null) {
           sendError((HttpServletResponse)response,solrRsp.getException());
           return;
