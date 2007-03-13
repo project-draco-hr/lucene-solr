@@ -1,0 +1,43 @@
+{
+  for (int pass=0; pass < 3; pass++) {
+    boolean autoCommit=pass == 0;
+    boolean doAbort=pass == 2;
+    long diskFree=200;
+    while (true) {
+      MockRAMDirectory dir=new MockRAMDirectory();
+      dir.setMaxSizeInBytes(diskFree);
+      IndexWriter writer=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),true);
+      boolean hitError=false;
+      try {
+        for (int i=0; i < 200; i++) {
+          addDoc(writer);
+        }
+      }
+ catch (      IOException e) {
+        hitError=true;
+      }
+      if (hitError) {
+        if (doAbort) {
+          writer.abort();
+        }
+ else {
+          try {
+            writer.close();
+          }
+ catch (          IOException e) {
+            dir.setMaxSizeInBytes(0);
+            writer.close();
+          }
+        }
+        assertNoUnreferencedFiles(dir,"after disk full during addDocument with autoCommit=" + autoCommit);
+        IndexReader.open(dir).close();
+        dir.close();
+        diskFree+=500;
+      }
+ else {
+        dir.close();
+        break;
+      }
+    }
+  }
+}

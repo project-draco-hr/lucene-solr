@@ -1,30 +1,55 @@
 {
-  Directory dir=new RAMDirectory();
-  IndexWriter modifier=new IndexWriter(dir,new WhitespaceAnalyzer(),true);
-  modifier.setMaxBufferedDocs(2);
-  modifier.setMaxBufferedDeleteTerms(2);
-  int id=0;
-  int value=100;
-  for (int i=0; i < 7; i++) {
-    addDoc(modifier,++id,value);
+  for (int pass=0; pass < 2; pass++) {
+    boolean autoCommit=(0 == pass);
+    Directory dir=new RAMDirectory();
+    IndexWriter modifier=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),true);
+    modifier.setMaxBufferedDocs(2);
+    modifier.setMaxBufferedDeleteTerms(2);
+    int id=0;
+    int value=100;
+    for (int i=0; i < 7; i++) {
+      addDoc(modifier,++id,value);
+    }
+    modifier.flush();
+    if (!autoCommit) {
+      modifier.close();
+    }
+    IndexReader reader=IndexReader.open(dir);
+    assertEquals(7,reader.numDocs());
+    reader.close();
+    if (!autoCommit) {
+      modifier=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer());
+      modifier.setMaxBufferedDocs(2);
+      modifier.setMaxBufferedDeleteTerms(2);
+    }
+    id=0;
+    modifier.deleteDocuments(new Term("id",String.valueOf(++id)));
+    modifier.deleteDocuments(new Term("id",String.valueOf(++id)));
+    if (!autoCommit) {
+      modifier.close();
+    }
+    reader=IndexReader.open(dir);
+    assertEquals(5,reader.numDocs());
+    reader.close();
+    Term[] terms=new Term[3];
+    for (int i=0; i < terms.length; i++) {
+      terms[i]=new Term("id",String.valueOf(++id));
+    }
+    if (!autoCommit) {
+      modifier=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer());
+      modifier.setMaxBufferedDocs(2);
+      modifier.setMaxBufferedDeleteTerms(2);
+    }
+    modifier.deleteDocuments(terms);
+    if (!autoCommit) {
+      modifier.close();
+    }
+    reader=IndexReader.open(dir);
+    assertEquals(2,reader.numDocs());
+    reader.close();
+    if (autoCommit) {
+      modifier.close();
+    }
+    dir.close();
   }
-  modifier.flush();
-  IndexReader reader=IndexReader.open(dir);
-  assertEquals(7,reader.numDocs());
-  reader.close();
-  id=0;
-  modifier.deleteDocuments(new Term("id",String.valueOf(++id)));
-  modifier.deleteDocuments(new Term("id",String.valueOf(++id)));
-  reader=IndexReader.open(dir);
-  assertEquals(5,reader.numDocs());
-  reader.close();
-  Term[] terms=new Term[3];
-  for (int i=0; i < terms.length; i++) {
-    terms[i]=new Term("id",String.valueOf(++id));
-  }
-  modifier.deleteDocuments(terms);
-  reader=IndexReader.open(dir);
-  assertEquals(2,reader.numDocs());
-  reader.close();
-  modifier.close();
 }

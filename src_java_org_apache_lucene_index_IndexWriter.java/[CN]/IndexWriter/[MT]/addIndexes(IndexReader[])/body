@@ -2,29 +2,25 @@
   optimize();
   final String mergedName=newSegmentName();
   SegmentMerger merger=new SegmentMerger(this,mergedName);
-  final Vector segmentsToDelete=new Vector();
   SegmentInfo info;
-  String segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
   IndexReader sReader=null;
   try {
     if (segmentInfos.size() == 1) {
       sReader=SegmentReader.get(segmentInfos.info(0));
       merger.add(sReader);
-      segmentsToDelete.addElement(sReader);
     }
     for (int i=0; i < readers.length; i++)     merger.add(readers[i]);
     boolean success=false;
     startTransaction();
     try {
       int docCount=merger.merge();
-      segmentInfos.setSize(0);
-      info=new SegmentInfo(mergedName,docCount,directory,false,true);
-      segmentInfos.addElement(info);
-      commitPending=true;
       if (sReader != null) {
         sReader.close();
         sReader=null;
       }
+      segmentInfos.setSize(0);
+      info=new SegmentInfo(mergedName,docCount,directory,false,true);
+      segmentInfos.addElement(info);
       success=true;
     }
   finally {
@@ -41,18 +37,12 @@
       sReader.close();
     }
   }
-  deleter.deleteFile(segmentsInfosFileName);
-  deleter.deleteSegments(segmentsToDelete);
   if (useCompoundFile) {
     boolean success=false;
-    segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
-    Vector filesToDelete;
     startTransaction();
     try {
-      filesToDelete=merger.createCompoundFile(mergedName + ".cfs");
+      merger.createCompoundFile(mergedName + ".cfs");
       info.setUseCompoundFile(true);
-      commitPending=true;
-      success=true;
     }
   finally {
       if (!success) {
@@ -62,7 +52,5 @@
         commitTransaction();
       }
     }
-    deleter.deleteFile(segmentsInfosFileName);
-    deleter.deleteFiles(filesToDelete);
   }
 }

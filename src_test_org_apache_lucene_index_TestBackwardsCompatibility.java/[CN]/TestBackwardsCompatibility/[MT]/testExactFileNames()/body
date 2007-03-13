@@ -1,37 +1,47 @@
 {
-  String outputDir="lucene.backwardscompat0.index";
-  Directory dir=FSDirectory.getDirectory(fullDir(outputDir));
-  IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),true);
-  for (int i=0; i < 35; i++) {
-    addDoc(writer,i);
-  }
-  assertEquals("wrong doc count",35,writer.docCount());
-  writer.close();
-  IndexReader reader=IndexReader.open(dir);
-  Term searchTerm=new Term("id","7");
-  int delCount=reader.deleteDocuments(searchTerm);
-  assertEquals("didn't delete the right number of documents",1,delCount);
-  reader.setNorm(21,"content",(float)1.5);
-  reader.close();
-  CompoundFileReader cfsReader=new CompoundFileReader(dir,"_2.cfs");
-  FieldInfos fieldInfos=new FieldInfos(cfsReader,"_2.fnm");
-  int contentFieldIndex=-1;
-  for (int i=0; i < fieldInfos.size(); i++) {
-    FieldInfo fi=fieldInfos.fieldInfo(i);
-    if (fi.name.equals("content")) {
-      contentFieldIndex=i;
-      break;
+  for (int pass=0; pass < 2; pass++) {
+    String outputDir="lucene.backwardscompat0.index";
+    try {
+      Directory dir=FSDirectory.getDirectory(fullDir(outputDir));
+      boolean autoCommit=0 == pass;
+      IndexWriter writer=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),true);
+      for (int i=0; i < 35; i++) {
+        addDoc(writer,i);
+      }
+      assertEquals("wrong doc count",35,writer.docCount());
+      writer.close();
+      IndexReader reader=IndexReader.open(dir);
+      Term searchTerm=new Term("id","7");
+      int delCount=reader.deleteDocuments(searchTerm);
+      assertEquals("didn't delete the right number of documents",1,delCount);
+      reader.setNorm(21,"content",(float)1.5);
+      reader.close();
+      CompoundFileReader cfsReader=new CompoundFileReader(dir,"_2.cfs");
+      FieldInfos fieldInfos=new FieldInfos(cfsReader,"_2.fnm");
+      int contentFieldIndex=-1;
+      for (int i=0; i < fieldInfos.size(); i++) {
+        FieldInfo fi=fieldInfos.fieldInfo(i);
+        if (fi.name.equals("content")) {
+          contentFieldIndex=i;
+          break;
+        }
+      }
+      cfsReader.close();
+      assertTrue("could not locate the 'content' field number in the _2.cfs segment",contentFieldIndex != -1);
+      String[] expected={"_0.cfs","_0_1.del","_1.cfs","_2.cfs","_2_1.s" + contentFieldIndex,"_3.cfs","segments_a","segments.gen"};
+      if (!autoCommit) {
+        expected[6]="segments_3";
+      }
+      String[] actual=dir.list();
+      Arrays.sort(expected);
+      Arrays.sort(actual);
+      if (!Arrays.equals(expected,actual)) {
+        fail("incorrect filenames in index: expected:\n    " + asString(expected) + "\n  actual:\n    "+ asString(actual));
+      }
+      dir.close();
+    }
+  finally {
+      rmDir(outputDir);
     }
   }
-  cfsReader.close();
-  assertTrue("could not locate the 'content' field number in the _2.cfs segment",contentFieldIndex != -1);
-  String[] expected={"_0.cfs","_0_1.del","_1.cfs","_2.cfs","_2_1.s" + contentFieldIndex,"_3.cfs","segments_a","segments.gen"};
-  String[] actual=dir.list();
-  Arrays.sort(expected);
-  Arrays.sort(actual);
-  if (!Arrays.equals(expected,actual)) {
-    fail("incorrect filenames in index: expected:\n    " + asString(expected) + "\n  actual:\n    "+ asString(actual));
-  }
-  dir.close();
-  rmDir(outputDir);
 }

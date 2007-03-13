@@ -1,0 +1,78 @@
+{
+  final int N=10;
+  for (int pass=0; pass < 4; pass++) {
+    boolean autoCommit=pass < 2;
+    boolean useCompoundFile=(pass % 2) > 0;
+    KeepLastNDeletionPolicy policy=new KeepLastNDeletionPolicy(N);
+    Directory dir=new RAMDirectory();
+    IndexWriter writer=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),true,policy);
+    writer.setUseCompoundFile(useCompoundFile);
+    writer.close();
+    Term searchTerm=new Term("content","aaa");
+    Query query=new TermQuery(searchTerm);
+    for (int i=0; i < N + 1; i++) {
+      writer=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),false,policy);
+      writer.setUseCompoundFile(useCompoundFile);
+      for (int j=0; j < 17; j++) {
+        addDoc(writer);
+      }
+      writer.close();
+      IndexReader reader=IndexReader.open(dir,policy);
+      reader.deleteDocument(3);
+      reader.setNorm(5,"content",2.0F);
+      IndexSearcher searcher=new IndexSearcher(reader);
+      Hits hits=searcher.search(query);
+      assertEquals(16,hits.length());
+      reader.close();
+      searcher.close();
+      writer=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),true,policy);
+      writer.close();
+    }
+    assertEquals(1 + 3 * (N + 1),policy.numOnInit);
+    if (autoCommit) {
+      assertTrue(policy.numOnCommit > 3 * (N + 1) - 1);
+    }
+ else {
+      assertEquals(2 * (N + 1),policy.numOnCommit);
+    }
+    IndexSearcher searcher=new IndexSearcher(dir);
+    Hits hits=searcher.search(query);
+    assertEquals(0,hits.length());
+    long gen=SegmentInfos.getCurrentSegmentGeneration(dir);
+    int expectedCount=0;
+    for (int i=0; i < N + 1; i++) {
+      try {
+        IndexReader reader=IndexReader.open(dir);
+        if (!autoCommit) {
+          searcher=new IndexSearcher(reader);
+          hits=searcher.search(query);
+          assertEquals(expectedCount,hits.length());
+          searcher.close();
+          if (expectedCount == 0) {
+            expectedCount=16;
+          }
+ else           if (expectedCount == 16) {
+            expectedCount=17;
+          }
+ else           if (expectedCount == 17) {
+            expectedCount=0;
+          }
+        }
+        reader.close();
+        if (i == N) {
+          fail("should have failed on commits before last " + N);
+        }
+      }
+ catch (      IOException e) {
+        if (i != N) {
+          throw e;
+        }
+      }
+      if (i < N) {
+        dir.deleteFile(IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",gen));
+      }
+      gen--;
+    }
+    dir.close();
+  }
+}

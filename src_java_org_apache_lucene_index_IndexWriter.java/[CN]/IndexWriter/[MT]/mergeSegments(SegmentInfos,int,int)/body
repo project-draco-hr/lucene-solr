@@ -2,11 +2,10 @@
   boolean doMerge=end > 0;
   final String mergedName=newSegmentName();
   SegmentMerger merger=null;
-  final Vector segmentsToDelete=new Vector();
-  String segmentsInfosFileName=segmentInfos.getCurrentSegmentFileName();
-  String nextSegmentsFileName=segmentInfos.getNextSegmentFileName();
+  final List ramSegmentsToDelete=new ArrayList();
   SegmentInfo newSegment=null;
   int mergedDocCount=0;
+  boolean anyDeletes=(bufferedDeleteTerms.size() != 0);
   try {
     if (doMerge) {
       if (infoStream != null)       infoStream.print("merging segments");
@@ -16,7 +15,9 @@
         if (infoStream != null)         infoStream.print(" " + si.name + " ("+ si.docCount+ " docs)");
         IndexReader reader=SegmentReader.get(si);
         merger.add(reader);
-        if ((reader.directory() == this.directory) || (reader.directory() == this.ramDirectory))         segmentsToDelete.addElement(reader);
+        if (reader.directory() == this.ramDirectory) {
+          ramSegmentsToDelete.add(si);
+        }
       }
     }
     SegmentInfos rollback=null;
@@ -29,7 +30,7 @@
         }
         newSegment=new SegmentInfo(mergedName,mergedDocCount,directory,false,true);
       }
-      if (!inTransaction && (sourceSegments != ramSegmentInfos || bufferedDeleteTerms.size() > 0)) {
+      if (sourceSegments != ramSegmentInfos || anyDeletes) {
         rollback=(SegmentInfos)segmentInfos.clone();
       }
       if (doMerge) {
@@ -42,16 +43,10 @@
         }
       }
       if (sourceSegments == ramSegmentInfos) {
-        deleter.clearPendingFiles();
         maybeApplyDeletes(doMerge);
         doAfterFlush();
       }
-      if (!inTransaction) {
-        segmentInfos.write(directory);
-      }
- else {
-        commitPending=true;
-      }
+      checkpoint();
       success=true;
     }
   finally {
@@ -60,8 +55,8 @@
           ramSegmentInfos.removeAllElements();
         }
       }
- else       if (!inTransaction) {
-        if (sourceSegments == ramSegmentInfos && 0 == bufferedDeleteTerms.size()) {
+ else {
+        if (sourceSegments == ramSegmentInfos && !anyDeletes) {
           if (newSegment != null && segmentInfos.size() > 0 && segmentInfos.info(segmentInfos.size() - 1) == newSegment) {
             segmentInfos.remove(segmentInfos.size() - 1);
           }
@@ -70,49 +65,30 @@
           segmentInfos.clear();
           segmentInfos.addAll(rollback);
         }
-        deleter.clearPendingFiles();
-        deleter.deleteFile(nextSegmentsFileName);
-        deleter.findDeletableFiles();
-        deleter.deleteFiles();
+        deleter.refresh();
       }
     }
   }
   finally {
     if (doMerge)     merger.closeReaders();
   }
-  if (!inTransaction) {
-    deleter.deleteFile(segmentsInfosFileName);
-    deleter.deleteSegments(segmentsToDelete);
-    deleter.commitPendingFiles();
-  }
- else {
-    deleter.addPendingFile(segmentsInfosFileName);
-    deleter.deleteSegments(segmentsToDelete,protectedSegments);
-  }
+  deleter.deleteDirect(ramDirectory,ramSegmentsToDelete);
+  deleter.checkpoint(segmentInfos,autoCommit);
   if (useCompoundFile && doMerge) {
-    segmentsInfosFileName=nextSegmentsFileName;
-    nextSegmentsFileName=segmentInfos.getNextSegmentFileName();
-    Vector filesToDelete;
     boolean success=false;
     try {
-      filesToDelete=merger.createCompoundFile(mergedName + ".cfs");
+      merger.createCompoundFile(mergedName + ".cfs");
       newSegment.setUseCompoundFile(true);
-      if (!inTransaction) {
-        segmentInfos.write(directory);
-      }
+      checkpoint();
       success=true;
     }
   finally {
-      if (!success && !inTransaction) {
+      if (!success) {
         newSegment.setUseCompoundFile(false);
-        deleter.deleteFile(mergedName + ".cfs");
-        deleter.deleteFile(nextSegmentsFileName);
+        deleter.refresh();
       }
     }
-    if (!inTransaction) {
-      deleter.deleteFile(segmentsInfosFileName);
-    }
-    deleter.deleteFiles(filesToDelete);
+    deleter.checkpoint(segmentInfos,autoCommit);
   }
   return mergedDocCount;
 }

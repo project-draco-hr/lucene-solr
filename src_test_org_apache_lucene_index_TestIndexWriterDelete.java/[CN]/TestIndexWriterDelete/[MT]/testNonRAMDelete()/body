@@ -1,23 +1,40 @@
 {
-  Directory dir=new RAMDirectory();
-  IndexWriter modifier=new IndexWriter(dir,new WhitespaceAnalyzer(),true);
-  modifier.setMaxBufferedDocs(2);
-  modifier.setMaxBufferedDeleteTerms(2);
-  int id=0;
-  int value=100;
-  for (int i=0; i < 7; i++) {
-    addDoc(modifier,++id,value);
+  for (int pass=0; pass < 2; pass++) {
+    boolean autoCommit=(0 == pass);
+    Directory dir=new RAMDirectory();
+    IndexWriter modifier=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),true);
+    modifier.setMaxBufferedDocs(2);
+    modifier.setMaxBufferedDeleteTerms(2);
+    int id=0;
+    int value=100;
+    for (int i=0; i < 7; i++) {
+      addDoc(modifier,++id,value);
+    }
+    modifier.flush();
+    assertEquals(0,modifier.getRamSegmentCount());
+    assertTrue(0 < modifier.getSegmentCount());
+    if (!autoCommit) {
+      modifier.close();
+    }
+    IndexReader reader=IndexReader.open(dir);
+    assertEquals(7,reader.numDocs());
+    reader.close();
+    if (!autoCommit) {
+      modifier=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer());
+      modifier.setMaxBufferedDocs(2);
+      modifier.setMaxBufferedDeleteTerms(2);
+    }
+    modifier.deleteDocuments(new Term("value",String.valueOf(value)));
+    modifier.deleteDocuments(new Term("value",String.valueOf(value)));
+    if (!autoCommit) {
+      modifier.close();
+    }
+    reader=IndexReader.open(dir);
+    assertEquals(0,reader.numDocs());
+    reader.close();
+    if (autoCommit) {
+      modifier.close();
+    }
+    dir.close();
   }
-  modifier.flush();
-  assertEquals(0,modifier.getRamSegmentCount());
-  assertTrue(0 < modifier.getSegmentCount());
-  IndexReader reader=IndexReader.open(dir);
-  assertEquals(7,reader.numDocs());
-  reader.close();
-  modifier.deleteDocuments(new Term("value",String.valueOf(value)));
-  modifier.deleteDocuments(new Term("value",String.valueOf(value)));
-  reader=IndexReader.open(dir);
-  assertEquals(0,reader.numDocs());
-  reader.close();
-  modifier.close();
 }
