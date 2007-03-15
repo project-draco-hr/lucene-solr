@@ -11,8 +11,8 @@
     if (field.isIndexed()) {
       if (!field.isTokenized()) {
         String stringValue=field.stringValue();
-        if (field.isStoreOffsetWithTermVector())         addPosition(fieldName,stringValue,position++,new TermVectorOffsetInfo(offset,offset + stringValue.length()));
- else         addPosition(fieldName,stringValue,position++,null);
+        if (field.isStoreOffsetWithTermVector())         addPosition(fieldName,stringValue,position++,null,new TermVectorOffsetInfo(offset,offset + stringValue.length()));
+ else         addPosition(fieldName,stringValue,position++,null,null);
         offset+=stringValue.length();
         length++;
       }
@@ -26,8 +26,18 @@
           Token lastToken=null;
           for (Token t=stream.next(); t != null; t=stream.next()) {
             position+=(t.getPositionIncrement() - 1);
-            if (field.isStoreOffsetWithTermVector())             addPosition(fieldName,t.termText(),position++,new TermVectorOffsetInfo(offset + t.startOffset(),offset + t.endOffset()));
- else             addPosition(fieldName,t.termText(),position++,null);
+            Payload payload=t.getPayload();
+            if (payload != null) {
+              fieldStoresPayloads.set(fieldNumber);
+            }
+            TermVectorOffsetInfo termVectorOffsetInfo;
+            if (field.isStoreOffsetWithTermVector()) {
+              termVectorOffsetInfo=new TermVectorOffsetInfo(offset + t.startOffset(),offset + t.endOffset());
+            }
+ else {
+              termVectorOffsetInfo=null;
+            }
+            addPosition(fieldName,t.termText(),position++,payload,termVectorOffsetInfo);
             lastToken=t;
             if (++length >= maxFieldLength) {
               if (infoStream != null)               infoStream.println("maxFieldLength " + maxFieldLength + " reached, ignoring following tokens");
@@ -45,5 +55,8 @@
       fieldBoosts[fieldNumber]*=field.getBoost();
       fieldOffsets[fieldNumber]=offset;
     }
+  }
+  for (int i=fieldStoresPayloads.nextSetBit(0); i >= 0; i=fieldStoresPayloads.nextSetBit(i + 1)) {
+    fieldInfos.fieldInfo(i).storePayloads=true;
   }
 }
