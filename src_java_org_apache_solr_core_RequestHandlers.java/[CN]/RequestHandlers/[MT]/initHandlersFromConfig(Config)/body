@@ -1,0 +1,48 @@
+{
+  NodeList nodes=(NodeList)config.evaluate("requestHandler",XPathConstants.NODESET);
+  if (nodes != null) {
+    Map<String,NamedList<Object>> names=new LinkedHashMap<String,NamedList<Object>>();
+    for (int i=0; i < nodes.getLength(); i++) {
+      Node node=nodes.item(i);
+      try {
+        String name=DOMUtil.getAttr(node,"name","requestHandler config");
+        String className=DOMUtil.getAttr(node,"class","requestHandler config");
+        String startup=DOMUtil.getAttr(node,"startup",null);
+        NamedList<Object> args=DOMUtil.childNodesToNamedList(node);
+        SolrRequestHandler handler=null;
+        if ("lazy".equals(startup)) {
+          log.info("adding lazy requestHandler: " + name + "="+ className);
+          handler=new LazyRequestHandlerWrapper(className,args);
+        }
+ else {
+          Class<? extends SolrRequestHandler> clazz=Config.findClass(className,new String[]{});
+          log.info("adding requestHandler: " + name + "="+ className);
+          handler=clazz.newInstance();
+        }
+        SolrRequestHandler old=register(name,handler);
+        if (old != null) {
+          log.warning("multiple handlers registered on the same path! ignoring: " + old);
+        }
+        names.put(name,args);
+      }
+ catch (      Exception e) {
+        SolrException.logOnce(log,null,e);
+      }
+    }
+    for (    Map.Entry<String,NamedList<Object>> reg : names.entrySet()) {
+      try {
+        handlers.get(reg.getKey()).init(reg.getValue());
+      }
+ catch (      Exception e) {
+        SolrException.logOnce(log,null,e);
+      }
+    }
+  }
+  SolrRequestHandler handler=get(RequestHandlers.DEFAULT_HANDLER_NAME);
+  if (handler == null) {
+    handler=new StandardRequestHandler();
+    register(RequestHandlers.DEFAULT_HANDLER_NAME,handler);
+  }
+  register(null,handler);
+  register("",handler);
+}
