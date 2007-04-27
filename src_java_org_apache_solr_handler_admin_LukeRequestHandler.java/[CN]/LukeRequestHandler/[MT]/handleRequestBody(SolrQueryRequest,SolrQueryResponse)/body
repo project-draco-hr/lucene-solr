@@ -1,0 +1,47 @@
+{
+  RequestHandlerUtils.addExperimentalFormatWarning(rsp);
+  IndexSchema schema=req.getSchema();
+  SolrIndexSearcher searcher=req.getSearcher();
+  IndexReader reader=searcher.getReader();
+  SolrParams params=req.getParams();
+  rsp.add("index",getIndexInfo(reader));
+  Integer docID=params.getInt(DOC_ID);
+  if (docID == null && params.get(ID) != null) {
+    SchemaField uniqueKey=schema.getUniqueKeyField();
+    String v=uniqueKey.getType().toInternal(params.get(ID));
+    Term t=new Term(uniqueKey.getName(),v);
+    docID=searcher.getFirstMatch(t);
+    if (docID < 0) {
+      throw new SolrException(404,"Can't find document: " + params.get(ID));
+    }
+  }
+  if (docID != null) {
+    Document doc=null;
+    try {
+      doc=reader.document(docID);
+    }
+ catch (    Exception ex) {
+    }
+    if (doc == null) {
+      throw new SolrException(404,"Can't find document: " + docID);
+    }
+    SimpleOrderedMap<Object> info=getDocumentFieldsInfo(doc,docID,reader,schema);
+    SimpleOrderedMap<Object> docinfo=new SimpleOrderedMap<Object>();
+    docinfo.add("docID",docID);
+    docinfo.add("lucene",info);
+    docinfo.add("solr",doc);
+    rsp.add("doc",docinfo);
+  }
+ else {
+    int numTerms=params.getInt(NUMTERMS,DEFAULT_COUNT);
+    Set<String> fields=null;
+    if (params.get(SolrParams.FL) != null) {
+      fields=new HashSet<String>();
+      for (      String f : params.getParams(SolrParams.FL)) {
+        fields.add(f);
+      }
+    }
+    rsp.add("key",getFieldFlagsKey());
+    rsp.add("fields",getIndexedFieldsInfo(searcher,fields,numTerms));
+  }
+}

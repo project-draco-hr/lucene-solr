@@ -1,0 +1,31 @@
+{
+  Query matchAllDocs=new MatchAllDocsQuery();
+  SolrQueryParser qp=searcher.getSchema().getSolrQueryParser(null);
+  int filterCacheSize=SolrConfig.config.getInt("query/filterCache/@size",-1);
+  IndexReader reader=searcher.getReader();
+  IndexSchema schema=searcher.getSchema();
+  Map<String,TopTermQueue> ttinfo=getTopTerms(reader,fields,numTerms,null);
+  SimpleOrderedMap<Object> finfo=new SimpleOrderedMap<Object>();
+  Collection<String> fieldNames=reader.getFieldNames(IndexReader.FieldOption.ALL);
+  for (  String fieldName : fieldNames) {
+    if (fields != null && !fields.contains(fieldName)) {
+      continue;
+    }
+    SimpleOrderedMap<Object> f=new SimpleOrderedMap<Object>();
+    SchemaField sfield=schema.getFieldOrNull(fieldName);
+    FieldType ftype=(sfield == null) ? null : sfield.getType();
+    f.add("type",(ftype == null) ? null : ftype.getTypeName());
+    f.add("schema",getFieldFlags(sfield));
+    Query q=qp.parse(fieldName + ":[* TO *]");
+    int docCount=searcher.numDocs(q,matchAllDocs);
+    f.add("docs",docCount);
+    TopTermQueue topTerms=ttinfo.get(fieldName);
+    if (topTerms != null) {
+      f.add("distinct",topTerms.distinctTerms);
+      f.add("cacheableFaceting",topTerms.distinctTerms < filterCacheSize);
+      f.add("topTerms",topTerms.toNamedList(searcher.getSchema()));
+    }
+    finfo.add(fieldName,f);
+  }
+  return finfo;
+}
