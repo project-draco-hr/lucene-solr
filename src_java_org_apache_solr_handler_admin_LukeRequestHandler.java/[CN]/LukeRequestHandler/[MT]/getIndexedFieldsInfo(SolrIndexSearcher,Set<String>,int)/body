@@ -1,7 +1,6 @@
 {
   Query matchAllDocs=new MatchAllDocsQuery();
   SolrQueryParser qp=searcher.getSchema().getSolrQueryParser(null);
-  int filterCacheSize=SolrConfig.config.getInt("query/filterCache/@size",-1);
   IndexReader reader=searcher.getReader();
   IndexSchema schema=searcher.getSchema();
   Map<String,TopTermQueue> ttinfo=getTopTerms(reader,fields,numTerms,null);
@@ -18,12 +17,28 @@
     f.add("schema",getFieldFlags(sfield));
     Query q=qp.parse(fieldName + ":[* TO *]");
     int docCount=searcher.numDocs(q,matchAllDocs);
+    if (docCount > 0) {
+      DocList ds=searcher.getDocList(q,(Query)null,(Sort)null,0,1);
+      try {
+        Document doc=searcher.doc(ds.iterator().next());
+        Fieldable fld=doc.getFieldable(fieldName);
+        if (fld != null) {
+          f.add("index",getFieldFlags(fld));
+        }
+ else {
+          f.add("index","(unstored field)");
+        }
+      }
+ catch (      Exception ex) {
+        log.warning("error reading field: " + fieldName);
+      }
+    }
     f.add("docs",docCount);
     TopTermQueue topTerms=ttinfo.get(fieldName);
     if (topTerms != null) {
       f.add("distinct",topTerms.distinctTerms);
-      f.add("cacheableFaceting",topTerms.distinctTerms < filterCacheSize);
       f.add("topTerms",topTerms.toNamedList(searcher.getSchema()));
+      f.add("histogram",topTerms.histogram.toNamedList());
     }
     finfo.add(fieldName,f);
   }
