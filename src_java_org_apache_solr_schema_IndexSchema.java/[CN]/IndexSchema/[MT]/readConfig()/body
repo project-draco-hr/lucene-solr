@@ -39,6 +39,7 @@
       fieldTypes.put(ft.typeName,ft);
       log.finest("fieldtype defined: " + ft);
     }
+    Map<String,Boolean> explicitRequiredProp=new HashMap<String,Boolean>();
     ArrayList<DynamicField> dFields=new ArrayList<DynamicField>();
     expression="/schema/fields/field | /schema/fields/dynamicField";
     nodes=(NodeList)xpath.evaluate(expression,document,XPathConstants.NODESET);
@@ -54,6 +55,9 @@
         throw new SolrException(400,"Unknown fieldtype '" + type + "'",false);
       }
       Map<String,String> args=DOMUtil.toMapExcept(attrs,"name","type");
+      if (args.get("required") != null) {
+        explicitRequiredProp.put(name,Boolean.valueOf(args.get("required")));
+      }
       SchemaField f=SchemaField.create(name,ft,args);
       if (node.getNodeName().equals("field")) {
         fields.put(f.getName(),f);
@@ -61,6 +65,10 @@
         if (f.getDefaultValue() != null) {
           log.fine(name + " contains default value: " + f.getDefaultValue());
           fieldsWithDefaultValue.add(f);
+        }
+        if (f.isRequired()) {
+          log.fine(name + " is required in this schema");
+          requiredFields.add(f);
         }
       }
  else       if (node.getNodeName().equals("dynamicField")) {
@@ -71,6 +79,7 @@
         throw new RuntimeException("Unknown field type");
       }
     }
+    requiredFields.addAll(getFieldsWithDefaultValue());
     Collections.sort(dFields);
     log.finest("Dynamic Field Ordering:" + dFields);
     dynamicFields=(DynamicField[])dFields.toArray(new DynamicField[dFields.size()]);
@@ -109,6 +118,10 @@
       uniqueKeyFieldName=uniqueKeyField.getName();
       uniqueKeyFieldType=uniqueKeyField.getType();
       log.info("unique key field: " + uniqueKeyFieldName);
+      if (Boolean.FALSE != explicitRequiredProp.get(uniqueKeyFieldName)) {
+        uniqueKeyField.required=true;
+        requiredFields.add(uniqueKeyField);
+      }
     }
     ArrayList<DynamicCopy> dCopies=new ArrayList<DynamicCopy>();
     expression="//copyField";
