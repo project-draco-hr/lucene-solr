@@ -8,16 +8,36 @@
   fieldStoresPayloads=new BitSet(fieldInfos.size());
   fieldBoosts=new float[fieldInfos.size()];
   Arrays.fill(fieldBoosts,doc.getBoost());
-  invertDocument(doc);
-  Posting[] postings=sortPostingTable();
-  fieldInfos.write(directory,segment + ".fnm");
-  FieldsWriter fieldsWriter=new FieldsWriter(directory,segment,fieldInfos);
   try {
-    fieldsWriter.addDocument(doc);
+    invertDocument(doc);
+    Posting[] postings=sortPostingTable();
+    fieldInfos.write(directory,segment + ".fnm");
+    FieldsWriter fieldsWriter=new FieldsWriter(directory,segment,fieldInfos);
+    try {
+      fieldsWriter.addDocument(doc);
+    }
+  finally {
+      fieldsWriter.close();
+    }
+    writePostings(postings,segment);
+    writeNorms(segment);
   }
   finally {
-    fieldsWriter.close();
+    IOException ex=null;
+    Iterator it=openTokenStreams.iterator();
+    while (it.hasNext()) {
+      try {
+        ((TokenStream)it.next()).close();
+      }
+ catch (      IOException e) {
+        if (ex != null) {
+          ex=e;
+        }
+      }
+    }
+    openTokenStreams.clear();
+    if (ex != null) {
+      throw ex;
+    }
   }
-  writePostings(postings,segment);
-  writeNorms(segment);
 }
