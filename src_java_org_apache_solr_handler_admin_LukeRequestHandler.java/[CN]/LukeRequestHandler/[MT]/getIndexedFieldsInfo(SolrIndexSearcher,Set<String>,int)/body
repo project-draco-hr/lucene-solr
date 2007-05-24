@@ -3,7 +3,10 @@
   SolrQueryParser qp=searcher.getSchema().getSolrQueryParser(null);
   IndexReader reader=searcher.getReader();
   IndexSchema schema=searcher.getSchema();
-  Map<String,TopTermQueue> ttinfo=getTopTerms(reader,fields,numTerms,null);
+  Map<String,TopTermQueue> ttinfo=null;
+  if (numTerms > 0) {
+    ttinfo=getTopTerms(reader,fields,numTerms,null);
+  }
   SimpleOrderedMap<Object> finfo=new SimpleOrderedMap<Object>();
   Collection<String> fieldNames=reader.getFieldNames(IndexReader.FieldOption.ALL);
   for (  String fieldName : fieldNames) {
@@ -15,30 +18,32 @@
     FieldType ftype=(sfield == null) ? null : sfield.getType();
     f.add("type",(ftype == null) ? null : ftype.getTypeName());
     f.add("schema",getFieldFlags(sfield));
-    Query q=qp.parse(fieldName + ":[* TO *]");
-    int docCount=searcher.numDocs(q,matchAllDocs);
-    if (docCount > 0) {
-      DocList ds=searcher.getDocList(q,(Query)null,(Sort)null,0,1);
-      try {
-        Document doc=searcher.doc(ds.iterator().next());
-        Fieldable fld=doc.getFieldable(fieldName);
-        if (fld != null) {
-          f.add("index",getFieldFlags(fld));
-        }
+    if (ttinfo != null) {
+      Query q=qp.parse(fieldName + ":[* TO *]");
+      int docCount=searcher.numDocs(q,matchAllDocs);
+      if (docCount > 0) {
+        DocList ds=searcher.getDocList(q,(Query)null,(Sort)null,0,1);
+        try {
+          Document doc=searcher.doc(ds.iterator().next());
+          Fieldable fld=doc.getFieldable(fieldName);
+          if (fld != null) {
+            f.add("index",getFieldFlags(fld));
+          }
  else {
-          f.add("index","(unstored field)");
+            f.add("index","(unstored field)");
+          }
+        }
+ catch (        Exception ex) {
+          log.warning("error reading field: " + fieldName);
         }
       }
- catch (      Exception ex) {
-        log.warning("error reading field: " + fieldName);
+      f.add("docs",docCount);
+      TopTermQueue topTerms=ttinfo.get(fieldName);
+      if (topTerms != null) {
+        f.add("distinct",topTerms.distinctTerms);
+        f.add("topTerms",topTerms.toNamedList(searcher.getSchema()));
+        f.add("histogram",topTerms.histogram.toNamedList());
       }
-    }
-    f.add("docs",docCount);
-    TopTermQueue topTerms=ttinfo.get(fieldName);
-    if (topTerms != null) {
-      f.add("distinct",topTerms.distinctTerms);
-      f.add("topTerms",topTerms.toNamedList(searcher.getSchema()));
-      f.add("histogram",topTerms.histogram.toNamedList());
     }
     finfo.add(fieldName,f);
   }
