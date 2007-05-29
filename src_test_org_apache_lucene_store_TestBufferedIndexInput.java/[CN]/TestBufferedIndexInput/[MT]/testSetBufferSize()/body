@@ -1,0 +1,43 @@
+{
+  File indexDir=new File(System.getProperty("tempDir"),"testSetBufferSize");
+  MockFSDirectory dir=new MockFSDirectory(indexDir);
+  try {
+    IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),true);
+    writer.setUseCompoundFile(false);
+    for (int i=0; i < 37; i++) {
+      Document doc=new Document();
+      doc.add(new Field("content","aaa bbb ccc ddd" + i,Field.Store.YES,Field.Index.TOKENIZED));
+      doc.add(new Field("id","" + i,Field.Store.YES,Field.Index.TOKENIZED));
+      writer.addDocument(doc);
+    }
+    writer.close();
+    dir.allIndexInputs.clear();
+    IndexReader reader=IndexReader.open(dir);
+    Term aaa=new Term("content","aaa");
+    Term bbb=new Term("content","bbb");
+    Term ccc=new Term("content","ccc");
+    assertEquals(reader.docFreq(ccc),37);
+    reader.deleteDocument(0);
+    assertEquals(reader.docFreq(aaa),37);
+    dir.tweakBufferSizes();
+    reader.deleteDocument(4);
+    assertEquals(reader.docFreq(bbb),37);
+    dir.tweakBufferSizes();
+    IndexSearcher searcher=new IndexSearcher(reader);
+    Hits hits=searcher.search(new TermQuery(bbb));
+    dir.tweakBufferSizes();
+    assertEquals(35,hits.length());
+    dir.tweakBufferSizes();
+    hits=searcher.search(new TermQuery(new Term("id","33")));
+    dir.tweakBufferSizes();
+    assertEquals(1,hits.length());
+    hits=searcher.search(new TermQuery(aaa));
+    dir.tweakBufferSizes();
+    assertEquals(35,hits.length());
+    searcher.close();
+    reader.close();
+  }
+  finally {
+    _TestUtil.rmDir(indexDir);
+  }
+}
