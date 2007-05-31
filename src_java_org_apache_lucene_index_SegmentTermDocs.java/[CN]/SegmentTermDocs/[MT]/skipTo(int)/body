@@ -1,42 +1,16 @@
 {
   if (df >= skipInterval) {
-    if (skipStream == null)     skipStream=(IndexInput)freqStream.clone();
+    if (skipListReader == null)     skipListReader=new DefaultSkipListReader((IndexInput)freqStream.clone(),maxSkipLevels,skipInterval);
     if (!haveSkipped) {
-      skipStream.seek(skipPointer);
+      skipListReader.init(skipPointer,freqBasePointer,proxBasePointer,df,currentFieldStoresPayloads);
       haveSkipped=true;
     }
-    int lastSkipDoc=skipDoc;
-    int lastPayloadLength=0;
-    long lastFreqPointer=freqStream.getFilePointer();
-    long lastProxPointer=-1;
-    int numSkipped=-1 - (count % skipInterval);
-    while (target > skipDoc) {
-      lastSkipDoc=skipDoc;
-      lastFreqPointer=freqPointer;
-      lastProxPointer=proxPointer;
-      lastPayloadLength=payloadLengthAtLastSkip;
-      if (skipDoc != 0 && skipDoc >= doc)       numSkipped+=skipInterval;
-      if (skipCount >= numSkips)       break;
-      if (currentFieldStoresPayloads) {
-        int delta=skipStream.readVInt();
-        if ((delta & 1) != 0) {
-          payloadLengthAtLastSkip=skipStream.readVInt();
-        }
-        delta>>>=1;
-        skipDoc+=delta;
-      }
- else {
-        skipDoc+=skipStream.readVInt();
-      }
-      freqPointer+=skipStream.readVInt();
-      proxPointer+=skipStream.readVInt();
-      skipCount++;
-    }
-    if (lastFreqPointer > freqStream.getFilePointer()) {
-      freqStream.seek(lastFreqPointer);
-      skipProx(lastProxPointer,lastPayloadLength);
-      doc=lastSkipDoc;
-      count+=numSkipped;
+    int newCount=skipListReader.skipTo(target);
+    if (newCount > count) {
+      freqStream.seek(skipListReader.getFreqPointer());
+      skipProx(skipListReader.getProxPointer(),skipListReader.getPayloadLength());
+      doc=skipListReader.getDoc();
+      count=newCount;
     }
   }
   do {
