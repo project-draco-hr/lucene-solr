@@ -1,0 +1,39 @@
+{
+  Document out=new Document();
+  for (  String name : doc.getFieldNames()) {
+    SchemaField sfield=schema.getField(name);
+    Float b=doc.getBoost(name);
+    float boost=(b == null) ? 1.0f : b.floatValue();
+    Collection<Object> vals=doc.getFieldValues(name);
+    if (vals.size() > 1 && !sfield.multiValued()) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: multiple values encountered for non multiValued field " + sfield.getName() + ": "+ vals.toString());
+    }
+    for (    Object v : vals) {
+      String val=null;
+      if (v instanceof Date && sfield.getType() instanceof DateField) {
+        DateField df=(DateField)sfield.getType();
+        val=df.toInternal((Date)v) + 'Z';
+      }
+ else       if (v != null) {
+        val=v.toString();
+      }
+      out.add(sfield.createField(val,boost));
+    }
+  }
+  for (  SchemaField field : schema.getRequiredFields()) {
+    if (out.getField(field.getName()) == null) {
+      if (field.getDefaultValue() != null) {
+        out.add(field.createField(field.getDefaultValue(),1.0f));
+      }
+ else {
+        String id=schema.printableUniqueKey(out);
+        String msg="Document [" + id + "] missing required field: "+ field.getName();
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,msg);
+      }
+    }
+  }
+  if (doc.getBoost(null) != null) {
+    out.setBoost(doc.getBoost(null));
+  }
+  return out;
+}
