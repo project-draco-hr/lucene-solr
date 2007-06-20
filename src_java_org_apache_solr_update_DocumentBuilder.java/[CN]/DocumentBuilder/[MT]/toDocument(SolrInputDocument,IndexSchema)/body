@@ -1,24 +1,45 @@
 {
   Document out=new Document();
   for (  String name : doc.getFieldNames()) {
-    SchemaField sfield=schema.getField(name);
+    SchemaField sfield=schema.getFieldOrNull(name);
     Float b=doc.getBoost(name);
     float boost=(b == null) ? 1.0f : b.floatValue();
+    boolean used=false;
     Collection<Object> vals=doc.getFieldValues(name);
     if (vals.size() > 1 && !sfield.multiValued()) {
       throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: multiple values encountered for non multiValued field " + sfield.getName() + ": "+ vals.toString());
     }
+    SchemaField[] destArr=schema.getCopyFields(name);
     for (    Object v : vals) {
       String val=null;
-      if (v instanceof Date && sfield.getType() instanceof DateField) {
+      if (sfield != null && v instanceof Date && sfield.getType() instanceof DateField) {
         DateField df=(DateField)sfield.getType();
         val=df.toInternal((Date)v) + 'Z';
       }
  else       if (v != null) {
         val=v.toString();
       }
-      out.add(sfield.createField(val,boost));
+      if (sfield != null) {
+        used=true;
+        Field f=sfield.createField(val,boost);
+        if (f != null) {
+          out.add(f);
+        }
+      }
+      for (      SchemaField sf : destArr) {
+        if (!sf.multiValued() && out.get(sf.getName()) != null) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: multiple values encountered for non multiValued copy field " + sf.getName() + ": "+ val);
+        }
+        used=true;
+        Field f=sf.createField(val,boost);
+        if (f != null) {
+          out.add(f);
+        }
+      }
       boost=1.0f;
+    }
+    if (!used) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR:unknown field '" + name + "'");
     }
   }
   for (  SchemaField field : schema.getRequiredFields()) {
