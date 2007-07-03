@@ -1,53 +1,37 @@
 {
-  NodeList nodes=(NodeList)config.evaluate("requestHandler",XPathConstants.NODESET);
-  if (nodes != null) {
-    Map<String,NamedList<Object>> names=new LinkedHashMap<String,NamedList<Object>>();
-    for (int i=0; i < nodes.getLength(); i++) {
-      Node node=nodes.item(i);
-      try {
-        String name=DOMUtil.getAttr(node,"name","requestHandler config");
-        String className=DOMUtil.getAttr(node,"class","requestHandler config");
-        String startup=DOMUtil.getAttr(node,"startup",null);
-        NamedList<Object> args=DOMUtil.childNodesToNamedList(node);
-        SolrRequestHandler handler=null;
+  final RequestHandlers handlers=this;
+  AbstractPluginLoader<SolrRequestHandler> loader=new AbstractPluginLoader<SolrRequestHandler>("[solrconfig.xml] requestHandler",true){
+    @Override protected SolrRequestHandler create(    String name,    String className,    Map<String,String> params,    Node node) throws Exception {
+      String startup=params.get("startup");
+      if (startup != null) {
         if ("lazy".equals(startup)) {
-          log.info("adding lazy requestHandler: " + name + "="+ className);
-          handler=new LazyRequestHandlerWrapper(className,args);
+          log.info("adding lazy requestHandler: " + className);
+          NamedList args=DOMUtil.childNodesToNamedList(node);
+          return new LazyRequestHandlerWrapper(className,args);
         }
  else {
-          Class<? extends SolrRequestHandler> clazz=Config.findClass(className,new String[]{});
-          log.info("adding requestHandler: " + name + "="+ className);
-          handler=clazz.newInstance();
+          throw new Exception("Unknown startup value: '" + startup + "' for: "+ className);
         }
-        SolrRequestHandler old=register(name,handler);
-        if (old != null) {
-          String msg="multiple handlers registered on the same path! ignoring: " + old;
-          Throwable t=new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg);
-          SolrConfig.severeErrors.add(t);
-          SolrException.logOnce(log,null,t);
-        }
-        names.put(name,args);
       }
- catch (      Exception e) {
-        SolrConfig.severeErrors.add(e);
-        SolrException.logOnce(log,null,e);
-      }
+      return super.create(name,className,params,node);
     }
-    for (    Map.Entry<String,NamedList<Object>> reg : names.entrySet()) {
-      try {
-        handlers.get(reg.getKey()).init(reg.getValue());
-      }
- catch (      Exception e) {
-        SolrConfig.severeErrors.add(e);
-        SolrException.logOnce(log,null,e);
-      }
+    @Override protected SolrRequestHandler register(    String name,    SolrRequestHandler plugin) throws Exception {
+      return handlers.register(name,plugin);
+    }
+    @Override protected void init(    SolrRequestHandler plugin,    Map<String,String> params,    Node node) throws Exception {
+      plugin.init(DOMUtil.childNodesToNamedList(node));
     }
   }
-  SolrRequestHandler handler=get(RequestHandlers.DEFAULT_HANDLER_NAME);
-  if (handler == null) {
-    handler=new StandardRequestHandler();
-    register(RequestHandlers.DEFAULT_HANDLER_NAME,handler);
+;
+  NodeList nodes=(NodeList)config.evaluate("requestHandler",XPathConstants.NODESET);
+  SolrRequestHandler defaultHandler=loader.load(nodes);
+  if (defaultHandler == null) {
+    defaultHandler=get(RequestHandlers.DEFAULT_HANDLER_NAME);
+    if (defaultHandler == null) {
+      defaultHandler=new StandardRequestHandler();
+      register(RequestHandlers.DEFAULT_HANDLER_NAME,defaultHandler);
+    }
   }
-  register(null,handler);
-  register("",handler);
+  register(null,defaultHandler);
+  register("",defaultHandler);
 }
