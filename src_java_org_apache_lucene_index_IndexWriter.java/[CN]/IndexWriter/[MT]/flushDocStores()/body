@@ -1,0 +1,41 @@
+{
+  List files=docWriter.files();
+  if (files.size() > 0) {
+    String docStoreSegment;
+    boolean success=false;
+    try {
+      docStoreSegment=docWriter.closeDocStore();
+      success=true;
+    }
+  finally {
+      if (!success)       docWriter.abort();
+    }
+    if (useCompoundFile && docStoreSegment != null) {
+      checkpoint();
+      success=false;
+      final int numSegments=segmentInfos.size();
+      try {
+        CompoundFileWriter cfsWriter=new CompoundFileWriter(directory,docStoreSegment + "." + IndexFileNames.COMPOUND_FILE_STORE_EXTENSION);
+        final int size=files.size();
+        for (int i=0; i < size; i++)         cfsWriter.addFile((String)files.get(i));
+        cfsWriter.close();
+        for (int i=0; i < numSegments; i++) {
+          SegmentInfo si=segmentInfos.info(i);
+          if (si.getDocStoreOffset() != -1 && si.getDocStoreSegment().equals(docStoreSegment))           si.setDocStoreIsCompoundFile(true);
+        }
+        checkpoint();
+        success=true;
+      }
+  finally {
+        if (!success) {
+          for (int i=0; i < numSegments; i++) {
+            SegmentInfo si=segmentInfos.info(i);
+            if (si.getDocStoreOffset() != -1 && si.getDocStoreSegment().equals(docStoreSegment))             si.setDocStoreIsCompoundFile(false);
+          }
+          deleter.refresh();
+        }
+      }
+      deleter.checkpoint(segmentInfos,false);
+    }
+  }
+}

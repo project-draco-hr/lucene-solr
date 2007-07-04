@@ -1,5 +1,11 @@
 {
-  fieldInfos=new FieldInfos();
+  if (!mergeDocStores) {
+    final SegmentReader sr=(SegmentReader)readers.elementAt(readers.size() - 1);
+    fieldInfos=(FieldInfos)sr.fieldInfos.clone();
+  }
+ else {
+    fieldInfos=new FieldInfos();
+  }
   int docCount=0;
   for (int i=0; i < readers.size(); i++) {
     IndexReader reader=(IndexReader)readers.elementAt(i);
@@ -12,25 +18,28 @@
     fieldInfos.add(reader.getFieldNames(IndexReader.FieldOption.UNINDEXED),false);
   }
   fieldInfos.write(directory,segment + ".fnm");
-  FieldsWriter fieldsWriter=new FieldsWriter(directory,segment,fieldInfos);
-  FieldSelector fieldSelectorMerge=new FieldSelector(){
-    public FieldSelectorResult accept(    String fieldName){
-      return FieldSelectorResult.LOAD_FOR_MERGE;
-    }
-  }
-;
-  try {
-    for (int i=0; i < readers.size(); i++) {
-      IndexReader reader=(IndexReader)readers.elementAt(i);
-      int maxDoc=reader.maxDoc();
-      for (int j=0; j < maxDoc; j++)       if (!reader.isDeleted(j)) {
-        fieldsWriter.addDocument(reader.document(j,fieldSelectorMerge));
-        docCount++;
+  if (mergeDocStores) {
+    FieldsWriter fieldsWriter=new FieldsWriter(directory,segment,fieldInfos);
+    FieldSelector fieldSelectorMerge=new FieldSelector(){
+      public FieldSelectorResult accept(      String fieldName){
+        return FieldSelectorResult.LOAD_FOR_MERGE;
       }
     }
-  }
+;
+    try {
+      for (int i=0; i < readers.size(); i++) {
+        IndexReader reader=(IndexReader)readers.elementAt(i);
+        int maxDoc=reader.maxDoc();
+        for (int j=0; j < maxDoc; j++)         if (!reader.isDeleted(j)) {
+          fieldsWriter.addDocument(reader.document(j,fieldSelectorMerge));
+          docCount++;
+        }
+      }
+    }
   finally {
-    fieldsWriter.close();
+      fieldsWriter.close();
+    }
   }
+ else   for (int i=0; i < readers.size(); i++)   docCount+=((IndexReader)readers.elementAt(i)).numDocs();
   return docCount;
 }

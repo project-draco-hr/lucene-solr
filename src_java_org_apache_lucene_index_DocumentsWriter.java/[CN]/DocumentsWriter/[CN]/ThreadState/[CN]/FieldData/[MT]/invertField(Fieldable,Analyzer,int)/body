@@ -1,0 +1,47 @@
+{
+  if (length > 0)   position+=analyzer.getPositionIncrementGap(fieldInfo.name);
+  if (!field.isTokenized()) {
+    token=localToken;
+    String stringValue=field.stringValue();
+    token.setTermText(stringValue);
+    token.setStartOffset(offset);
+    token.setEndOffset(offset + stringValue.length());
+    addPosition();
+    offset+=stringValue.length();
+    length++;
+  }
+ else {
+    final TokenStream stream;
+    final TokenStream streamValue=field.tokenStreamValue();
+    if (streamValue != null)     stream=streamValue;
+ else {
+      final Reader reader;
+      final Reader readerValue=field.readerValue();
+      if (readerValue != null)       reader=readerValue;
+ else {
+        String stringValue=field.stringValue();
+        if (stringValue == null)         throw new IllegalArgumentException("field must have either TokenStream, String or Reader value");
+        stringReader.init(stringValue);
+        reader=stringReader;
+      }
+      stream=analyzer.tokenStream(fieldInfo.name,reader);
+    }
+    stream.reset();
+    try {
+      offsetEnd=offset - 1;
+      for (token=stream.next(); token != null; token=stream.next()) {
+        position+=(token.getPositionIncrement() - 1);
+        addPosition();
+        if (++length >= maxFieldLength) {
+          if (infoStream != null)           infoStream.println("maxFieldLength " + maxFieldLength + " reached for field "+ fieldInfo.name+ ", ignoring following tokens");
+          break;
+        }
+      }
+      offset=offsetEnd + 1;
+    }
+  finally {
+      stream.close();
+    }
+  }
+  boost*=field.getBoost();
+}

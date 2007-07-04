@@ -1,0 +1,61 @@
+{
+  segment=si.name;
+  this.si=si;
+  boolean success=false;
+  try {
+    Directory cfsDir=directory();
+    if (si.getUseCompoundFile()) {
+      cfsReader=new CompoundFileReader(directory(),segment + "." + IndexFileNames.COMPOUND_FILE_EXTENSION,readBufferSize);
+      cfsDir=cfsReader;
+    }
+    final Directory storeDir;
+    if (doOpenStores) {
+      if (si.getDocStoreOffset() != -1) {
+        if (si.getDocStoreIsCompoundFile()) {
+          storeCFSReader=new CompoundFileReader(directory(),si.getDocStoreSegment() + "." + IndexFileNames.COMPOUND_FILE_STORE_EXTENSION,readBufferSize);
+          storeDir=storeCFSReader;
+        }
+ else {
+          storeDir=directory();
+        }
+      }
+ else {
+        storeDir=cfsDir;
+      }
+    }
+ else     storeDir=null;
+    fieldInfos=new FieldInfos(cfsDir,segment + ".fnm");
+    final String fieldsSegment;
+    final Directory dir;
+    if (si.getDocStoreOffset() != -1)     fieldsSegment=si.getDocStoreSegment();
+ else     fieldsSegment=segment;
+    if (doOpenStores) {
+      fieldsReader=new FieldsReader(storeDir,fieldsSegment,fieldInfos,readBufferSize,si.getDocStoreOffset(),si.docCount);
+      if (si.getDocStoreOffset() == -1 && fieldsReader.size() != si.docCount) {
+        throw new CorruptIndexException("doc counts differ for segment " + si.name + ": fieldsReader shows "+ fieldsReader.size()+ " but segmentInfo shows "+ si.docCount);
+      }
+    }
+    tis=new TermInfosReader(cfsDir,segment,fieldInfos,readBufferSize);
+    if (hasDeletions(si)) {
+      deletedDocs=new BitVector(directory(),si.getDelFileName());
+      if (deletedDocs.count() > maxDoc()) {
+        throw new CorruptIndexException("number of deletes (" + deletedDocs.count() + ") exceeds max doc ("+ maxDoc()+ ") for segment "+ si.name);
+      }
+    }
+    freqStream=cfsDir.openInput(segment + ".frq",readBufferSize);
+    proxStream=cfsDir.openInput(segment + ".prx",readBufferSize);
+    openNorms(cfsDir,readBufferSize);
+    if (doOpenStores && fieldInfos.hasVectors()) {
+      final String vectorsSegment;
+      if (si.getDocStoreOffset() != -1)       vectorsSegment=si.getDocStoreSegment();
+ else       vectorsSegment=segment;
+      termVectorsReaderOrig=new TermVectorsReader(storeDir,vectorsSegment,fieldInfos,readBufferSize,si.getDocStoreOffset(),si.docCount);
+    }
+    success=true;
+  }
+  finally {
+    if (!success) {
+      doClose();
+    }
+  }
+}

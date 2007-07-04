@@ -1,0 +1,43 @@
+{
+  if (ramBufferSize == 0.0 || postingsIsFull)   return;
+  final long freeTrigger=(long)(1.05 * ramBufferSize);
+  final long freeLevel=(long)(0.95 * ramBufferSize);
+  final long flushTrigger=(long)ramBufferSize;
+  if (numBytesAlloc > freeTrigger) {
+    if (infoStream != null)     infoStream.println("  RAM: now balance allocations: usedMB=" + toMB(numBytesUsed) + " vs trigger="+ toMB(flushTrigger)+ " allocMB="+ toMB(numBytesAlloc)+ " vs trigger="+ toMB(freeTrigger)+ " postingsFree="+ toMB(postingsFreeCount * POSTING_NUM_BYTE)+ " byteBlockFree="+ toMB(freeByteBlocks.size() * BYTE_BLOCK_SIZE)+ " charBlockFree="+ toMB(freeCharBlocks.size() * CHAR_BLOCK_SIZE * CHAR_NUM_BYTE));
+    final long startBytesAlloc=numBytesAlloc;
+    final int postingsFreeChunk=(int)(BYTE_BLOCK_SIZE / POSTING_NUM_BYTE);
+    int iter=0;
+    while (numBytesAlloc > freeLevel) {
+      if (0 == freeByteBlocks.size() && 0 == freeCharBlocks.size() && 0 == postingsFreeCount) {
+        postingsIsFull=true;
+        if (infoStream != null)         infoStream.println("    nothing to free; now set postingsIsFull");
+        break;
+      }
+      if ((0 == iter % 3) && freeByteBlocks.size() > 0) {
+        freeByteBlocks.remove(freeByteBlocks.size() - 1);
+        numBytesAlloc-=BYTE_BLOCK_SIZE;
+      }
+      if ((1 == iter % 3) && freeCharBlocks.size() > 0) {
+        freeCharBlocks.remove(freeCharBlocks.size() - 1);
+        numBytesAlloc-=CHAR_BLOCK_SIZE * CHAR_NUM_BYTE;
+      }
+      if ((2 == iter % 3) && postingsFreeCount > 0) {
+        final int numToFree;
+        if (postingsFreeCount >= postingsFreeChunk)         numToFree=postingsFreeChunk;
+ else         numToFree=postingsFreeCount;
+        Arrays.fill(postingsFreeList,postingsFreeCount - numToFree,postingsFreeCount,null);
+        postingsFreeCount-=numToFree;
+        numBytesAlloc-=numToFree * POSTING_NUM_BYTE;
+      }
+      iter++;
+    }
+    if (infoStream != null)     infoStream.println("    after free: freedMB=" + nf.format((startBytesAlloc - numBytesAlloc) / 1024. / 1024.) + " usedMB="+ nf.format(numBytesUsed / 1024. / 1024.)+ " allocMB="+ nf.format(numBytesAlloc / 1024. / 1024.));
+  }
+ else {
+    if (numBytesUsed > flushTrigger) {
+      if (infoStream != null)       infoStream.println("  RAM: now flush @ usedMB=" + nf.format(numBytesUsed / 1024. / 1024.) + " allocMB="+ nf.format(numBytesAlloc / 1024. / 1024.)+ " triggerMB="+ nf.format(flushTrigger / 1024. / 1024.));
+      postingsIsFull=true;
+    }
+  }
+}

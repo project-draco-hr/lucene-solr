@@ -1,0 +1,52 @@
+{
+  this.docWriter=docWriter;
+  this.infoStream=infoStream;
+  this.policy=policy;
+  this.directory=directory;
+  long currentGen=segmentInfos.getGeneration();
+  IndexFileNameFilter filter=IndexFileNameFilter.getFilter();
+  String[] files=directory.list();
+  if (files == null)   throw new IOException("cannot read directory " + directory + ": list() returned null");
+  CommitPoint currentCommitPoint=null;
+  for (int i=0; i < files.length; i++) {
+    String fileName=files[i];
+    if (filter.accept(null,fileName) && !fileName.equals(IndexFileNames.SEGMENTS_GEN)) {
+      getRefCount(fileName);
+      if (fileName.startsWith(IndexFileNames.SEGMENTS)) {
+        if (SegmentInfos.generationFromSegmentsFileName(fileName) <= currentGen) {
+          if (infoStream != null) {
+            message("init: load commit \"" + fileName + "\"");
+          }
+          SegmentInfos sis=new SegmentInfos();
+          sis.read(directory,fileName);
+          CommitPoint commitPoint=new CommitPoint(sis);
+          if (sis.getGeneration() == segmentInfos.getGeneration()) {
+            currentCommitPoint=commitPoint;
+          }
+          commits.add(commitPoint);
+          incRef(sis,true);
+        }
+      }
+    }
+  }
+  if (currentCommitPoint == null) {
+    throw new CorruptIndexException("failed to locate current segments_N file");
+  }
+  Collections.sort(commits);
+  Iterator it=refCounts.keySet().iterator();
+  while (it.hasNext()) {
+    String fileName=(String)it.next();
+    RefCount rc=(RefCount)refCounts.get(fileName);
+    if (0 == rc.count) {
+      if (infoStream != null) {
+        message("init: removing unreferenced file \"" + fileName + "\"");
+      }
+      deleteFile(fileName);
+    }
+  }
+  policy.onInit(commits);
+  if (currentCommitPoint.deleted) {
+    checkpoint(segmentInfos,false);
+  }
+  deleteCommits();
+}
