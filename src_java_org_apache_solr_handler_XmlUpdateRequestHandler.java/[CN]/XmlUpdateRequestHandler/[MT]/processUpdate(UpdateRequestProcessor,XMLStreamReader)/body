@@ -1,0 +1,83 @@
+{
+  AddUpdateCommand addCmd=null;
+  while (true) {
+    int event=parser.next();
+switch (event) {
+case XMLStreamConstants.END_DOCUMENT:
+      parser.close();
+    return;
+case XMLStreamConstants.START_ELEMENT:
+  String currTag=parser.getLocalName();
+if (currTag.equals(ADD)) {
+  log.finest("SolrCore.update(add)");
+  addCmd=new AddUpdateCommand();
+  boolean overwrite=true;
+  Boolean overwritePending=null;
+  Boolean overwriteCommitted=null;
+  for (int i=0; i < parser.getAttributeCount(); i++) {
+    String attrName=parser.getAttributeLocalName(i);
+    String attrVal=parser.getAttributeValue(i);
+    if (OVERWRITE.equals(attrName)) {
+      overwrite=StrUtils.parseBoolean(attrVal);
+    }
+ else     if (ALLOW_DUPS.equals(attrName)) {
+      overwrite=!StrUtils.parseBoolean(attrVal);
+    }
+ else     if (OVERWRITE_PENDING.equals(attrName)) {
+      overwritePending=StrUtils.parseBoolean(attrVal);
+    }
+ else     if (OVERWRITE_COMMITTED.equals(attrName)) {
+      overwriteCommitted=StrUtils.parseBoolean(attrVal);
+    }
+ else {
+      log.warning("Unknown attribute id in add:" + attrName);
+    }
+  }
+  if (overwritePending != null && overwriteCommitted != null) {
+    if (overwritePending != overwriteCommitted) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"can't have different values for 'overwritePending' and 'overwriteCommitted'");
+    }
+    overwrite=overwritePending;
+  }
+  addCmd.overwriteCommitted=overwrite;
+  addCmd.overwritePending=overwrite;
+  addCmd.allowDups=!overwrite;
+}
+ else if ("doc".equals(currTag)) {
+  log.finest("adding doc...");
+  addCmd.clear();
+  addCmd.solrDoc=readDoc(parser);
+  processor.processAdd(addCmd);
+}
+ else if (COMMIT.equals(currTag) || OPTIMIZE.equals(currTag)) {
+  log.finest("parsing " + currTag);
+  CommitUpdateCommand cmd=new CommitUpdateCommand(OPTIMIZE.equals(currTag));
+  boolean sawWaitSearcher=false, sawWaitFlush=false;
+  for (int i=0; i < parser.getAttributeCount(); i++) {
+    String attrName=parser.getAttributeLocalName(i);
+    String attrVal=parser.getAttributeValue(i);
+    if (WAIT_FLUSH.equals(attrName)) {
+      cmd.waitFlush=StrUtils.parseBoolean(attrVal);
+      sawWaitFlush=true;
+    }
+ else     if (WAIT_SEARCHER.equals(attrName)) {
+      cmd.waitSearcher=StrUtils.parseBoolean(attrVal);
+      sawWaitSearcher=true;
+    }
+ else {
+      log.warning("unexpected attribute commit/@" + attrName);
+    }
+  }
+  if (sawWaitFlush && !sawWaitSearcher) {
+    cmd.waitSearcher=false;
+  }
+  processor.processCommit(cmd);
+}
+ else if (DELETE.equals(currTag)) {
+  log.finest("parsing delete");
+  processDelete(processor,parser);
+}
+break;
+}
+}
+}

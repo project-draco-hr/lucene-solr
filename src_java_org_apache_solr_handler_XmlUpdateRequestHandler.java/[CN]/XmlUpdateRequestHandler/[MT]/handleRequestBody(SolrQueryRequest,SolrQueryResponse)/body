@@ -1,21 +1,26 @@
 {
+  RequestHandlerUtils.addExperimentalFormatWarning(rsp);
+  SolrParams params=req.getParams();
+  UpdateRequestProcessorFactory processorFactory=req.getCore().getUpdateProcessorFactory(params.get(UpdateParams.UPDATE_PROCESSOR));
+  UpdateRequestProcessor processor=processorFactory.getInstance(req,rsp,null);
   Iterable<ContentStream> streams=req.getContentStreams();
   if (streams == null) {
-    if (!RequestHandlerUtils.handleCommit(req,rsp,false)) {
+    if (!RequestHandlerUtils.handleCommit(processor,params,false)) {
       throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"missing content stream");
     }
-    return;
   }
-  RequestHandlerUtils.addExperimentalFormatWarning(rsp);
-  for (  ContentStream stream : req.getContentStreams()) {
-    Reader reader=stream.getReader();
-    try {
-      NamedList out=this.update(req,req.getCore(),reader);
-      rsp.add("update",out);
-    }
+ else {
+    for (    ContentStream stream : req.getContentStreams()) {
+      Reader reader=stream.getReader();
+      try {
+        XMLStreamReader parser=inputFactory.createXMLStreamReader(reader);
+        this.processUpdate(processor,parser);
+      }
   finally {
-      IOUtils.closeQuietly(reader);
+        IOUtils.closeQuietly(reader);
+      }
     }
+    RequestHandlerUtils.handleCommit(processor,params,false);
   }
-  RequestHandlerUtils.handleCommit(req,rsp,false);
+  processor.finish();
 }
