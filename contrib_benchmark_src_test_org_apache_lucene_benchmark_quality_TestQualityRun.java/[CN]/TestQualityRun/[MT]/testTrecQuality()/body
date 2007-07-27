@@ -1,0 +1,65 @@
+{
+  createReutersIndex();
+  File workDir=new File(System.getProperty("benchmark.work.dir","work"));
+  assertTrue("Bad workDir: " + workDir,workDir.exists() && workDir.isDirectory());
+  int maxResults=1000;
+  String docNameField="docid";
+  PrintWriter logger=DEBUG ? new PrintWriter(System.out,true) : null;
+  File srcTestDir=new File(new File(new File(new File(new File(new File(new File(workDir.getAbsoluteFile().getParentFile(),"src"),"test"),"org"),"apache"),"lucene"),"benchmark"),"quality");
+  File topicsFile=new File(srcTestDir,"trecTopics.txt");
+  assertTrue("Bad topicsFile: " + topicsFile,topicsFile.exists() && topicsFile.isFile());
+  TrecTopicsReader qReader=new TrecTopicsReader();
+  QualityQuery qqs[]=qReader.readQueries(new BufferedReader(new FileReader(topicsFile)));
+  File qrelsFile=new File(srcTestDir,"trecQRels.txt");
+  assertTrue("Bad qrelsFile: " + qrelsFile,qrelsFile.exists() && qrelsFile.isFile());
+  Judge judge=new TrecJudge(new BufferedReader(new FileReader(qrelsFile)));
+  judge.validateData(qqs,logger);
+  IndexSearcher searcher=new IndexSearcher(FSDirectory.getDirectory(new File(workDir,"index")));
+  QualityQueryParser qqParser=new SimpleQQParser("title","body");
+  QualityBenchmark qrun=new QualityBenchmark(qqs,qqParser,searcher,docNameField);
+  SubmissionReport submitLog=DEBUG ? new SubmissionReport(logger) : null;
+  QualityStats stats[]=qrun.execute(maxResults,judge,submitLog,logger);
+  for (int i=0; i < stats.length; i++) {
+    QualityStats s=stats[i];
+switch (i % 8) {
+case 0:
+      assertTrue("avg-p should be hurt: " + s.getAvp(),1.0 > s.getAvp());
+    assertTrue("recall should be hurt: " + s.getRecall(),1.0 > s.getRecall());
+  for (int j=1; j <= QualityStats.MAX_POINTS; j++) {
+    assertEquals("p_at_" + j + " should be perfect: "+ s.getPrecisionAt(j),1.0,s.getPrecisionAt(j),1E-9);
+  }
+break;
+case 1:
+assertTrue("avg-p should be hurt",1.0 > s.getAvp());
+assertEquals("recall should be perfect: " + s.getRecall(),1.0,s.getRecall(),1E-9);
+for (int j=1; j <= QualityStats.MAX_POINTS; j++) {
+assertTrue("p_at_" + j + " should be hurt: "+ s.getPrecisionAt(j),1.0 > s.getPrecisionAt(j));
+}
+break;
+case 2:
+assertTrue("avg-p should be hurt: " + s.getAvp(),1.0 > s.getAvp());
+assertTrue("recall should be hurt: " + s.getRecall(),1.0 > s.getRecall());
+for (int j=1; j <= QualityStats.MAX_POINTS; j++) {
+assertTrue("p_at_" + j + " should be hurt: "+ s.getPrecisionAt(j),1.0 > s.getPrecisionAt(j));
+}
+break;
+default :
+{
+assertEquals("avg-p should be perfect: " + s.getAvp(),1.0,s.getAvp(),1E-9);
+assertEquals("recall should be perfect: " + s.getRecall(),1.0,s.getRecall(),1E-9);
+for (int j=1; j <= QualityStats.MAX_POINTS; j++) {
+assertEquals("p_at_" + j + " should be perfect: "+ s.getPrecisionAt(j),1.0,s.getPrecisionAt(j),1E-9);
+}
+}
+}
+}
+QualityStats avg=QualityStats.average(stats);
+if (logger != null) {
+avg.log("Average statistis:",1,logger,"  ");
+}
+assertTrue("mean avg-p should be hurt: " + avg.getAvp(),1.0 > avg.getAvp());
+assertTrue("avg recall should be hurt: " + avg.getRecall(),1.0 > avg.getRecall());
+for (int j=1; j <= QualityStats.MAX_POINTS; j++) {
+assertTrue("avg p_at_" + j + " should be hurt: "+ avg.getPrecisionAt(j),1.0 > avg.getPrecisionAt(j));
+}
+}
