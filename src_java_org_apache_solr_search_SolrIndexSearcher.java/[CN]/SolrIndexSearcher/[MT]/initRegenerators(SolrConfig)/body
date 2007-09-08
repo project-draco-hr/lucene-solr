@@ -1,0 +1,30 @@
+{
+  if (solrConfig.filterCacheConfig != null && solrConfig.filterCacheConfig.getRegenerator() == null) {
+    solrConfig.filterCacheConfig.setRegenerator(new CacheRegenerator(){
+      public boolean regenerateItem(      SolrIndexSearcher newSearcher,      SolrCache newCache,      SolrCache oldCache,      Object oldKey,      Object oldVal) throws IOException {
+        newSearcher.cacheDocSet((Query)oldKey,null,false);
+        return true;
+      }
+    }
+);
+  }
+  if (solrConfig.queryResultCacheConfig != null && solrConfig.queryResultCacheConfig.getRegenerator() == null) {
+    final int queryResultWindowSize=solrConfig.queryResultWindowSize;
+    solrConfig.queryResultCacheConfig.setRegenerator(new CacheRegenerator(){
+      public boolean regenerateItem(      SolrIndexSearcher newSearcher,      SolrCache newCache,      SolrCache oldCache,      Object oldKey,      Object oldVal) throws IOException {
+        QueryResultKey key=(QueryResultKey)oldKey;
+        int nDocs=1;
+        if (queryResultWindowSize <= 1) {
+          DocList oldList=(DocList)oldVal;
+          int oldnDocs=oldList.offset() + oldList.size();
+          nDocs=Math.min(oldnDocs,40);
+        }
+        DocListAndSet ret=new DocListAndSet();
+        int flags=NO_CHECK_QCACHE | key.nc_flags;
+        newSearcher.getDocListC(ret,key.query,key.filters,null,key.sort,0,nDocs,flags);
+        return true;
+      }
+    }
+);
+  }
+}
