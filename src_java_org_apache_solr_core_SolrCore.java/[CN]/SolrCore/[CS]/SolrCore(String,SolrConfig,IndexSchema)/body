@@ -1,3 +1,33 @@
 {
-  this(null,dataDir,config,schema);
+synchronized (SolrCore.class) {
+    instance=this;
+    if (dataDir == null) {
+      dataDir=config.get("dataDir",config.getInstanceDir() + "data");
+    }
+    log.info("Opening new SolrCore at " + config.getInstanceDir() + ", dataDir="+ dataDir);
+    if (schema == null) {
+      schema=new IndexSchema(config,"schema.xml");
+    }
+    this.schema=schema;
+    this.dataDir=dataDir;
+    this.index_path=dataDir + "/" + "index";
+    this.solrConfig=config;
+    this.maxWarmingSearchers=config.getInt("query/maxWarmingSearchers",Integer.MAX_VALUE);
+    booleanQueryMaxClauseCount();
+    parseListeners();
+    initIndex();
+    initWriters();
+    updateProcessors=loadUpdateProcessors();
+    reqHandlers=new RequestHandlers(this);
+    reqHandlers.initHandlersFromConfig(solrConfig);
+    highlighter=new SolrHighlighter();
+    highlighter.initalize(solrConfig);
+    try {
+      getSearcher(false,false,null);
+      updateHandler=createUpdateHandler(solrConfig.get("updateHandler/@class",DirectUpdateHandler.class.getName()));
+    }
+ catch (    IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
 }
