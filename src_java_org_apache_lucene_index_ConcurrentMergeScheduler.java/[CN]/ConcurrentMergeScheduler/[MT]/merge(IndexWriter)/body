@@ -1,0 +1,38 @@
+{
+  initMergeThreadPriority();
+  dir=writer.getDirectory();
+  if (VERBOSE) {
+    message("now merge");
+    message("  index: " + writer.segString());
+  }
+  while (true) {
+    MergePolicy.OneMerge merge=writer.getNextMerge();
+    if (merge == null) {
+      if (VERBOSE)       message("  no more merges pending; now return");
+      return;
+    }
+    writer.mergeInit(merge);
+    if (VERBOSE)     message("  consider merge " + merge.segString(dir));
+    if (merge.isExternal) {
+      if (VERBOSE)       message("    merge involves segments from an external directory; now run in foreground");
+    }
+ else {
+synchronized (this) {
+        if (mergeThreads.size() < maxThreadCount) {
+          MergeThread merger=new MergeThread(writer,merge);
+          mergeThreads.add(merger);
+          if (VERBOSE)           message("    launch new thread [" + merger.getName() + "]");
+          try {
+            merger.setPriority(mergeThreadPriority);
+          }
+ catch (          NullPointerException npe) {
+          }
+          merger.start();
+          continue;
+        }
+ else         if (VERBOSE)         message("    too many merge threads running; run merge in foreground");
+      }
+    }
+    writer.merge(merge);
+  }
+}

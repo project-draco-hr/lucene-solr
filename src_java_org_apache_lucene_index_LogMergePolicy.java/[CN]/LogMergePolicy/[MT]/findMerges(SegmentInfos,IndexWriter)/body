@@ -1,0 +1,51 @@
+{
+  final int numSegments=infos.size();
+  float[] levels=new float[numSegments];
+  final float norm=(float)Math.log(mergeFactor);
+  final Directory directory=writer.getDirectory();
+  for (int i=0; i < numSegments; i++) {
+    final SegmentInfo info=infos.info(i);
+    long size=size(info);
+    if (size >= maxMergeSize && info.dir != directory)     throw new IllegalArgumentException("Segment is too large (" + size + " vs max size "+ maxMergeSize+ ")");
+    if (size < 1)     size=1;
+    levels[i]=(float)Math.log(size) / norm;
+  }
+  final float levelFloor;
+  if (minMergeSize <= 0)   levelFloor=(float)0.0;
+ else   levelFloor=(float)(Math.log(minMergeSize) / norm);
+  MergeSpecification spec=null;
+  int start=0;
+  while (start < numSegments) {
+    float maxLevel=levels[start];
+    for (int i=1 + start; i < numSegments; i++) {
+      final float level=levels[i];
+      if (level > maxLevel)       maxLevel=level;
+    }
+    float levelBottom;
+    if (maxLevel < levelFloor)     levelBottom=-1.0F;
+ else {
+      levelBottom=(float)(maxLevel - LEVEL_LOG_SPAN);
+      if (levelBottom < levelFloor && maxLevel >= levelFloor)       levelBottom=levelFloor;
+    }
+    int upto=numSegments - 1;
+    while (upto >= start) {
+      if (levels[upto] >= levelBottom) {
+        break;
+      }
+      upto--;
+    }
+    int end=start + mergeFactor;
+    while (end <= 1 + upto) {
+      boolean anyTooLarge=false;
+      for (int i=start; i < end; i++)       anyTooLarge|=size(infos.info(i)) >= maxMergeSize;
+      if (!anyTooLarge) {
+        if (spec == null)         spec=new MergeSpecification();
+        spec.add(new OneMerge(infos.range(start,end),useCompoundFile));
+      }
+      start=end;
+      end=start + mergeFactor;
+    }
+    start=1 + upto;
+  }
+  return spec;
+}

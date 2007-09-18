@@ -1,0 +1,38 @@
+{
+  ensureOpen();
+  flush();
+  if (infoStream != null)   message("optimize: index now " + segString());
+synchronized (this) {
+    resetMergeExceptions();
+    segmentsToOptimize=new HashSet();
+    final int numSegments=segmentInfos.size();
+    for (int i=0; i < numSegments; i++)     segmentsToOptimize.add(segmentInfos.info(i));
+    Iterator it=pendingMerges.iterator();
+    while (it.hasNext())     ((MergePolicy.OneMerge)it.next()).optimize=true;
+    it=runningMerges.iterator();
+    while (it.hasNext())     ((MergePolicy.OneMerge)it.next()).optimize=true;
+  }
+  maybeMerge(true);
+  if (doWait) {
+synchronized (this) {
+      while (optimizeMergesPending()) {
+        try {
+          wait();
+        }
+ catch (        InterruptedException ie) {
+        }
+        if (mergeExceptions.size() > 0) {
+          final int size=mergeExceptions.size();
+          for (int i=0; i < size; i++) {
+            final MergePolicy.OneMerge merge=(MergePolicy.OneMerge)mergeExceptions.get(0);
+            if (merge.optimize) {
+              IOException err=new IOException("background merge hit exception: " + merge.segString(directory));
+              err.initCause(merge.getException());
+              throw err;
+            }
+          }
+        }
+      }
+    }
+  }
+}

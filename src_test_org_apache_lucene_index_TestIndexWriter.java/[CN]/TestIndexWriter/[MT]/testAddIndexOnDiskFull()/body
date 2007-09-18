@@ -38,6 +38,7 @@
     startDiskUsage+=startDir.fileLength(files[i]);
   }
   for (int iter=0; iter < 6; iter++) {
+    if (debug)     System.out.println("TEST: iter=" + iter);
     long diskFree=diskUsage + 100;
     boolean autoCommit=iter % 2 == 0;
     int method=iter / 2;
@@ -59,7 +60,10 @@
       MockRAMDirectory dir=new MockRAMDirectory(startDir);
       writer=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),false);
       IOException err=null;
+      MergeScheduler ms=writer.getMergeScheduler();
       for (int x=0; x < 2; x++) {
+        if (ms instanceof ConcurrentMergeScheduler)         if (0 == x)         ((ConcurrentMergeScheduler)ms).setSuppressExceptions();
+ else         ((ConcurrentMergeScheduler)ms).clearSuppressExceptions();
         double rate=0.05;
         double diskRatio=((double)diskFree) / diskUsage;
         long thisDiskFree;
@@ -119,12 +123,14 @@
           err=e;
           if (debug) {
             System.out.println("  hit IOException: " + e);
+            e.printStackTrace(System.out);
           }
           if (1 == x) {
             e.printStackTrace(System.out);
             fail(methodName + " hit IOException after disk space was freed up");
           }
         }
+        _TestUtil.syncConcurrentMerges(writer);
         if (autoCommit) {
           String successStr;
           if (success) {
@@ -197,6 +203,7 @@
         assertTrue("max free Directory space required exceeded 1X the total input index sizes during " + methodName + ": max temp usage = "+ (dir.getMaxUsedSizeInBytes() - startDiskUsage)+ " bytes; "+ "starting disk usage = "+ startDiskUsage+ " bytes; "+ "input index disk usage = "+ inputDiskUsage+ " bytes",(dir.getMaxUsedSizeInBytes() - startDiskUsage) < 2 * (startDiskUsage + inputDiskUsage));
       }
       writer.close();
+      _TestUtil.syncConcurrentMerges(ms);
       dir.close();
       diskFree+=2000;
     }

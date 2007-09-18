@@ -1,7 +1,6 @@
 {
   ensureOpen();
   flush();
-  int startUpperBound=docWriter.getMaxBufferedDocs();
   boolean success=false;
   startTransaction();
   try {
@@ -14,45 +13,10 @@
       for (int j=0; j < sis.size(); j++) {
         SegmentInfo info=sis.info(j);
         segmentInfos.addElement(info);
-        while (startUpperBound < info.docCount) {
-          startUpperBound*=mergeFactor;
-          if (startUpperBound > maxMergeDocs) {
-            throw new IllegalArgumentException("Upper bound cannot exceed maxMergeDocs");
-          }
-        }
       }
     }
-    maybeMergeSegments(startUpperBound);
-    int segmentCount=segmentInfos.size();
-    int numTailSegments=0;
-    while (numTailSegments < segmentCount && startUpperBound >= segmentInfos.info(segmentCount - 1 - numTailSegments).docCount) {
-      numTailSegments++;
-    }
-    if (numTailSegments == 0) {
-      success=true;
-      return;
-    }
-    if (checkNonDecreasingLevels(segmentCount - numTailSegments)) {
-      int numSegmentsToCopy=0;
-      while (numSegmentsToCopy < segmentCount && directory != segmentInfos.info(segmentCount - 1 - numSegmentsToCopy).dir) {
-        numSegmentsToCopy++;
-      }
-      if (numSegmentsToCopy == 0) {
-        success=true;
-        return;
-      }
-      for (int i=segmentCount - numSegmentsToCopy; i < segmentCount; i++) {
-        mergeSegments(i,i + 1);
-      }
-      if (checkNonDecreasingLevels(segmentCount - numSegmentsToCopy)) {
-        success=true;
-        return;
-      }
-    }
-    mergeSegments(segmentCount - numTailSegments,segmentCount);
-    if (segmentInfos.info(segmentInfos.size() - 1).docCount > startUpperBound) {
-      maybeMergeSegments(startUpperBound * mergeFactor);
-    }
+    maybeMerge();
+    copyExternalSegments();
     success=true;
   }
   finally {
