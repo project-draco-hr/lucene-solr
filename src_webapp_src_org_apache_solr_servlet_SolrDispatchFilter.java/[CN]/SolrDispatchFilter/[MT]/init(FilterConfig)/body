@@ -1,18 +1,22 @@
 {
   log.info("SolrDispatchFilter.init()");
+  boolean abortOnConfigurationError=true;
   try {
     this.pathPrefix=config.getInitParameter("path-prefix");
     log.info("user.dir=" + System.getProperty("user.dir"));
     core=SolrCore.getSolrCore();
-    parsers=new SolrRequestParsers(core);
-    this.handleSelect=core.getSolrConfig().getBool("requestDispatcher/@handleSelect",false);
+    Config solrConfig=core.getSolrConfig();
+    long uploadLimitKB=solrConfig.getInt("requestDispatcher/requestParsers/@multipartUploadLimitInKB",2000);
+    boolean enableRemoteStreams=solrConfig.getBool("requestDispatcher/requestParsers/@enableRemoteStreaming",false);
+    parsers=new SolrRequestParsers(enableRemoteStreams,uploadLimitKB);
+    this.handleSelect=solrConfig.getBool("requestDispatcher/@handleSelect",false);
+    abortOnConfigurationError=solrConfig.getBool("abortOnConfigurationError",true);
   }
  catch (  Throwable t) {
     log.log(Level.SEVERE,"Could not start SOLR. Check solr/home property",t);
     SolrConfig.severeErrors.add(t);
     SolrCore.log(t);
   }
-  boolean abortOnConfigurationError=core.getSolrConfig().getBool("abortOnConfigurationError",true);
   if (abortOnConfigurationError && SolrConfig.severeErrors.size() > 0) {
     StringWriter sw=new StringWriter();
     PrintWriter out=new PrintWriter(sw);
