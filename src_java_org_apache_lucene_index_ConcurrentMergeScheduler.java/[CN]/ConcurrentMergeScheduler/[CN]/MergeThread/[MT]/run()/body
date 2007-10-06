@@ -1,8 +1,9 @@
 {
+  MergePolicy.OneMerge merge=this.startMerge;
   try {
     if (VERBOSE)     message("  merge thread: start");
-    MergePolicy.OneMerge merge=this.merge;
     while (true) {
+      setRunningMerge(merge);
       writer.merge(merge);
       merge=writer.getNextMerge();
       if (merge != null) {
@@ -14,10 +15,14 @@
     if (VERBOSE)     message("  merge thread: done");
   }
  catch (  Throwable exc) {
-    merge.setException(exc);
-    writer.addMergeException(merge);
-    if (!merge.isAborted()) {
-      exceptions.add(exc);
+    if (merge != null) {
+      merge.setException(exc);
+      writer.addMergeException(merge);
+    }
+    if (merge == null || !merge.isAborted()) {
+synchronized (ConcurrentMergeScheduler.this) {
+        exceptions.add(exc);
+      }
       if (!suppressExceptions)       throw new MergePolicy.MergeException(exc);
     }
   }
