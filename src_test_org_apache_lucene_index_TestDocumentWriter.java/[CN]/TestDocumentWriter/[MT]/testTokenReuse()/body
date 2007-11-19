@@ -1,0 +1,54 @@
+{
+  Analyzer analyzer=new Analyzer(){
+    public TokenStream tokenStream(    String fieldName,    Reader reader){
+      return new TokenFilter(new WhitespaceTokenizer(reader)){
+        boolean first=true;
+        Token buffered;
+        public Token next() throws IOException {
+          return input.next();
+        }
+        public Token next(        Token result) throws IOException {
+          if (buffered != null) {
+            Token t=buffered;
+            buffered=null;
+            return t;
+          }
+          Token t=input.next(result);
+          if (t == null)           return null;
+          if (Character.isDigit(t.termBuffer()[0])) {
+            t.setPositionIncrement(t.termBuffer()[0] - '0');
+          }
+          if (first) {
+            t.setPayload(new Payload(new byte[]{100}));
+            first=false;
+          }
+          buffered=(Token)t.clone();
+          buffered.setPayload(null);
+          buffered.setPositionIncrement(0);
+          buffered.setTermBuffer(new char[]{'b'},0,1);
+          return t;
+        }
+      }
+;
+    }
+  }
+;
+  IndexWriter writer=new IndexWriter(dir,analyzer,true);
+  Document doc=new Document();
+  doc.add(new Field("f1","a 5 a a",Field.Store.YES,Field.Index.TOKENIZED));
+  writer.addDocument(doc);
+  writer.flush();
+  SegmentInfo info=writer.newestSegment();
+  writer.close();
+  SegmentReader reader=SegmentReader.get(info);
+  TermPositions termPositions=reader.termPositions(new Term("f1","a"));
+  assertTrue(termPositions.next());
+  int freq=termPositions.freq();
+  assertEquals(3,freq);
+  assertEquals(0,termPositions.nextPosition());
+  assertEquals(true,termPositions.isPayloadAvailable());
+  assertEquals(6,termPositions.nextPosition());
+  assertEquals(false,termPositions.isPayloadAvailable());
+  assertEquals(7,termPositions.nextPosition());
+  assertEquals(false,termPositions.isPayloadAvailable());
+}
