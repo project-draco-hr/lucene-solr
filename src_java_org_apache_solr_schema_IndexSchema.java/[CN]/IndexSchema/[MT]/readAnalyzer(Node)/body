@@ -3,19 +3,40 @@
   NamedNodeMap attrs=node.getAttributes();
   String analyzerName=DOMUtil.getAttr(attrs,"class");
   if (analyzerName != null) {
-    return (Analyzer)solrConfig.newInstance(analyzerName);
+    return (Analyzer)solrConfig.getResourceLoader().newInstance(analyzerName);
   }
   XPath xpath=XPathFactory.newInstance().newXPath();
-  Node tokNode=(Node)xpath.evaluate("./tokenizer",node,XPathConstants.NODE);
-  NodeList nList=(NodeList)xpath.evaluate("./filter",node,XPathConstants.NODESET);
-  if (tokNode == null) {
+  final ArrayList<TokenizerFactory> tokenizers=new ArrayList<TokenizerFactory>(1);
+  AbstractPluginLoader<TokenizerFactory> tokenizerLoader=new AbstractPluginLoader<TokenizerFactory>("[schema.xml] analyzer/tokenizer",false,false){
+    @Override protected void init(    TokenizerFactory plugin,    Node node) throws Exception {
+      if (!tokenizers.isEmpty()) {
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"The schema defines multiple tokenizers for: " + node);
+      }
+      plugin.init(DOMUtil.toMapExcept(node.getAttributes(),"class"));
+      tokenizers.add(plugin);
+    }
+    @Override protected TokenizerFactory register(    String name,    TokenizerFactory plugin) throws Exception {
+      return plugin;
+    }
+  }
+;
+  tokenizerLoader.load(solrConfig.getResourceLoader(),(NodeList)xpath.evaluate("./tokenizer",node,XPathConstants.NODESET));
+  if (tokenizers.isEmpty()) {
     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"analyzer without class or tokenizer & filter list");
   }
-  TokenizerFactory tfac=readTokenizerFactory(solrConfig,tokNode);
-  ArrayList<TokenFilterFactory> filters=new ArrayList<TokenFilterFactory>();
-  for (int i=0; i < nList.getLength(); i++) {
-    TokenFilterFactory filt=readTokenFilterFactory(solrConfig,nList.item(i));
-    if (filt != null)     filters.add(filt);
+  final ArrayList<TokenFilterFactory> filters=new ArrayList<TokenFilterFactory>();
+  AbstractPluginLoader<TokenFilterFactory> filterLoader=new AbstractPluginLoader<TokenFilterFactory>("[schema.xml] analyzer/filter",false,false){
+    @Override protected void init(    TokenFilterFactory plugin,    Node node) throws Exception {
+      if (plugin != null) {
+        plugin.init(DOMUtil.toMapExcept(node.getAttributes(),"class"));
+        filters.add(plugin);
+      }
+    }
+    @Override protected TokenFilterFactory register(    String name,    TokenFilterFactory plugin) throws Exception {
+      return plugin;
+    }
   }
-  return new TokenizerChain(tfac,filters.toArray(new TokenFilterFactory[filters.size()]));
+;
+  filterLoader.load(solrConfig.getResourceLoader(),(NodeList)xpath.evaluate("./filter",node,XPathConstants.NODESET));
+  return new TokenizerChain(tokenizers.get(0),filters.toArray(new TokenFilterFactory[filters.size()]));
 }
