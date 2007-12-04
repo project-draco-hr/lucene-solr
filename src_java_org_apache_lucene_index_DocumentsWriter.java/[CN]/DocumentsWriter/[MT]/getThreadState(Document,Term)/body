@@ -22,6 +22,7 @@
     wait();
   }
  catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
   }
   if (segment == null)   segment=writer.newSegmentName();
   numDocsInRAM++;
@@ -35,22 +36,22 @@
   boolean success=false;
   try {
     state.init(doc,nextDocID++);
+    if (delTerm != null) {
+      addDeleteTerm(delTerm,state.docID);
+      if (!state.doFlushAfter)       state.doFlushAfter=timeToFlushDeletes();
+    }
     success=true;
   }
   finally {
     if (!success) {
-      state.isIdle=true;
-      if (state.doFlushAfter) {
-        state.doFlushAfter=false;
-        flushPending=false;
+synchronized (this) {
+        state.isIdle=true;
+        if (state.doFlushAfter) {
+          state.doFlushAfter=false;
+          flushPending=false;
+        }
+        notifyAll();
       }
-      abort();
-    }
-  }
-  if (delTerm != null) {
-    addDeleteTerm(delTerm,state.docID);
-    if (!state.doFlushAfter) {
-      state.doFlushAfter=timeToFlushDeletes();
     }
   }
   return state;
