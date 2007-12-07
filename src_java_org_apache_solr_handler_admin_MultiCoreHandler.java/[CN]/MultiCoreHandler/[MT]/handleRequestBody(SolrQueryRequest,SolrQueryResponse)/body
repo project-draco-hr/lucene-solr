@@ -1,0 +1,57 @@
+{
+  MultiCore manager=MultiCore.getRegistry();
+  if (!manager.isEnabled()) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MultiCore support must be enabled at startup.");
+  }
+  SolrParams params=req.getParams();
+  MultiCoreAction action=MultiCoreAction.STATUS;
+  String a=params.get(MultiCoreParams.ACTION);
+  if (a != null) {
+    action=MultiCoreAction.get(a);
+    if (action == null) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown 'action' value.  Use: " + MultiCoreAction.values());
+    }
+  }
+  SolrCore core=null;
+  String cname=params.get(MultiCoreParams.CORE);
+  if (cname != null) {
+    core=manager.getCore(cname);
+    if (core == null) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown core: " + cname);
+    }
+  }
+  if (action == MultiCoreAction.STATUS) {
+    SolrCore defaultCore=manager.getDefaultCore();
+    NamedList<Object> status=new SimpleOrderedMap<Object>();
+    if (core == null) {
+      for (      SolrCore c : manager.getCores()) {
+        status.add(c.getName(),getCoreStatus(c,c == defaultCore));
+      }
+    }
+ else {
+      status.add(core.getName(),getCoreStatus(core,core == defaultCore));
+    }
+    rsp.add("status",status);
+  }
+ else   if (core == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Action '" + action + "' requires a core name.");
+  }
+ else {
+switch (action) {
+case SETASDEFAULT:
+      manager.setDefaultCore(core);
+    rsp.add("default",core.getName());
+  break;
+case RELOAD:
+{
+  manager.reload(core);
+  break;
+}
+default :
+throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"TODO: IMPLEMENT: " + action);
+}
+if (params.getBool(MultiCoreParams.PERSISTENT,manager.isPersistent())) {
+rsp.add("TODO","SAVE THE CHANGES: " + manager.getConfigFile().getAbsolutePath());
+}
+}
+}

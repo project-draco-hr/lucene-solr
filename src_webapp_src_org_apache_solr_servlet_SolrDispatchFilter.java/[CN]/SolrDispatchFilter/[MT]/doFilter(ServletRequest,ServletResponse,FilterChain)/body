@@ -18,6 +18,27 @@
       if (idx > 0) {
         path=path.substring(0,idx);
       }
+      SolrCore core=singlecore;
+      if (core == null) {
+        String corename=request.getParameter("core");
+        if (corename == null && path.startsWith("/@")) {
+          idx=path.indexOf('/',2);
+          if (idx < 1) {
+            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MultiCore path must contain a '/'.  For example: /@corename/handlerpath");
+          }
+          corename=path.substring(2,idx);
+          path=path.substring(idx);
+        }
+        if (corename != null) {
+          core=multicore.getCore(corename);
+          if (core == null) {
+            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Can not find core: '" + corename + "'");
+          }
+        }
+ else {
+          core=multicore.getDefaultCore();
+        }
+      }
       SolrRequestHandler handler=null;
       if (path.length() > 1) {
         handler=core.getRequestHandler(path);
@@ -35,6 +56,9 @@
           }
         }
       }
+      if (handler == null && path.equals(multicore.getAdminPath())) {
+        handler=multicore.getMultiCoreHandler();
+      }
       if (handler != null) {
         if (solrReq == null) {
           solrReq=parsers.parse(core,path,req);
@@ -50,6 +74,9 @@
         PrintWriter out=response.getWriter();
         responseWriter.write(out,solrReq,solrRsp);
         return;
+      }
+ else {
+        req.setAttribute("org.apache.solr.SolrCore",core);
       }
     }
  catch (    Throwable ex) {
