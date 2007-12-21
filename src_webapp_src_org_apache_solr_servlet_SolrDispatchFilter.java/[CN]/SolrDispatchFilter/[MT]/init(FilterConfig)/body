@@ -10,12 +10,9 @@
     log.info("looking for multicore.xml: " + multiconfig.getAbsolutePath());
     if (multiconfig.exists()) {
       multicore.load(instanceDir,multiconfig);
+      core=multicore.getDefaultCore();
     }
     if (multicore.isEnabled()) {
-      core=multicore.getDefaultCore();
-      if (core == null) {
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Multicore configuration does not include a default");
-      }
       singlecore=null;
     }
  else {
@@ -23,12 +20,12 @@
       core=singlecore;
     }
     log.info("user.dir=" + System.getProperty("user.dir"));
-    Config solrConfig=core.getSolrConfig();
-    long uploadLimitKB=solrConfig.getInt("requestDispatcher/requestParsers/@multipartUploadLimitInKB",2000);
-    boolean enableRemoteStreams=solrConfig.getBool("requestDispatcher/requestParsers/@enableRemoteStreaming",false);
+    Config globalConfig=core.getSolrConfig();
+    long uploadLimitKB=globalConfig.getInt("requestDispatcher/requestParsers/@multipartUploadLimitInKB",2000);
+    boolean enableRemoteStreams=globalConfig.getBool("requestDispatcher/requestParsers/@enableRemoteStreaming",false);
     parsers=new SolrRequestParsers(enableRemoteStreams,uploadLimitKB);
-    this.handleSelect=solrConfig.getBool("requestDispatcher/@handleSelect",false);
-    abortOnConfigurationError=solrConfig.getBool("abortOnConfigurationError",true);
+    this.handleSelect=globalConfig.getBool("requestDispatcher/@handleSelect",false);
+    abortOnConfigurationError=globalConfig.getBool("abortOnConfigurationError",true);
   }
  catch (  Throwable t) {
     log.log(Level.SEVERE,"Could not start SOLR. Check solr/home property",t);
@@ -42,7 +39,12 @@
     out.println("Check your log files for more detailed information on what may be wrong.\n");
     out.println("If you want solr to continue after configuration errors, change: \n");
     out.println(" <abortOnConfigurationError>false</abortOnConfigurationError>\n");
-    out.println("in solrconfig.xml\n");
+    if (multicore.isEnabled()) {
+      out.println("in multicore.xml\n");
+    }
+ else {
+      out.println("in solrconfig.xml\n");
+    }
     for (    Throwable t : SolrConfig.severeErrors) {
       out.println("-------------------------------------------------------------");
       t.printStackTrace(out);

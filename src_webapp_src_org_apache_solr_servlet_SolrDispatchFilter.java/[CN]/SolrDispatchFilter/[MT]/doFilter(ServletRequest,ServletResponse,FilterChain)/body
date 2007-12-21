@@ -18,46 +18,43 @@
       if (idx > 0) {
         path=path.substring(0,idx);
       }
+      SolrRequestHandler handler=null;
       SolrCore core=singlecore;
       if (core == null) {
-        String corename=null;
-        if (path.startsWith("/@")) {
-          idx=path.indexOf('/',2);
-          if (idx < 1) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MultiCore path must contain a '/'.  For example: /@corename/handlerpath");
-          }
-          corename=path.substring(2,idx);
-          path=path.substring(idx);
-          core=multicore.getCore(corename);
-          if (core == null) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Can not find core: '" + corename + "'");
-          }
+        if (path.equals(multicore.getAdminPath())) {
+          handler=multicore.getMultiCoreHandler();
         }
  else {
-          core=multicore.getDefaultCore();
-        }
-      }
-      SolrRequestHandler handler=null;
-      if (path.length() > 1) {
-        handler=core.getRequestHandler(path);
-      }
-      if (handler == null && handleSelect) {
-        if ("/select".equals(path) || "/select/".equals(path)) {
-          solrReq=parsers.parse(core,path,req);
-          String qt=solrReq.getParams().get(CommonParams.QT);
-          if (qt != null && qt.startsWith("/")) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid query type.  Do not use /select to access: " + qt);
-          }
-          handler=core.getRequestHandler(qt);
-          if (handler == null) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+          idx=path.indexOf("/",1);
+          if (idx > 1) {
+            String corename=path.substring(1,idx);
+            path=path.substring(idx);
+            core=multicore.getCore(corename);
           }
         }
       }
-      if (handler == null && path.equals(multicore.getAdminPath())) {
-        handler=multicore.getMultiCoreHandler();
+      if (core != null) {
+        if (handler == null && path.length() > 1) {
+          handler=core.getRequestHandler(path);
+        }
+        if (handler == null && handleSelect) {
+          if ("/select".equals(path) || "/select/".equals(path)) {
+            solrReq=parsers.parse(core,path,req);
+            String qt=solrReq.getParams().get(CommonParams.QT);
+            if (qt != null && qt.startsWith("/")) {
+              throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid query type.  Do not use /select to access: " + qt);
+            }
+            handler=core.getRequestHandler(qt);
+            if (handler == null) {
+              throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+            }
+          }
+        }
       }
       if (handler != null) {
+        if (core == null) {
+          core=multicore.getDefaultCore();
+        }
         if (solrReq == null) {
           solrReq=parsers.parse(core,path,req);
         }
@@ -74,14 +71,11 @@
         return;
       }
  else {
-        String corename=request.getParameter("core");
-        if (corename != null) {
-          core=multicore.getCore(corename);
-          if (core == null) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Can not find core: '" + corename + "'");
-          }
-        }
         req.setAttribute("org.apache.solr.SolrCore",core);
+        if (singlecore == null && path.startsWith("/admin")) {
+          req.getRequestDispatcher(path).forward(request,response);
+          return;
+        }
       }
     }
  catch (    Throwable ex) {
