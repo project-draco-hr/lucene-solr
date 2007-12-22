@@ -1,32 +1,31 @@
 {
   try {
     if (infoStream != null)     message("now flush at close");
+    docWriter.close();
     flush(waitForMerges,true);
     mergePolicy.close();
     finishMerges(waitForMerges);
     mergeScheduler.close();
-    if (commitPending) {
-      boolean success=false;
-      try {
-        segmentInfos.write(directory);
-        success=true;
-      }
-  finally {
-        if (!success) {
-          if (infoStream != null)           message("hit exception committing segments file during close");
-          deletePartialSegmentsFile();
+synchronized (this) {
+      if (commitPending) {
+        boolean success=false;
+        try {
+          segmentInfos.write(directory);
+          success=true;
         }
-      }
-      if (infoStream != null)       message("close: wrote segments file \"" + segmentInfos.getCurrentSegmentFileName() + "\"");
-synchronized (this) {
+  finally {
+          if (!success) {
+            if (infoStream != null)             message("hit exception committing segments file during close");
+            deletePartialSegmentsFile();
+          }
+        }
+        if (infoStream != null)         message("close: wrote segments file \"" + segmentInfos.getCurrentSegmentFileName() + "\"");
         deleter.checkpoint(segmentInfos,true);
+        commitPending=false;
+        rollbackSegmentInfos=null;
       }
-      commitPending=false;
-      rollbackSegmentInfos=null;
-    }
-    if (infoStream != null)     message("at close: " + segString());
-    docWriter=null;
-synchronized (this) {
+      if (infoStream != null)       message("at close: " + segString());
+      docWriter=null;
       deleter.close();
     }
     if (closeDir)     directory.close();
