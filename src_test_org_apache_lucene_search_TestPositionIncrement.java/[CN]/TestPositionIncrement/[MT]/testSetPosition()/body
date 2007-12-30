@@ -33,6 +33,16 @@
   hits=searcher.search(q);
   assertEquals(0,hits.length());
   q=new PhraseQuery();
+  q.add(new Term("field","1"),0);
+  q.add(new Term("field","2"),1);
+  hits=searcher.search(q);
+  assertEquals(0,hits.length());
+  q=new PhraseQuery();
+  q.add(new Term("field","1"),0);
+  q.add(new Term("field","2"),2);
+  hits=searcher.search(q);
+  assertEquals(1,hits.length());
+  q=new PhraseQuery();
   q.add(new Term("field","2"));
   q.add(new Term("field","3"));
   hits=searcher.search(q);
@@ -43,6 +53,20 @@
   hits=searcher.search(q);
   assertEquals(0,hits.length());
   q=new PhraseQuery();
+  q.add(new Term("field","3"),0);
+  q.add(new Term("field","4"),0);
+  hits=searcher.search(q);
+  assertEquals(1,hits.length());
+  q=new PhraseQuery();
+  q.add(new Term("field","3"),0);
+  q.add(new Term("field","9"),0);
+  hits=searcher.search(q);
+  assertEquals(0,hits.length());
+  MultiPhraseQuery mq=new MultiPhraseQuery();
+  mq.add(new Term[]{new Term("field","3"),new Term("field","9")},0);
+  hits=searcher.search(mq);
+  assertEquals(1,hits.length());
+  q=new PhraseQuery();
   q.add(new Term("field","2"));
   q.add(new Term("field","4"));
   hits=searcher.search(q);
@@ -62,4 +86,38 @@
   q.add(new Term("field","5"));
   hits=searcher.search(q);
   assertEquals(0,hits.length());
+  Analyzer stpa=new Analyzer(){
+    final WhitespaceAnalyzer a=new WhitespaceAnalyzer();
+    public TokenStream tokenStream(    String fieldName,    Reader reader){
+      TokenStream ts=a.tokenStream(fieldName,reader);
+      return new StopFilter(ts,new String[]{"stop"});
+    }
+  }
+;
+  QueryParser qp=new QueryParser("field",stpa);
+  q=(PhraseQuery)qp.parse("\"1 2\"");
+  hits=searcher.search(q);
+  assertEquals(0,hits.length());
+  q=(PhraseQuery)qp.parse("\"1 stop 2\"");
+  hits=searcher.search(q);
+  assertEquals(0,hits.length());
+  qp.setEnablePositionIncrements(true);
+  q=(PhraseQuery)qp.parse("\"1 stop 2\"");
+  hits=searcher.search(q);
+  assertEquals(0,hits.length());
+  boolean dflt=StopFilter.getEnablePositionIncrementsDefault();
+  try {
+    qp.setEnablePositionIncrements(false);
+    StopFilter.setEnablePositionIncrementsDefault(true);
+    q=(PhraseQuery)qp.parse("\"1 stop 2\"");
+    hits=searcher.search(q);
+    assertEquals(0,hits.length());
+    qp.setEnablePositionIncrements(true);
+    q=(PhraseQuery)qp.parse("\"1 stop 2\"");
+    hits=searcher.search(q);
+    assertEquals(1,hits.length());
+  }
+  finally {
+    StopFilter.setEnablePositionIncrementsDefault(dflt);
+  }
 }
