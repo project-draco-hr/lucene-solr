@@ -1,0 +1,36 @@
+{
+  int NUM_THREADS=3;
+  for (int iter=0; iter < 10; iter++) {
+    MockRAMDirectory dir=new MockRAMDirectory();
+    IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer());
+    ConcurrentMergeScheduler cms=new ConcurrentMergeScheduler();
+    cms.setSuppressExceptions();
+    writer.setMergeScheduler(cms);
+    writer.setMaxBufferedDocs(2);
+    writer.setMergeFactor(4);
+    dir.setMaxSizeInBytes(4 * 1024 + 20 * iter);
+    IndexerThread[] threads=new IndexerThread[NUM_THREADS];
+    boolean diskFull=false;
+    for (int i=0; i < NUM_THREADS; i++)     threads[i]=new IndexerThread(writer,true);
+    for (int i=0; i < NUM_THREADS; i++)     threads[i].start();
+    for (int i=0; i < NUM_THREADS; i++) {
+      while (true) {
+        try {
+          threads[i].join();
+          break;
+        }
+ catch (        InterruptedException ie) {
+          Thread.currentThread().interrupt();
+        }
+      }
+      if (threads[i].isAlive())       fail("thread seems to be hung");
+ else       assertTrue("hit unexpected Throwable",threads[i].error == null);
+    }
+    try {
+      writer.close(false);
+    }
+ catch (    IOException ioe) {
+    }
+    dir.close();
+  }
+}

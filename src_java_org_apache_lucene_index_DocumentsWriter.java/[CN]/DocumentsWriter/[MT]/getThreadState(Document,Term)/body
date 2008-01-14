@@ -18,7 +18,7 @@
     }
     threadBindings.put(Thread.currentThread(),state);
   }
-  while (!state.isIdle || pauseThreads != 0 || flushPending)   try {
+  while (!closed && (!state.isIdle || pauseThreads != 0 || flushPending || aborting))   try {
     wait();
   }
  catch (  InterruptedException e) {
@@ -34,26 +34,30 @@
   }
  else   state.doFlushAfter=false;
   state.isIdle=false;
-  boolean success=false;
   try {
-    state.init(doc,nextDocID++);
-    if (delTerm != null) {
-      addDeleteTerm(delTerm,state.docID);
-      if (!state.doFlushAfter)       state.doFlushAfter=timeToFlushDeletes();
+    boolean success=false;
+    try {
+      state.init(doc,nextDocID);
+      if (delTerm != null) {
+        addDeleteTerm(delTerm,state.docID);
+        if (!state.doFlushAfter)         state.doFlushAfter=timeToFlushDeletes();
+      }
+      nextDocID++;
+      success=true;
     }
-    success=true;
-  }
   finally {
-    if (!success) {
-synchronized (this) {
+      if (!success) {
         state.isIdle=true;
+        notifyAll();
         if (state.doFlushAfter) {
           state.doFlushAfter=false;
           flushPending=false;
         }
-        notifyAll();
       }
     }
+  }
+ catch (  AbortException ae) {
+    abort(ae);
   }
   return state;
 }
