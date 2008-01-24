@@ -26,11 +26,30 @@
       int traversalSize=Math.min(hits.length(),traversalSize());
       if (traversalSize > 0) {
         boolean retrieve=withRetrieve();
-        for (int m=0; m < hits.length(); m++) {
+        int numHighlight=Math.min(numToHighlight(),hits.length());
+        Analyzer analyzer=getRunData().getAnalyzer();
+        Highlighter highlighter=null;
+        int maxFrags=1;
+        if (numHighlight > 0) {
+          highlighter=getHighlighter(q);
+          maxFrags=maxNumFragments();
+        }
+        boolean merge=isMergeContiguousFragments();
+        for (int m=0; m < traversalSize; m++) {
           int id=hits.id(m);
           res++;
           if (retrieve) {
-            res+=retrieveDoc(ir,id);
+            Document document=retrieveDoc(ir,id);
+            res+=document != null ? 1 : 0;
+            if (numHighlight > 0 && m < numHighlight) {
+              Collection fieldsToHighlight=getFieldsToHighlight(document);
+              for (Iterator iterator=fieldsToHighlight.iterator(); iterator.hasNext(); ) {
+                String field=(String)iterator.next();
+                String text=document.get(field);
+                TokenStream ts=TokenSources.getAnyTokenStream(ir,id,field,document,analyzer);
+                res+=doHighlight(ts,text,highlighter,merge,maxFrags);
+              }
+            }
           }
         }
       }
