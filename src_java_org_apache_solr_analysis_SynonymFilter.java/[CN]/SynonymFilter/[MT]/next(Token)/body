@@ -1,0 +1,48 @@
+{
+  while (true) {
+    if (replacement != null && replacement.hasNext()) {
+      return replacement.next();
+    }
+    Token firstTok=nextTok(target);
+    if (firstTok == null)     return null;
+    SynonymMap result=map.submap != null ? map.submap.get(firstTok.termBuffer(),0,firstTok.termLength()) : null;
+    if (result == null)     return firstTok;
+    matched=new LinkedList<Token>();
+    result=match(result);
+    if (result == null) {
+      return firstTok;
+    }
+    ArrayList<Token> generated=new ArrayList<Token>(result.synonyms.length + matched.size() + 1);
+    Token lastTok=matched.isEmpty() ? firstTok : matched.getLast();
+    boolean includeOrig=result.includeOrig();
+    Token origTok=includeOrig ? firstTok : null;
+    int origPos=firstTok.getPositionIncrement();
+    int repPos=0;
+    int pos=0;
+    for (int i=0; i < result.synonyms.length; i++) {
+      Token repTok=result.synonyms[i];
+      Token newTok=new Token(firstTok.startOffset(),lastTok.endOffset(),firstTok.type());
+      newTok.setTermBuffer(repTok.termBuffer(),0,repTok.termLength());
+      repPos+=repTok.getPositionIncrement();
+      if (i == 0)       repPos=origPos;
+      while (origTok != null && origPos <= repPos) {
+        origTok.setPositionIncrement(origPos - pos);
+        generated.add(origTok);
+        pos+=origTok.getPositionIncrement();
+        origTok=matched.isEmpty() ? null : matched.removeFirst();
+        if (origTok != null)         origPos+=origTok.getPositionIncrement();
+      }
+      newTok.setPositionIncrement(repPos - pos);
+      generated.add(newTok);
+      pos+=newTok.getPositionIncrement();
+    }
+    while (origTok != null) {
+      origTok.setPositionIncrement(origPos - pos);
+      generated.add(origTok);
+      pos+=origTok.getPositionIncrement();
+      origTok=matched.isEmpty() ? null : matched.removeFirst();
+      if (origTok != null)       origPos+=origTok.getPositionIncrement();
+    }
+    replacement=generated.iterator();
+  }
+}
