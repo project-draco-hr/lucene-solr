@@ -1,25 +1,51 @@
 {
   boolean doFix=false;
-  for (int i=0; i < args.length; i++)   if (args[i].equals("-fix")) {
-    doFix=true;
-    break;
+  List onlySegments=new ArrayList();
+  String indexPath=null;
+  int i=0;
+  while (i < args.length) {
+    if (args[i].equals("-fix")) {
+      doFix=true;
+      i++;
+    }
+ else     if (args[i].equals("-segment")) {
+      if (i == args.length - 1) {
+        out.println("ERROR: missing name for -segment option");
+        System.exit(1);
+      }
+      onlySegments.add(args[i + 1]);
+      i+=2;
+    }
+ else {
+      if (indexPath != null) {
+        out.println("ERROR: unexpected extra argument '" + args[i] + "'");
+        System.exit(1);
+      }
+      indexPath=args[i];
+      i++;
+    }
   }
-  if (args.length != (doFix ? 2 : 1)) {
-    out.println("\nUsage: java org.apache.lucene.index.CheckIndex pathToIndex [-fix]\n" + "\n" + "  -fix: actually write a new segments_N file, removing any problematic segments\n"+ "\n"+ "**WARNING**: -fix should only be used on an emergency basis as it will cause\n"+ "documents (perhaps many) to be permanently removed from the index.  Always make\n"+ "a backup copy of your index before running this!  Do not run this tool on an index\n"+ "that is actively being written to.  You have been warned!\n"+ "\n"+ "Run without -fix, this tool will open the index, report version information\n"+ "and report any exceptions it hits and what action it would take if -fix were\n"+ "specified.  With -fix, this tool will remove any segments that have issues and\n"+ "write a new segments_N file.  This means all documents contained in the affected\n"+ "segments will be removed.\n"+ "\n"+ "This tool exits with exit code 1 if the index cannot be opened or has has any\n"+ "corruption, else 0.\n");
+  if (indexPath == null) {
+    out.println("\nERROR: index path not specified");
+    out.println("\nUsage: java org.apache.lucene.index.CheckIndex pathToIndex [-fix] [-segment X] [-segment Y]\n" + "\n" + "  -fix: actually write a new segments_N file, removing any problematic segments\n"+ "  -segment X: only check the specified segments.  This can be specified multiple\n"+ "              times, to check more than one segment, eg '-segment _2 -segment _a'.\n"+ "              You can't use this with the -fix option\n"+ "\n"+ "**WARNING**: -fix should only be used on an emergency basis as it will cause\n"+ "documents (perhaps many) to be permanently removed from the index.  Always make\n"+ "a backup copy of your index before running this!  Do not run this tool on an index\n"+ "that is actively being written to.  You have been warned!\n"+ "\n"+ "Run without -fix, this tool will open the index, report version information\n"+ "and report any exceptions it hits and what action it would take if -fix were\n"+ "specified.  With -fix, this tool will remove any segments that have issues and\n"+ "write a new segments_N file.  This means all documents contained in the affected\n"+ "segments will be removed.\n"+ "\n"+ "This tool exits with exit code 1 if the index cannot be opened or has has any\n"+ "corruption, else 0.\n");
     System.exit(1);
   }
-  final String dirName=args[0];
-  out.println("\nOpening index @ " + dirName + "\n");
+  if (onlySegments.size() == 0)   onlySegments=null;
+ else   if (doFix) {
+    out.println("ERROR: cannot specify both -fix and -segment");
+    System.exit(1);
+  }
+  out.println("\nOpening index @ " + indexPath + "\n");
   Directory dir=null;
   try {
-    dir=FSDirectory.getDirectory(dirName);
+    dir=FSDirectory.getDirectory(indexPath);
   }
  catch (  Throwable t) {
-    out.println("ERROR: could not open directory \"" + dirName + "\"; exiting");
+    out.println("ERROR: could not open directory \"" + indexPath + "\"; exiting");
     t.printStackTrace(out);
     System.exit(1);
   }
-  boolean isClean=check(dir,doFix);
+  boolean isClean=check(dir,doFix,onlySegments);
   final int exitCode;
   if (isClean)   exitCode=0;
  else   exitCode=1;
