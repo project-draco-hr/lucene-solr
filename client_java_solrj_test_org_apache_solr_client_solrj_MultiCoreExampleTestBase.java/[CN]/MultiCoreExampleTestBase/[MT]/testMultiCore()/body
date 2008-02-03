@@ -1,57 +1,47 @@
 {
-  SolrServer solr=getSolrServer();
   UpdateRequest up=new UpdateRequest();
   up.setAction(ACTION.COMMIT,true,true);
-  up.setCore("core0");
   up.deleteByQuery("*:*");
-  up.process(solr);
-  up.setCore("core1");
-  up.process(solr);
+  up.process(getSolrCore0());
+  up.process(getSolrCore1());
   up.clear();
   SolrInputDocument doc=new SolrInputDocument();
   doc.setField("id","AAA");
   doc.setField("core0","yup");
-  up.setCore("core0");
   up.add(doc);
-  up.process(solr);
+  up.process(getSolrCore0());
   try {
-    up.setCore("core1");
-    up.process(solr);
+    up.process(getSolrCore1());
     fail("Can't add core0 field to core1!");
   }
  catch (  Exception ex) {
   }
-  up.setCore("core1");
   doc.setField("id","BBB");
   doc.setField("core1","yup");
   doc.removeField("core0");
   up.add(doc);
-  up.process(solr);
+  up.process(getSolrCore1());
   try {
-    up.setCore("core0");
-    up.process(solr);
+    up.process(getSolrCore0());
     fail("Can't add core1 field to core0!");
   }
  catch (  Exception ex) {
   }
   SolrQuery q=new SolrQuery();
   QueryRequest r=new QueryRequest(q);
-  r.setCore("core0");
   q.setQuery("id:AAA");
-  assertEquals(1,r.process(solr).getResults().size());
-  r.setCore("core1");
-  assertEquals(0,r.process(solr).getResults().size());
-  solr.setDefaultCore("core0");
-  assertEquals(1,solr.query(new SolrQuery("id:AAA")).getResults().size());
-  assertEquals(0,solr.query(new SolrQuery("id:BBB")).getResults().size());
-  solr.setDefaultCore("core1");
-  assertEquals(0,solr.query(new SolrQuery("id:AAA")).getResults().size());
-  assertEquals(1,solr.query(new SolrQuery("id:BBB")).getResults().size());
+  assertEquals(1,r.process(getSolrCore0()).getResults().size());
+  assertEquals(0,r.process(getSolrCore1()).getResults().size());
+  assertEquals(1,getSolrCore0().query(new SolrQuery("id:AAA")).getResults().size());
+  assertEquals(0,getSolrCore0().query(new SolrQuery("id:BBB")).getResults().size());
+  assertEquals(0,getSolrCore1().query(new SolrQuery("id:AAA")).getResults().size());
+  assertEquals(1,getSolrCore1().query(new SolrQuery("id:BBB")).getResults().size());
   String name="core0";
-  MultiCoreResponse mcr=MultiCoreRequest.getStatus(name,solr);
+  SolrServer coreadmin=getSolrAdmin();
+  MultiCoreResponse mcr=MultiCoreRequest.getStatus(name,coreadmin);
   long before=mcr.getStartTime(name).getTime();
-  MultiCoreRequest.reloadCore(name,solr);
-  mcr=MultiCoreRequest.getStatus(name,solr);
+  MultiCoreRequest.reloadCore(name,coreadmin);
+  mcr=MultiCoreRequest.getStatus(name,coreadmin);
   long after=mcr.getStartTime(name).getTime();
   assertTrue("should have more recent time: " + after + ","+ before,after > before);
 }
