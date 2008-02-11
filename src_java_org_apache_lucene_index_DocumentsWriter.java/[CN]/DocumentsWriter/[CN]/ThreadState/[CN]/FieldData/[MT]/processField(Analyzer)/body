@@ -6,6 +6,7 @@
   final int maxFieldLength=writer.getMaxFieldLength();
   final int limit=fieldCount;
   final Fieldable[] docFieldsFinal=docFields;
+  boolean doWriteVectors=true;
   try {
     for (int j=0; j < limit; j++) {
       Fieldable field=docFieldsFinal[j];
@@ -24,18 +25,28 @@
       docFieldsFinal[j]=null;
     }
   }
-  finally {
+ catch (  AbortException ae) {
+    doWriteVectors=false;
+    throw ae;
+  }
+ finally {
     if (postingsVectorsUpto > 0) {
-      boolean success=false;
       try {
-        writeVectors(fieldInfo);
-        success=true;
+        if (doWriteVectors) {
+          boolean success=false;
+          try {
+            writeVectors(fieldInfo);
+            success=true;
+          }
+  finally {
+            if (!success) {
+              numVectorFields=0;
+              tvfLocal.reset();
+            }
+          }
+        }
       }
   finally {
-        if (!success) {
-          numVectorFields=0;
-          tvfLocal.reset();
-        }
         if (postingsVectorsUpto > maxPostingsVectors)         maxPostingsVectors=postingsVectorsUpto;
         postingsVectorsUpto=0;
         vectorsPool.reset();
