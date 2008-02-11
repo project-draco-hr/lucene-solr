@@ -1,0 +1,72 @@
+{
+  assertEquals(r1.numDocs(),r2.numDocs());
+  boolean hasDeletes=!(r1.maxDoc() == r2.maxDoc() && r1.numDocs() == r1.maxDoc());
+  int[] r2r1=new int[r2.maxDoc()];
+  TermDocs termDocs1=r1.termDocs();
+  TermDocs termDocs2=r2.termDocs();
+  idField=idField.intern();
+  TermEnum termEnum=r1.terms(new Term(idField,""));
+  do {
+    Term term=termEnum.term();
+    if (term == null || term.field() != idField)     break;
+    termDocs1.seek(termEnum);
+    assertTrue(termDocs1.next());
+    int id1=termDocs1.doc();
+    assertFalse(termDocs1.next());
+    termDocs2.seek(termEnum);
+    assertTrue(termDocs2.next());
+    int id2=termDocs2.doc();
+    assertFalse(termDocs2.next());
+    r2r1[id2]=id1;
+    verifyEquals(r1.document(id1),r2.document(id2));
+  }
+ while (termEnum.next());
+  termEnum.close();
+  TermEnum termEnum1=r1.terms(new Term("",""));
+  TermEnum termEnum2=r2.terms(new Term("",""));
+  long[] info1=new long[r1.numDocs()];
+  long[] info2=new long[r2.numDocs()];
+  for (; ; ) {
+    Term term1, term2;
+    int len1;
+    for (; ; ) {
+      len1=0;
+      term1=termEnum1.term();
+      if (term1 == null)       break;
+      termDocs1.seek(termEnum1);
+      while (termDocs1.next()) {
+        int d1=termDocs1.doc();
+        int f1=termDocs1.freq();
+        info1[len1]=(((long)d1) << 32) | f1;
+        len1++;
+      }
+      if (len1 > 0)       break;
+      if (!termEnum1.next())       break;
+    }
+    int len2;
+    for (; ; ) {
+      len2=0;
+      term2=termEnum2.term();
+      if (term2 == null)       break;
+      termDocs2.seek(termEnum2);
+      while (termDocs2.next()) {
+        int d2=termDocs2.doc();
+        int f2=termDocs2.freq();
+        info2[len2]=(((long)r2r1[d2]) << 32) | f2;
+        len2++;
+      }
+      if (len2 > 0)       break;
+      if (!termEnum2.next())       break;
+    }
+    if (!hasDeletes)     assertEquals(termEnum1.docFreq(),termEnum2.docFreq());
+    assertEquals(len1,len2);
+    if (len1 == 0)     break;
+    assertEquals(term1,term2);
+    Arrays.sort(info2,0,len2);
+    for (int i=0; i < len1; i++) {
+      assertEquals(info1[i],info2[i]);
+    }
+    termEnum1.next();
+    termEnum2.next();
+  }
+}
