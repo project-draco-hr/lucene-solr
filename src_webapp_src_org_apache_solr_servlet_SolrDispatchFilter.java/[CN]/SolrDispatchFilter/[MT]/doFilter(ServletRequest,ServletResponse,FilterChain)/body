@@ -6,6 +6,7 @@
   if (request instanceof HttpServletRequest) {
     SolrQueryRequest solrReq=null;
     HttpServletRequest req=(HttpServletRequest)request;
+    HttpServletResponse resp=(HttpServletResponse)response;
     try {
       String path=req.getServletPath();
       if (req.getPathInfo() != null) {
@@ -58,6 +59,16 @@
         if (solrReq == null) {
           solrReq=parsers.parse(core,path,req);
         }
+        final SolrConfig conf=core.getSolrConfig();
+        final Method reqMethod=Method.getMethod(req.getMethod());
+        if (Method.POST != reqMethod) {
+          HttpCacheHeaderUtil.setCacheControlHeader(conf,resp);
+        }
+        if (!conf.getHttpCachingConfig().isNever304()) {
+          if (HttpCacheHeaderUtil.doCacheHeaderValidation(solrReq,req,resp)) {
+            return;
+          }
+        }
         SolrQueryResponse solrRsp=new SolrQueryResponse();
         this.execute(req,handler,solrReq,solrRsp);
         if (solrRsp.getException() != null) {
@@ -66,6 +77,9 @@
         }
         QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
         response.setContentType(responseWriter.getContentType(solrReq,solrRsp));
+        if (Method.HEAD == Method.getMethod(req.getMethod())) {
+          return;
+        }
         PrintWriter out=response.getWriter();
         responseWriter.write(out,solrReq,solrRsp);
         return;
