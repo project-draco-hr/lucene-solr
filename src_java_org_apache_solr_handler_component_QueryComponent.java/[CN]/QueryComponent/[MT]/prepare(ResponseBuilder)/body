@@ -1,0 +1,43 @@
+{
+  SolrQueryRequest req=rb.req;
+  SolrQueryResponse rsp=rb.rsp;
+  SolrParams params=req.getParams();
+  String fl=params.get(CommonParams.FL);
+  int fieldFlags=0;
+  if (fl != null) {
+    fieldFlags|=SolrPluginUtils.setReturnFields(fl,rsp);
+  }
+  rb.setFieldFlags(fieldFlags);
+  String defType=params.get(QueryParsing.DEFTYPE);
+  defType=defType == null ? OldLuceneQParserPlugin.NAME : defType;
+  if (rb.getQueryString() == null) {
+    rb.setQueryString(params.get(CommonParams.Q));
+  }
+  try {
+    QParser parser=QParser.getParser(rb.getQueryString(),defType,req);
+    rb.setQuery(parser.getQuery());
+    rb.setSortSpec(parser.getSort(true));
+    String[] fqs=req.getParams().getParams(org.apache.solr.common.params.CommonParams.FQ);
+    if (fqs != null && fqs.length != 0) {
+      List<Query> filters=rb.getFilters();
+      if (filters == null) {
+        filters=new ArrayList<Query>();
+        rb.setFilters(filters);
+      }
+      for (      String fq : fqs) {
+        if (fq != null && fq.trim().length() != 0) {
+          QParser fqp=QParser.getParser(fq,null,req);
+          filters.add(fqp.getQuery());
+        }
+      }
+    }
+  }
+ catch (  ParseException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
+  }
+  String shards=params.get("shards");
+  if (shards != null) {
+    List<String> lst=StrUtils.splitSmart(shards,",",true);
+    rb.shards=lst.toArray(new String[lst.size()]);
+  }
+}

@@ -1,0 +1,61 @@
+{
+  FacetInfo fi=rb._facetInfo;
+  for (  ShardResponse srsp : sreq.responses) {
+    int shardNum=rb.getShardNum(srsp.shard);
+    NamedList facet_counts=(NamedList)srsp.rsp.getResponse().get("facet_counts");
+    NamedList facet_queries=(NamedList)facet_counts.get("facet_queries");
+    if (facet_queries != null) {
+      for (int i=0; i < facet_queries.size(); i++) {
+        String facet_q=(String)facet_queries.getName(i);
+        long count=((Number)facet_queries.getVal(i)).longValue();
+        Long prevCount=fi.queryFacets.get(facet_q);
+        if (prevCount != null)         count+=prevCount;
+        fi.queryFacets.put(facet_q,count);
+      }
+    }
+    NamedList facet_fields=(NamedList)facet_counts.get("facet_fields");
+    for (    DistribFieldFacet dff : fi.topFacets.values()) {
+      dff.add(shardNum,(NamedList)facet_fields.get(dff.field),dff.initialLimit);
+    }
+  }
+  List<String>[] toRefine=new List[rb.shards.length];
+  fi._toRefine=toRefine;
+  for (int i=0; i < toRefine.length; i++) {
+    toRefine[i]=new ArrayList<String>();
+  }
+  for (  DistribFieldFacet dff : fi.topFacets.values()) {
+    ShardFacetCount[] counts=dff.getSorted();
+    int ntop=Math.min(counts.length,dff.offset + dff.limit);
+    long smallestCount=counts[ntop - 1].count;
+    for (int i=0; i < counts.length; i++) {
+      ShardFacetCount sfc=counts[i];
+      String query=null;
+      boolean needRefinement=false;
+      if (i < ntop) {
+        needRefinement=true;
+      }
+ else {
+        long maxCount=sfc.count;
+        for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
+          OpenBitSet obs=dff.counted[shardNum];
+          if (!obs.get(sfc.termNum)) {
+            maxCount+=dff.maxPossible(sfc,shardNum);
+          }
+        }
+        if (maxCount >= smallestCount) {
+          needRefinement=true;
+        }
+      }
+      if (needRefinement) {
+        for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
+          OpenBitSet obs=dff.counted[shardNum];
+          if (!obs.get(sfc.termNum) && dff.maxPossible(sfc,shardNum) > 0) {
+            dff.needRefinements=true;
+            if (query == null)             query=dff.makeQuery(sfc);
+            toRefine[shardNum].add(query);
+          }
+        }
+      }
+    }
+  }
+}

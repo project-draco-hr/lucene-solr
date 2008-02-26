@@ -1,0 +1,36 @@
+{
+  if (!rb.doFacets) {
+    return ResponseBuilder.STAGE_DONE;
+  }
+  if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
+    for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
+      List<String> fqueries=rb._facetInfo._toRefine[shardNum];
+      if (fqueries == null || fqueries.size() == 0)       continue;
+      String shard=rb.shards[shardNum];
+      ShardRequest refine=null;
+      boolean newRequest=false;
+      for (      ShardRequest sreq : rb.outgoing) {
+        if ((sreq.purpose & ShardRequest.PURPOSE_GET_FIELDS) != 0 && sreq.shards != null & sreq.shards.length == 1 && sreq.shards[0].equals(shard)) {
+          refine=sreq;
+          break;
+        }
+      }
+      if (refine == null) {
+        newRequest=true;
+        refine=new ShardRequest();
+        refine.shards=new String[]{rb.shards[shardNum]};
+        refine.params=new ModifiableSolrParams(rb.req.getParams());
+        refine.params.remove("start");
+        refine.params.set("rows","0");
+      }
+      refine.purpose|=ShardRequest.PURPOSE_REFINE_FACETS;
+      refine.params.set(FacetParams.FACET,"true");
+      refine.params.remove(FacetParams.FACET_FIELD);
+      refine.params.set(FacetParams.FACET_QUERY,fqueries.toArray(new String[fqueries.size()]));
+      if (newRequest) {
+        rb.addRequest(this,refine);
+      }
+    }
+  }
+  return ResponseBuilder.STAGE_DONE;
+}
