@@ -1,59 +1,65 @@
 {
   ensureOpen();
-  optimize();
-  final String mergedName=newSegmentName();
-  SegmentMerger merger=new SegmentMerger(this,mergedName,null);
-  SegmentInfo info;
-  IndexReader sReader=null;
   try {
-    if (segmentInfos.size() == 1) {
-      sReader=SegmentReader.get(segmentInfos.info(0));
-      merger.add(sReader);
-    }
-    for (int i=0; i < readers.length; i++)     merger.add(readers[i]);
-    boolean success=false;
-    startTransaction();
+    optimize();
+    final String mergedName=newSegmentName();
+    SegmentMerger merger=new SegmentMerger(this,mergedName,null);
+    SegmentInfo info;
+    IndexReader sReader=null;
     try {
-      int docCount=merger.merge();
+      if (segmentInfos.size() == 1) {
+        sReader=SegmentReader.get(segmentInfos.info(0));
+        merger.add(sReader);
+      }
+      for (int i=0; i < readers.length; i++)       merger.add(readers[i]);
+      boolean success=false;
+      startTransaction();
+      try {
+        int docCount=merger.merge();
+        if (sReader != null) {
+          sReader.close();
+          sReader=null;
+        }
+        segmentInfos.setSize(0);
+        info=new SegmentInfo(mergedName,docCount,directory,false,true,-1,null,false);
+        segmentInfos.addElement(info);
+        success=true;
+      }
+  finally {
+        if (!success) {
+          if (infoStream != null)           message("hit exception in addIndexes during merge");
+          rollbackTransaction();
+        }
+ else {
+          commitTransaction();
+        }
+      }
+    }
+  finally {
       if (sReader != null) {
         sReader.close();
-        sReader=null;
       }
-      segmentInfos.setSize(0);
-      info=new SegmentInfo(mergedName,docCount,directory,false,true,-1,null,false);
-      segmentInfos.addElement(info);
-      success=true;
     }
-  finally {
-      if (!success) {
-        if (infoStream != null)         message("hit exception in addIndexes during merge");
-        rollbackTransaction();
+    if (mergePolicy instanceof LogMergePolicy && getUseCompoundFile()) {
+      boolean success=false;
+      startTransaction();
+      try {
+        merger.createCompoundFile(mergedName + ".cfs");
+        info.setUseCompoundFile(true);
       }
+  finally {
+        if (!success) {
+          if (infoStream != null)           message("hit exception building compound file in addIndexes during merge");
+          rollbackTransaction();
+        }
  else {
-        commitTransaction();
+          commitTransaction();
+        }
       }
     }
   }
-  finally {
-    if (sReader != null) {
-      sReader.close();
-    }
-  }
-  if (mergePolicy instanceof LogMergePolicy && getUseCompoundFile()) {
-    boolean success=false;
-    startTransaction();
-    try {
-      merger.createCompoundFile(mergedName + ".cfs");
-      info.setUseCompoundFile(true);
-    }
-  finally {
-      if (!success) {
-        if (infoStream != null)         message("hit exception building compound file in addIndexes during merge");
-        rollbackTransaction();
-      }
- else {
-        commitTransaction();
-      }
-    }
+ catch (  OutOfMemoryError oom) {
+    hitOOM=true;
+    throw oom;
   }
 }

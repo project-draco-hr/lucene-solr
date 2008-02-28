@@ -1,31 +1,37 @@
 {
   ensureOpen();
-  if (infoStream != null)   message("flush at addIndexesNoOptimize");
-  flush(true,false);
-  boolean success=false;
-  startTransaction();
   try {
-    for (int i=0; i < dirs.length; i++) {
-      if (directory == dirs[i]) {
-        throw new IllegalArgumentException("Cannot add this index to itself");
+    if (infoStream != null)     message("flush at addIndexesNoOptimize");
+    flush(true,false);
+    boolean success=false;
+    startTransaction();
+    try {
+      for (int i=0; i < dirs.length; i++) {
+        if (directory == dirs[i]) {
+          throw new IllegalArgumentException("Cannot add this index to itself");
+        }
+        SegmentInfos sis=new SegmentInfos();
+        sis.read(dirs[i]);
+        for (int j=0; j < sis.size(); j++) {
+          SegmentInfo info=sis.info(j);
+          segmentInfos.addElement(info);
+        }
       }
-      SegmentInfos sis=new SegmentInfos();
-      sis.read(dirs[i]);
-      for (int j=0; j < sis.size(); j++) {
-        SegmentInfo info=sis.info(j);
-        segmentInfos.addElement(info);
-      }
+      maybeMerge();
+      copyExternalSegments();
+      success=true;
     }
-    maybeMerge();
-    copyExternalSegments();
-    success=true;
-  }
   finally {
-    if (success) {
-      commitTransaction();
-    }
+      if (success) {
+        commitTransaction();
+      }
  else {
-      rollbackTransaction();
+        rollbackTransaction();
+      }
     }
+  }
+ catch (  OutOfMemoryError oom) {
+    hitOOM=true;
+    throw oom;
   }
 }
