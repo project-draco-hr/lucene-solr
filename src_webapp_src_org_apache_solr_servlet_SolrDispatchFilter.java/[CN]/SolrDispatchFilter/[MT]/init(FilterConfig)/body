@@ -4,7 +4,6 @@
   try {
     this.pathPrefix=config.getInitParameter("path-prefix");
     this.solrConfigFilename=config.getInitParameter("solrconfig-filename");
-    SolrCore core=null;
     multicore=MultiCore.getRegistry();
     if (multicore.isEnabled()) {
       log.info("Using existing multicore configuration");
@@ -17,9 +16,15 @@
         multicore.load(instanceDir,multiconfig);
       }
     }
+    abortOnConfigurationError=false;
     if (multicore.isEnabled()) {
       singlecore=null;
-      core=multicore.getDefaultCore();
+      for (      SolrCore c : multicore.getCores()) {
+        if (c.getSolrConfig().getBool("abortOnConfigurationError",false)) {
+          abortOnConfigurationError=true;
+          break;
+        }
+      }
     }
  else {
       if (this.solrConfigFilename == null) {
@@ -28,15 +33,8 @@
  else {
         singlecore=new SolrCore(null,null,new SolrConfig(this.solrConfigFilename),null);
       }
-      core=singlecore;
     }
     log.info("user.dir=" + System.getProperty("user.dir"));
-    Config globalConfig=core.getSolrConfig();
-    long uploadLimitKB=globalConfig.getInt("requestDispatcher/requestParsers/@multipartUploadLimitInKB",2000);
-    boolean enableRemoteStreams=globalConfig.getBool("requestDispatcher/requestParsers/@enableRemoteStreaming",false);
-    parsers=new SolrRequestParsers(enableRemoteStreams,uploadLimitKB);
-    this.handleSelect=globalConfig.getBool("requestDispatcher/@handleSelect",false);
-    abortOnConfigurationError=globalConfig.getBool("abortOnConfigurationError",true);
   }
  catch (  Throwable t) {
     log.log(Level.SEVERE,"Could not start SOLR. Check solr/home property",t);

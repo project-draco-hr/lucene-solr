@@ -1,52 +1,57 @@
 {
   this.configFile=configFile;
-  Config cfg=new Config(new SolrResourceLoader(dir),null,new FileInputStream(configFile),null);
-  persistent=cfg.getBool("multicore/@persistent",false);
-  adminPath=cfg.get("multicore/@adminPath",null);
-  libDir=cfg.get("multicore/@sharedLib",null);
-  if (libDir != null) {
-    File f=new File(dir,libDir);
-    libDir=f.getPath();
-    log.info("loading shared library: " + f.getAbsolutePath());
-    libLoader=SolrResourceLoader.createClassLoader(f,null);
-  }
-  if (adminPath != null) {
-    multiCoreHandler=new MultiCoreHandler();
-  }
-  boolean hasDefault=false;
-  NodeList nodes=(NodeList)cfg.evaluate("multicore/core",XPathConstants.NODESET);
-  for (int i=0; i < nodes.getLength(); i++) {
-    Node node=nodes.item(i);
-    try {
-      String name=DOMUtil.getAttr(node,"name","Core needs a name");
-      String instanceDir=DOMUtil.getAttr(node,"instanceDir","Missing required 'instanceDir'");
-      String dataDir=DOMUtil.getAttr(node,"dataDir",null);
-      String defaultStr=DOMUtil.getAttr(node,"default",null);
-      File idir=new File(dir,instanceDir);
-      instanceDir=idir.getPath();
-      SolrResourceLoader solrLoader=new SolrResourceLoader(instanceDir,libLoader);
-      SolrConfig solrConfig=new SolrConfig(solrLoader,SolrConfig.DEFAULT_CONF_FILE,null);
-      IndexSchema schema=new IndexSchema(solrConfig,instanceDir + "/conf/schema.xml");
-      SolrCore core=new SolrCore(name,dataDir,solrConfig,schema);
-      SolrCore old=this.register(core);
-      if (old != null) {
-        throw new RuntimeException(cfg.getName() + " registers multiple cores to the same name: " + name);
-      }
-      if ("true".equalsIgnoreCase(defaultStr)) {
-        if (hasDefault) {
-          throw new RuntimeException("multicore.xml defines multiple default cores. " + getDefaultCore().getName() + " and "+ core.getName());
+  this.loader=new SolrResourceLoader(dir);
+  FileInputStream cfgis=new FileInputStream(configFile);
+  try {
+    Config cfg=new Config(loader,null,cfgis,null);
+    persistent=cfg.getBool("multicore/@persistent",false);
+    adminPath=cfg.get("multicore/@adminPath",null);
+    libDir=cfg.get("multicore/@sharedLib",null);
+    if (libDir != null) {
+      File f=new File(dir,libDir);
+      libDir=f.getPath();
+      log.info("loading shared library: " + f.getAbsolutePath());
+      libLoader=SolrResourceLoader.createClassLoader(f,null);
+    }
+    if (adminPath != null) {
+      multiCoreHandler=new MultiCoreHandler();
+    }
+    NodeList nodes=(NodeList)cfg.evaluate("multicore/core",XPathConstants.NODESET);
+synchronized (cores) {
+      for (int i=0; i < nodes.getLength(); i++) {
+        Node node=nodes.item(i);
+        try {
+          CoreDescriptor p=new CoreDescriptor();
+          p.init(DOMUtil.getAttr(node,"name",null),DOMUtil.getAttr(node,"instanceDir",null));
+          String opt=DOMUtil.getAttr(node,"config",null);
+          if (opt != null) {
+            p.setConfigName(opt);
+          }
+          opt=DOMUtil.getAttr(node,"schema",null);
+          if (opt != null) {
+            p.setSchemaName(opt);
+          }
+          CoreDescriptor old=cores.get(p.getName());
+          if (old != null && old.getName() != null && old.getName().equals(p.getName())) {
+            throw new RuntimeException(cfg.getName() + " registers multiple cores to the same name: " + p.name);
+          }
+          p.setCore(create(p));
         }
-        defaultCore=core;
-        hasDefault=true;
+ catch (        Throwable ex) {
+          SolrConfig.severeErrors.add(ex);
+          SolrException.logOnce(log,null,ex);
+        }
       }
     }
- catch (    Throwable ex) {
-      SolrConfig.severeErrors.add(ex);
-      SolrException.logOnce(log,null,ex);
-    }
   }
-  if (!hasDefault) {
-    throw new RuntimeException("multicore.xml must define at least one default core");
+  finally {
+    if (cfgis != null) {
+      try {
+        cfgis.close();
+      }
+ catch (      Exception xany) {
+      }
+    }
   }
   enabled=true;
 }
