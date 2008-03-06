@@ -1,0 +1,49 @@
+{
+  final int docEnd=docIDStart + reader.maxDoc();
+  boolean any=false;
+  Iterator iter=deletesFlushed.terms.entrySet().iterator();
+  while (iter.hasNext()) {
+    Entry entry=(Entry)iter.next();
+    Term term=(Term)entry.getKey();
+    TermDocs docs=reader.termDocs(term);
+    if (docs != null) {
+      int limit=((DocumentsWriter.Num)entry.getValue()).getNum();
+      try {
+        while (docs.next()) {
+          int docID=docs.doc();
+          if (docIDStart + docID >= limit)           break;
+          reader.deleteDocument(docID);
+          any=true;
+        }
+      }
+  finally {
+        docs.close();
+      }
+    }
+  }
+  iter=deletesFlushed.docIDs.iterator();
+  while (iter.hasNext()) {
+    int docID=((Integer)iter.next()).intValue();
+    if (docID >= docIDStart && docID < docEnd) {
+      reader.deleteDocument(docID - docIDStart);
+      any=true;
+    }
+  }
+  IndexSearcher searcher=new IndexSearcher(reader);
+  iter=deletesFlushed.queries.entrySet().iterator();
+  while (iter.hasNext()) {
+    Entry entry=(Entry)iter.next();
+    Query query=(Query)entry.getKey();
+    int limit=((Integer)entry.getValue()).intValue();
+    Weight weight=query.weight(searcher);
+    Scorer scorer=weight.scorer(reader);
+    while (scorer.next()) {
+      final int docID=scorer.doc();
+      if (docIDStart + docID >= limit)       break;
+      reader.deleteDocument(docID);
+      any=true;
+    }
+  }
+  searcher.close();
+  return any;
+}
