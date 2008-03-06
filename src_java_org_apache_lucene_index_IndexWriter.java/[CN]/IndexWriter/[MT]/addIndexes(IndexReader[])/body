@@ -1,5 +1,6 @@
 {
   ensureOpen();
+  docWriter.pauseAllThreads();
   try {
     optimize();
     final String mergedName=newSegmentName();
@@ -7,9 +8,11 @@
     SegmentInfo info;
     IndexReader sReader=null;
     try {
-      if (segmentInfos.size() == 1) {
-        sReader=SegmentReader.get(segmentInfos.info(0));
-        merger.add(sReader);
+synchronized (this) {
+        if (segmentInfos.size() == 1) {
+          sReader=SegmentReader.get(segmentInfos.info(0));
+          merger.add(sReader);
+        }
       }
       for (int i=0; i < readers.length; i++)       merger.add(readers[i]);
       boolean success=false;
@@ -20,9 +23,11 @@
           sReader.close();
           sReader=null;
         }
-        segmentInfos.setSize(0);
-        info=new SegmentInfo(mergedName,docCount,directory,false,true,-1,null,false);
-        segmentInfos.addElement(info);
+synchronized (this) {
+          segmentInfos.setSize(0);
+          info=new SegmentInfo(mergedName,docCount,directory,false,true,-1,null,false);
+          segmentInfos.addElement(info);
+        }
         docWriter.updateFlushedDocCount(docCount);
         success=true;
       }
@@ -46,7 +51,9 @@
       startTransaction();
       try {
         merger.createCompoundFile(mergedName + ".cfs");
-        info.setUseCompoundFile(true);
+synchronized (this) {
+          info.setUseCompoundFile(true);
+        }
       }
   finally {
         if (!success) {
@@ -62,5 +69,8 @@
  catch (  OutOfMemoryError oom) {
     hitOOM=true;
     throw oom;
+  }
+ finally {
+    docWriter.resumeAllThreads();
   }
 }

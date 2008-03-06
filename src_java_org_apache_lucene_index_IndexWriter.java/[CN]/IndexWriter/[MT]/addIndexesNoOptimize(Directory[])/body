@@ -1,5 +1,6 @@
 {
   ensureOpen();
+  docWriter.pauseAllThreads();
   try {
     if (infoStream != null)     message("flush at addIndexesNoOptimize");
     flush(true,false,true);
@@ -7,16 +8,18 @@
     startTransaction();
     try {
       int docCount=0;
-      for (int i=0; i < dirs.length; i++) {
-        if (directory == dirs[i]) {
-          throw new IllegalArgumentException("Cannot add this index to itself");
-        }
-        SegmentInfos sis=new SegmentInfos();
-        sis.read(dirs[i]);
-        for (int j=0; j < sis.size(); j++) {
-          SegmentInfo info=sis.info(j);
-          docCount+=info.docCount;
-          segmentInfos.addElement(info);
+synchronized (this) {
+        for (int i=0; i < dirs.length; i++) {
+          if (directory == dirs[i]) {
+            throw new IllegalArgumentException("Cannot add this index to itself");
+          }
+          SegmentInfos sis=new SegmentInfos();
+          sis.read(dirs[i]);
+          for (int j=0; j < sis.size(); j++) {
+            SegmentInfo info=sis.info(j);
+            docCount+=info.docCount;
+            segmentInfos.addElement(info);
+          }
         }
       }
       docWriter.updateFlushedDocCount(docCount);
@@ -36,5 +39,8 @@
  catch (  OutOfMemoryError oom) {
     hitOOM=true;
     throw oom;
+  }
+ finally {
+    docWriter.resumeAllThreads();
   }
 }
