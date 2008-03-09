@@ -4,20 +4,9 @@
   try {
     this.pathPrefix=config.getInitParameter("path-prefix");
     this.solrConfigFilename=config.getInitParameter("solrconfig-filename");
-    multicore=MultiCore.getRegistry();
-    if (multicore.isEnabled()) {
-      log.info("Using existing multicore configuration");
-    }
- else {
-      String instanceDir=SolrResourceLoader.locateInstanceDir();
-      File multiconfig=new File(instanceDir,"multicore.xml");
-      log.info("looking for multicore.xml: " + multiconfig.getAbsolutePath());
-      if (multiconfig.exists()) {
-        multicore.load(instanceDir,multiconfig);
-      }
-    }
-    abortOnConfigurationError=false;
-    if (multicore.isEnabled()) {
+    this.multicore=initMultiCore(config);
+    if (multicore != null && multicore.isEnabled()) {
+      abortOnConfigurationError=false;
       singlecore=null;
       for (      SolrCore c : multicore.getCores()) {
         if (c.getSolrConfig().getBool("abortOnConfigurationError",false)) {
@@ -27,12 +16,9 @@
       }
     }
  else {
-      if (this.solrConfigFilename == null) {
-        singlecore=new SolrCore(null,null,new SolrConfig(),null);
-      }
- else {
-        singlecore=new SolrCore(null,null,new SolrConfig(this.solrConfigFilename),null);
-      }
+      SolrConfig cfg=this.solrConfigFilename == null ? new SolrConfig() : new SolrConfig(this.solrConfigFilename);
+      singlecore=new SolrCore(null,null,cfg,null);
+      abortOnConfigurationError=cfg.getBool("abortOnConfigurationError",abortOnConfigurationError);
     }
     log.info("user.dir=" + System.getProperty("user.dir"));
   }
@@ -48,7 +34,7 @@
     out.println("Check your log files for more detailed information on what may be wrong.\n");
     out.println("If you want solr to continue after configuration errors, change: \n");
     out.println(" <abortOnConfigurationError>false</abortOnConfigurationError>\n");
-    if (multicore.isEnabled()) {
+    if (multicore != null && multicore.isEnabled()) {
       out.println("in multicore.xml\n");
     }
  else {

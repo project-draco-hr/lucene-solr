@@ -4,9 +4,10 @@
     return;
   }
   if (request instanceof HttpServletRequest) {
-    SolrQueryRequest solrReq=null;
     HttpServletRequest req=(HttpServletRequest)request;
     HttpServletResponse resp=(HttpServletResponse)response;
+    SolrRequestHandler handler=null;
+    SolrQueryRequest solrReq=null;
     try {
       String path=req.getServletPath();
       if (req.getPathInfo() != null) {
@@ -19,96 +20,88 @@
       if (idx > 0) {
         path=path.substring(0,idx);
       }
-      SolrRequestHandler handler=null;
-      SolrCore core=singlecore;
-      if (core == null) {
-        if (path.equals("/")) {
-          chain.doFilter(request,response);
-          return;
-        }
+      final SolrCore core;
+      if (multicore != null && multicore.isEnabled()) {
         if (path.equals(multicore.getAdminPath())) {
           handler=multicore.getMultiCoreHandler();
-          Collection<SolrCore> cores=multicore.getCores();
-          if (cores != null && cores.size() > 0) {
-            core=cores.iterator().next();
-          }
+          core=multicore.getAdminCore();
           if (core == null) {
             throw new RuntimeException("Can not find a valid core for the multicore admin handler");
           }
         }
  else {
           idx=path.indexOf("/",1);
-          if (idx <= 1) {
-            idx=path.length();
+          if (idx > 1) {
+            String corename=path.substring(1,idx);
+            path=path.substring(idx);
+            core=multicore.getCore(corename);
           }
-          String corename=path.substring(1,idx);
-          path=path.substring(idx);
-          core=multicore.getCore(corename);
-          if (path.length() == 0) {
-            path="/";
-          }
-          if (core == null) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown core: " + corename);
+ else {
+            core=null;
           }
         }
       }
-      SolrRequestParsers parser=parsers.get(core);
-      if (parser == null) {
-        parser=new SolrRequestParsers(core.getSolrConfig());
-        parsers.put(core,parser);
+ else {
+        core=singlecore;
       }
-      if (handler == null && path.length() > 1) {
-        handler=core.getRequestHandler(path);
-      }
-      if (handler == null && parser.isHandleSelect()) {
-        if ("/select".equals(path) || "/select/".equals(path)) {
-          solrReq=parser.parse(core,path,req);
-          String qt=solrReq.getParams().get(CommonParams.QT);
-          if (qt != null && qt.startsWith("/")) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid query type.  Do not use /select to access: " + qt);
+      if (core != null) {
+        final SolrConfig config=core.getSolrConfig();
+        SolrRequestParsers parser=null;
+        parser=parsers.get(core);
+        if (parser == null) {
+          parser=new SolrRequestParsers(config);
+          parsers.put(core,parser);
+        }
+        if (handler == null && path.length() > 1) {
+          handler=core.getRequestHandler(path);
+          if (handler == null && parser.isHandleSelect()) {
+            if ("/select".equals(path) || "/select/".equals(path)) {
+              solrReq=parser.parse(core,path,req);
+              String qt=solrReq.getParams().get(CommonParams.QT);
+              if (qt != null && qt.startsWith("/")) {
+                throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid query type.  Do not use /select to access: " + qt);
+              }
+              handler=core.getRequestHandler(qt);
+              if (handler == null) {
+                throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+              }
+            }
           }
-          handler=core.getRequestHandler(qt);
-          if (handler == null) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+        }
+        if (handler != null) {
+          if (solrReq == null) {
+            solrReq=parser.parse(core,path,req);
           }
+          final Method reqMethod=Method.getMethod(req.getMethod());
+          if (Method.POST != reqMethod) {
+            HttpCacheHeaderUtil.setCacheControlHeader(config,resp);
+          }
+          if (config.getHttpCachingConfig().isNever304() || !HttpCacheHeaderUtil.doCacheHeaderValidation(solrReq,req,resp)) {
+            SolrQueryResponse solrRsp=new SolrQueryResponse();
+            this.execute(req,handler,solrReq,solrRsp);
+            if (solrRsp.getException() != null) {
+              sendError((HttpServletResponse)response,solrRsp.getException());
+            }
+ else {
+              QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
+              response.setContentType(responseWriter.getContentType(solrReq,solrRsp));
+              if (Method.HEAD != Method.getMethod(req.getMethod())) {
+                PrintWriter out=response.getWriter();
+                responseWriter.write(out,solrReq,solrRsp);
+              }
+            }
+          }
+          return;
         }
-      }
-      if (handler != null) {
-        if (solrReq == null) {
-          solrReq=parser.parse(core,path,req);
-        }
-        final SolrConfig conf=core.getSolrConfig();
-        final Method reqMethod=Method.getMethod(req.getMethod());
-        if (Method.POST != reqMethod) {
-          HttpCacheHeaderUtil.setCacheControlHeader(conf,resp);
-        }
-        if (!conf.getHttpCachingConfig().isNever304()) {
-          if (HttpCacheHeaderUtil.doCacheHeaderValidation(solrReq,req,resp)) {
+ else {
+          req.setAttribute("org.apache.solr.SolrCore",core);
+          if (singlecore == null && path.startsWith("/admin")) {
+            req.getRequestDispatcher(path).forward(request,response);
             return;
           }
         }
-        SolrQueryResponse solrRsp=new SolrQueryResponse();
-        this.execute(req,handler,solrReq,solrRsp);
-        if (solrRsp.getException() != null) {
-          sendError((HttpServletResponse)response,solrRsp.getException());
-          return;
-        }
-        QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
-        response.setContentType(responseWriter.getContentType(solrReq,solrRsp));
-        if (Method.HEAD == Method.getMethod(req.getMethod())) {
-          return;
-        }
-        PrintWriter out=response.getWriter();
-        responseWriter.write(out,solrReq,solrRsp);
-        return;
       }
- else {
-        req.setAttribute("org.apache.solr.SolrCore",core);
-        if (singlecore == null && path.startsWith("/admin")) {
-          req.getRequestDispatcher(path).forward(request,response);
-          return;
-        }
-      }
+      log.info("no handler or core retrieved for " + path + ", follow through...");
     }
  catch (    Throwable ex) {
       sendError((HttpServletResponse)response,ex);
