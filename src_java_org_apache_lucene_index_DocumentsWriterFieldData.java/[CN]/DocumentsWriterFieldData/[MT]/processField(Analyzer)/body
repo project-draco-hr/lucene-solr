@@ -1,0 +1,56 @@
+{
+  length=0;
+  position=0;
+  offset=0;
+  boost=threadState.docBoost;
+  final int maxFieldLength=threadState.docWriter.writer.getMaxFieldLength();
+  final int limit=fieldCount;
+  final Fieldable[] docFieldsFinal=docFields;
+  boolean doWriteVectors=true;
+  try {
+    for (int j=0; j < limit; j++) {
+      Fieldable field=docFieldsFinal[j];
+      if (field.isIndexed())       invertField(field,analyzer,maxFieldLength);
+      if (field.isStored()) {
+        threadState.numStoredFields++;
+        boolean success=false;
+        try {
+          threadState.localFieldsWriter.writeField(fieldInfo,field);
+          success=true;
+        }
+  finally {
+          if (!success)           threadState.fdtLocal.reset();
+        }
+      }
+      docFieldsFinal[j]=null;
+    }
+  }
+ catch (  AbortException ae) {
+    doWriteVectors=false;
+    throw ae;
+  }
+ finally {
+    if (postingsVectorsUpto > 0) {
+      try {
+        if (doWriteVectors) {
+          boolean success=false;
+          try {
+            writeVectors(fieldInfo);
+            success=true;
+          }
+  finally {
+            if (!success) {
+              threadState.numVectorFields=0;
+              threadState.tvfLocal.reset();
+            }
+          }
+        }
+      }
+  finally {
+        if (postingsVectorsUpto > threadState.maxPostingsVectors)         threadState.maxPostingsVectors=postingsVectorsUpto;
+        postingsVectorsUpto=0;
+        threadState.vectorsPool.reset();
+      }
+    }
+  }
+}
