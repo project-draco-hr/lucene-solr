@@ -1,0 +1,119 @@
+{
+  if (document.getDocumentNumber() != null) {
+    throw new RuntimeException("Document number already set! Are you trying to add a document that already is bound to this or another index?");
+  }
+  Map<String,FieldSetting> fieldSettingsByFieldName=new HashMap<String,FieldSetting>();
+  for (  Field field : (List<Field>)document.getDocument().getFields()) {
+    FieldSetting fieldSettings=fieldSettingsByFieldName.get(field.name());
+    if (fieldSettings == null) {
+      fieldSettings=new FieldSetting();
+      fieldSettings.fieldName=field.name().intern();
+      fieldSettingsByFieldName.put(fieldSettings.fieldName,fieldSettings);
+      fieldNameBuffer.add(fieldSettings.fieldName);
+    }
+    fieldSettings.boost*=field.getBoost();
+    if (field.getOmitNorms() != fieldSettings.omitNorms) {
+      fieldSettings.omitNorms=true;
+    }
+    if (field.isIndexed() != fieldSettings.isIndexed) {
+      fieldSettings.isIndexed=true;
+    }
+    if (field.isTokenized() != fieldSettings.isTokenized) {
+      fieldSettings.isTokenized=true;
+    }
+    if (field.isCompressed() != fieldSettings.isCompressed) {
+      fieldSettings.isCompressed=true;
+    }
+    if (field.isStored() != fieldSettings.isStored) {
+      fieldSettings.isStored=true;
+    }
+    if (field.isBinary() != fieldSettings.isBinary) {
+      fieldSettings.isBinary=true;
+    }
+    if (field.isTermVectorStored() != fieldSettings.storeTermVector) {
+      fieldSettings.storeTermVector=true;
+    }
+    if (field.isStorePositionWithTermVector() != fieldSettings.storePositionWithTermVector) {
+      fieldSettings.storePositionWithTermVector=true;
+    }
+    if (field.isStoreOffsetWithTermVector() != fieldSettings.storeOffsetWithTermVector) {
+      fieldSettings.storeOffsetWithTermVector=true;
+    }
+  }
+  Map<Field,LinkedList<Token>> tokensByField=new LinkedHashMap<Field,LinkedList<Token>>(20);
+  for (Iterator<Field> it=(Iterator<Field>)document.getDocument().getFields().iterator(); it.hasNext(); ) {
+    Field field=it.next();
+    FieldSetting fieldSettings=fieldSettingsByFieldName.get(field.name());
+    if (field.isIndexed()) {
+      LinkedList<Token> tokens=new LinkedList<Token>();
+      tokensByField.put(field,tokens);
+      if (field.isTokenized()) {
+        int termCounter=0;
+        final TokenStream tokenStream;
+        if (field.tokenStreamValue() != null) {
+          tokenStream=field.tokenStreamValue();
+        }
+ else {
+          tokenStream=analyzer.tokenStream(field.name(),new StringReader(field.stringValue()));
+        }
+        Token next=tokenStream.next();
+        while (next != null) {
+          next.setTermText(next.termText().intern());
+          tokens.add(next);
+          next=tokenStream.next();
+          fieldSettings.fieldLength++;
+          if (fieldSettings.fieldLength > maxFieldLength) {
+            break;
+          }
+        }
+      }
+ else {
+        tokens.add(new Token(field.stringValue().intern(),0,field.stringValue().length(),"untokenized"));
+        fieldSettings.fieldLength++;
+      }
+    }
+    if (!field.isStored()) {
+      it.remove();
+    }
+  }
+  Map<FieldSetting,Map<String,TermDocumentInformationFactory>> termDocumentInformationFactoryByTermTextAndFieldSetting=new HashMap<FieldSetting,Map<String,TermDocumentInformationFactory>>();
+  termDocumentInformationFactoryByDocument.put(document,termDocumentInformationFactoryByTermTextAndFieldSetting);
+  for (  Map.Entry<Field,LinkedList<Token>> eField_Tokens : tokensByField.entrySet()) {
+    FieldSetting fieldSettings=fieldSettingsByFieldName.get(eField_Tokens.getKey().name());
+    Map<String,TermDocumentInformationFactory> termDocumentInformationFactoryByTermText=termDocumentInformationFactoryByTermTextAndFieldSetting.get(fieldSettingsByFieldName.get(eField_Tokens.getKey().name()));
+    if (termDocumentInformationFactoryByTermText == null) {
+      termDocumentInformationFactoryByTermText=new HashMap<String,TermDocumentInformationFactory>();
+      termDocumentInformationFactoryByTermTextAndFieldSetting.put(fieldSettingsByFieldName.get(eField_Tokens.getKey().name()),termDocumentInformationFactoryByTermText);
+    }
+    int lastOffset=0;
+    if (fieldSettings.position > 0) {
+      fieldSettings.position+=analyzer.getPositionIncrementGap(fieldSettings.fieldName);
+    }
+    for (    Token token : eField_Tokens.getValue()) {
+      TermDocumentInformationFactory termDocumentInformationFactory=termDocumentInformationFactoryByTermText.get(token.termText());
+      if (termDocumentInformationFactory == null) {
+        termDocumentInformationFactory=new TermDocumentInformationFactory();
+        termDocumentInformationFactoryByTermText.put(token.termText(),termDocumentInformationFactory);
+      }
+      fieldSettings.position+=(token.getPositionIncrement() - 1);
+      termDocumentInformationFactory.termPositions.add(fieldSettings.position++);
+      if (token.getPayload() != null && token.getPayload().length() > 0) {
+        termDocumentInformationFactory.payloads.add(token.getPayload().toByteArray());
+      }
+ else {
+        termDocumentInformationFactory.payloads.add(null);
+      }
+      if (eField_Tokens.getKey().isStoreOffsetWithTermVector()) {
+        termDocumentInformationFactory.termOffsets.add(new TermVectorOffsetInfo(fieldSettings.offset + token.startOffset(),fieldSettings.offset + token.endOffset()));
+        lastOffset=fieldSettings.offset + token.endOffset();
+      }
+    }
+    if (eField_Tokens.getKey().isStoreOffsetWithTermVector()) {
+      fieldSettings.offset=lastOffset + 1;
+    }
+  }
+  unflushedDocuments.add(document);
+  if (unflushedDocuments.size() >= getMergeFactor()) {
+    commit();
+  }
+}

@@ -1,0 +1,90 @@
+{
+  if (!sourceIndexReader.isOptimized()) {
+    throw new IOException("Source index is not optimized.");
+  }
+  Collection<String> allFieldNames=sourceIndexReader.getFieldNames(IndexReader.FieldOption.ALL);
+  initialize();
+  documentsByNumber=new InstantiatedDocument[sourceIndexReader.numDocs()];
+  for (int i=0; i < sourceIndexReader.numDocs(); i++) {
+    if (!sourceIndexReader.isDeleted(i)) {
+      InstantiatedDocument document=new InstantiatedDocument();
+      Document sourceDocument=sourceIndexReader.document(i);
+      for (      Field field : (List<Field>)sourceDocument.getFields()) {
+        if (fields == null || fields.contains(field.name())) {
+          document.getDocument().add(field);
+        }
+      }
+      document.setDocumentNumber(i);
+      documentsByNumber[i]=document;
+      for (      Field field : (List<Field>)document.getDocument().getFields()) {
+        if (fields == null || fields.contains(field.name())) {
+          if (field.isTermVectorStored()) {
+            if (document.getVectorSpace() == null) {
+              document.setVectorSpace(new HashMap<String,List<InstantiatedTermDocumentInformation>>());
+            }
+            document.getVectorSpace().put(field.name(),new ArrayList<InstantiatedTermDocumentInformation>());
+          }
+        }
+      }
+    }
+  }
+  for (  String fieldName : allFieldNames) {
+    if (fields == null || fields.contains(fieldName)) {
+      getNormsByFieldNameAndDocumentNumber().put(fieldName,sourceIndexReader.norms(fieldName));
+    }
+  }
+  for (  String fieldName : allFieldNames) {
+    if (fields == null || fields.contains(fieldName)) {
+      getTermsByFieldAndText().put(fieldName,new HashMap<String,InstantiatedTerm>(5000));
+    }
+  }
+  List<InstantiatedTerm> terms=new ArrayList<InstantiatedTerm>(5000 * getTermsByFieldAndText().size());
+  TermEnum termEnum=sourceIndexReader.terms();
+  while (termEnum.next()) {
+    if (fields == null || fields.contains(termEnum.term().field())) {
+      InstantiatedTerm instantiatedTerm=new InstantiatedTerm(termEnum.term().field(),termEnum.term().text());
+      getTermsByFieldAndText().get(termEnum.term().field()).put(termEnum.term().text(),instantiatedTerm);
+      instantiatedTerm.setTermIndex(terms.size());
+      terms.add(instantiatedTerm);
+      instantiatedTerm.setAssociatedDocuments(new InstantiatedTermDocumentInformation[termEnum.docFreq()]);
+    }
+  }
+  termEnum.close();
+  orderedTerms=terms.toArray(new InstantiatedTerm[terms.size()]);
+  for (  InstantiatedTerm term : orderedTerms) {
+    TermPositions termPositions=sourceIndexReader.termPositions(term.getTerm());
+    int position=0;
+    while (termPositions.next()) {
+      InstantiatedDocument document=documentsByNumber[termPositions.doc()];
+      byte[][] payloads=new byte[termPositions.freq()][];
+      int[] positions=new int[termPositions.freq()];
+      for (int i=0; i < termPositions.freq(); i++) {
+        positions[i]=termPositions.nextPosition();
+        if (termPositions.isPayloadAvailable()) {
+          payloads[i]=new byte[termPositions.getPayloadLength()];
+          termPositions.getPayload(payloads[i],0);
+        }
+      }
+      InstantiatedTermDocumentInformation termDocumentInformation=new InstantiatedTermDocumentInformation(term,document,positions,payloads);
+      term.getAssociatedDocuments()[position++]=termDocumentInformation;
+      if (document.getVectorSpace() != null && document.getVectorSpace().containsKey(term.field())) {
+        document.getVectorSpace().get(term.field()).add(termDocumentInformation);
+      }
+    }
+  }
+  for (  InstantiatedDocument document : getDocumentsByNumber()) {
+    for (    Field field : (List<Field>)document.getDocument().getFields()) {
+      if (field.isTermVectorStored() && field.isStoreOffsetWithTermVector()) {
+        TermPositionVector termPositionVector=(TermPositionVector)sourceIndexReader.getTermFreqVector(document.getDocumentNumber(),field.name());
+        if (termPositionVector != null) {
+          for (int i=0; i < termPositionVector.getTerms().length; i++) {
+            String token=termPositionVector.getTerms()[i];
+            InstantiatedTerm term=findTerm(field.name(),token);
+            InstantiatedTermDocumentInformation termDocumentInformation=term.getAssociatedDocument(document.getDocumentNumber());
+            termDocumentInformation.setTermOffsets(termPositionVector.getOffsets(i));
+          }
+        }
+      }
+    }
+  }
+}
