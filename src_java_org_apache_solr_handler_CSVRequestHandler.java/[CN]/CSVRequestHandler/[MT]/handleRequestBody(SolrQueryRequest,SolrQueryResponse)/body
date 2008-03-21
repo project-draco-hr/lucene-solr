@@ -1,21 +1,30 @@
 {
-  CSVLoader loader=new SingleThreadedCSVLoader(req);
-  Iterable<ContentStream> streams=req.getContentStreams();
-  if (streams == null) {
-    if (!RequestHandlerUtils.handleCommit(req,rsp,false)) {
-      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"missing content stream");
+  SolrParams params=req.getParams();
+  UpdateRequestProcessorFactory processorFactory=req.getCore().getUpdateProcessorFactory(params.get(UpdateParams.UPDATE_PROCESSOR));
+  UpdateRequestProcessor processor=processorFactory.getInstance(req,rsp,null);
+  try {
+    CSVLoader loader=new SingleThreadedCSVLoader(req,processor);
+    Iterable<ContentStream> streams=req.getContentStreams();
+    if (streams == null) {
+      if (!RequestHandlerUtils.handleCommit(processor,params,false)) {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"missing content stream");
+      }
     }
-    return;
-  }
-  for (  ContentStream stream : streams) {
-    Reader reader=stream.getReader();
-    try {
-      loader.errHeader="CSVLoader: input=" + stream.getSourceInfo();
-      loader.load(reader);
-    }
+ else {
+      for (      ContentStream stream : streams) {
+        Reader reader=stream.getReader();
+        try {
+          loader.errHeader="CSVLoader: input=" + stream.getSourceInfo();
+          loader.load(reader);
+        }
   finally {
-      IOUtils.closeQuietly(reader);
+          IOUtils.closeQuietly(reader);
+        }
+      }
+      RequestHandlerUtils.handleCommit(processor,params,false);
     }
   }
-  RequestHandlerUtils.handleCommit(req,rsp,false);
+  finally {
+    processor.finish();
+  }
 }
