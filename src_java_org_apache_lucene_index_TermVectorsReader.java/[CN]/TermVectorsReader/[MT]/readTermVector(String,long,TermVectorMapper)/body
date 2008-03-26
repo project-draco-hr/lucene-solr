@@ -18,20 +18,40 @@
   int start=0;
   int deltaLength=0;
   int totalLength=0;
-  char[] buffer=new char[10];
-  char[] previousBuffer={};
+  byte[] byteBuffer;
+  char[] charBuffer;
+  final boolean preUTF8=format < FORMAT_UTF8_LENGTH_IN_BYTES;
+  if (preUTF8) {
+    charBuffer=new char[10];
+    byteBuffer=null;
+  }
+ else {
+    charBuffer=null;
+    byteBuffer=new byte[20];
+  }
   for (int i=0; i < numTerms; i++) {
     start=tvf.readVInt();
     deltaLength=tvf.readVInt();
     totalLength=start + deltaLength;
-    if (buffer.length < totalLength) {
-      buffer=null;
-      buffer=new char[totalLength];
-      if (start > 0)       System.arraycopy(previousBuffer,0,buffer,0,start);
+    final String term;
+    if (preUTF8) {
+      if (charBuffer.length < totalLength) {
+        char[] newCharBuffer=new char[(int)(1.5 * totalLength)];
+        System.arraycopy(charBuffer,0,newCharBuffer,0,start);
+        charBuffer=newCharBuffer;
+      }
+      tvf.readChars(charBuffer,start,deltaLength);
+      term=new String(charBuffer,0,totalLength);
     }
-    tvf.readChars(buffer,start,deltaLength);
-    String term=new String(buffer,0,totalLength);
-    previousBuffer=buffer;
+ else {
+      if (byteBuffer.length < totalLength) {
+        byte[] newByteBuffer=new byte[(int)(1.5 * totalLength)];
+        System.arraycopy(byteBuffer,0,newByteBuffer,0,start);
+        byteBuffer=newByteBuffer;
+      }
+      tvf.readBytes(byteBuffer,start,deltaLength);
+      term=new String(byteBuffer,0,totalLength,"UTF-8");
+    }
     int freq=tvf.readVInt();
     int[] positions=null;
     if (storePositions) {
