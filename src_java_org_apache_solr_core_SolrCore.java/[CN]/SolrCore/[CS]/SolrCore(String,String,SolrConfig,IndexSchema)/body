@@ -26,15 +26,25 @@ synchronized (SolrCore.class) {
     reqHandlers.initHandlersFromConfig(solrConfig);
     highlighter=createHighlighter(solrConfig.get("highlighting/@class",DefaultSolrHighlighter.class.getName()));
     highlighter.initalize(solrConfig);
+    final CountDownLatch latch=new CountDownLatch(1);
     try {
+      searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          latch.await();
+          return null;
+        }
+      }
+);
       getSearcher(false,false,null);
       updateHandler=createUpdateHandler(solrConfig.get("updateHandler/@class",DirectUpdateHandler.class.getName()));
+      loader.inform(loader);
+      loader.inform(this);
     }
  catch (    IOException e) {
-      throw new RuntimeException(e);
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
     }
-    loader.inform(loader);
-    loader.inform(this);
-    doFirstSearcherEvent(getSearcher().get());
+ finally {
+      latch.countDown();
+    }
   }
 }
