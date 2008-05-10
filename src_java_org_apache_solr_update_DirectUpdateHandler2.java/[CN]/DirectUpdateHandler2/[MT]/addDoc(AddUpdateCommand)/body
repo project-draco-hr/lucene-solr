@@ -10,42 +10,20 @@
   iwAccess.lock();
   try {
 synchronized (this) {
-      if (!cmd.allowDups && !cmd.overwritePending && !cmd.overwriteCommitted) {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unsupported param combo:" + cmd);
-      }
- else       if (!cmd.allowDups && !cmd.overwritePending && cmd.overwriteCommitted) {
-        rc=addConditionally(cmd);
-      }
- else       if (!cmd.allowDups && cmd.overwritePending && !cmd.overwriteCommitted) {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unsupported param combo:" + cmd);
-      }
- else       if (!cmd.allowDups && cmd.overwritePending && cmd.overwriteCommitted) {
-        rc=overwriteBoth(cmd);
-      }
- else       if (cmd.allowDups && !cmd.overwritePending && !cmd.overwriteCommitted) {
-        rc=allowDups(cmd);
-      }
- else       if (cmd.allowDups && !cmd.overwritePending && cmd.overwriteCommitted) {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unsupported param combo:" + cmd);
-      }
- else       if (cmd.allowDups && cmd.overwritePending && !cmd.overwriteCommitted) {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unsupported param combo:" + cmd);
-      }
- else       if (cmd.allowDups && cmd.overwritePending && cmd.overwriteCommitted) {
-        rc=overwriteBoth(cmd);
-      }
-      if (rc == -1)       throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unsupported param combo:" + cmd);
-      if (rc == 1) {
-        closeSearcher();
-        openWriter();
-        tracker.addedDocument();
-      }
- else {
-        return rc;
-      }
+      closeSearcher();
+      openWriter();
+      tracker.addedDocument();
     }
-    assert(rc == 1);
-    writer.addDocument(cmd.doc);
+    if (cmd.overwriteCommitted || cmd.overwritePending) {
+      if (cmd.indexedId == null) {
+        cmd.indexedId=getIndexedId(cmd.doc);
+      }
+      writer.updateDocument(idTerm.createTerm(cmd.indexedId),cmd.getLuceneDocument(schema));
+    }
+ else {
+      writer.addDocument(cmd.getLuceneDocument(schema));
+    }
+    rc=1;
   }
   finally {
     iwAccess.unlock();
@@ -55,15 +33,6 @@ synchronized (this) {
     }
  else {
       numDocsPending.incrementAndGet();
-    }
-  }
-  if (maxPendingDeletes > 0 && pset.size() > maxPendingDeletes) {
-    iwCommit.lock();
-    try {
-      doDeletions();
-    }
-  finally {
-      iwCommit.unlock();
     }
   }
   return rc;
