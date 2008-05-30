@@ -107,14 +107,32 @@
     Collections.sort(dFields);
     log.finest("Dynamic Field Ordering:" + dFields);
     dynamicFields=(DynamicField[])dFields.toArray(new DynamicField[dFields.size()]);
-    Node node=(Node)xpath.evaluate("/schema/similarity/@class",document,XPathConstants.NODE);
+    Node node=(Node)xpath.evaluate("/schema/similarity",document,XPathConstants.NODE);
     if (node == null) {
-      similarity=new DefaultSimilarity();
+      similarityFactory=new SimilarityFactory(){
+        public Similarity getSimilarity(){
+          return Similarity.getDefault();
+        }
+      }
+;
       log.fine("using default similarity");
     }
  else {
-      similarity=(Similarity)solrConfig.getResourceLoader().newInstance(node.getNodeValue().trim());
-      log.fine("using similarity " + similarity.getClass().getName());
+      final Object obj=solrConfig.getResourceLoader().newInstance(((Element)node).getAttribute("class"));
+      if (obj instanceof SimilarityFactory) {
+        SolrParams params=SolrParams.toSolrParams(DOMUtil.childNodesToNamedList(node));
+        similarityFactory=(SimilarityFactory)obj;
+        similarityFactory.init(params);
+      }
+ else {
+        similarityFactory=new SimilarityFactory(){
+          public Similarity getSimilarity(){
+            return (Similarity)obj;
+          }
+        }
+;
+      }
+      log.fine("using similarity factory" + similarityFactory.getClass().getName());
     }
     node=(Node)xpath.evaluate("/schema/defaultSearchField/text()",document,XPathConstants.NODE);
     if (node == null) {
