@@ -1,0 +1,57 @@
+{
+  if (initParams != null) {
+    LOG.info("Initializing spell checkers");
+    boolean hasDefault=false;
+    for (int i=0; i < initParams.size(); i++) {
+      if (initParams.getName(i).equals("spellchecker")) {
+        NamedList spellchecker=(NamedList)initParams.getVal(i);
+        String className=(String)spellchecker.get("classname");
+        if (className == null)         className=IndexBasedSpellChecker.class.getName();
+        SolrResourceLoader loader=core.getResourceLoader();
+        SolrSpellChecker checker=(SolrSpellChecker)loader.newInstance(className);
+        if (checker != null) {
+          String dictionary=checker.init(spellchecker,loader);
+          if (dictionary != null) {
+            boolean isDefault=dictionary.equals(SolrSpellChecker.DEFAULT_DICTIONARY_NAME);
+            if (isDefault == true && hasDefault == false) {
+              hasDefault=true;
+            }
+ else             if (isDefault == true && hasDefault == true) {
+              throw new RuntimeException("More than one dictionary is missing name.");
+            }
+            spellCheckers.put(dictionary,checker);
+          }
+ else {
+            if (hasDefault == false) {
+              spellCheckers.put(SolrSpellChecker.DEFAULT_DICTIONARY_NAME,checker);
+              hasDefault=true;
+            }
+ else {
+              throw new RuntimeException("More than one dictionary is missing name.");
+            }
+          }
+        }
+ else {
+          throw new RuntimeException("Can't load spell checker: " + className);
+        }
+      }
+    }
+    String xpath="queryConverter";
+    SolrConfig solrConfig=core.getSolrConfig();
+    NodeList nodes=(NodeList)solrConfig.evaluate(xpath,XPathConstants.NODESET);
+    Map<String,QueryConverter> queryConverters=new HashMap<String,QueryConverter>();
+    NamedListPluginLoader<QueryConverter> loader=new NamedListPluginLoader<QueryConverter>("[solrconfig.xml] " + xpath,queryConverters);
+    loader.load(solrConfig.getResourceLoader(),nodes);
+    if (queryConverters.size() == 1) {
+      queryConverter=queryConverters.values().iterator().next();
+      IndexSchema schema=core.getSchema();
+      String fieldTypeName=(String)initParams.get("queryAnalyzerFieldType");
+      FieldType fieldType=schema.getFieldTypes().get(fieldTypeName);
+      Analyzer analyzer=fieldType == null ? new WhitespaceAnalyzer() : fieldType.getQueryAnalyzer();
+      queryConverter.setAnalyzer(analyzer);
+    }
+ else {
+      throw new RuntimeException("One and only one queryConverter may be defined");
+    }
+  }
+}
