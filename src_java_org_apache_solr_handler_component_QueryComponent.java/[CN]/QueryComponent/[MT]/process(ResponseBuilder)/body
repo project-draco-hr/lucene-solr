@@ -3,6 +3,7 @@
   SolrQueryResponse rsp=rb.rsp;
   SolrIndexSearcher searcher=req.getSearcher();
   SolrParams params=req.getParams();
+  long timeAllowed=(long)params.getInt(CommonParams.TIME_ALLOWED,-1);
   String ids=params.get(ShardParams.IDS);
   if (ids != null) {
     SchemaField idField=req.getSchema().getUniqueKeyField();
@@ -26,14 +27,11 @@
     rsp.add("response",rb.getResults().docList);
     return;
   }
-  if (rb.isNeedDocSet()) {
-    rb.setResults(searcher.getDocListAndSet(rb.getQuery(),rb.getFilters(),rb.getSortSpec().getSort(),rb.getSortSpec().getOffset(),rb.getSortSpec().getCount(),rb.getFieldFlags()));
-  }
- else {
-    DocListAndSet results=new DocListAndSet();
-    results.docList=searcher.getDocList(rb.getQuery(),rb.getFilters(),rb.getSortSpec().getSort(),rb.getSortSpec().getOffset(),rb.getSortSpec().getCount(),rb.getFieldFlags());
-    rb.setResults(results);
-  }
+  SolrIndexSearcher.QueryCommand cmd=rb.getQueryCommand();
+  cmd.setTimeAllowed(timeAllowed);
+  SolrIndexSearcher.QueryResult result=new SolrIndexSearcher.QueryResult();
+  searcher.search(result,cmd);
+  rb.setResult(result);
   rsp.add("response",rb.getResults().docList);
   rsp.getToLog().add("hits",rb.getResults().docList.size());
   boolean fsv=req.getParams().getBool(ResponseBuilder.FIELD_SORT_VALUES,false);
