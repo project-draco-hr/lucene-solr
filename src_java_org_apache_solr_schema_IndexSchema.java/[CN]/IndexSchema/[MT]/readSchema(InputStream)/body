@@ -171,7 +171,7 @@
         requiredFields.add(uniqueKeyField);
       }
     }
-    ArrayList<DynamicCopy> dCopies=new ArrayList<DynamicCopy>();
+    dynamicCopyFields=new DynamicCopy[]{};
     expression="//copyField";
     nodes=(NodeList)xpath.evaluate(expression,document,XPathConstants.NODESET);
     for (int i=0; i < nodes.getLength(); i++) {
@@ -179,52 +179,13 @@
       NamedNodeMap attrs=node.getAttributes();
       String source=DOMUtil.getAttr(attrs,"source","copyField definition");
       String dest=DOMUtil.getAttr(attrs,"dest","copyField definition");
-      boolean sourceIsPattern=isWildCard(source);
-      boolean destIsPattern=isWildCard(dest);
-      log.fine("copyField source='" + source + "' dest='"+ dest+ "'");
-      SchemaField d=getField(dest);
-      if (sourceIsPattern) {
-        if (destIsPattern) {
-          DynamicField df=null;
-          for (          DynamicField dd : dynamicFields) {
-            if (dd.regex.equals(dest)) {
-              df=dd;
-              break;
-            }
-          }
-          if (df == null) {
-            throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"copyField dynamic destination must match a dynamicField.");
-          }
-          dCopies.add(new DynamicDestCopy(source,df));
-        }
- else {
-          dCopies.add(new DynamicCopy(source,d));
-        }
-      }
- else       if (destIsPattern) {
-        String msg="copyField only supports a dynamic destination if the source is also dynamic";
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg);
-      }
- else {
-        SchemaField f=getField(source);
-        SchemaField[] destArr=copyFields.get(source);
-        if (destArr == null) {
-          destArr=new SchemaField[]{d};
-        }
- else {
-          destArr=(SchemaField[])append(destArr,d);
-        }
-        copyFields.put(source,destArr);
-        copyFieldTargetCounts.put(d,(copyFieldTargetCounts.containsKey(d) ? copyFieldTargetCounts.get(d) + 1 : 1));
-      }
+      registerCopyField(source,dest);
     }
     for (    Map.Entry<SchemaField,Integer> entry : copyFieldTargetCounts.entrySet()) {
       if (entry.getValue() > 1 && !entry.getKey().multiValued()) {
         log.warning("Field " + entry.getKey().name + " is not multivalued "+ "and destination for multiple copyFields ("+ entry.getValue()+ ")");
       }
     }
-    log.finest("Dynamic Copied Fields:" + dCopies);
-    dynamicCopyFields=(DynamicCopy[])dCopies.toArray(new DynamicCopy[dCopies.size()]);
   }
  catch (  SolrException e) {
     SolrConfig.severeErrors.add(e);
@@ -234,6 +195,5 @@ catch (  Exception e) {
     SolrConfig.severeErrors.add(e);
     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Schema Parsing Failed",e,false);
   }
-  analyzer=new SolrIndexAnalyzer();
-  queryAnalyzer=new SolrQueryAnalyzer();
+  refreshAnalyzers();
 }
