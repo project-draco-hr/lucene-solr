@@ -1,0 +1,62 @@
+{
+  if (event == SolrWriter.DISABLE_LOGGING) {
+    enabled=false;
+    return;
+  }
+ else   if (event == SolrWriter.ENABLE_LOGGING) {
+    enabled=true;
+    return;
+  }
+  if (!enabled && event != SolrWriter.START_ENTITY && event != SolrWriter.END_ENTITY) {
+    return;
+  }
+  if (event == SolrWriter.START_DOC) {
+    debugStack.push(new DebugInfo(null,SolrWriter.START_DOC,peekStack()));
+  }
+ else   if (SolrWriter.START_ENTITY == event) {
+    debugStack.push(new DebugInfo(name,SolrWriter.START_ENTITY,peekStack()));
+  }
+ else   if (SolrWriter.ENTITY_OUT == event || SolrWriter.PRE_TRANSFORMER_ROW == event) {
+    if (debugStack.peek().type == SolrWriter.START_ENTITY || debugStack.peek().type == SolrWriter.START_DOC) {
+      debugStack.peek().lst.add(null,fmt.format(new Object[]{++debugStack.peek().rowCount}));
+      addToNamedList(debugStack.peek().lst,row);
+      debugStack.peek().lst.add(null,LINE);
+    }
+  }
+ else   if (event == SolrWriter.ROW_END) {
+    popAllTransformers();
+  }
+ else   if (SolrWriter.END_ENTITY == event) {
+    while (debugStack.pop().type != SolrWriter.START_ENTITY)     ;
+  }
+ else   if (SolrWriter.END_DOC == event) {
+    while (debugStack.pop().type != SolrWriter.START_DOC)     ;
+  }
+ else   if (event == SolrWriter.TRANSFORMER_EXCEPTION) {
+    debugStack.push(new DebugInfo(name,event,peekStack()));
+    debugStack.peek().lst.add("EXCEPTION",getStacktraceString((Exception)row));
+  }
+ else   if (SolrWriter.TRANSFORMED_ROW == event) {
+    debugStack.push(new DebugInfo(name,event,peekStack()));
+    debugStack.peek().lst.add(null,LINE);
+    addToNamedList(debugStack.peek().lst,row);
+    debugStack.peek().lst.add(null,LINE);
+    if (row instanceof DataImportHandlerException) {
+      DataImportHandlerException dataImportHandlerException=(DataImportHandlerException)row;
+      dataImportHandlerException.debugged=true;
+    }
+  }
+ else   if (SolrWriter.ENTITY_META == event) {
+    popAllTransformers();
+    debugStack.peek().lst.add(name,row);
+  }
+ else   if (SolrWriter.ENTITY_EXCEPTION == event) {
+    if (row instanceof DataImportHandlerException) {
+      DataImportHandlerException dihe=(DataImportHandlerException)row;
+      if (dihe.debugged)       return;
+      dihe.debugged=true;
+    }
+    popAllTransformers();
+    debugStack.peek().lst.add("EXCEPTION",getStacktraceString((Exception)row));
+  }
+}

@@ -1,0 +1,29 @@
+{
+  addStatusMessage("Delta Dump started");
+  VariableResolverImpl resolver=getVariableResolver(dataImporter);
+  if (document.deleteQuery != null) {
+    writer.deleteByQuery(document.deleteQuery);
+  }
+  addStatusMessage("Identifying Delta");
+  LOG.info("Starting delta collection.");
+  Set<Map<String,Object>> deletedKeys=new HashSet<Map<String,Object>>();
+  Set<Map<String,Object>> allPks=collectDelta(root,null,resolver,dataImporter,deletedKeys);
+  if (stop.get())   return;
+  addStatusMessage("Deltas Obtained");
+  addStatusMessage("Building documents");
+  if (!deletedKeys.isEmpty()) {
+    deleteAll(deletedKeys);
+    importStatistics.deletedDocCount.addAndGet(deletedKeys.size());
+    allPks.removeAll(deletedKeys);
+  }
+  statusMessages.put("Total Changed Documents",allPks.size());
+  for (  Map<String,Object> pk : allPks) {
+    VariableResolverImpl vri=getVariableResolver(dataImporter);
+    vri.addNamespace(DataConfig.IMPORTER_NS + ".delta",pk);
+    buildDocument(vri,null,pk,root,true,null);
+  }
+  if (!stop.get()) {
+    writer.persistIndexStartTime(dataImporter.getIndexStartTime());
+    LOG.info("Delta Import completed successfully");
+  }
+}

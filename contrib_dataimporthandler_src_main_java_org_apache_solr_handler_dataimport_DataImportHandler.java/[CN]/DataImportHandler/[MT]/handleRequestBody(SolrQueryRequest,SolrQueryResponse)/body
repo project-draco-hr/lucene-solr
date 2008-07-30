@@ -1,0 +1,78 @@
+{
+  rsp.setHttpCaching(false);
+  SolrParams params=req.getParams();
+  requestParams=new DataImporter.RequestParams(getParamsMap(params));
+  String command=requestParams.command;
+  if (DataImporter.SHOW_CONF_CMD.equals(command)) {
+    ModifiableSolrParams rawParams=new ModifiableSolrParams(req.getParams());
+    rawParams.set(CommonParams.WT,"raw");
+    req.setParams(rawParams);
+    String dataConfigFile=defaults.get("config");
+    ContentStreamBase content=new ContentStreamBase.StringStream(SolrWriter.getResourceAsString(req.getCore().getResourceLoader().openResource(dataConfigFile)));
+    rsp.add(RawResponseWriter.CONTENT,content);
+    return;
+  }
+  rsp.add("initArgs",initArgs);
+  String message="";
+  if (command != null)   rsp.add("command",command);
+  if (requestParams.debug) {
+    importer=null;
+    if (requestParams.dataConfig != null) {
+      try {
+        processConfiguration((NamedList)initArgs.get("defaults"));
+        importer=new DataImporter(requestParams.dataConfig,req.getCore(),dataSources);
+      }
+ catch (      RuntimeException e) {
+        rsp.add("exception",DebugLogger.getStacktraceString(e));
+        importer=null;
+        return;
+      }
+    }
+ else {
+      inform(req.getCore());
+    }
+    message=DataImporter.MSG.CONFIG_RELOADED;
+  }
+  if (importer == null) {
+    rsp.add("status",DataImporter.MSG.NO_INIT);
+    return;
+  }
+  if (command != null && DataImporter.ABORT_CMD.equals(command)) {
+    importer.rumCmd(requestParams,null,null);
+  }
+ else   if (importer.getStatus() != DataImporter.Status.IDLE) {
+    message=DataImporter.MSG.CMD_RUNNING;
+  }
+ else   if (command != null) {
+    if (DataImporter.FULL_IMPORT_CMD.equals(command) || DataImporter.DELTA_IMPORT_CMD.equals(command)) {
+      UpdateHandler updater=req.getCore().getUpdateHandler();
+      SolrResourceLoader loader=req.getCore().getResourceLoader();
+      SolrWriter sw=getSolrWriter(updater,loader,req.getSchema());
+      if (requestParams.debug) {
+        if (debugEnabled) {
+          importer.rumCmd(requestParams,sw,variables);
+          rsp.add("mode","debug");
+          rsp.add("documents",debugDocuments);
+          if (debugLogger != null)           rsp.add("verbose-output",debugLogger.output);
+          debugLogger=null;
+          debugDocuments=null;
+        }
+ else {
+          message=DataImporter.MSG.DEBUG_NOT_ENABLED;
+        }
+      }
+ else {
+        importer.runAsync(requestParams,sw,variables);
+      }
+    }
+ else     if (DataImporter.RELOAD_CONF_CMD.equals(command)) {
+      importer=null;
+      inform(req.getCore());
+      message=DataImporter.MSG.CONFIG_RELOADED;
+    }
+  }
+  rsp.add("status",importer.getStatus() == DataImporter.Status.IDLE ? "idle" : "busy");
+  rsp.add("importResponse",message);
+  rsp.add("statusMessages",importer.getStatusMessages());
+  RequestHandlerUtils.addExperimentalFormatWarning(rsp);
+}

@@ -1,0 +1,43 @@
+{
+  String transClasses=context.getEntityAttribute(TRANSFORMER);
+  if (transClasses == null) {
+    transformers=Collections.EMPTY_LIST;
+    return;
+  }
+  String[] transArr=transClasses.split(",");
+  transformers=new ArrayList<Transformer>(){
+    public boolean add(    Transformer transformer){
+      return super.add(DebugLogger.wrapTransformer(transformer));
+    }
+  }
+;
+  for (  String aTransArr : transArr) {
+    String trans=aTransArr.trim();
+    if (trans.startsWith("script:")) {
+      String functionName=trans.substring("script:".length());
+      ScriptTransformer scriptTransformer=new ScriptTransformer();
+      scriptTransformer.setFunctionName(functionName);
+      transformers.add(scriptTransformer);
+      continue;
+    }
+    try {
+      Class clazz=DocBuilder.loadClass(trans);
+      if (clazz.newInstance() instanceof Transformer) {
+        transformers.add((Transformer)clazz.newInstance());
+      }
+ else {
+        final Method meth=clazz.getMethod(TRANSFORM_ROW,Map.class);
+        if (meth == null) {
+          String msg="Transformer :" + trans + "does not implement Transformer interface or does not have a transformRow(Map m)method";
+          LOG.log(Level.SEVERE,msg);
+          throw new DataImportHandlerException(DataImportHandlerException.SEVERE,msg);
+        }
+        transformers.add(new ReflectionTransformer(meth,clazz,trans));
+      }
+    }
+ catch (    Exception e) {
+      LOG.log(Level.SEVERE,"Unable to load Transformer: " + aTransArr,e);
+      throw new DataImportHandlerException(DataImportHandlerException.SEVERE,e);
+    }
+  }
+}

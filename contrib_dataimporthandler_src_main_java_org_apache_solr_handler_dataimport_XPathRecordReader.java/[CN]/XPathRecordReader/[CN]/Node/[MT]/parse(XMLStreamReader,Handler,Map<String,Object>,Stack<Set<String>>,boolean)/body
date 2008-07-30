@@ -1,0 +1,82 @@
+{
+  Set<String> valuesAddedinThisFrame=null;
+  if (isRecord) {
+    recordStarted=true;
+    valuesAddedinThisFrame=new HashSet<String>();
+    stack.push(valuesAddedinThisFrame);
+  }
+ else   if (recordStarted) {
+    valuesAddedinThisFrame=stack.peek();
+  }
+ else {
+    if (attributes != null || hasText)     valuesAddedinThisFrame=new HashSet<String>();
+    stack.push(valuesAddedinThisFrame);
+  }
+  try {
+    if (attributes != null) {
+      for (      Node node : attributes) {
+        String value=parser.getAttributeValue(null,node.name);
+        if (value != null || (recordStarted && !isRecord)) {
+          putText(values,value,node.fieldName,node.multiValued);
+          valuesAddedinThisFrame.add(node.fieldName);
+        }
+      }
+    }
+    Set<Node> childrenFound=new HashSet<Node>();
+    boolean skipNextEvent=false;
+    int event=-1;
+    while (true) {
+      if (!skipNextEvent) {
+        event=parser.next();
+        skipNextEvent=false;
+      }
+      if (event == END_DOCUMENT) {
+        return;
+      }
+      if (event == END_ELEMENT) {
+        if (isRecord)         handler.handle(new HashMap<String,Object>(values),forEachPath);
+        if (recordStarted && !isRecord && !childrenFound.containsAll(childNodes)) {
+          for (          Node n : childNodes) {
+            if (!childrenFound.contains(n))             n.putNulls(values);
+          }
+        }
+        return;
+      }
+      if ((event == CDATA || event == CHARACTERS || event == SPACE) && hasText) {
+        valuesAddedinThisFrame.add(fieldName);
+        skipNextEvent=true;
+        String text=parser.getText();
+        event=parser.next();
+        while (event == CDATA || event == CHARACTERS || event == SPACE) {
+          text=text + parser.getText();
+          event=parser.next();
+        }
+        putText(values,text,fieldName,multiValued);
+      }
+ else       if (event == START_ELEMENT) {
+        Node n=getMatchingChild(parser);
+        if (n != null) {
+          childrenFound.add(n);
+          n.parse(parser,handler,values,stack,recordStarted);
+        }
+ else {
+          skipTag(parser);
+        }
+      }
+    }
+  }
+  finally {
+    Set<String> cleanThis=null;
+    if (isRecord || !recordStarted) {
+      cleanThis=stack.pop();
+    }
+ else {
+      return;
+    }
+    if (cleanThis != null) {
+      for (      String fld : cleanThis) {
+        values.remove(fld);
+      }
+    }
+  }
+}

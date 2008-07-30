@@ -1,0 +1,95 @@
+{
+  EntityProcessor entityProcessor=getEntityProcessor(entity);
+  DataSource ds=entity.dataSrc;
+  if (verboseDebug) {
+    ds=DebugLogger.wrapDs(ds);
+  }
+  ContextImpl ctx=new ContextImpl(entity,vr,ds,pk == null ? Context.FULL_DUMP : Context.DELTA_DUMP,requestParameters.requestParams,session,parentCtx,dataImporter);
+  entityProcessor.init(ctx);
+  if (requestParameters.start > 0) {
+    writer.log(SolrWriter.DISABLE_LOGGING,null,null);
+  }
+  if (verboseDebug) {
+    writer.log(SolrWriter.START_ENTITY,entity.name,null);
+  }
+  int seenDocCount=0;
+  try {
+    while (true) {
+      if (stop.get())       return;
+      try {
+        seenDocCount++;
+        if (seenDocCount > requestParameters.start) {
+          writer.log(SolrWriter.ENABLE_LOGGING,null,null);
+        }
+        if (verboseDebug && entity.isDocRoot) {
+          writer.log(SolrWriter.START_DOC,entity.name,null);
+        }
+        if (doc == null && entity.isDocRoot) {
+          if (ctx.getDocSession() != null)           ctx.getDocSession().clear();
+ else           ctx.setDocSession(new HashMap<String,Object>());
+          doc=writer.getSolrDocInstance();
+          DataConfig.Entity e=entity;
+          while (e.parentEntity != null) {
+            addFields(e.parentEntity,doc,(Map<String,Object>)vr.resolve(e.parentEntity.name));
+            e=e.parentEntity;
+          }
+        }
+        Map<String,Object> arow=entityProcessor.nextRow();
+        if (arow == null)         break;
+        if (arow.containsKey(DOC_BOOST)) {
+          setDocumentBoost(doc,arow);
+        }
+        if (entity.isDocRoot) {
+          if (seenDocCount <= requestParameters.start)           continue;
+        }
+        if (verboseDebug) {
+          writer.log(SolrWriter.ENTITY_OUT,entity.name,arow);
+        }
+        importStatistics.rowsCount.incrementAndGet();
+        if (entity.fields != null && doc != null) {
+          addFields(entity,doc,arow);
+        }
+        if (isRoot)         vr.removeNamespace(null);
+        if (entity.entities != null) {
+          vr.addNamespace(entity.name,arow);
+          for (          DataConfig.Entity child : entity.entities) {
+            buildDocument(vr,doc,null,child,false,ctx);
+          }
+          vr.removeNamespace(entity.name);
+        }
+        if (entity.isDocRoot) {
+          if (stop.get())           return;
+          boolean result=writer.upload(doc);
+          doc=null;
+          if (result)           importStatistics.docCount.incrementAndGet();
+        }
+      }
+ catch (      DataImportHandlerException e) {
+        if (verboseDebug) {
+          writer.log(SolrWriter.ENTITY_EXCEPTION,entity.name,e);
+        }
+        if (isRoot) {
+          if (e.getErrCode() == DataImportHandlerException.SKIP) {
+            importStatistics.skipDocCount.getAndIncrement();
+          }
+ else {
+            LOG.log(Level.SEVERE,"Exception while processing: " + entity.name + " document : "+ doc,e);
+          }
+          if (e.getErrCode() == DataImportHandlerException.SEVERE)           throw e;
+        }
+ else         throw e;
+      }
+ finally {
+        if (verboseDebug) {
+          writer.log(SolrWriter.ROW_END,entity.name,null);
+          if (entity.isDocRoot)           writer.log(SolrWriter.END_DOC,null,null);
+        }
+      }
+    }
+  }
+  finally {
+    if (verboseDebug) {
+      writer.log(SolrWriter.END_ENTITY,null,null);
+    }
+  }
+}
