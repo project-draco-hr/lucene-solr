@@ -1,0 +1,53 @@
+{
+  final BlockingQueue<Map<String,Object>> blockingQueue=new ArrayBlockingQueue<Map<String,Object>>(batchSz);
+  final AtomicBoolean isEnd=new AtomicBoolean(false);
+  new Thread(){
+    public void run(){
+      try {
+        xpathReader.streamRecords(data,new XPathRecordReader.Handler(){
+          @SuppressWarnings("unchecked") public void handle(          Map<String,Object> record,          String xpath){
+            if (isEnd.get())             return;
+            try {
+              blockingQueue.offer(readRow(record,xpath),10,TimeUnit.SECONDS);
+            }
+ catch (            Exception e) {
+              isEnd.set(true);
+            }
+          }
+        }
+);
+      }
+  finally {
+        closeIt(data);
+        try {
+          blockingQueue.offer(Collections.EMPTY_MAP,10,TimeUnit.SECONDS);
+        }
+ catch (        Exception e) {
+        }
+      }
+    }
+  }
+.start();
+  return new Iterator<Map<String,Object>>(){
+    public boolean hasNext(){
+      return !isEnd.get();
+    }
+    public Map<String,Object> next(){
+      try {
+        Map<String,Object> row=blockingQueue.poll(10,TimeUnit.SECONDS);
+        if (row == null || row == Collections.EMPTY_MAP) {
+          isEnd.set(true);
+          return null;
+        }
+        return row;
+      }
+ catch (      InterruptedException e) {
+        isEnd.set(true);
+        return null;
+      }
+    }
+    public void remove(){
+    }
+  }
+;
+}
