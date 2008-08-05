@@ -1,0 +1,76 @@
+{
+  Directory dir=new MockRAMDirectory();
+  Analyzer analyzer=new StandardAnalyzer();
+  IndexWriter writer=new IndexWriter(dir,analyzer,true,IndexWriter.MaxFieldLength.LIMITED);
+  writer.setMergeFactor(2);
+  writer.setMaxBufferedDocs(2);
+  writer.setSimilarity(new SimpleSimilarity());
+  StringBuffer sb=new StringBuffer(265);
+  String term="term";
+  for (int i=0; i < 30; i++) {
+    Document d=new Document();
+    sb.append(term).append(" ");
+    String content=sb.toString();
+    Field noTf=new Field("noTf",content + (i % 2 == 0 ? "" : " notf"),Field.Store.NO,Field.Index.TOKENIZED);
+    noTf.setOmitTf(true);
+    d.add(noTf);
+    Field tf=new Field("tf",content + (i % 2 == 0 ? " tf" : ""),Field.Store.NO,Field.Index.TOKENIZED);
+    d.add(tf);
+    writer.addDocument(d);
+  }
+  writer.optimize();
+  writer.close();
+  _TestUtil.checkIndex(dir);
+  Searcher searcher=new IndexSearcher(dir);
+  searcher.setSimilarity(new SimpleSimilarity());
+  Term a=new Term("noTf",term);
+  Term b=new Term("tf",term);
+  Term c=new Term("noTf","notf");
+  Term d=new Term("tf","tf");
+  TermQuery q1=new TermQuery(a);
+  TermQuery q2=new TermQuery(b);
+  TermQuery q3=new TermQuery(c);
+  TermQuery q4=new TermQuery(d);
+  searcher.search(q1,new CountingHitCollector(){
+    public final void collect(    int doc,    float score){
+      assertTrue(score == 1.0f);
+      super.collect(doc,score);
+    }
+  }
+);
+  searcher.search(q2,new CountingHitCollector(){
+    public final void collect(    int doc,    float score){
+      assertTrue(score == 1.0f + doc);
+      super.collect(doc,score);
+    }
+  }
+);
+  searcher.search(q3,new CountingHitCollector(){
+    public final void collect(    int doc,    float score){
+      assertTrue(score == 1.0f);
+      assertFalse(doc % 2 == 0);
+      super.collect(doc,score);
+    }
+  }
+);
+  searcher.search(q4,new CountingHitCollector(){
+    public final void collect(    int doc,    float score){
+      assertTrue(score == 1.0f);
+      assertTrue(doc % 2 == 0);
+      super.collect(doc,score);
+    }
+  }
+);
+  BooleanQuery bq=new BooleanQuery();
+  bq.add(q1,Occur.MUST);
+  bq.add(q4,Occur.MUST);
+  searcher.search(bq,new CountingHitCollector(){
+    public final void collect(    int doc,    float score){
+      super.collect(doc,score);
+    }
+  }
+);
+  assertTrue(15 == CountingHitCollector.getCount());
+  searcher.close();
+  dir.close();
+}
