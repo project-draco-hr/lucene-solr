@@ -8,7 +8,10 @@
     HttpServletResponse resp=(HttpServletResponse)response;
     SolrRequestHandler handler=null;
     SolrQueryRequest solrReq=null;
+    SolrCore core=null;
+    String corename="";
     try {
+      req.setAttribute("org.apache.solr.CoreContainer",cores);
       String path=req.getServletPath();
       if (req.getPathInfo() != null) {
         path+=req.getPathInfo();
@@ -16,34 +19,34 @@
       if (pathPrefix != null && path.startsWith(pathPrefix)) {
         path=path.substring(pathPrefix.length());
       }
+      String alternate=cores.getManagementPath();
+      if (alternate != null && path.startsWith(alternate)) {
+        path=path.substring(0,alternate.length());
+      }
       int idx=path.indexOf(':');
       if (idx > 0) {
         path=path.substring(0,idx);
       }
-      final SolrCore core;
-      if (cores != null && cores.isEnabled()) {
-        req.setAttribute("org.apache.solr.CoreContainer",cores);
-        if (path.equals(cores.getAdminPath())) {
-          handler=cores.getMultiCoreHandler();
-          core=cores.getAdminCore();
-          if (core == null) {
-            throw new RuntimeException("Can not find a valid core for the cores admin handler");
-          }
-        }
- else {
-          idx=path.indexOf("/",1);
-          if (idx > 1) {
-            String corename=path.substring(1,idx);
-            path=path.substring(idx);
-            core=cores.getCore(corename);
-          }
- else {
-            core=null;
-          }
+      if (path.equals(cores.getAdminPath())) {
+        handler=cores.getMultiCoreHandler();
+        core=cores.getAdminCore();
+        if (core == null) {
+          throw new RuntimeException("Can not find a valid core for the multicore admin handler");
         }
       }
  else {
-        core=singleCoreDescriptor.getCore();
+        idx=path.indexOf("/",1);
+        if (idx > 1) {
+          corename=path.substring(1,idx);
+          core=cores.getCore(corename);
+          if (core != null) {
+            path=path.substring(idx);
+          }
+        }
+        if (core == null) {
+          corename="";
+          core=cores.getCore("");
+        }
       }
       if (core != null) {
         final SolrConfig config=core.getSolrConfig();
@@ -101,14 +104,11 @@
         }
  else {
           req.setAttribute("org.apache.solr.SolrCore",core);
-          if (singleCoreDescriptor == null && path.startsWith("/admin")) {
+          if (path.startsWith("/admin")) {
             req.getRequestDispatcher(pathPrefix == null ? path : pathPrefix + path).forward(request,response);
             return;
           }
         }
-      }
-      if (core == null) {
-        req.setAttribute("org.apache.solr.NoCoreSet",Boolean.TRUE);
       }
       log.fine("no handler or core retrieved for " + path + ", follow through...");
     }
