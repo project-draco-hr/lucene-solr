@@ -30,25 +30,56 @@ case CREATE:
       do_persist=cores.isPersistent();
       break;
     }
-case STATUS:
+case RENAME:
 {
-    NamedList<Object> status=new SimpleOrderedMap<Object>();
-    if (cname == null) {
-      for (      SolrCore core : cores.getCores()) {
-        status.add(core.getName(),getCoreStatus(cores,cname));
-      }
+    String name=params.get(CoreAdminParams.OTHER);
+    if (cname.equals(name))     break;
+    SolrCore core=cores.getCore(cname);
+    if (core != null) {
+      do_persist=cores.isPersistent();
+      cores.register(name,core,false);
+      cores.remove(cname);
+      core.close();
     }
- else {
-      status.add(cname,getCoreStatus(cores,cname));
-    }
-    rsp.add("status",status);
-    do_persist=false;
     break;
   }
+case ALIAS:
+{
+  String name=params.get(CoreAdminParams.OTHER);
+  if (cname.equals(name))   break;
+  SolrCore core=cores.getCore(cname);
+  if (core != null) {
+    do_persist=cores.isPersistent();
+    cores.register(name,core,false);
+  }
+  break;
+}
+case UNLOAD:
+{
+SolrCore core=cores.remove(cname);
+core.close();
+do_persist=cores.isPersistent();
+break;
+}
+case STATUS:
+{
+NamedList<Object> status=new SimpleOrderedMap<Object>();
+if (cname == null) {
+for (String name : cores.getCoreNames()) {
+  status.add(name,getCoreStatus(cores,name));
+}
+}
+ else {
+status.add(cname,getCoreStatus(cores,cname));
+}
+rsp.add("status",status);
+do_persist=false;
+break;
+}
 case PERSIST:
 {
-  do_persist=true;
-  break;
+do_persist=true;
+break;
 }
 case RELOAD:
 {
@@ -59,8 +90,8 @@ break;
 case SWAP:
 {
 do_persist=params.getBool(CoreAdminParams.PERSISTENT,cores.isPersistent());
-String with=required.get(CoreAdminParams.WITH);
-cores.swap(cname,with);
+String other=required.get(CoreAdminParams.OTHER);
+cores.swap(cname,other);
 break;
 }
 default :
