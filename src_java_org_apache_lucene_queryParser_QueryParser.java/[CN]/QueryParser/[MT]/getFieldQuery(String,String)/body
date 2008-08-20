@@ -1,19 +1,20 @@
 {
   TokenStream source=analyzer.tokenStream(field,new StringReader(queryText));
   Vector v=new Vector();
-  org.apache.lucene.analysis.Token t;
+  final org.apache.lucene.analysis.Token reusableToken=new org.apache.lucene.analysis.Token();
+  org.apache.lucene.analysis.Token nextToken;
   int positionCount=0;
   boolean severalTokensAtSamePosition=false;
   while (true) {
     try {
-      t=source.next();
+      nextToken=source.next(reusableToken);
     }
  catch (    IOException e) {
-      t=null;
+      nextToken=null;
     }
-    if (t == null)     break;
-    v.addElement(t);
-    if (t.getPositionIncrement() != 0)     positionCount+=t.getPositionIncrement();
+    if (nextToken == null)     break;
+    v.addElement(nextToken.clone());
+    if (nextToken.getPositionIncrement() != 0)     positionCount+=nextToken.getPositionIncrement();
  else     severalTokensAtSamePosition=true;
   }
   try {
@@ -23,16 +24,16 @@
   }
   if (v.size() == 0)   return null;
  else   if (v.size() == 1) {
-    t=(org.apache.lucene.analysis.Token)v.elementAt(0);
-    return new TermQuery(new Term(field,t.termText()));
+    nextToken=(org.apache.lucene.analysis.Token)v.elementAt(0);
+    return new TermQuery(new Term(field,nextToken.term()));
   }
  else {
     if (severalTokensAtSamePosition) {
       if (positionCount == 1) {
         BooleanQuery q=new BooleanQuery(true);
         for (int i=0; i < v.size(); i++) {
-          t=(org.apache.lucene.analysis.Token)v.elementAt(i);
-          TermQuery currentQuery=new TermQuery(new Term(field,t.termText()));
+          nextToken=(org.apache.lucene.analysis.Token)v.elementAt(i);
+          TermQuery currentQuery=new TermQuery(new Term(field,nextToken.term()));
           q.add(currentQuery,BooleanClause.Occur.SHOULD);
         }
         return q;
@@ -43,8 +44,8 @@
         List multiTerms=new ArrayList();
         int position=-1;
         for (int i=0; i < v.size(); i++) {
-          t=(org.apache.lucene.analysis.Token)v.elementAt(i);
-          if (t.getPositionIncrement() > 0 && multiTerms.size() > 0) {
+          nextToken=(org.apache.lucene.analysis.Token)v.elementAt(i);
+          if (nextToken.getPositionIncrement() > 0 && multiTerms.size() > 0) {
             if (enablePositionIncrements) {
               mpq.add((Term[])multiTerms.toArray(new Term[0]),position);
             }
@@ -53,8 +54,8 @@
             }
             multiTerms.clear();
           }
-          position+=t.getPositionIncrement();
-          multiTerms.add(new Term(field,t.termText()));
+          position+=nextToken.getPositionIncrement();
+          multiTerms.add(new Term(field,nextToken.term()));
         }
         if (enablePositionIncrements) {
           mpq.add((Term[])multiTerms.toArray(new Term[0]),position);
@@ -70,13 +71,13 @@
       pq.setSlop(phraseSlop);
       int position=-1;
       for (int i=0; i < v.size(); i++) {
-        t=(org.apache.lucene.analysis.Token)v.elementAt(i);
+        nextToken=(org.apache.lucene.analysis.Token)v.elementAt(i);
         if (enablePositionIncrements) {
-          position+=t.getPositionIncrement();
-          pq.add(new Term(field,t.termText()),position);
+          position+=nextToken.getPositionIncrement();
+          pq.add(new Term(field,nextToken.term()),position);
         }
  else {
-          pq.add(new Term(field,t.termText()));
+          pq.add(new Term(field,nextToken.term()));
         }
       }
       return pq;

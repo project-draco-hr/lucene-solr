@@ -6,16 +6,15 @@
   docFrags.add(currentFrag);
   FragmentQueue fragQueue=new FragmentQueue(maxNumFragments);
   try {
-    org.apache.lucene.analysis.Token token;
+    final Token reusableToken=new Token();
     String tokenText;
     int startOffset;
     int endOffset;
     int lastEndOffset=0;
     textFragmenter.start(text);
     TokenGroup tokenGroup=new TokenGroup();
-    token=tokenStream.next();
-    while ((token != null) && (token.startOffset() < maxDocCharsToAnalyze)) {
-      if ((tokenGroup.numTokens > 0) && (tokenGroup.isDistinct(token))) {
+    for (Token nextToken=tokenStream.next(reusableToken); (nextToken != null) && (nextToken.startOffset() < maxDocCharsToAnalyze); nextToken=tokenStream.next(reusableToken)) {
+      if ((tokenGroup.numTokens > 0) && (tokenGroup.isDistinct(nextToken))) {
         startOffset=tokenGroup.matchStartOffset;
         endOffset=tokenGroup.matchEndOffset;
         tokenText=text.substring(startOffset,endOffset);
@@ -24,7 +23,7 @@
         newText.append(markedUpText);
         lastEndOffset=Math.max(endOffset,lastEndOffset);
         tokenGroup.clear();
-        if (textFragmenter.isNewFragment(token)) {
+        if (textFragmenter.isNewFragment(nextToken)) {
           currentFrag.setScore(fragmentScorer.getFragmentScore());
           currentFrag.textEndPos=newText.length();
           currentFrag=new TextFragment(newText,newText.length(),docFrags.size());
@@ -32,8 +31,7 @@
           docFrags.add(currentFrag);
         }
       }
-      tokenGroup.addToken(token,fragmentScorer.getTokenScore(token));
-      token=tokenStream.next();
+      tokenGroup.addToken(nextToken,fragmentScorer.getTokenScore(nextToken));
     }
     currentFrag.setScore(fragmentScorer.getFragmentScore());
     if (tokenGroup.numTokens > 0) {
