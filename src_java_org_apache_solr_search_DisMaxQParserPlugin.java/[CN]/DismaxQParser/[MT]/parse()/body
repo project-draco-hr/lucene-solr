@@ -1,16 +1,16 @@
 {
   SolrParams solrParams=localParams == null ? params : new DefaultSolrParams(localParams,params);
   IndexSchema schema=req.getSchema();
-  queryFields=U.parseFieldBoosts(solrParams.getParams(DMP.QF));
-  Map<String,Float> phraseFields=U.parseFieldBoosts(solrParams.getParams(DMP.PF));
-  float tiebreaker=solrParams.getFloat(DMP.TIE,0.0f);
-  int pslop=solrParams.getInt(DMP.PS,0);
-  int qslop=solrParams.getInt(DMP.QS,0);
+  queryFields=SolrPluginUtils.parseFieldBoosts(solrParams.getParams(DisMaxParams.QF));
+  Map<String,Float> phraseFields=SolrPluginUtils.parseFieldBoosts(solrParams.getParams(DisMaxParams.PF));
+  float tiebreaker=solrParams.getFloat(DisMaxParams.TIE,0.0f);
+  int pslop=solrParams.getInt(DisMaxParams.PS,0);
+  int qslop=solrParams.getInt(DisMaxParams.QS,0);
   QueryParser p=schema.getSolrQueryParser(null);
-  U.DisjunctionMaxQueryParser up=new U.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
+  SolrPluginUtils.DisjunctionMaxQueryParser up=new SolrPluginUtils.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
   up.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,queryFields);
   up.setPhraseSlop(qslop);
-  U.DisjunctionMaxQueryParser pp=new U.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
+  SolrPluginUtils.DisjunctionMaxQueryParser pp=new SolrPluginUtils.DisjunctionMaxQueryParser(schema,IMPOSSIBLE_FIELD_NAME);
   pp.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,phraseFields);
   pp.setPhraseSlop(pslop);
   BooleanQuery query=new BooleanQuery(true);
@@ -18,7 +18,7 @@
   String userQuery=getString();
   altUserQuery=null;
   if (userQuery == null || userQuery.trim().length() < 1) {
-    String altQ=solrParams.get(DMP.ALTQ);
+    String altQ=solrParams.get(DisMaxParams.ALTQ);
     if (altQ != null) {
       altQParser=subQuery(altQ,null);
       altUserQuery=altQParser.parse();
@@ -29,15 +29,15 @@
     }
   }
  else {
-    userQuery=U.partialEscape(U.stripUnbalancedQuotes(userQuery)).toString();
-    userQuery=U.stripIllegalOperators(userQuery).toString();
-    String minShouldMatch=solrParams.get(DMP.MM,"100%");
+    userQuery=SolrPluginUtils.partialEscape(SolrPluginUtils.stripUnbalancedQuotes(userQuery)).toString();
+    userQuery=SolrPluginUtils.stripIllegalOperators(userQuery).toString();
+    String minShouldMatch=solrParams.get(DisMaxParams.MM,"100%");
     Query dis=up.parse(userQuery);
     parsedUserQuery=dis;
     if (dis instanceof BooleanQuery) {
       BooleanQuery t=new BooleanQuery();
-      U.flattenBooleanQuery(t,(BooleanQuery)dis);
-      U.setMinShouldMatch(t,minShouldMatch);
+      SolrPluginUtils.flattenBooleanQuery(t,(BooleanQuery)dis);
+      SolrPluginUtils.setMinShouldMatch(t,minShouldMatch);
       parsedUserQuery=t;
     }
     query.add(parsedUserQuery,BooleanClause.Occur.MUST);
@@ -47,7 +47,7 @@
       query.add(phrase,BooleanClause.Occur.SHOULD);
     }
   }
-  boostParams=solrParams.getParams(DMP.BQ);
+  boostParams=solrParams.getParams(DisMaxParams.BQ);
   boostQueries=null;
   if (boostParams != null && boostParams.length > 0) {
     boostQueries=new ArrayList<Query>();
@@ -75,7 +75,7 @@
       }
     }
   }
-  String[] boostFuncs=solrParams.getParams(DMP.BF);
+  String[] boostFuncs=solrParams.getParams(DisMaxParams.BF);
   if (null != boostFuncs && 0 != boostFuncs.length) {
     for (    String boostFunc : boostFuncs) {
       if (null == boostFunc || "".equals(boostFunc))       continue;
