@@ -1,0 +1,42 @@
+{
+  VelocityEngine engine=new VelocityEngine();
+  File baseDir=new File(request.getCore().getResourceLoader().getConfigDir(),"velocity");
+  engine.setProperty(VelocityEngine.FILE_RESOURCE_LOADER_PATH,baseDir.getAbsolutePath());
+  engine.setProperty(VelocityEngine.RESOURCE_LOADER,"file");
+  Template template;
+  try {
+    template=engine.getTemplate(request.getParams().get(PARAMETER_TEMPLATE,"default") + ".vm");
+  }
+ catch (  Exception e) {
+    throw new IOException(e.getMessage());
+  }
+  VelocityContext context=new VelocityContext();
+  context.put("rawResponse",new RawResponseHelper(request,response));
+  if (request.getParams().get(PARAMETER_RESPONSE) != null) {
+    String className=request.getParams().get(PARAMETER_RESPONSE);
+    SolrResponse solrResponse;
+    Object object;
+    try {
+      object=request.getCore().getResourceLoader().newInstance(className,"client.solrj.response.");
+    }
+ catch (    RuntimeException e) {
+      throw new IOException("Unable to resolve response class \"" + className + "\": "+ e.getMessage());
+    }
+    if (!(object instanceof SolrResponse)) {
+      throw new IOException("Class \"" + className + "\" doesn't implement SolrResponse!");
+    }
+    solrResponse=(SolrResponse)object;
+    solrResponse.setResponse(new EmbeddedSolrServer(request.getCore()).getParsedResponse(request,response));
+    context.put("response",solrResponse);
+  }
+  if (isWrappedResponse(request)) {
+    StringWriter stringWriter=new StringWriter();
+    template.merge(context,stringWriter);
+    writer.write(request.getParams().get(PARAMETER_JSON) + "(");
+    writer.write(getJSONWrap(stringWriter.toString()));
+    writer.write(')');
+  }
+ else {
+    template.merge(context,writer);
+  }
+}
