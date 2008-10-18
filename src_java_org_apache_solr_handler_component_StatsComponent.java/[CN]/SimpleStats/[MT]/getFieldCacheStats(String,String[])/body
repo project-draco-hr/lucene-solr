@@ -1,0 +1,81 @@
+{
+  FieldType ft=searcher.getSchema().getFieldType(fieldName);
+  if (ft.isTokenized() || ft.isMultiValued()) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Stats are valid for single valued numeric values.  not: " + fieldName + "["+ ft+ "]");
+  }
+  FieldCache.StringIndex si=null;
+  try {
+    si=FieldCache.DEFAULT.getStringIndex(searcher.getReader(),fieldName);
+  }
+ catch (  IOException e) {
+    throw new RuntimeException("failed to open field cache for: " + fieldName,e);
+  }
+  FieldFacetStats all=new FieldFacetStats("all",si,ft);
+  if (all.nTerms <= 0 || docs.size() <= 0)   return null;
+  StatsValues allstats=new StatsValues();
+  int i=0;
+  final FieldFacetStats[] finfo=new FieldFacetStats[facet.length];
+  for (  String f : facet) {
+    ft=searcher.getSchema().getFieldType(f);
+    if (ft.isTokenized() || ft.isMultiValued()) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Stats can only facet on single valued fields, not: " + f + "["+ ft+ "]");
+    }
+    try {
+      si=FieldCache.DEFAULT.getStringIndex(searcher.getReader(),f);
+    }
+ catch (    IOException e) {
+      throw new RuntimeException("failed to open field cache for: " + f,e);
+    }
+    finfo[i++]=new FieldFacetStats(f,si,ft);
+  }
+  DocIterator iter=docs.iterator();
+  while (iter.hasNext()) {
+    int docID=iter.nextDoc();
+    String raw=all.getTermText(docID);
+    Double v=null;
+    if (raw != null) {
+      v=Double.parseDouble(all.ft.indexedToReadable(raw));
+      allstats.accumulate(v);
+    }
+ else {
+      allstats.missing++;
+    }
+    for (    FieldFacetStats f : finfo) {
+      f.facet(docID,v);
+    }
+  }
+  if (params.getFieldBool(fieldName,StatsParams.STATS_TWOPASS,false)) {
+    if (allstats.count > 1) {
+      iter=docs.iterator();
+      boolean isEven=(allstats.count % 2) == 0;
+      int medianIndex=(int)Math.ceil(allstats.count / 2.0);
+      for (i=0; iter.hasNext(); ) {
+        String raw=all.getTermText(iter.nextDoc());
+        if (raw != null) {
+          if (++i == medianIndex) {
+            double val0=Double.parseDouble(all.ft.indexedToReadable(raw));
+            if (isEven) {
+              do {
+                raw=all.getTermText(iter.nextDoc());
+              }
+ while (raw == null);
+              double val1=Double.parseDouble(all.ft.indexedToReadable(raw));
+              allstats.median=(val0 + val1) / 2.0;
+            }
+ else {
+              allstats.median=val0;
+            }
+            break;
+          }
+        }
+      }
+    }
+  }
+  if (finfo.length > 0) {
+    allstats.facets=new HashMap<String,Map<String,StatsValues>>();
+    for (    FieldFacetStats f : finfo) {
+      allstats.facets.put(f.name,f.facetStatsValues);
+    }
+  }
+  return allstats.getStatsValues();
+}
