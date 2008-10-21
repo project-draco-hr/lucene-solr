@@ -1,0 +1,154 @@
+{
+  String timeLastReplicated="", confFilesReplicated="", confFilesReplicatedTime="", timesIndexReplicated="", timesConfigReplicated="";
+  NamedList<Object> details=new SimpleOrderedMap<Object>();
+  FileInputStream inFile=null;
+  details.add("indexSize",readableSize(getIndexSize()));
+  details.add("indexPath",core.getIndexDir());
+  details.add(CMD_SHOW_COMMITS,getCommits());
+  details.add("isMaster",String.valueOf(isMaster));
+  long[] versionAndGeneration=getIndexVersion();
+  details.add(CMD_INDEX_VERSION,versionAndGeneration[0]);
+  details.add(GENERATION,versionAndGeneration[1]);
+  if (isMaster && indexCommitPoint != null) {
+    details.add("replicatable" + CMD_INDEX_VERSION,indexCommitPoint.getVersion());
+    details.add("replicatable" + GENERATION,indexCommitPoint.getGeneration());
+  }
+  if (isSlave) {
+    try {
+      Properties props=new Properties();
+      File f=new File(core.getDataDir(),SnapPuller.REPLICATION_PROPERTIES);
+      if (f.exists()) {
+        inFile=new FileInputStream(f);
+        props.load(inFile);
+        timeLastReplicated=props.getProperty("indexReplicatedAt");
+        if (props.containsKey("timesIndexReplicated"))         timesIndexReplicated=props.getProperty("timesIndexReplicated");
+        if (props.containsKey("confFilesReplicated"))         confFilesReplicated=props.getProperty("confFilesReplicated");
+        if (props.containsKey("confFilesReplicatedAt"))         confFilesReplicatedTime=props.getProperty("confFilesReplicatedAt");
+        if (props.containsKey("timesConfigReplicated"))         timesConfigReplicated=props.getProperty("timesConfigReplicated");
+      }
+    }
+ catch (    Exception e) {
+      LOG.warn("Exception while reading " + SnapPuller.REPLICATION_PROPERTIES);
+    }
+ finally {
+      closeNoExp(inFile);
+    }
+    HttpClient client=null;
+    try {
+      client=new HttpClient();
+      NamedList nl=snapPuller.getCommandResponse(client,CMD_DETAILS);
+      details.add("masterDetails",nl.get(CMD_DETAILS));
+    }
+ catch (    IOException e) {
+      LOG.warn("Exception while invoking a 'details' method on master ",e);
+    }
+ finally {
+      if (client != null)       client.getHttpConnectionManager().closeIdleConnections(0);
+    }
+    details.add(MASTER_URL,snapPuller.getMasterUrl());
+    if (snapPuller.getPollInterval() != null) {
+      details.add(SnapPuller.POLL_INTERVAL,snapPuller.getPollInterval());
+    }
+    if (snapPuller.getNextScheduledExecTime() != null && !isPollingDisabled()) {
+      Date d=new Date(snapPuller.getNextScheduledExecTime());
+      details.add("nextExecutionAt",d.toString());
+    }
+ else     if (isPollingDisabled()) {
+      details.add("nextExecutionAt","Polling disabled");
+    }
+ else     details.add("nextExecutionAt","");
+    if (timeLastReplicated != null && timeLastReplicated.length() > 0) {
+      Date d=new Date(Long.valueOf(timeLastReplicated));
+      details.add("indexReplicatedAt",d.toString());
+    }
+ else {
+      details.add("indexReplicatedAt","");
+    }
+    details.add("timesIndexReplicated",timesIndexReplicated);
+    details.add("confFilesReplicated",confFilesReplicated);
+    details.add("timesConfigReplicated",timesConfigReplicated);
+    if (confFilesReplicatedTime != null && confFilesReplicatedTime.length() > 0) {
+      Date d=new Date(Long.valueOf(confFilesReplicatedTime));
+      details.add("confFilesReplicatedAt",d.toString());
+    }
+ else {
+      details.add("confFilesReplicatedAt",confFilesReplicatedTime);
+    }
+    try {
+      long bytesToDownload=0;
+      List<String> filesToDownload=new ArrayList<String>();
+      if (snapPuller.getFilesToDownload() != null) {
+        for (        Map<String,Object> file : snapPuller.getFilesToDownload()) {
+          filesToDownload.add((String)file.get(NAME));
+          bytesToDownload+=(Long)file.get(SIZE);
+        }
+      }
+      for (      Map<String,Object> file : snapPuller.getConfFilesToDownload()) {
+        filesToDownload.add((String)file.get(NAME));
+        bytesToDownload+=(Long)file.get(SIZE);
+      }
+      details.add("filesToDownload",filesToDownload.toString());
+      details.add("numFilesToDownload",String.valueOf(filesToDownload.size()));
+      details.add("bytesToDownload",readableSize(bytesToDownload));
+      long bytesDownloaded=0;
+      List<String> filesDownloaded=new ArrayList<String>();
+      for (      Map<String,Object> file : snapPuller.getFilesDownloaded()) {
+        filesDownloaded.add((String)file.get(NAME));
+        bytesDownloaded+=(Long)file.get(SIZE);
+      }
+      for (      Map<String,Object> file : snapPuller.getConfFilesDownloaded()) {
+        filesDownloaded.add((String)file.get(NAME));
+        bytesDownloaded+=(Long)file.get(SIZE);
+      }
+      details.add("filesDownloaded",filesDownloaded.toString());
+      details.add("numFilesDownloaded",String.valueOf(filesDownloaded.size()));
+      Map<String,Object> currentFile=snapPuller.getCurrentFile();
+      String currFile=null;
+      long currFileSize=0, currFileSizeDownloaded=0;
+      float percentDownloaded=0;
+      if (currentFile != null) {
+        currFile=(String)currentFile.get(NAME);
+        currFileSize=(Long)currentFile.get(SIZE);
+        if (currentFile.containsKey("bytesDownloaded")) {
+          currFileSizeDownloaded=(Long)currentFile.get("bytesDownloaded");
+          bytesDownloaded+=currFileSizeDownloaded;
+          if (currFileSize > 0)           percentDownloaded=(currFileSizeDownloaded * 100) / currFileSize;
+        }
+      }
+      long timeElapsed=0, estimatedTimeRemaining=0;
+      Date replicationStartTime=null;
+      if (snapPuller.getReplicationStartTime() > 0) {
+        replicationStartTime=new Date(snapPuller.getReplicationStartTime());
+        timeElapsed=(System.currentTimeMillis() - snapPuller.getReplicationStartTime()) / 1000;
+      }
+      if (replicationStartTime != null) {
+        details.add("replicationStartTime",replicationStartTime.toString());
+      }
+      details.add("timeElapsed",String.valueOf(timeElapsed) + "s");
+      if (bytesDownloaded > 0)       estimatedTimeRemaining=((bytesToDownload - bytesDownloaded) * timeElapsed) / bytesDownloaded;
+      float totalPercent=0;
+      long downloadSpeed=0;
+      if (bytesToDownload > 0)       totalPercent=(bytesDownloaded * 100) / bytesToDownload;
+      if (timeElapsed > 0)       downloadSpeed=(bytesDownloaded / timeElapsed);
+      details.add("currentFile",currFile);
+      details.add("currentFileSize",readableSize(currFileSize));
+      details.add("currentFileSizeDownloaded",readableSize(currFileSizeDownloaded));
+      details.add("currentFileSizePercent",String.valueOf(percentDownloaded));
+      details.add("bytesDownloaded",readableSize(bytesDownloaded));
+      details.add("totalPercent",String.valueOf(totalPercent));
+      details.add("timeRemaining",String.valueOf(estimatedTimeRemaining) + "s");
+      details.add("downloadSpeed",readableSize(downloadSpeed));
+      details.add("isPollingDisabled",String.valueOf(isPollingDisabled()));
+      details.add("isReplicating",String.valueOf(isReplicating()));
+    }
+ catch (    Exception e) {
+      LOG.error("Exception while writing details: ",e);
+    }
+  }
+  if (isMaster) {
+    details.add(CONF_FILES,includeConfFiles.toString());
+    if (replicateOnCommit)     details.add(REPLICATE_AFTER,"commit");
+    if (replicateOnOptimize)     details.add(REPLICATE_AFTER,"optimize");
+  }
+  resp.add(CMD_DETAILS,details);
+}

@@ -1,0 +1,35 @@
+{
+  this.core=core;
+  registerFileStreamResponseWriter();
+  registerCloseHook();
+  NamedList slave=(NamedList)initArgs.get("slave");
+  if (slave != null) {
+    snapPuller=new SnapPuller(slave,this,core);
+    isSlave=true;
+  }
+  NamedList master=(NamedList)initArgs.get("master");
+  if (master != null) {
+    String includeFiles=(String)master.get(CONF_FILES);
+    if (includeFiles != null && !includeFiles.trim().equals("")) {
+      includeConfFiles=Arrays.asList(includeFiles.split(","));
+      LOG.info("Replication enabled for following config files: " + includeConfFiles);
+    }
+    String snapshot=(String)master.get("snapshot");
+    if ("optimize".equals(master.get(REPLICATE_AFTER))) {
+      replicateOnOptimize=true;
+      boolean snapshoot="optimize".equals(snapshot);
+      core.getUpdateHandler().registerOptimizeCallback(getEventListener(snapshoot));
+    }
+ else     if ("commit".equals(master.get(REPLICATE_AFTER))) {
+      replicateOnCommit=true;
+      boolean snapshoot="commit".equals(snapshot);
+      core.getUpdateHandler().registerCommitCallback(getEventListener(snapshoot));
+    }
+    String reserve=(String)master.get(RESERVE);
+    if (reserve != null && !reserve.trim().equals("")) {
+      reserveCommitDuration=SnapPuller.readInterval(reserve);
+    }
+    LOG.info("Commits will be reserved for  " + reserveCommitDuration);
+    isMaster=true;
+  }
+}

@@ -1,0 +1,25 @@
+{
+  for (int i=0; i < 500; i++)   index(masterClient,"id",i,"name","name = " + String.valueOf(i));
+  masterClient.commit();
+  NamedList masterQueryRsp=query("*:*",masterClient);
+  SolrDocumentList masterQueryResult=(SolrDocumentList)masterQueryRsp.get("response");
+  assertEquals(500,masterQueryResult.getNumFound());
+  Thread.sleep(4000);
+  NamedList slaveQueryRsp=query("*:*",slaveClient);
+  SolrDocumentList slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
+  assertEquals(500,slaveQueryResult.getNumFound());
+  String cmp=TestDistributedSearch.compare(masterQueryResult,slaveQueryResult,0,null);
+  assertEquals(null,cmp);
+  masterClient.deleteByQuery("*:*");
+  masterClient.commit();
+  copyFile(new File("." + System.getProperty("file.separator") + "solr"+ System.getProperty("file.separator")+ "conf"+ System.getProperty("file.separator")+ "schema-replication2.xml"),new File(master.getConfDir(),"schema.xml"));
+  masterJetty.stop();
+  masterJetty=createJetty(master,9999);
+  masterClient=createNewSolrServer(masterJetty.getLocalPort());
+  index(masterClient,"id","2000","name","name = " + String.valueOf(2000),"newname","newname = " + String.valueOf(2000));
+  masterClient.commit();
+  Thread.sleep(4000);
+  slaveQueryRsp=query("*:*",slaveClient);
+  SolrDocument d=((SolrDocumentList)slaveQueryRsp.get("response")).get(0);
+  assertEquals("newname = 2000",(String)d.getFieldValue("newname"));
+}
