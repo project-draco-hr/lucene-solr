@@ -14,16 +14,30 @@
       includeConfFiles=Arrays.asList(includeFiles.split(","));
       LOG.info("Replication enabled for following config files: " + includeConfFiles);
     }
-    String snapshot=(String)master.get("snapshot");
-    if ("optimize".equals(master.get(REPLICATE_AFTER))) {
-      replicateOnOptimize=true;
-      boolean snapshoot="optimize".equals(snapshot);
-      core.getUpdateHandler().registerOptimizeCallback(getEventListener(snapshoot));
+    List snapshot=master.getAll("snapshot");
+    boolean snapshotOnCommit=snapshot.contains("commit");
+    boolean snapshotOnOptimize=snapshot.contains("optimize");
+    List replicateAfter=master.getAll(REPLICATE_AFTER);
+    replicateOnCommit=replicateAfter.contains("commit");
+    replicateOnOptimize=replicateAfter.contains("optimize");
+    if (replicateOnOptimize || snapshotOnOptimize) {
+      core.getUpdateHandler().registerOptimizeCallback(getEventListener(snapshotOnOptimize,replicateOnOptimize));
     }
- else     if ("commit".equals(master.get(REPLICATE_AFTER))) {
+    if (replicateOnCommit || snapshotOnCommit) {
       replicateOnCommit=true;
-      boolean snapshoot="commit".equals(snapshot);
-      core.getUpdateHandler().registerCommitCallback(getEventListener(snapshoot));
+      core.getUpdateHandler().registerCommitCallback(getEventListener(snapshotOnCommit,replicateOnCommit));
+    }
+    if (replicateAfter.contains("startup")) {
+      RefCounted<SolrIndexSearcher> s=core.getNewestSearcher(false);
+      try {
+        indexCommitPoint=s.get().getReader().getIndexCommit();
+      }
+ catch (      IOException e) {
+        LOG.warn("Unable to get IndexCommit on startup",e);
+      }
+ finally {
+        s.decref();
+      }
     }
     String reserve=(String)master.get(RESERVE);
     if (reserve != null && !reserve.trim().equals("")) {
