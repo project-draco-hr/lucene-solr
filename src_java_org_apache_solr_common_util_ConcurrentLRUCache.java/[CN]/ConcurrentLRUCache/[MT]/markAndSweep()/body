@@ -1,0 +1,37 @@
+{
+  if (!markAndSweepLock.tryLock())   return;
+  try {
+    int size=stats.size.get();
+    long currentLatestAccessed=stats.accessCounter.get();
+    int itemsToBeRemoved=size - lowerWaterMark;
+    int itemsRemoved=0;
+    if (itemsToBeRemoved < 1)     return;
+    long removeOlderThan=currentLatestAccessed - lowerWaterMark;
+    for (    Map.Entry<Object,CacheEntry> entry : map.entrySet()) {
+      if (entry.getValue().lastAccessed <= removeOlderThan && itemsRemoved < itemsToBeRemoved) {
+        evictEntry(entry.getKey());
+      }
+    }
+    size=stats.size.get();
+    if (size <= acceptableWaterMark)     return;
+    itemsToBeRemoved=size - acceptableWaterMark;
+    TreeSet<CacheEntry> tree=new TreeSet<CacheEntry>();
+    for (    Map.Entry<Object,CacheEntry> entry : map.entrySet()) {
+      CacheEntry v=entry.getValue();
+      v.lastAccessedCopy=v.lastAccessed;
+      if (tree.size() < itemsToBeRemoved) {
+        tree.add(v);
+      }
+ else {
+        if (v.lastAccessedCopy < tree.first().lastAccessedCopy) {
+          tree.remove(tree.first());
+          tree.add(v);
+        }
+      }
+    }
+    for (    CacheEntry sortCacheEntry : tree)     evictEntry(sortCacheEntry.key);
+  }
+  finally {
+    markAndSweepLock.unlock();
+  }
+}
