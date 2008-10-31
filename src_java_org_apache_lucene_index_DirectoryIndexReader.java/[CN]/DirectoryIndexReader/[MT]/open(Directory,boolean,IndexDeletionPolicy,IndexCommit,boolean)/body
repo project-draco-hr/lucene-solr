@@ -5,22 +5,36 @@
       infos.read(directory,segmentFileName);
       DirectoryIndexReader reader;
       if (infos.size() == 1) {
-        reader=SegmentReader.get(readOnly,infos,infos.info(0),closeDirectory);
+        reader=SegmentReader.get(readOnly,infos,infos.info(0),false);
       }
  else       if (readOnly) {
-        reader=new ReadOnlyMultiSegmentReader(directory,infos,closeDirectory);
+        reader=new ReadOnlyMultiSegmentReader(directory,infos,false);
       }
  else {
-        reader=new MultiSegmentReader(directory,infos,closeDirectory,false);
+        reader=new MultiSegmentReader(directory,infos,false,false);
       }
       reader.setDeletionPolicy(deletionPolicy);
+      reader.closeDirectory=closeDirectory;
       return reader;
     }
   }
 ;
-  if (commit == null)   return (DirectoryIndexReader)finder.run();
+  DirectoryIndexReader reader=null;
+  try {
+    if (commit == null)     reader=(DirectoryIndexReader)finder.run();
  else {
-    if (directory != commit.getDirectory())     throw new IOException("the specified commit does not match the specified Directory");
-    return (DirectoryIndexReader)finder.doBody(commit.getSegmentsFileName());
+      if (directory != commit.getDirectory())       throw new IOException("the specified commit does not match the specified Directory");
+      reader=(DirectoryIndexReader)finder.doBody(commit.getSegmentsFileName());
+    }
   }
+  finally {
+    if (reader == null && closeDirectory) {
+      try {
+        directory.close();
+      }
+ catch (      IOException ioe) {
+      }
+    }
+  }
+  return reader;
 }
