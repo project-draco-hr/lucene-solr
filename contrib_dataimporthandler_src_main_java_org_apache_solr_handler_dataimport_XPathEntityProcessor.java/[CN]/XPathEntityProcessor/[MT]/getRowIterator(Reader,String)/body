@@ -1,4 +1,5 @@
 {
+  final AtomicReference<Exception> exp=new AtomicReference<Exception>();
   final BlockingQueue<Map<String,Object>> blockingQueue=new ArrayBlockingQueue<Map<String,Object>>(batchSz);
   final AtomicBoolean isEnd=new AtomicBoolean(false);
   new Thread(){
@@ -17,7 +18,10 @@
         }
 );
       }
-  finally {
+ catch (      Exception e) {
+        exp.set(e);
+      }
+ finally {
         closeIt(data);
         try {
           blockingQueue.offer(Collections.EMPTY_MAP,10,TimeUnit.SECONDS);
@@ -29,6 +33,8 @@
   }
 .start();
   return new Iterator<Map<String,Object>>(){
+    private Map<String,Object> lastRow;
+    int count=0;
     public boolean hasNext(){
       return !isEnd.get();
     }
@@ -37,9 +43,23 @@
         Map<String,Object> row=blockingQueue.poll(10,TimeUnit.SECONDS);
         if (row == null || row == Collections.EMPTY_MAP) {
           isEnd.set(true);
+          if (exp.get() != null) {
+            String msg="Parsing failed for xml, url:" + s + "rows processed in this xml:"+ count;
+            if (lastRow != null)             msg+="last row in this xml: " + lastRow;
+            if (ABORT.equals(onError)) {
+              wrapAndThrow(SEVERE,exp.get(),msg);
+            }
+ else             if (SKIP.equals(onError)) {
+              wrapAndThrow(DataImportHandlerException.SKIP,exp.get());
+            }
+ else {
+              LOG.warn(msg,exp.get());
+            }
+          }
           return null;
         }
-        return row;
+        count++;
+        return lastRow=row;
       }
  catch (      InterruptedException e) {
         isEnd.set(true);
