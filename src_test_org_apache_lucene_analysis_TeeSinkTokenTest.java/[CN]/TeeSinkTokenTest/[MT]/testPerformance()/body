@@ -8,33 +8,34 @@
       buffer.append(English.intToEnglish(i).toUpperCase()).append(' ');
     }
     ModuloSinkTokenizer sink=new ModuloSinkTokenizer(tokCount[k],100);
-    final Token reusableToken=new Token();
     TokenStream stream=new TeeTokenFilter(new StandardFilter(new StandardTokenizer(new StringReader(buffer.toString()))),sink);
-    while (stream.next(reusableToken) != null) {
+    while (stream.incrementToken()) {
     }
     stream=new ModuloTokenFilter(new StandardFilter(new StandardTokenizer(new StringReader(buffer.toString()))),100);
     List tmp=new ArrayList();
-    for (Token nextToken=stream.next(reusableToken); nextToken != null; nextToken=stream.next(reusableToken)) {
-      tmp.add(nextToken.clone());
+    while (stream.incrementToken()) {
+      tmp.add(stream.captureState());
     }
     List sinkList=sink.getTokens();
     assertTrue("tmp Size: " + tmp.size() + " is not: "+ sinkList.size(),tmp.size() == sinkList.size());
     for (int i=0; i < tmp.size(); i++) {
-      Token tfTok=(Token)tmp.get(i);
-      Token sinkTok=(Token)sinkList.get(i);
-      assertTrue(tfTok.term() + " is not equal to " + sinkTok.term()+ " at token: "+ i,tfTok.term().equals(sinkTok.term()) == true);
+      AttributeSource tfTok=(AttributeSource)tmp.get(i);
+      AttributeSource sinkTok=(AttributeSource)sinkList.get(i);
+      assertTrue(tfTok + " is not equal to " + sinkTok+ " at token: "+ i,tfTok.equals(sinkTok) == true);
     }
     for (int j=0; j < modCounts.length; j++) {
       int tfPos=0;
       long start=System.currentTimeMillis();
       for (int i=0; i < 20; i++) {
         stream=new StandardFilter(new StandardTokenizer(new StringReader(buffer.toString())));
-        for (Token nextToken=stream.next(reusableToken); nextToken != null; nextToken=stream.next(reusableToken)) {
-          tfPos+=nextToken.getPositionIncrement();
+        PositionIncrementAttribute posIncrAtt=(PositionIncrementAttribute)stream.getAttribute(PositionIncrementAttribute.class);
+        while (stream.incrementToken()) {
+          tfPos+=posIncrAtt.getPositionIncrement();
         }
         stream=new ModuloTokenFilter(new StandardFilter(new StandardTokenizer(new StringReader(buffer.toString()))),modCounts[j]);
-        for (Token nextToken=stream.next(reusableToken); nextToken != null; nextToken=stream.next(reusableToken)) {
-          tfPos+=nextToken.getPositionIncrement();
+        posIncrAtt=(PositionIncrementAttribute)stream.getAttribute(PositionIncrementAttribute.class);
+        while (stream.incrementToken()) {
+          tfPos+=posIncrAtt.getPositionIncrement();
         }
       }
       long finish=System.currentTimeMillis();
@@ -44,12 +45,14 @@
       for (int i=0; i < 20; i++) {
         sink=new ModuloSinkTokenizer(tokCount[k],modCounts[j]);
         stream=new TeeTokenFilter(new StandardFilter(new StandardTokenizer(new StringReader(buffer.toString()))),sink);
-        for (Token nextToken=stream.next(reusableToken); nextToken != null; nextToken=stream.next(reusableToken)) {
-          sinkPos+=nextToken.getPositionIncrement();
+        PositionIncrementAttribute posIncrAtt=(PositionIncrementAttribute)stream.getAttribute(PositionIncrementAttribute.class);
+        while (stream.incrementToken()) {
+          sinkPos+=posIncrAtt.getPositionIncrement();
         }
         stream=sink;
-        for (Token nextToken=stream.next(reusableToken); nextToken != null; nextToken=stream.next(reusableToken)) {
-          sinkPos+=nextToken.getPositionIncrement();
+        posIncrAtt=(PositionIncrementAttribute)stream.getAttribute(PositionIncrementAttribute.class);
+        while (stream.incrementToken()) {
+          sinkPos+=posIncrAtt.getPositionIncrement();
         }
       }
       finish=System.currentTimeMillis();

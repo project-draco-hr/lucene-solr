@@ -3,28 +3,31 @@
     public TokenStream tokenStream(    String fieldName,    Reader reader){
       return new TokenFilter(new WhitespaceTokenizer(reader)){
         boolean first=true;
-        Token buffered;
-        public Token next(        final Token reusableToken) throws IOException {
-          if (buffered != null) {
-            Token nextToken=buffered;
-            buffered=null;
-            return nextToken;
+        AttributeSource state;
+        public boolean incrementToken() throws IOException {
+          if (state != null) {
+            state.restoreState(this);
+            payloadAtt.setPayload(null);
+            posIncrAtt.setPositionIncrement(0);
+            termAtt.setTermBuffer(new char[]{'b'},0,1);
+            state=null;
+            return true;
           }
-          Token nextToken=input.next(reusableToken);
-          if (nextToken == null)           return null;
-          if (Character.isDigit(nextToken.termBuffer()[0])) {
-            nextToken.setPositionIncrement(nextToken.termBuffer()[0] - '0');
+          boolean hasNext=input.incrementToken();
+          if (!hasNext)           return false;
+          if (Character.isDigit(termAtt.termBuffer()[0])) {
+            posIncrAtt.setPositionIncrement(termAtt.termBuffer()[0] - '0');
           }
           if (first) {
-            nextToken.setPayload(new Payload(new byte[]{100}));
+            payloadAtt.setPayload(new Payload(new byte[]{100}));
             first=false;
           }
-          buffered=(Token)nextToken.clone();
-          buffered.setPayload(null);
-          buffered.setPositionIncrement(0);
-          buffered.setTermBuffer(new char[]{'b'},0,1);
-          return nextToken;
+          state=captureState();
+          return true;
         }
+        TermAttribute termAtt=(TermAttribute)addAttribute(TermAttribute.class);
+        PayloadAttribute payloadAtt=(PayloadAttribute)addAttribute(PayloadAttribute.class);
+        PositionIncrementAttribute posIncrAtt=(PositionIncrementAttribute)addAttribute(PositionIncrementAttribute.class);
       }
 ;
     }
