@@ -1,10 +1,7 @@
 {
-  HttpClient client=null;
   replicationStartTime=System.currentTimeMillis();
   try {
-    client=new HttpClient();
-    client.setHttpConnectionManager(new MultiThreadedHttpConnectionManager());
-    NamedList response=getLatestVersion(client);
+    NamedList response=getLatestVersion();
     long latestVersion=(Long)response.get(CMD_INDEX_VERSION);
     long latestGeneration=(Long)response.get(GENERATION);
     if (latestVersion == 0L) {
@@ -26,7 +23,7 @@
     LOG.info("Master's version: " + latestVersion + ", generation: "+ latestGeneration);
     LOG.info("Slave's version: " + commit.getVersion() + ", generation: "+ commit.getGeneration());
     LOG.info("Starting replication process");
-    fetchFileList(latestVersion,client);
+    fetchFileList(latestVersion);
     LOG.info("Number of files in latest snapshot in master: " + filesToDownload.size());
     filesDownloaded=Collections.synchronizedList(new ArrayList<Map<String,Object>>());
     boolean isSnapNeeded=commit.getGeneration() >= latestGeneration;
@@ -35,11 +32,11 @@
     boolean successfulInstall=false;
     try {
       File indexDir=new File(core.getIndexDir());
-      downloadIndexFiles(isSnapNeeded,tmpIndexDir,client,latestVersion);
+      downloadIndexFiles(isSnapNeeded,tmpIndexDir,latestVersion);
       LOG.info("Total time taken for download : " + ((System.currentTimeMillis() - replicationStartTime) / 1000) + " secs");
       Collection<Map<String,Object>> modifiedConfFiles=getModifiedConfFiles(confFilesToDownload);
       if (modifiedConfFiles != null && !modifiedConfFiles.isEmpty()) {
-        downloadConfFiles(client,confFilesToDownload,latestVersion);
+        downloadConfFiles(confFilesToDownload,latestVersion);
         if (isSnapNeeded) {
           modifyIndexProps(tmpIndexDir.getName());
         }
@@ -87,6 +84,5 @@ catch (    Exception e) {
     replicationStartTime=0;
     fileFetcher=null;
     stop=false;
-    client.getHttpConnectionManager().closeIdleConnections(0);
   }
 }
