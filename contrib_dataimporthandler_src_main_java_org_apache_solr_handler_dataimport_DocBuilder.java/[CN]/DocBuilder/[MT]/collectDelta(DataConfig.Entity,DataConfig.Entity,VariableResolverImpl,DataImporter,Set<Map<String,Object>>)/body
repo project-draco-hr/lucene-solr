@@ -11,26 +11,28 @@
   EntityProcessor entityProcessor=getEntityProcessor(entity,context.getCore());
   entityProcessor.init(new ContextImpl(entity,resolver,null,Context.FIND_DELTA,session,null,this));
   LOG.info("Running ModifiedRowKey() for Entity: " + entity.name);
-  int count=0;
   while (true) {
     Map<String,Object> row=entityProcessor.nextModifiedRowKey();
     if (row == null)     break;
     deltaSet.add(row);
-    count++;
     importStatistics.rowsCount.incrementAndGet();
   }
-  LOG.info("Completed ModifiedRowKey for Entity: " + entity.name + " rows obtained : "+ count);
-  count=0;
-  LOG.info("Running DeletedRowKey() for Entity: " + entity.name);
   Set<Map<String,Object>> deletedSet=new HashSet<Map<String,Object>>();
+  Set<Map<String,Object>> deltaRemoveSet=new HashSet<Map<String,Object>>();
   while (true) {
     Map<String,Object> row=entityProcessor.nextDeletedRowKey();
     if (row == null)     break;
+    for (    Map<String,Object> modifiedRow : deltaSet) {
+      if (modifiedRow.get(entity.pk).equals(row.get(entity.pk))) {
+        deltaRemoveSet.add(modifiedRow);
+      }
+    }
     deletedSet.add(row);
-    count++;
     importStatistics.rowsCount.incrementAndGet();
   }
-  LOG.info("Completed DeletedRowKey for Entity: " + entity.name + " rows obtained : "+ count);
+  deltaSet.removeAll(deltaRemoveSet);
+  LOG.info("Completed ModifiedRowKey for Entity: " + entity.name + " rows obtained : "+ deltaSet.size());
+  LOG.info("Completed DeletedRowKey for Entity: " + entity.name + " rows obtained : "+ deletedSet.size());
   myModifiedPks.addAll(deltaSet);
   Set<Map<String,Object>> parentKeyList=new HashSet<Map<String,Object>>();
   if (parentEntity != null && parentEntity.isDocRoot) {
