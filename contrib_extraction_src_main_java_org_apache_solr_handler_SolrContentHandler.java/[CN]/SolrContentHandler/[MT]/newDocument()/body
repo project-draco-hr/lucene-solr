@@ -1,0 +1,75 @@
+{
+  float boost=1.0f;
+  for (  String name : metadata.names()) {
+    String[] vals=metadata.getValues(name);
+    name=findMappedMetadataName(name);
+    SchemaField schFld=schema.getFieldOrNull(name);
+    if (schFld != null) {
+      boost=getBoost(name);
+      if (schFld.multiValued()) {
+        for (int i=0; i < vals.length; i++) {
+          String val=vals[i];
+          document.addField(name,transformValue(val,schFld),boost);
+        }
+      }
+ else {
+        StringBuilder builder=new StringBuilder();
+        for (int i=0; i < vals.length; i++) {
+          builder.append(vals[i]).append(' ');
+        }
+        document.addField(name,transformValue(builder.toString().trim(),schFld),boost);
+      }
+    }
+ else {
+      if (ignoreUndeclaredFields == false) {
+        if (name != Metadata.RESOURCE_NAME_KEY) {
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Invalid field: " + name);
+        }
+      }
+    }
+  }
+  Iterator<String> paramNames=params.getParameterNamesIterator();
+  while (paramNames.hasNext()) {
+    String name=paramNames.next();
+    if (name.startsWith(LITERALS_PREFIX)) {
+      String fieldName=name.substring(LITERALS_PREFIX.length());
+      SchemaField schFld=schema.getFieldOrNull(fieldName);
+      if (schFld != null) {
+        String value=params.get(name);
+        boost=getBoost(fieldName);
+        document.addField(fieldName,value,boost);
+      }
+ else {
+        handleUndeclaredField(fieldName);
+      }
+    }
+  }
+  document.addField(defaultFieldName,catchAllBuilder.toString(),getBoost(defaultFieldName));
+  for (  Map.Entry<String,StringBuilder> entry : fieldBuilders.entrySet()) {
+    if (entry.getValue().length() > 0) {
+      String fieldName=findMappedName(entry.getKey());
+      SchemaField schFld=schema.getFieldOrNull(fieldName);
+      if (schFld != null) {
+        document.addField(fieldName,transformValue(entry.getValue().toString(),schFld),getBoost(fieldName));
+      }
+ else {
+        handleUndeclaredField(fieldName);
+      }
+    }
+  }
+  SchemaField uniqueField=schema.getUniqueKeyField();
+  if (uniqueField != null) {
+    String uniqueFieldName=uniqueField.getName();
+    SolrInputField uniqFld=document.getField(uniqueFieldName);
+    if (uniqFld == null) {
+      String uniqId=generateId(uniqueField);
+      if (uniqId != null) {
+        document.addField(uniqueFieldName,uniqId);
+      }
+    }
+  }
+  if (log.isDebugEnabled()) {
+    log.debug("Doc: " + document);
+  }
+  return document;
+}
