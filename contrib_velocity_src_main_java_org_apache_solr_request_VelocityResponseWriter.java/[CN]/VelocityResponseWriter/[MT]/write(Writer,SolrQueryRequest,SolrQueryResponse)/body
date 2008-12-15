@@ -3,15 +3,39 @@
   Template template=getTemplate(engine,request);
   VelocityContext context=new VelocityContext();
   context.put("request",request);
-  context.put("response",response);
+  SolrResponse rsp=new QueryResponse();
+  rsp.setResponse(new EmbeddedSolrServer(request.getCore()).getParsedResponse(request,response));
+  context.put("response",rsp);
   context.put("page",new PageTool(request,response));
   context.put("esc",new EscapeTool());
-  if (request.getParams().get("v.json") != null) {
+  context.put("sort",new SortTool());
+  context.put("number",new NumberTool());
+  context.put("date",new ComparisonDateTool());
+  context.put("math",new MathTool());
+  String layout_template=request.getParams().get("v.layout");
+  String json_wrapper=request.getParams().get("v.json");
+  boolean wrap_response=(layout_template != null) || (json_wrapper != null);
+  if (wrap_response) {
     StringWriter stringWriter=new StringWriter();
     template.merge(context,stringWriter);
-    writer.write(request.getParams().get("v.json") + "(");
-    writer.write(getJSONWrap(stringWriter.toString()));
-    writer.write(')');
+    if (layout_template != null) {
+      context.put("content",stringWriter.toString());
+      stringWriter=new StringWriter();
+      try {
+        engine.getTemplate(layout_template + ".vm").merge(context,stringWriter);
+      }
+ catch (      Exception e) {
+        throw new IOException(e.getMessage());
+      }
+    }
+    if (json_wrapper != null) {
+      writer.write(request.getParams().get("v.json") + "(");
+      writer.write(getJSONWrap(stringWriter.toString()));
+      writer.write(')');
+    }
+ else {
+      writer.write(stringWriter.toString());
+    }
   }
  else {
     template.merge(context,writer);
