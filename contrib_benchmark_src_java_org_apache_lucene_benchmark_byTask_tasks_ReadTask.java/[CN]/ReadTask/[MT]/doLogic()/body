@@ -22,39 +22,43 @@
     QueryMaker queryMaker=getQueryMaker();
     Query q=queryMaker.makeQuery();
     Sort sort=getSort();
-    Hits hits;
-    if (sort != null) {
-      hits=searcher.search(q,sort);
-    }
+    TopDocs hits;
+    final int numHits=numHits();
+    if (numHits > 0) {
+      if (sort != null) {
+        hits=searcher.search(q,null,numHits,sort);
+      }
  else {
-      hits=searcher.search(q);
-    }
-    if (withTraverse() && hits != null) {
-      int traversalSize=Math.min(hits.length(),traversalSize());
-      if (traversalSize > 0) {
-        boolean retrieve=withRetrieve();
-        int numHighlight=Math.min(numToHighlight(),hits.length());
-        Analyzer analyzer=getRunData().getAnalyzer();
-        Highlighter highlighter=null;
-        int maxFrags=1;
-        if (numHighlight > 0) {
-          highlighter=getHighlighter(q);
-          maxFrags=maxNumFragments();
-        }
-        boolean merge=isMergeContiguousFragments();
-        for (int m=0; m < traversalSize; m++) {
-          int id=hits.id(m);
-          res++;
-          if (retrieve) {
-            Document document=retrieveDoc(ir,id);
-            res+=document != null ? 1 : 0;
-            if (numHighlight > 0 && m < numHighlight) {
-              Collection fieldsToHighlight=getFieldsToHighlight(document);
-              for (Iterator iterator=fieldsToHighlight.iterator(); iterator.hasNext(); ) {
-                String field=(String)iterator.next();
-                String text=document.get(field);
-                TokenStream ts=TokenSources.getAnyTokenStream(ir,id,field,document,analyzer);
-                res+=doHighlight(ts,text,highlighter,merge,maxFrags);
+        hits=searcher.search(q,numHits);
+      }
+      if (withTraverse()) {
+        final ScoreDoc[] scoreDocs=hits.scoreDocs;
+        int traversalSize=Math.min(scoreDocs.length,traversalSize());
+        if (traversalSize > 0) {
+          boolean retrieve=withRetrieve();
+          int numHighlight=Math.min(numToHighlight(),scoreDocs.length);
+          Analyzer analyzer=getRunData().getAnalyzer();
+          Highlighter highlighter=null;
+          int maxFrags=1;
+          if (numHighlight > 0) {
+            highlighter=getHighlighter(q);
+            maxFrags=maxNumFragments();
+          }
+          boolean merge=isMergeContiguousFragments();
+          for (int m=0; m < traversalSize; m++) {
+            int id=scoreDocs[m].doc;
+            res++;
+            if (retrieve) {
+              Document document=retrieveDoc(ir,id);
+              res+=document != null ? 1 : 0;
+              if (numHighlight > 0 && m < numHighlight) {
+                Collection fieldsToHighlight=getFieldsToHighlight(document);
+                for (Iterator iterator=fieldsToHighlight.iterator(); iterator.hasNext(); ) {
+                  String field=(String)iterator.next();
+                  String text=document.get(field);
+                  TokenStream ts=TokenSources.getAnyTokenStream(ir,id,field,document,analyzer);
+                  res+=doHighlight(ts,text,highlighter,merge,maxFrags);
+                }
               }
             }
           }
