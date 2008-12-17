@@ -6,32 +6,26 @@
     NamedList facet_queries=(NamedList)facet_counts.get("facet_queries");
     if (facet_queries != null) {
       for (int i=0; i < facet_queries.size(); i++) {
-        String facet_q=(String)facet_queries.getName(i);
+        String returnedKey=(String)facet_queries.getName(i);
         long count=((Number)facet_queries.getVal(i)).longValue();
-        Long prevCount=fi.queryFacets.get(facet_q);
-        if (prevCount != null)         count+=prevCount;
-        fi.queryFacets.put(facet_q,count);
+        QueryFacet qf=fi.queryFacets.get(returnedKey);
+        qf.count+=count;
       }
     }
     NamedList facet_fields=(NamedList)facet_counts.get("facet_fields");
     for (    DistribFieldFacet dff : fi.facets.values()) {
-      dff.add(shardNum,(NamedList)facet_fields.get(dff.field),dff.initialLimit);
+      dff.add(shardNum,(NamedList)facet_fields.get(dff.getKey()),dff.initialLimit);
     }
-  }
-  List<String>[] toRefine=new List[rb.shards.length];
-  fi._toRefine=toRefine;
-  for (int i=0; i < toRefine.length; i++) {
-    toRefine[i]=new ArrayList<String>();
   }
   for (  DistribFieldFacet dff : fi.facets.values()) {
     if (dff.limit <= 0)     continue;
     if (dff.minCount <= 1 && dff.sort.equals(FacetParams.FACET_SORT_LEX))     continue;
+    dff._toRefine=new List[rb.shards.length];
     ShardFacetCount[] counts=dff.getCountSorted();
     int ntop=Math.min(counts.length,dff.offset + dff.limit);
     long smallestCount=counts.length == 0 ? 0 : counts[ntop - 1].count;
     for (int i=0; i < counts.length; i++) {
       ShardFacetCount sfc=counts[i];
-      String query=null;
       boolean needRefinement=false;
       if (i < ntop) {
         needRefinement=true;
@@ -53,8 +47,11 @@
           OpenBitSet obs=dff.counted[shardNum];
           if (!obs.get(sfc.termNum) && dff.maxPossible(sfc,shardNum) > 0) {
             dff.needRefinements=true;
-            if (query == null)             query=dff.makeQuery(sfc);
-            toRefine[shardNum].add(query);
+            List<String> lst=dff._toRefine[shardNum];
+            if (lst == null) {
+              lst=dff._toRefine[shardNum]=new ArrayList<String>();
+            }
+            lst.add(sfc.name);
           }
         }
       }

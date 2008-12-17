@@ -4,8 +4,29 @@
   }
   if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
     for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
-      List<String> fqueries=rb._facetInfo._toRefine[shardNum];
-      if (fqueries == null || fqueries.size() == 0)       continue;
+      List<String> refinements=null;
+      for (      DistribFieldFacet dff : rb._facetInfo.facets.values()) {
+        if (!dff.needRefinements)         continue;
+        List<String> refList=dff._toRefine[shardNum];
+        if (refList == null | refList.size() == 0)         continue;
+        String key=dff.getKey();
+        String termsKey=key + "__terms";
+        String termsVal=StrUtils.join(refList,',');
+        String facetCommand;
+        if (dff.localParams != null) {
+          facetCommand=commandPrefix + termsKey + dff.facetStr.substring(2);
+        }
+ else {
+          facetCommand=commandPrefix + termsKey + '}'+ dff.field;
+        }
+        if (refinements == null) {
+          refinements=new ArrayList<String>();
+        }
+        refinements.add(facetCommand);
+        refinements.add(termsKey);
+        refinements.add(termsVal);
+      }
+      if (refinements == null)       continue;
       String shard=rb.shards[shardNum];
       ShardRequest refine=null;
       boolean newRequest=false;
@@ -26,7 +47,14 @@
       refine.purpose|=ShardRequest.PURPOSE_REFINE_FACETS;
       refine.params.set(FacetParams.FACET,"true");
       refine.params.remove(FacetParams.FACET_FIELD);
-      refine.params.set(FacetParams.FACET_QUERY,fqueries.toArray(new String[fqueries.size()]));
+      refine.params.remove(FacetParams.FACET_QUERY);
+      for (int i=0; i < refinements.size(); ) {
+        String facetCommand=refinements.get(i++);
+        String termsKey=refinements.get(i++);
+        String termsVal=refinements.get(i++);
+        refine.params.add(FacetParams.FACET_FIELD,facetCommand);
+        refine.params.set(termsKey,termsVal);
+      }
       if (newRequest) {
         rb.addRequest(this,refine);
       }
