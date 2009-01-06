@@ -1,0 +1,43 @@
+{
+  if (!(request instanceof UpdateRequest)) {
+    return super.request(request);
+  }
+  UpdateRequest req=(UpdateRequest)request;
+  if (req.getDocuments() == null || req.getDocuments().isEmpty()) {
+    blockUntilFinished();
+    return super.request(request);
+  }
+  SolrParams params=req.getParams();
+  if (params != null) {
+    if (params.getBool(UpdateParams.WAIT_SEARCHER,false)) {
+      log.info("blocking for commit/optimize");
+      blockUntilFinished();
+      return super.request(request);
+    }
+  }
+  if (lock != null) {
+    lock.lock();
+  }
+  try {
+    queue.put(req);
+    if (runners.isEmpty() || (queue.remainingCapacity() < queue.size() && runners.size() < threadCount)) {
+synchronized (runners) {
+        Runner r=new Runner();
+        scheduler.execute(r);
+        runners.add(r);
+      }
+    }
+  }
+ catch (  InterruptedException e) {
+    log.error("interuped",e);
+    throw new IOException(e.getLocalizedMessage());
+  }
+ finally {
+    if (lock != null) {
+      lock.unlock();
+    }
+  }
+  NamedList<Object> dummy=new NamedList<Object>();
+  dummy.add("NOTE","the request is processed in a background stream");
+  return dummy;
+}
