@@ -1,0 +1,93 @@
+{
+  create();
+  Sort[] sorts=new Sort[50];
+  int sortCount=0;
+  for (int r=0; r < 2; r++) {
+    Sort sort;
+    boolean reverse=1 == r;
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("byte",SortField.BYTE,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("short",SortField.SHORT,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("int",SortField.INT,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("long",SortField.LONG,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("float",SortField.FLOAT,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("double",SortField.DOUBLE,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("string",SortField.STRING_VAL,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField("string",SortField.STRING,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField(null,SortField.SCORE,reverse)});
+    sorts[sortCount++]=sort=new Sort();
+    sort.setSort(new SortField[]{new SortField(null,SortField.DOC,reverse)});
+  }
+  Query[] queries=new Query[4];
+  queries[0]=new MatchAllDocsQuery();
+  queries[1]=new TermQuery(new Term("contents","x"));
+  queries[2]=new TermQuery(new Term("contents","y"));
+  queries[3]=new TermQuery(new Term("contents","z"));
+  for (int sx=0; sx < 3; sx++) {
+    final IndexSearcher searcher;
+    if (sx == 0) {
+      searcher=searcherSingleSegment;
+    }
+ else     if (sx == 1) {
+      searcher=searcherFewSegment;
+    }
+ else {
+      searcher=searcherMultiSegment;
+    }
+    for (int qx=0; qx < queries.length; qx++) {
+      final Query query=queries[qx];
+      for (int q=0; q < 3; q++) {
+        final int queueSize;
+        if (q == 0) {
+          queueSize=10;
+        }
+ else         if (q == 1) {
+          queueSize=100;
+        }
+ else {
+          queueSize=1000;
+        }
+        for (int s=0; s < sortCount; s++) {
+          Sort sort1=sorts[s];
+          for (int s2=-1; s2 < sortCount; s2++) {
+            Sort sort;
+            if (s2 == -1) {
+              sort=sort1;
+            }
+ else {
+              sort=new Sort(new SortField[]{sort1.getSort()[0],sorts[s2].getSort()[0]});
+            }
+            Sort oldSort=getOldSort(sort);
+            if (VERBOSE) {
+              System.out.println("query=" + query);
+              if (sx == 0) {
+                System.out.println("  single-segment index");
+              }
+ else               if (sx == 1) {
+                System.out.println("  few-segment index");
+              }
+ else {
+                System.out.println("  many-segment index");
+              }
+              System.out.println("  numHit=" + queueSize);
+              System.out.println("  old=" + oldSort);
+              System.out.println("  new=" + sort);
+            }
+            TopDocs newHits=searcher.search(query,null,queueSize,sort);
+            TopDocs oldHits=searcher.search(query,null,queueSize,oldSort);
+            compare(oldHits,newHits);
+          }
+        }
+      }
+    }
+  }
+  close();
+}

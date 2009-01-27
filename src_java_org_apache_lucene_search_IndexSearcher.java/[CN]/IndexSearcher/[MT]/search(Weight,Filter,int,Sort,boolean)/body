@@ -1,0 +1,32 @@
+{
+  SortField[] fields=sort.fields;
+  boolean legacy=false;
+  for (int i=0; i < fields.length; i++) {
+    SortField field=fields[i];
+    String fieldname=field.getField();
+    int type=field.getType();
+    if (type == SortField.AUTO) {
+      int autotype=FieldValueHitQueue.detectFieldType(reader,fieldname);
+      if (autotype == SortField.STRING) {
+        fields[i]=new SortField(fieldname,field.getLocale(),field.getReverse());
+      }
+ else {
+        fields[i]=new SortField(fieldname,autotype,field.getReverse());
+      }
+    }
+    if (field.getUseLegacySearch()) {
+      legacy=true;
+    }
+  }
+  if (legacy) {
+    TopScoreDocCollector collector=new TopFieldDocCollector(reader,sort,nDocs);
+    collector.setNextReader(reader,0);
+    doSearch(reader,weight,filter,collector);
+    return (TopFieldDocs)collector.topDocs();
+  }
+ else {
+    TopFieldCollector collector=new TopFieldCollector(sort,nDocs,sortedSubReaders,fillFields);
+    search(weight,filter,collector);
+    return (TopFieldDocs)collector.topDocs();
+  }
+}

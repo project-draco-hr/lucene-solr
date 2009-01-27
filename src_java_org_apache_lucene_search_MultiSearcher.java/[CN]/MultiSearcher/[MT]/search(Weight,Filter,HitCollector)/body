@@ -1,11 +1,31 @@
 {
   for (int i=0; i < searchables.length; i++) {
     final int start=starts[i];
-    searchables[i].search(weight,filter,new HitCollector(){
-      public void collect(      int doc,      float score){
-        results.collect(doc + start,score);
+    final MultiReaderHitCollector hc;
+    if (results instanceof MultiReaderHitCollector) {
+      final MultiReaderHitCollector resultsMulti=(MultiReaderHitCollector)results;
+      hc=new MultiReaderHitCollector(){
+        public void collect(        int doc,        float score){
+          resultsMulti.collect(doc,score);
+        }
+        public void setNextReader(        IndexReader reader,        int docBase) throws IOException {
+          resultsMulti.setNextReader(reader,start + docBase);
+        }
       }
+;
     }
-);
+ else {
+      hc=new MultiReaderHitCollector(){
+        private int docBase;
+        public void collect(        int doc,        float score){
+          results.collect(doc + docBase + start,score);
+        }
+        public void setNextReader(        IndexReader reader,        int docBase){
+          this.docBase=docBase;
+        }
+      }
+;
+    }
+    searchables[i].search(weight,filter,hc);
   }
 }
