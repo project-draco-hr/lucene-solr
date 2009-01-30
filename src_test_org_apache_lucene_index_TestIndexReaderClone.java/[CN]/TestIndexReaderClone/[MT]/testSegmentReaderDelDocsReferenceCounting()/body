@@ -1,0 +1,34 @@
+{
+  final Directory dir1=new MockRAMDirectory();
+  TestIndexReaderReopen.createIndex(dir1,false);
+  SegmentReader origSegmentReader=(SegmentReader)IndexReader.open(dir1);
+  assertNull(origSegmentReader.deletedDocsRef);
+  origSegmentReader.deleteDocument(1);
+  assertDelDocsRefCountEquals(1,origSegmentReader);
+  SegmentReader clonedSegmentReader=(SegmentReader)origSegmentReader.clone();
+  assertDelDocsRefCountEquals(2,origSegmentReader);
+  clonedSegmentReader.deleteDocument(2);
+  assertDelDocsRefCountEquals(1,origSegmentReader);
+  assertDelDocsRefCountEquals(1,clonedSegmentReader);
+  assertTrue(origSegmentReader.deletedDocs != clonedSegmentReader.deletedDocs);
+  assertDocDeleted(origSegmentReader,clonedSegmentReader,1);
+  assertTrue(!origSegmentReader.isDeleted(2));
+  assertTrue(clonedSegmentReader.isDeleted(2));
+  try {
+    origSegmentReader.deleteDocument(4);
+    fail("expected exception");
+  }
+ catch (  LockObtainFailedException lbfe) {
+  }
+  origSegmentReader.close();
+  clonedSegmentReader.deleteDocument(3);
+  clonedSegmentReader.flush();
+  assertDelDocsRefCountEquals(1,clonedSegmentReader);
+  SegmentReader reopenedSegmentReader=(SegmentReader)clonedSegmentReader.reopen();
+  SegmentReader cloneSegmentReader2=(SegmentReader)reopenedSegmentReader.clone();
+  assertDelDocsRefCountEquals(2,cloneSegmentReader2);
+  clonedSegmentReader.close();
+  reopenedSegmentReader.close();
+  cloneSegmentReader2.close();
+  dir1.close();
+}
