@@ -44,10 +44,16 @@
     final int[] numHits=new int[1];
     final FieldSortedHitQueue hq=new FieldSortedHitQueue(reader,cmd.getSort().getSort(),len);
     HitCollector hc=new HitCollector(){
+      private FieldDoc reusableFD;
       public void collect(      int doc,      float score){
         if (filt != null && !filt.exists(doc))         return;
         numHits[0]++;
-        hq.insert(new FieldDoc(doc,score));
+        if (reusableFD == null)         reusableFD=new FieldDoc(doc,score);
+ else {
+          reusableFD.score=score;
+          reusableFD.doc=doc;
+        }
+        reusableFD=(FieldDoc)hq.insertWithOverflow(reusableFD);
       }
     }
 ;
@@ -77,13 +83,21 @@
     final ScorePriorityQueue hq=new ScorePriorityQueue(lastDocRequested);
     final int[] numHits=new int[1];
     HitCollector hc=new HitCollector(){
-      float minScore=Float.NEGATIVE_INFINITY;
+      private ScoreDoc reusableSD;
       public void collect(      int doc,      float score){
         if (filt != null && !filt.exists(doc))         return;
-        if (numHits[0]++ < lastDocRequested || score >= minScore) {
-          hq.insert(new ScoreDoc(doc,score));
-          minScore=((ScoreDoc)hq.top()).score;
+        int nhits=numHits[0]++;
+        if (reusableSD == null) {
+          reusableSD=new ScoreDoc(doc,score);
         }
+ else         if (nhits < lastDocRequested || score >= reusableSD.score) {
+          reusableSD.doc=doc;
+          reusableSD.score=score;
+        }
+ else {
+          return;
+        }
+        reusableSD=(ScoreDoc)hq.insertWithOverflow(reusableSD);
       }
     }
 ;
