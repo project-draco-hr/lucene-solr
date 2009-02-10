@@ -13,11 +13,27 @@ synchronized (this) {
       openWriter();
       tracker.addedDocument(cmd.commitWithin);
     }
+    Term updateTerm=null;
     if (cmd.overwriteCommitted || cmd.overwritePending) {
       if (cmd.indexedId == null) {
         cmd.indexedId=getIndexedId(cmd.doc);
       }
-      writer.updateDocument(idTerm.createTerm(cmd.indexedId),cmd.getLuceneDocument(schema));
+      Term idTerm=this.idTerm.createTerm(cmd.indexedId);
+      boolean del=false;
+      if (cmd.updateTerm == null) {
+        updateTerm=idTerm;
+      }
+ else {
+        del=true;
+        updateTerm=cmd.updateTerm;
+      }
+      writer.updateDocument(updateTerm,cmd.getLuceneDocument(schema));
+      if (del) {
+        BooleanQuery bq=new BooleanQuery();
+        bq.add(new BooleanClause(new TermQuery(updateTerm),Occur.MUST_NOT));
+        bq.add(new BooleanClause(new TermQuery(idTerm),Occur.MUST));
+        writer.deleteDocuments(bq);
+      }
     }
  else {
       writer.addDocument(cmd.getLuceneDocument(schema));
