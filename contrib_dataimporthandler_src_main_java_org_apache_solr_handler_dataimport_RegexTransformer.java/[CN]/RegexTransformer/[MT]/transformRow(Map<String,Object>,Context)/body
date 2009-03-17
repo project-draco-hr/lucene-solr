@@ -9,6 +9,7 @@
     splitBy=vr.replaceTokens(splitBy);
     String replaceWith=field.get(REPLACE_WITH);
     replaceWith=vr.replaceTokens(replaceWith);
+    String groupNames=vr.replaceTokens(field.get(GROUP_NAMES));
     if (reStr != null || splitBy != null) {
       String srcColName=field.get(SRC_COL_NAME);
       if (srcColName == null) {
@@ -19,16 +20,55 @@
       if (tmpVal instanceof List) {
         List<String> inputs=(List<String>)tmpVal;
         List results=new ArrayList();
+        Map<String,List> otherVars=null;
         for (        String input : inputs) {
-          Object o=process(col,reStr,splitBy,replaceWith,input);
-          if (o != null)           results.add(o);
+          Object o=process(col,reStr,splitBy,replaceWith,input,groupNames);
+          if (o != null) {
+            if (o instanceof Map) {
+              Map map=(Map)o;
+              for (              Object e : map.entrySet()) {
+                Map.Entry<String,Object> entry=(Map.Entry<String,Object>)e;
+                List l=results;
+                if (!col.equals(entry.getKey())) {
+                  if (otherVars == null)                   otherVars=new HashMap<String,List>();
+                  l=otherVars.get(entry.getKey());
+                  if (l == null) {
+                    l=new ArrayList();
+                    otherVars.put(entry.getKey(),l);
+                  }
+                }
+                if (entry.getValue() instanceof Collection) {
+                  l.addAll((Collection)entry.getValue());
+                }
+ else {
+                  l.add(entry.getValue());
+                }
+              }
+            }
+ else {
+              if (o instanceof Collection) {
+                results.addAll((Collection)o);
+              }
+ else {
+                results.add(o);
+              }
+            }
+          }
         }
-        row.put(col,results);
+        for (        Object result : results)         row.put(col,result);
+        if (otherVars != null)         row.putAll(otherVars);
       }
  else {
         String value=tmpVal.toString();
-        Object o=process(col,reStr,splitBy,replaceWith,value);
-        if (o != null)         row.put(col,o);
+        Object o=process(col,reStr,splitBy,replaceWith,value,groupNames);
+        if (o != null) {
+          if (o instanceof Map) {
+            row.putAll((Map)o);
+          }
+ else {
+            row.put(col,o);
+          }
+        }
       }
     }
   }
