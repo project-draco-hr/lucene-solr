@@ -1,9 +1,10 @@
 {
+  final String jndiName=initProps.getProperty(JNDI_NAME);
   final VariableResolver resolver=context.getVariableResolver();
   resolveVariables(resolver,initProps);
   final String url=initProps.getProperty(URL);
   final String driver=initProps.getProperty(DRIVER);
-  if (url == null)   throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"JDBC URL cannot be null");
+  if (url == null && jndiName == null)   throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"JDBC URL or JNDI name has to be specified");
   if (driver != null) {
     try {
       DocBuilder.loadClass(driver,context.getSolrCore());
@@ -13,7 +14,9 @@
     }
   }
  else {
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Driver must be specified");
+    if (jndiName != null) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Driver must be specified");
+    }
   }
   String s=initProps.getProperty("maxRows");
   if (s != null) {
@@ -24,9 +27,29 @@
       resolveVariables(resolver,initProps);
       LOG.info("Creating a connection for entity " + context.getEntityAttribute(DataImporter.NAME) + " with URL: "+ url);
       long start=System.currentTimeMillis();
-      Connection c;
+      Connection c=null;
       try {
-        c=DriverManager.getConnection(url,initProps);
+        if (url != null) {
+          c=DriverManager.getConnection(url,initProps);
+        }
+ else         if (jndiName != null) {
+          InitialContext ctx=new InitialContext();
+          Object jndival=ctx.lookup(jndiName);
+          if (jndival instanceof javax.sql.DataSource) {
+            javax.sql.DataSource dataSource=(javax.sql.DataSource)jndival;
+            String user=(String)initProps.get("user");
+            String pass=(String)initProps.get("password");
+            if (user != null) {
+              c=dataSource.getConnection();
+            }
+ else {
+              c=dataSource.getConnection(user,pass);
+            }
+          }
+ else {
+            throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"the jndi name : '" + jndiName + "' is not a valid javax.sql.DataSource");
+          }
+        }
         if (Boolean.parseBoolean(initProps.getProperty("readOnly"))) {
           c.setReadOnly(true);
           c.setAutoCommit(true);
