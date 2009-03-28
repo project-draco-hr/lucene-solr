@@ -1,0 +1,76 @@
+{
+  RAMDirectory dir=new RAMDirectory();
+  IndexWriter w=null;
+  while (!finish) {
+    try {
+      w=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
+      ((ConcurrentMergeScheduler)w.getMergeScheduler()).setSuppressExceptions();
+      w.setMaxBufferedDocs(2);
+      w.setMergeFactor(2);
+      Document doc=new Document();
+      doc.add(new Field("field","some text contents",Field.Store.YES,Field.Index.ANALYZED));
+      for (int i=0; i < 100; i++) {
+        w.addDocument(doc);
+        w.commit();
+      }
+    }
+ catch (    RuntimeException re) {
+      Throwable e=re.getCause();
+      if (e instanceof InterruptedException) {
+        if (!interrupted()) {
+          System.out.println("FAILED; InterruptedException hit but thread.interrupted() was false");
+          e.printStackTrace(System.out);
+          failed=true;
+          break;
+        }
+      }
+ else {
+        System.out.println("FAILED; unexpected exception");
+        e.printStackTrace(System.out);
+        failed=true;
+        break;
+      }
+    }
+catch (    Throwable t) {
+      System.out.println("FAILED; unexpected exception");
+      t.printStackTrace(System.out);
+      failed=true;
+      break;
+    }
+ finally {
+      try {
+synchronized (this) {
+          interrupted();
+          if (w != null) {
+            w.close();
+          }
+        }
+      }
+ catch (      Throwable t) {
+        System.out.println("FAILED; unexpected exception during close");
+        t.printStackTrace(System.out);
+        failed=true;
+        break;
+      }
+    }
+  }
+  if (!failed) {
+    try {
+      _TestUtil.checkIndex(dir);
+    }
+ catch (    Exception e) {
+      failed=true;
+      System.out.println("CheckIndex FAILED: unexpected exception");
+      e.printStackTrace(System.out);
+    }
+    try {
+      IndexReader r=IndexReader.open(dir);
+      r.close();
+    }
+ catch (    Exception e) {
+      failed=true;
+      System.out.println("IndexReader.open FAILED: unexpected exception");
+      e.printStackTrace(System.out);
+    }
+  }
+}
