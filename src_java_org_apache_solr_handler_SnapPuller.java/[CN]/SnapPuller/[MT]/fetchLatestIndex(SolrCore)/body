@@ -31,6 +31,7 @@
     LOG.info("Starting replication process");
     fetchFileList(latestVersion);
     LOG.info("Number of files in latest snapshot in master: " + filesToDownload.size());
+    fsyncService=Executors.newSingleThreadExecutor();
     filesDownloaded=Collections.synchronizedList(new ArrayList<Map<String,Object>>());
     boolean isSnapNeeded=commit.getGeneration() >= latestGeneration;
     File tmpIndexDir=createTempindexDir(core);
@@ -41,7 +42,7 @@
       downloadIndexFiles(isSnapNeeded,tmpIndexDir,latestVersion);
       LOG.info("Total time taken for download : " + ((System.currentTimeMillis() - replicationStartTime) / 1000) + " secs");
       Collection<Map<String,Object>> modifiedConfFiles=getModifiedConfFiles(confFilesToDownload);
-      if (modifiedConfFiles != null && !modifiedConfFiles.isEmpty()) {
+      if (!modifiedConfFiles.isEmpty()) {
         downloadConfFiles(confFilesToDownload,latestVersion);
         if (isSnapNeeded) {
           modifyIndexProps(tmpIndexDir.getName());
@@ -56,6 +57,7 @@
         }
       }
  else {
+        terminateAndWaitFsyncService();
         LOG.info("Conf files are not downloaded or are in sync");
         if (isSnapNeeded) {
           modifyIndexProps(tmpIndexDir.getName());
@@ -90,6 +92,8 @@ catch (    Exception e) {
     filesToDownload=filesDownloaded=confFilesDownloaded=confFilesToDownload=null;
     replicationStartTime=0;
     fileFetcher=null;
+    fsyncService=null;
     stop=false;
+    fsyncException=null;
   }
 }
