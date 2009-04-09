@@ -1,0 +1,56 @@
+{
+  Directory dir1=new MockRAMDirectory();
+  final IndexWriter writer=new IndexWriter(dir1,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.LIMITED);
+  writer.setInfoStream(infoStream);
+  writer.setMergeFactor(2);
+  createIndexNoClose(false,"test",writer);
+  writer.commit();
+  final Directory[] dirs=new Directory[10];
+  for (int i=0; i < 10; i++) {
+    dirs[i]=new MockRAMDirectory(dir1);
+  }
+  IndexReader r=writer.getReader();
+  final int NUM_THREAD=5;
+  final float SECONDS=3;
+  final long endTime=(long)(System.currentTimeMillis() + 1000. * SECONDS);
+  final List excs=Collections.synchronizedList(new ArrayList());
+  final Thread[] threads=new Thread[NUM_THREAD];
+  for (int i=0; i < NUM_THREAD; i++) {
+    threads[i]=new Thread(){
+      public void run(){
+        while (System.currentTimeMillis() < endTime) {
+          try {
+            writer.addIndexesNoOptimize(dirs);
+          }
+ catch (          Throwable t) {
+            excs.add(t);
+            throw new RuntimeException(t);
+          }
+        }
+      }
+    }
+;
+    threads[i].setDaemon(true);
+    threads[i].start();
+  }
+  int lastCount=0;
+  while (System.currentTimeMillis() < endTime) {
+    IndexReader r2=r.reopen();
+    if (r2 != r) {
+      r.close();
+      r=r2;
+    }
+    Query q=new TermQuery(new Term("indexname","test"));
+    final int count=new IndexSearcher(r).search(q,10).totalHits;
+    assertTrue(count >= lastCount);
+    lastCount=count;
+  }
+  for (int i=0; i < NUM_THREAD; i++) {
+    threads[i].join();
+  }
+  assertEquals(0,excs.size());
+  writer.close();
+  _TestUtil.checkIndex(dir1);
+  r.close();
+  dir1.close();
+}

@@ -19,10 +19,10 @@
     try {
       mergedName=newSegmentName();
       merger=new SegmentMerger(this,mergedName,null);
-      IndexReader sReader=null;
+      SegmentReader sReader=null;
 synchronized (this) {
         if (segmentInfos.size() == 1) {
-          sReader=SegmentReader.get(true,segmentInfos.info(0));
+          sReader=readerPool.get(segmentInfos.info(0),true);
         }
       }
       success=false;
@@ -30,10 +30,6 @@ synchronized (this) {
         if (sReader != null)         merger.add(sReader);
         for (int i=0; i < readers.length; i++)         merger.add(readers[i]);
         int docCount=merger.merge();
-        if (sReader != null) {
-          sReader.close();
-          sReader=null;
-        }
 synchronized (this) {
           segmentInfos.clear();
           info=new SegmentInfo(mergedName,docCount,directory,false,true,-1,null,false,merger.hasProx());
@@ -44,7 +40,7 @@ synchronized (this) {
       }
   finally {
         if (sReader != null) {
-          sReader.close();
+          readerPool.release(sReader);
         }
       }
     }
@@ -93,6 +89,8 @@ synchronized (this) {
     throw oom;
   }
  finally {
-    docWriter.resumeAllThreads();
+    if (docWriter != null) {
+      docWriter.resumeAllThreads();
+    }
   }
 }
