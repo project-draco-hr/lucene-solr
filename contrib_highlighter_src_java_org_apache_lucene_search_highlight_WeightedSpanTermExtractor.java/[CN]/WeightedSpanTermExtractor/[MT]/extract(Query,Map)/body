@@ -40,6 +40,15 @@
     }
     terms.putAll(disjunctTerms);
   }
+ else   if (query instanceof MultiTermQuery && (highlightCnstScrRngQuery || expandMultiTermQuery)) {
+    MultiTermQuery mtq=((MultiTermQuery)query);
+    if (mtq.getConstantScoreRewrite()) {
+      query=copyMultiTermQuery(mtq);
+      mtq.setConstantScoreRewrite(false);
+    }
+    IndexReader ir=getReaderForField(fieldName);
+    extract(query.rewrite(ir),terms);
+  }
  else   if (query instanceof MultiPhraseQuery) {
     final MultiPhraseQuery mpq=(MultiPhraseQuery)query;
     final List termArrays=mpq.getTermArrays();
@@ -81,30 +90,6 @@
       SpanNearQuery sp=new SpanNearQuery(clauses,slop + positionGaps,inorder);
       sp.setBoost(query.getBoost());
       extractWeightedSpanTerms(terms,sp);
-    }
-  }
- else   if (highlightCnstScrRngQuery && query instanceof ConstantScoreRangeQuery) {
-    ConstantScoreRangeQuery q=(ConstantScoreRangeQuery)query;
-    Term lower=new Term(fieldName,q.getLowerVal());
-    Term upper=new Term(fieldName,q.getUpperVal());
-    FilterIndexReader fir=new FilterIndexReader(getReaderForField(fieldName));
-    try {
-      TermEnum te=fir.terms(lower);
-      BooleanQuery bq=new BooleanQuery();
-      do {
-        Term term=te.term();
-        if (term != null && upper.compareTo(term) >= 0) {
-          bq.add(new BooleanClause(new TermQuery(term),BooleanClause.Occur.SHOULD));
-        }
- else {
-          break;
-        }
-      }
- while (te.next());
-      extract(bq,terms);
-    }
-  finally {
-      fir.close();
     }
   }
 }
