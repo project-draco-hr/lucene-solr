@@ -1,62 +1,60 @@
 {
-synchronized (SolrCore.class) {
-    coreDescriptor=cd;
-    instance=this;
-    this.setName(name);
-    SolrResourceLoader loader=config.getResourceLoader();
-    if (dataDir == null)     dataDir=config.get("dataDir",cd.getDataDir());
-    dataDir=SolrResourceLoader.normalizeDir(dataDir);
-    log.info(logid + "Opening new SolrCore at " + loader.getInstanceDir()+ ", dataDir="+ dataDir);
-    if (schema == null) {
-      schema=new IndexSchema(config,IndexSchema.DEFAULT_SCHEMA_FILE,null);
-    }
-    if (config.jmxConfig.enabled) {
-      infoRegistry=new JmxMonitoredMap<String,SolrInfoMBean>(name,config.jmxConfig);
-    }
+  coreDescriptor=cd;
+  this.setName(name);
+  SolrResourceLoader loader=config.getResourceLoader();
+  if (dataDir == null)   dataDir=config.get("dataDir",cd.getDataDir());
+  dataDir=SolrResourceLoader.normalizeDir(dataDir);
+  log.info(logid + "Opening new SolrCore at " + loader.getInstanceDir()+ ", dataDir="+ dataDir);
+  if (schema == null) {
+    schema=new IndexSchema(config,IndexSchema.DEFAULT_SCHEMA_FILE,null);
+  }
+  if (config.jmxConfig.enabled) {
+    infoRegistry=new JmxMonitoredMap<String,SolrInfoMBean>(name,config.jmxConfig);
+  }
  else {
-      log.info("JMX monitoring not detected for core: " + name);
-      infoRegistry=new ConcurrentHashMap<String,SolrInfoMBean>();
-    }
-    this.schema=schema;
-    this.dataDir=dataDir;
-    this.solrConfig=config;
-    this.startTime=System.currentTimeMillis();
-    this.maxWarmingSearchers=config.getInt("query/maxWarmingSearchers",Integer.MAX_VALUE);
-    booleanQueryMaxClauseCount();
-    parseListeners();
-    initDeletionPolicy();
-    initIndex();
-    initWriters();
-    initQParsers();
-    initValueSourceParsers();
-    this.searchComponents=loadSearchComponents(config);
-    updateProcessorChains=loadUpdateProcessorChains();
-    reqHandlers=new RequestHandlers(this);
-    reqHandlers.initHandlersFromConfig(solrConfig);
-    highlighter=createHighlighter(solrConfig.get("highlighting/@class",DefaultSolrHighlighter.class.getName()));
-    highlighter.initalize(solrConfig);
-    initDeprecatedSupport();
-    final CountDownLatch latch=new CountDownLatch(1);
-    try {
-      searcherExecutor.submit(new Callable(){
-        public Object call() throws Exception {
-          latch.await();
-          return null;
-        }
+    log.info("JMX monitoring not detected for core: " + name);
+    infoRegistry=new ConcurrentHashMap<String,SolrInfoMBean>();
+  }
+  this.schema=schema;
+  this.dataDir=dataDir;
+  this.solrConfig=config;
+  this.startTime=System.currentTimeMillis();
+  this.maxWarmingSearchers=config.getInt("query/maxWarmingSearchers",Integer.MAX_VALUE);
+  booleanQueryMaxClauseCount();
+  parseListeners();
+  initDeletionPolicy();
+  initIndex();
+  initWriters();
+  initQParsers();
+  initValueSourceParsers();
+  this.searchComponents=loadSearchComponents(config);
+  updateProcessorChains=loadUpdateProcessorChains();
+  reqHandlers=new RequestHandlers(this);
+  reqHandlers.initHandlersFromConfig(solrConfig);
+  highlighter=createHighlighter(solrConfig.get("highlighting/@class",DefaultSolrHighlighter.class.getName()));
+  highlighter.initalize(solrConfig);
+  initDeprecatedSupport();
+  final CountDownLatch latch=new CountDownLatch(1);
+  try {
+    searcherExecutor.submit(new Callable(){
+      public Object call() throws Exception {
+        latch.await();
+        return null;
       }
+    }
 );
-      getSearcher(false,false,null);
-      updateHandler=createUpdateHandler(solrConfig.get("updateHandler/@class",DirectUpdateHandler2.class.getName()));
-      infoRegistry.put("updateHandler",updateHandler);
-      loader.inform(loader);
-      loader.inform(this);
-    }
- catch (    IOException e) {
-      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
-    }
+    getSearcher(false,false,null);
+    updateHandler=createUpdateHandler(solrConfig.get("updateHandler/@class",DirectUpdateHandler2.class.getName()));
+    infoRegistry.put("updateHandler",updateHandler);
+    loader.inform(loader);
+    loader.inform(this);
+    instance=this;
+  }
+ catch (  IOException e) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
+  }
  finally {
-      latch.countDown();
-    }
+    latch.countDown();
   }
   infoRegistry.put("core",this);
 }
