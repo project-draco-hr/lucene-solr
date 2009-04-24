@@ -3,115 +3,66 @@
   if (cores == null) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Core container instance missing");
   }
-  boolean do_persist=false;
+  boolean doPersist=false;
   SolrParams params=req.getParams();
-  SolrParams required=params.required();
   CoreAdminAction action=CoreAdminAction.STATUS;
   String a=params.get(CoreAdminParams.ACTION);
   if (a != null) {
     action=CoreAdminAction.get(a);
     if (action == null) {
-      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown 'action' value.  Use: " + CoreAdminAction.values());
+      doPersist=this.handleCustomAction(req,rsp);
     }
   }
-  String cname=params.get(CoreAdminParams.CORE);
+  if (action != null) {
 switch (action) {
 case CREATE:
 {
-      String name=params.get(CoreAdminParams.NAME);
-      CoreDescriptor dcore=new CoreDescriptor(cores,name,params.get(CoreAdminParams.INSTANCE_DIR));
-      String opts=params.get(CoreAdminParams.CONFIG);
-      if (opts != null)       dcore.setConfigName(opts);
-      opts=params.get(CoreAdminParams.SCHEMA);
-      if (opts != null)       dcore.setSchemaName(opts);
-      opts=params.get(CoreAdminParams.DATA_DIR);
-      if (opts != null)       dcore.setDataDir(opts);
-      SolrCore core=cores.create(dcore);
-      cores.register(name,core,false);
-      rsp.add("core",core.getName());
-      do_persist=cores.isPersistent();
-      break;
-    }
+        doPersist=this.handleCreateAction(req,rsp);
+        break;
+      }
 case RENAME:
 {
-    String name=params.get(CoreAdminParams.OTHER);
-    if (cname.equals(name))     break;
-    SolrCore core=cores.getCore(cname);
-    if (core != null) {
-      do_persist=cores.isPersistent();
-      cores.register(name,core,false);
-      cores.remove(cname);
-      core.close();
+      doPersist=this.handleRenameAction(req,rsp);
+      break;
     }
-    break;
-  }
 case ALIAS:
 {
-  String name=params.get(CoreAdminParams.OTHER);
-  if (cname.equals(name))   break;
-  SolrCore core=cores.getCore(cname);
-  if (core != null) {
-    do_persist=cores.isPersistent();
-    cores.register(name,core,false);
+    doPersist=this.handleAliasAction(req,rsp);
+    break;
   }
-  break;
-}
 case UNLOAD:
 {
-SolrCore core=cores.remove(cname);
-core.close();
-do_persist=cores.isPersistent();
-break;
+  doPersist=this.handleUnloadAction(req,rsp);
+  break;
 }
 case STATUS:
 {
-NamedList<Object> status=new SimpleOrderedMap<Object>();
-if (cname == null) {
-for (String name : cores.getCoreNames()) {
-  status.add(name,getCoreStatus(cores,name));
-}
-}
- else {
-status.add(cname,getCoreStatus(cores,cname));
-}
-rsp.add("status",status);
-do_persist=false;
+doPersist=this.handleStatusAction(req,rsp);
 break;
 }
 case PERSIST:
 {
-String fileName=params.get(CoreAdminParams.FILE);
-if (fileName != null) {
-File file=new File(cores.getConfigFile().getParentFile(),fileName);
-cores.persistFile(file);
-rsp.add("saved",file.getAbsolutePath());
-do_persist=false;
-}
- else if (!cores.isPersistent()) {
-throw new SolrException(SolrException.ErrorCode.FORBIDDEN,"Persistence is not enabled");
-}
- else do_persist=true;
+doPersist=this.handlePersistAction(req,rsp);
 break;
 }
 case RELOAD:
 {
-cores.reload(cname);
-do_persist=false;
+doPersist=this.handleReloadAction(req,rsp);
 break;
 }
 case SWAP:
 {
-do_persist=params.getBool(CoreAdminParams.PERSISTENT,cores.isPersistent());
-String other=required.get(CoreAdminParams.OTHER);
-cores.swap(cname,other);
+doPersist=this.handleSwapAction(req,rsp);
 break;
 }
 default :
 {
-throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"TODO: IMPLEMENT: " + action);
+doPersist=this.handleCustomAction(req,rsp);
+break;
 }
 }
-if (do_persist) {
+}
+if (doPersist) {
 cores.persist();
 rsp.add("saved",cores.getConfigFile().getAbsolutePath());
 }
