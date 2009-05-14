@@ -1,15 +1,25 @@
 {
   if (filter == null) {
-    DocSetHitCollector hc=new DocSetHitCollector(HASHSET_INVERSE_LOAD_FACTOR,HASHDOCSET_MAXSIZE,maxDoc());
+    DocSetCollector hc=new DocSetCollector(HASHSET_INVERSE_LOAD_FACTOR,HASHDOCSET_MAXSIZE,maxDoc());
     if (query instanceof TermQuery) {
       Term t=((TermQuery)query).getTerm();
-      TermDocs tdocs=null;
-      try {
-        tdocs=reader.termDocs(t);
-        while (tdocs.next())         hc.collect(tdocs.doc(),0.0f);
-      }
-  finally {
-        if (tdocs != null)         tdocs.close();
+      SolrIndexReader[] readers=reader.getLeafReaders();
+      int[] offsets=reader.getLeafOffsets();
+      int[] arr=new int[256];
+      int[] freq=new int[256];
+      for (int i=0; i < readers.length; i++) {
+        SolrIndexReader sir=readers[i];
+        int offset=offsets[i];
+        hc.setNextReader(sir,offset);
+        TermDocs tdocs=sir.termDocs(t);
+        for (; ; ) {
+          int num=tdocs.read(arr,freq);
+          if (num == 0)           break;
+          while (--num >= 0) {
+            hc.collect(arr[num]);
+          }
+        }
+        tdocs.close();
       }
     }
  else {
@@ -18,11 +28,18 @@
     return hc.getDocSet();
   }
  else {
-    final DocSetHitCollector hc=new DocSetHitCollector(HASHSET_INVERSE_LOAD_FACTOR,HASHDOCSET_MAXSIZE,maxDoc());
+    final DocSetCollector hc=new DocSetCollector(HASHSET_INVERSE_LOAD_FACTOR,HASHDOCSET_MAXSIZE,maxDoc());
     final DocSet filt=filter;
-    super.search(query,null,new HitCollector(){
-      public void collect(      int doc,      float score){
-        if (filt.exists(doc))         hc.collect(doc,score);
+    super.search(query,null,new Collector(){
+      int base=0;
+      public void collect(      int doc){
+        doc+=base;
+        if (filt.exists(doc))         hc.collect(doc);
+      }
+      public void setNextReader(      IndexReader reader,      int docBase) throws IOException {
+        this.base=docBase;
+      }
+      public void setScorer(      Scorer scorer) throws IOException {
       }
     }
 );
