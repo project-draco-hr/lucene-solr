@@ -29,10 +29,9 @@
       }
       if (path.equals(cores.getAdminPath())) {
         handler=cores.getMultiCoreHandler();
-        core=cores.getAdminCore();
-        if (core == null) {
-          throw new RuntimeException("Can not find a valid core for the cores admin handler");
-        }
+        solrReq=adminRequestParser.parse(null,path,req);
+        handleAdminRequest(req,response,handler,solrReq);
+        return;
       }
  else {
         idx=path.indexOf("/",1);
@@ -54,7 +53,7 @@
         parser=parsers.get(core);
         if (parser == null) {
           parser=new SolrRequestParsers(config);
-          parsers.put(core,parser);
+          parsers.put(core.getSolrConfig(),parser);
         }
         if (handler == null && path.length() > 1) {
           handler=core.getRequestHandler(path);
@@ -82,23 +81,8 @@
             SolrQueryResponse solrRsp=new SolrQueryResponse();
             this.execute(req,handler,solrReq,solrRsp);
             HttpCacheHeaderUtil.checkHttpCachingVeto(solrRsp,resp,reqMethod);
-            if (solrRsp.getException() != null) {
-              sendError((HttpServletResponse)response,solrRsp.getException());
-            }
- else {
-              QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
-              response.setContentType(responseWriter.getContentType(solrReq,solrRsp));
-              if (Method.HEAD != reqMethod) {
-                if (responseWriter instanceof BinaryQueryResponseWriter) {
-                  BinaryQueryResponseWriter binWriter=(BinaryQueryResponseWriter)responseWriter;
-                  binWriter.write(response.getOutputStream(),solrReq,solrRsp);
-                }
- else {
-                  PrintWriter out=response.getWriter();
-                  responseWriter.write(out,solrReq,solrRsp);
-                }
-              }
-            }
+            QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
+            writeResponse(solrRsp,response,responseWriter,solrReq,reqMethod);
           }
           return;
         }
