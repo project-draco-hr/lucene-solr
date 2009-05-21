@@ -1,0 +1,75 @@
+{
+  return new Filter(){
+    int lastEndIdx=0;
+    @Override public DocIdSet getDocIdSet(    IndexReader reader) throws IOException {
+      int offset=0;
+      SolrIndexReader r=(SolrIndexReader)reader;
+      while (r.getParent() != null) {
+        offset+=r.getBase();
+        r=r.getParent();
+      }
+      final int base=offset;
+      final int maxDoc=reader.maxDoc();
+      final int max=base + maxDoc;
+      int sidx=Math.max(0,lastEndIdx);
+      if (sidx > 0 && docs[sidx - 1] >= base) {
+        sidx=0;
+      }
+      if (sidx < docs.length && docs[sidx] < base) {
+        sidx=findIndex(docs,base,sidx,docs.length - 1);
+      }
+      final int startIdx=sidx;
+      int eidx=Math.min(docs.length,startIdx + maxDoc) - 1;
+      eidx=findIndex(docs,max,startIdx,eidx) - 1;
+      final int endIdx=eidx;
+      lastEndIdx=endIdx;
+      return new DocIdSet(){
+        public DocIdSetIterator iterator() throws IOException {
+          return new DocIdSetIterator(){
+            int idx=startIdx;
+            int doc;
+            public int doc(){
+              return doc - base;
+            }
+            public boolean next() throws IOException {
+              if (idx > endIdx)               return false;
+              doc=docs[idx++];
+              return true;
+            }
+            public boolean skipTo(            int target) throws IOException {
+              if (idx > endIdx)               return false;
+              target+=base;
+              doc=docs[idx++];
+              if (doc >= target)               return true;
+              int high=endIdx;
+              while (idx <= high) {
+                int mid=(idx + high) >>> 1;
+                doc=docs[mid];
+                if (doc < target) {
+                  idx=mid + 1;
+                }
+ else                 if (doc > target) {
+                  high=mid - 1;
+                }
+ else {
+                  idx=mid + 1;
+                  return true;
+                }
+              }
+              if (idx <= endIdx) {
+                doc=docs[idx++];
+                return true;
+              }
+ else {
+                return false;
+              }
+            }
+          }
+;
+        }
+      }
+;
+    }
+  }
+;
+}
