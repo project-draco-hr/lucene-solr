@@ -9,23 +9,27 @@
   float maxScore;
   int[] ids;
   float[] scores;
-  final DocSetHitCollector setHC=new DocSetHitCollector(maxDoc() >> 6,maxDoc());
-  final HitCollector collector=(cmd.getTimeAllowed() > 0) ? new TimeLimitedCollector(setHC,cmd.getTimeAllowed()) : setHC;
+  final DocSetHitCollector collector=new DocSetHitCollector(maxDoc() >> 6,maxDoc());
   Query query=QueryUtils.makeQueryable(cmd.getQuery());
+  final long timeAllowed=cmd.getTimeAllowed();
+  final Filter luceneFilter=filter == null ? null : filter.getTopFilter();
   if (lastDocRequested <= 0) {
     final DocSet filt=filter;
     final float[] topscore=new float[]{Float.NEGATIVE_INFINITY};
     final int[] numHits=new int[1];
-    try {
-      super.search(query,new HitCollector(){
-        public void collect(        int doc,        float score){
-          collector.collect(doc,score);
-          if (filt != null && !filt.exists(doc))           return;
-          numHits[0]++;
-          if (score > topscore[0])           topscore[0]=score;
-        }
+    HitCollector hc=new HitCollector(){
+      public void collect(      int doc,      float score){
+        collector.collect(doc,score);
+        numHits[0]++;
+        if (score > topscore[0])         topscore[0]=score;
       }
-);
+    }
+;
+    if (timeAllowed > 0) {
+      hc=new TimeLimitedCollector(hc,timeAllowed);
+    }
+    try {
+      super.search(query,luceneFilter,hc);
     }
  catch (    TimeLimitedCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
@@ -38,25 +42,27 @@
     maxScore=totalHits > 0 ? topscore[0] : 0.0f;
   }
  else   if (cmd.getSort() != null) {
-    final DocSet filt=filter;
     final int[] numHits=new int[1];
     final FieldSortedHitQueue hq=new FieldSortedHitQueue(reader,cmd.getSort().getSort(),len);
-    try {
-      super.search(query,new HitCollector(){
-        private FieldDoc reusableFD;
-        public void collect(        int doc,        float score){
-          collector.collect(doc,score);
-          if (filt != null && !filt.exists(doc))           return;
-          numHits[0]++;
-          if (reusableFD == null)           reusableFD=new FieldDoc(doc,score);
+    HitCollector hc=new HitCollector(){
+      private FieldDoc reusableFD;
+      public void collect(      int doc,      float score){
+        collector.collect(doc,score);
+        numHits[0]++;
+        if (reusableFD == null)         reusableFD=new FieldDoc(doc,score);
  else {
-            reusableFD.score=score;
-            reusableFD.doc=doc;
-          }
-          reusableFD=(FieldDoc)hq.insertWithOverflow(reusableFD);
+          reusableFD.score=score;
+          reusableFD.doc=doc;
         }
+        reusableFD=(FieldDoc)hq.insertWithOverflow(reusableFD);
       }
-);
+    }
+;
+    if (timeAllowed > 0) {
+      hc=new TimeLimitedCollector(hc,timeAllowed);
+    }
+    try {
+      super.search(query,luceneFilter,hc);
     }
  catch (    TimeLimitedCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
@@ -74,30 +80,32 @@
     }
   }
  else {
-    final DocSet filt=filter;
     final ScorePriorityQueue hq=new ScorePriorityQueue(lastDocRequested);
     final int[] numHits=new int[1];
-    try {
-      super.search(query,new HitCollector(){
-        private ScoreDoc reusableSD;
-        public void collect(        int doc,        float score){
-          collector.collect(doc,score);
-          if (filt != null && !filt.exists(doc))           return;
-          int nhits=numHits[0]++;
-          if (reusableSD == null) {
-            reusableSD=new ScoreDoc(doc,score);
-          }
- else           if (nhits < lastDocRequested || score >= reusableSD.score) {
-            reusableSD.doc=doc;
-            reusableSD.score=score;
-          }
- else {
-            return;
-          }
-          reusableSD=(ScoreDoc)hq.insertWithOverflow(reusableSD);
+    HitCollector hc=new HitCollector(){
+      private ScoreDoc reusableSD;
+      public void collect(      int doc,      float score){
+        collector.collect(doc,score);
+        int nhits=numHits[0]++;
+        if (reusableSD == null) {
+          reusableSD=new ScoreDoc(doc,score);
         }
+ else         if (nhits < lastDocRequested || score >= reusableSD.score) {
+          reusableSD.doc=doc;
+          reusableSD.score=score;
+        }
+ else {
+          return;
+        }
+        reusableSD=(ScoreDoc)hq.insertWithOverflow(reusableSD);
       }
-);
+    }
+;
+    if (timeAllowed > 0) {
+      hc=new TimeLimitedCollector(hc,timeAllowed);
+    }
+    try {
+      super.search(query,luceneFilter,hc);
     }
  catch (    TimeLimitedCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
@@ -118,7 +126,6 @@
   int sliceLen=Math.min(lastDocRequested,nDocsReturned);
   if (sliceLen < 0)   sliceLen=0;
   qr.setDocList(new DocSlice(0,sliceLen,ids,scores,totalHits,maxScore));
-  DocSet qDocSet=setHC.getDocSet();
-  qr.setDocSet(filter == null ? qDocSet : qDocSet.intersection(filter));
-  return qDocSet;
+  qr.setDocSet(collector.getDocSet());
+  return filter == null ? qr.getDocSet() : null;
 }

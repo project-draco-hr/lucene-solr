@@ -11,13 +11,12 @@
   int[] ids;
   float[] scores;
   Query query=QueryUtils.makeQueryable(cmd.getQuery());
+  final Filter luceneFilter=filter == null ? null : filter.getTopFilter();
   if (lastDocRequested <= 0) {
-    final DocSet filt=filter;
     final float[] topscore=new float[]{Float.NEGATIVE_INFINITY};
     final int[] numHits=new int[1];
     HitCollector hc=new HitCollector(){
       public void collect(      int doc,      float score){
-        if (filt != null && !filt.exists(doc))         return;
         numHits[0]++;
         if (score > topscore[0])         topscore[0]=score;
       }
@@ -27,7 +26,7 @@
       hc=new TimeLimitedCollector(hc,timeAllowed);
     }
     try {
-      super.search(query,hc);
+      super.search(query,luceneFilter,hc);
     }
  catch (    TimeLimitedCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
@@ -40,13 +39,11 @@
     maxScore=totalHits > 0 ? topscore[0] : 0.0f;
   }
  else   if (cmd.getSort() != null) {
-    final DocSet filt=filter;
     final int[] numHits=new int[1];
     final FieldSortedHitQueue hq=new FieldSortedHitQueue(reader,cmd.getSort().getSort(),len);
     HitCollector hc=new HitCollector(){
       private FieldDoc reusableFD;
       public void collect(      int doc,      float score){
-        if (filt != null && !filt.exists(doc))         return;
         numHits[0]++;
         if (reusableFD == null)         reusableFD=new FieldDoc(doc,score);
  else {
@@ -61,7 +58,7 @@
       hc=new TimeLimitedCollector(hc,timeAllowed);
     }
     try {
-      super.search(query,hc);
+      super.search(query,luceneFilter,hc);
     }
  catch (    TimeLimitedCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
@@ -79,13 +76,11 @@
     }
   }
  else {
-    final DocSet filt=filter;
     final ScorePriorityQueue hq=new ScorePriorityQueue(lastDocRequested);
     final int[] numHits=new int[1];
     HitCollector hc=new HitCollector(){
       private ScoreDoc reusableSD;
       public void collect(      int doc,      float score){
-        if (filt != null && !filt.exists(doc))         return;
         int nhits=numHits[0]++;
         if (reusableSD == null) {
           reusableSD=new ScoreDoc(doc,score);
@@ -105,7 +100,7 @@
       hc=new TimeLimitedCollector(hc,timeAllowed);
     }
     try {
-      super.search(query,hc);
+      super.search(query,luceneFilter,hc);
     }
  catch (    TimeLimitedCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
