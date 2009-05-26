@@ -14,7 +14,6 @@
       }
       throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: " + id + "multiple values encountered for non multiValued field "+ sfield.getName()+ ": "+ field.getValue());
     }
-    final List<CopyField> copyFields=schema.getCopyFieldsList(name);
     boolean hasField=false;
     for (    Object v : field) {
       if (v == null) {
@@ -22,27 +21,47 @@
       }
       String val=null;
       hasField=true;
-      if (sfield != null && v instanceof Date && sfield.getType() instanceof DateField) {
-        DateField df=(DateField)sfield.getType();
-        val=df.toInternal((Date)v) + 'Z';
-      }
- else       if (v != null) {
-        val=v.toString();
-      }
-      if (sfield != null) {
+      boolean isBinaryField=false;
+      if (sfield != null && sfield.getType() instanceof BinaryField) {
+        isBinaryField=true;
+        BinaryField binaryField=(BinaryField)sfield.getType();
+        Field f=binaryField.createField(sfield,v,boost);
+        if (f != null)         out.add(f);
         used=true;
-        Field f=sfield.createField(val,boost);
-        if (f != null) {
-          out.add(f);
+      }
+ else {
+        if (sfield != null && v instanceof Date && sfield.getType() instanceof DateField) {
+          DateField df=(DateField)sfield.getType();
+          val=df.toInternal((Date)v) + 'Z';
+        }
+ else         if (v != null) {
+          val=v.toString();
+        }
+        if (sfield != null) {
+          used=true;
+          Field f=sfield.createField(val,boost);
+          if (f != null) {
+            out.add(f);
+          }
         }
       }
+      List<CopyField> copyFields=schema.getCopyFieldsList(name);
       for (      CopyField cf : copyFields) {
-        SchemaField sf=cf.getDestination();
-        if (!sf.multiValued() && out.get(sf.getName()) != null) {
-          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: multiple values encountered for non multiValued copy field " + sf.getName() + ": "+ val);
+        SchemaField destinationField=cf.getDestination();
+        if (!destinationField.multiValued() && out.get(destinationField.getName()) != null) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: multiple values encountered for non multiValued copy field " + destinationField.getName() + ": "+ val);
         }
         used=true;
-        Field f=sf.createField(cf.getLimitedValue(val),boost);
+        Field f=null;
+        if (isBinaryField) {
+          if (destinationField.getType() instanceof BinaryField) {
+            BinaryField binaryField=(BinaryField)destinationField.getType();
+            binaryField.createField(destinationField,v,boost);
+          }
+        }
+ else {
+          f=destinationField.createField(cf.getLimitedValue(val),boost);
+        }
         if (f != null) {
           out.add(f);
         }
