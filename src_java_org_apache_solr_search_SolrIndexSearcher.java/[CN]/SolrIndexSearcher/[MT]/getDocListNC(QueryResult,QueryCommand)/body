@@ -10,25 +10,48 @@
   float maxScore;
   int[] ids;
   float[] scores;
+  boolean needScores=(cmd.getFlags() & GET_SCORES) != 0;
   Query query=QueryUtils.makeQueryable(cmd.getQuery());
   final Filter luceneFilter=filter == null ? null : filter.getTopFilter();
   if (lastDocRequested <= 0) {
     final float[] topscore=new float[]{Float.NEGATIVE_INFINITY};
     final int[] numHits=new int[1];
-    HitCollector hc=new HitCollector(){
-      public void collect(      int doc,      float score){
-        numHits[0]++;
-        if (score > topscore[0])         topscore[0]=score;
+    Collector collector;
+    if (!needScores) {
+      collector=new Collector(){
+        public void setScorer(        Scorer scorer) throws IOException {
+        }
+        public void collect(        int doc) throws IOException {
+          numHits[0]++;
+        }
+        public void setNextReader(        IndexReader reader,        int docBase) throws IOException {
+        }
       }
-    }
 ;
+    }
+ else {
+      collector=new Collector(){
+        Scorer scorer;
+        public void setScorer(        Scorer scorer) throws IOException {
+          this.scorer=scorer;
+        }
+        public void collect(        int doc) throws IOException {
+          numHits[0]++;
+          float score=scorer.score();
+          if (score > topscore[0])           topscore[0]=score;
+        }
+        public void setNextReader(        IndexReader reader,        int docBase) throws IOException {
+        }
+      }
+;
+    }
     if (timeAllowed > 0) {
-      hc=new TimeLimitedCollector(hc,timeAllowed);
+      collector=new TimeLimitingCollector(collector,timeAllowed);
     }
     try {
-      searcher.search(query,luceneFilter,hc);
+      super.search(query,luceneFilter,collector);
     }
- catch (    TimeLimitedCollector.TimeExceededException x) {
+ catch (    TimeLimitingCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
       qr.setPartialResults(true);
     }
@@ -38,85 +61,36 @@
     totalHits=numHits[0];
     maxScore=totalHits > 0 ? topscore[0] : 0.0f;
   }
- else   if (cmd.getSort() != null) {
-    final int[] numHits=new int[1];
-    final FieldSortedHitQueue hq=new FieldSortedHitQueue(reader,cmd.getSort().getSort(),len);
-    HitCollector hc=new HitCollector(){
-      private FieldDoc reusableFD;
-      public void collect(      int doc,      float score){
-        numHits[0]++;
-        if (reusableFD == null)         reusableFD=new FieldDoc(doc,score);
  else {
-          reusableFD.score=score;
-          reusableFD.doc=doc;
-        }
-        reusableFD=(FieldDoc)hq.insertWithOverflow(reusableFD);
-      }
+    TopDocsCollector topCollector;
+    if (cmd.getSort() == null) {
+      topCollector=TopScoreDocCollector.create(len,true);
     }
-;
+ else {
+      topCollector=TopFieldCollector.create(cmd.getSort(),len,false,needScores,needScores,true);
+    }
+    Collector collector=topCollector;
     if (timeAllowed > 0) {
-      hc=new TimeLimitedCollector(hc,timeAllowed);
+      collector=new TimeLimitingCollector(collector,timeAllowed);
     }
     try {
-      searcher.search(query,luceneFilter,hc);
+      super.search(query,luceneFilter,collector);
     }
- catch (    TimeLimitedCollector.TimeExceededException x) {
+ catch (    TimeLimitingCollector.TimeExceededException x) {
       log.warn("Query: " + query + "; "+ x.getMessage());
       qr.setPartialResults(true);
     }
-    totalHits=numHits[0];
-    maxScore=totalHits > 0 ? hq.getMaxScore() : 0.0f;
-    nDocsReturned=hq.size();
+    totalHits=topCollector.getTotalHits();
+    TopDocs topDocs=topCollector.topDocs(0,len);
+    maxScore=totalHits > 0 ? topDocs.getMaxScore() : 0.0f;
+    nDocsReturned=topDocs.scoreDocs.length;
     ids=new int[nDocsReturned];
     scores=(cmd.getFlags() & GET_SCORES) != 0 ? new float[nDocsReturned] : null;
-    for (int i=nDocsReturned - 1; i >= 0; i--) {
-      FieldDoc fieldDoc=(FieldDoc)hq.pop();
-      ids[i]=fieldDoc.doc;
-      if (scores != null)       scores[i]=fieldDoc.score;
+    for (int i=0; i < nDocsReturned; i++) {
+      ScoreDoc scoreDoc=topDocs.scoreDocs[i];
+      ids[i]=scoreDoc.doc;
+      if (scores != null)       scores[i]=scoreDoc.score;
     }
-  }
- else {
-    final ScorePriorityQueue hq=new ScorePriorityQueue(lastDocRequested);
-    final int[] numHits=new int[1];
-    HitCollector hc=new HitCollector(){
-      private ScoreDoc reusableSD;
-      public void collect(      int doc,      float score){
-        int nhits=numHits[0]++;
-        if (reusableSD == null) {
-          reusableSD=new ScoreDoc(doc,score);
-        }
- else         if (nhits < lastDocRequested || score >= reusableSD.score) {
-          reusableSD.doc=doc;
-          reusableSD.score=score;
-        }
- else {
-          return;
-        }
-        reusableSD=(ScoreDoc)hq.insertWithOverflow(reusableSD);
-      }
-    }
-;
-    if (timeAllowed > 0) {
-      hc=new TimeLimitedCollector(hc,timeAllowed);
-    }
-    try {
-      searcher.search(query,luceneFilter,hc);
-    }
- catch (    TimeLimitedCollector.TimeExceededException x) {
-      log.warn("Query: " + query + "; "+ x.getMessage());
-      qr.setPartialResults(true);
-    }
-    totalHits=numHits[0];
-    nDocsReturned=hq.size();
-    ids=new int[nDocsReturned];
-    scores=(cmd.getFlags() & GET_SCORES) != 0 ? new float[nDocsReturned] : null;
-    ScoreDoc sdoc=null;
-    for (int i=nDocsReturned - 1; i >= 0; i--) {
-      sdoc=(ScoreDoc)hq.pop();
-      ids[i]=sdoc.doc;
-      if (scores != null)       scores[i]=sdoc.score;
-    }
-    maxScore=sdoc == null ? 0.0f : sdoc.score;
   }
   int sliceLen=Math.min(lastDocRequested,nDocsReturned);
   if (sliceLen < 0)   sliceLen=0;
