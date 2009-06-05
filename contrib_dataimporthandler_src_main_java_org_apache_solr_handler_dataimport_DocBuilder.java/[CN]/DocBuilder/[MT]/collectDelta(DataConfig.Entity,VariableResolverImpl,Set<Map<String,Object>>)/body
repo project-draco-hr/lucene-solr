@@ -1,18 +1,17 @@
 {
   if (stop.get())   return new HashSet();
-  Set<Map<String,Object>> myModifiedPks=new HashSet<Map<String,Object>>();
-  if (entity.entities != null) {
-    for (    DataConfig.Entity entity1 : entity.entities) {
-      myModifiedPks.addAll(collectDelta(entity1,entity,resolver,deletedRows));
-      if (stop.get())       return new HashSet();
-    }
-  }
-  Set<Map<String,Object>> deltaSet=new HashSet<Map<String,Object>>();
-  resolver.addNamespace(null,(Map)entity.allAttributes);
   EntityProcessor entityProcessor=getEntityProcessor(entity);
   ContextImpl context1=new ContextImpl(entity,resolver,null,Context.FIND_DELTA,session,null,this);
   resolver.context=context1;
   entityProcessor.init(context1);
+  Set<Map<String,Object>> myModifiedPks=new HashSet<Map<String,Object>>();
+  if (entity.entities != null) {
+    for (    DataConfig.Entity entity1 : entity.entities) {
+      myModifiedPks.addAll(collectDelta(entity1,resolver,deletedRows));
+      if (stop.get())       return new HashSet();
+    }
+  }
+  Set<Map<String,Object>> deltaSet=new HashSet<Map<String,Object>>();
   LOG.info("Running ModifiedRowKey() for Entity: " + entity.name);
   while (true) {
     Map<String,Object> row=entityProcessor.nextModifiedRowKey();
@@ -40,17 +39,13 @@
   LOG.info("Completed DeletedRowKey for Entity: " + entity.name + " rows obtained : "+ deletedSet.size());
   myModifiedPks.addAll(deltaSet);
   Set<Map<String,Object>> parentKeyList=new HashSet<Map<String,Object>>();
-  if (parentEntity != null && parentEntity.isDocRoot) {
-    EntityProcessor parentEntityProcessor=getEntityProcessor(parentEntity);
-    ContextImpl context2=new ContextImpl(parentEntity,resolver,null,Context.FIND_DELTA,session,null,this);
-    resolver.context=context2;
-    parentEntityProcessor.init(context2);
+  if (entity.parentEntity != null) {
     for (    Map<String,Object> row : myModifiedPks) {
-      getModifiedParentRows(resolver.addNamespace(entity.name,row),entity.name,parentEntityProcessor,parentKeyList);
+      getModifiedParentRows(resolver.addNamespace(entity.name,row),entity.name,entityProcessor,parentKeyList);
       if (stop.get())       return new HashSet();
     }
     for (    Map<String,Object> row : deletedSet) {
-      getModifiedParentRows(resolver.addNamespace(entity.name,row),entity.name,parentEntityProcessor,parentKeyList);
+      getModifiedParentRows(resolver.addNamespace(entity.name,row),entity.name,entityProcessor,parentKeyList);
       if (stop.get())       return new HashSet();
     }
   }
