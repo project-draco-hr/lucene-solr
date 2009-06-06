@@ -1,0 +1,39 @@
+{
+  Map<SolrConfig.PluginInfo,SolrRequestHandler> handlers=new HashMap<SolrConfig.PluginInfo,SolrRequestHandler>();
+  for (  SolrConfig.PluginInfo info : config.reqHandlerInfo) {
+    try {
+      SolrRequestHandler requestHandler;
+      if (info.startup != null) {
+        if ("lazy".equals(info.startup)) {
+          log.info("adding lazy requestHandler: " + info.className);
+          requestHandler=new LazyRequestHandlerWrapper(core,info.className,info.initArgs);
+        }
+ else {
+          throw new Exception("Unknown startup value: '" + info.startup + "' for: "+ info.className);
+        }
+      }
+ else {
+        requestHandler=(SolrRequestHandler)config.getResourceLoader().newInstance(info.className);
+      }
+      handlers.put(info,requestHandler);
+      requestHandler.init(info.initArgs);
+      SolrRequestHandler old=register(info.name,requestHandler);
+      if (old != null) {
+        log.warn("Multiple requestHandler registered to the same name: " + info.name + " ignoring: "+ old.getClass().getName());
+      }
+      if (info.isDefault) {
+        old=register("",requestHandler);
+        if (old != null)         log.warn("Multiple default requestHandler registered" + " ignoring: " + old.getClass().getName());
+      }
+      log.info("created " + info.name + ": "+ info.className);
+    }
+ catch (    Exception e) {
+      SolrConfig.severeErrors.add(e);
+      SolrException.logOnce(log,null,e);
+    }
+  }
+  for (  Map.Entry<SolrConfig.PluginInfo,SolrRequestHandler> entry : handlers.entrySet()) {
+    entry.getValue().init(entry.getKey().initArgs);
+  }
+  if (get("") == null)   register("",get(DEFAULT_HANDLER_NAME));
+}
