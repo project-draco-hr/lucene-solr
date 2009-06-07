@@ -1,0 +1,42 @@
+{
+  SegmentReader instance;
+  try {
+    if (readOnly)     instance=(SegmentReader)READONLY_IMPL.newInstance();
+ else     instance=(SegmentReader)IMPL.newInstance();
+  }
+ catch (  Exception e) {
+    throw new RuntimeException("cannot load SegmentReader class: " + e,e);
+  }
+  instance.directory=dir;
+  instance.readOnly=readOnly;
+  instance.segment=si.name;
+  instance.si=si;
+  instance.readBufferSize=readBufferSize;
+  boolean success=false;
+  try {
+    Directory cfsDir=instance.directory();
+    if (si.getUseCompoundFile()) {
+      instance.cfsReader=new CompoundFileReader(instance.directory(),instance.segment + "." + IndexFileNames.COMPOUND_FILE_EXTENSION,readBufferSize);
+      cfsDir=instance.cfsReader;
+    }
+    instance.fieldInfos=new FieldInfos(cfsDir,instance.segment + ".fnm");
+    if (doOpenStores) {
+      instance.openDocStores();
+    }
+    boolean anyProx=false;
+    final int numFields=instance.fieldInfos.size();
+    for (int i=0; !anyProx && i < numFields; i++)     if (!instance.fieldInfos.fieldInfo(i).omitTermFreqAndPositions)     anyProx=true;
+    instance.tis=new TermInfosReader(cfsDir,instance.segment,instance.fieldInfos,readBufferSize);
+    instance.loadDeletedDocs();
+    instance.freqStream=cfsDir.openInput(instance.segment + ".frq",readBufferSize);
+    if (anyProx)     instance.proxStream=cfsDir.openInput(instance.segment + ".prx",readBufferSize);
+    instance.openNorms(cfsDir,readBufferSize);
+    success=true;
+  }
+  finally {
+    if (!success) {
+      instance.doClose();
+    }
+  }
+  return instance;
+}
