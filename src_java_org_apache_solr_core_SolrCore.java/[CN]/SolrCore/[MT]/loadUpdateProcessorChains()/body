@@ -1,43 +1,28 @@
 {
   final Map<String,UpdateRequestProcessorChain> map=new HashMap<String,UpdateRequestProcessorChain>();
-  final String parsingErrorText="Parsing Update Request Processor Chain";
   UpdateRequestProcessorChain def=null;
-  XPath xpath=solrConfig.getXPath();
-  NodeList nodes=(NodeList)solrConfig.evaluate("updateRequestProcessorChain",XPathConstants.NODESET);
-  boolean requireName=nodes.getLength() > 1;
-  if (nodes != null) {
-    for (int i=0; i < nodes.getLength(); i++) {
-      Node node=nodes.item(i);
-      String name=DOMUtil.getAttr(node,"name",requireName ? parsingErrorText : null);
-      boolean isDefault="true".equals(DOMUtil.getAttr(node,"default",null));
-      NodeList links=null;
-      try {
-        links=(NodeList)xpath.evaluate("processor",node,XPathConstants.NODESET);
+  Map<String,List<SolrConfig.PluginInfo>> infos=solrConfig.getUpdateProcessorChainInfo();
+  System.out.println(infos);
+  if (!infos.isEmpty()) {
+    boolean defaultProcessed=false;
+    List<SolrConfig.PluginInfo> defProcessorChainInfo=infos.get(null);
+    for (    Map.Entry<String,List<SolrConfig.PluginInfo>> e : solrConfig.getUpdateProcessorChainInfo().entrySet()) {
+      List<SolrConfig.PluginInfo> processorsInfo=e.getValue();
+      if (processorsInfo == defProcessorChainInfo && defaultProcessed) {
+        map.put(e.getKey(),def);
+        continue;
       }
- catch (      XPathExpressionException e) {
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error reading processors",e,false);
+      UpdateRequestProcessorFactory[] chain=new UpdateRequestProcessorFactory[processorsInfo.size()];
+      for (int i=0; i < processorsInfo.size(); i++) {
+        SolrConfig.PluginInfo info=processorsInfo.get(i);
+        chain[i]=createInstance(info.className,UpdateRequestProcessorFactory.class,null);
+        chain[i].init(info.initArgs);
       }
-      if (links == null || links.getLength() < 1) {
-        throw new RuntimeException("updateRequestProcessorChain require at least one processor");
-      }
-      final ArrayList<UpdateRequestProcessorFactory> factories=new ArrayList<UpdateRequestProcessorFactory>(links.getLength());
-      AbstractPluginLoader<UpdateRequestProcessorFactory> loader=new AbstractPluginLoader<UpdateRequestProcessorFactory>("processor chain",false,false){
-        @Override protected void init(        UpdateRequestProcessorFactory plugin,        Node node) throws Exception {
-          plugin.init((node == null) ? null : DOMUtil.childNodesToNamedList(node));
-        }
-        @Override protected UpdateRequestProcessorFactory register(        String name,        UpdateRequestProcessorFactory plugin) throws Exception {
-          factories.add(plugin);
-          return null;
-        }
-      }
-;
-      loader.load(solrConfig.getResourceLoader(),links);
-      UpdateRequestProcessorChain chain=new UpdateRequestProcessorChain(factories.toArray(new UpdateRequestProcessorFactory[factories.size()]));
-      if (isDefault || nodes.getLength() == 1) {
-        def=chain;
-      }
-      if (name != null) {
-        map.put(name,chain);
+      UpdateRequestProcessorChain processorChain=new UpdateRequestProcessorChain(chain);
+      map.put(e.getKey(),processorChain);
+      if (e.getKey() == null || processorsInfo == defProcessorChainInfo) {
+        defaultProcessed=true;
+        def=processorChain;
       }
     }
   }
