@@ -18,45 +18,43 @@
       if (files != null)       genA=getCurrentSegmentGeneration(files);
       message("directory listing genA=" + genA);
       long genB=-1;
-      if (directory != null) {
-        for (int i=0; i < defaultGenFileRetryCount; i++) {
-          IndexInput genInput=null;
+      for (int i=0; i < defaultGenFileRetryCount; i++) {
+        IndexInput genInput=null;
+        try {
+          genInput=directory.openInput(IndexFileNames.SEGMENTS_GEN);
+        }
+ catch (        FileNotFoundException e) {
+          message("segments.gen open: FileNotFoundException " + e);
+          break;
+        }
+catch (        IOException e) {
+          message("segments.gen open: IOException " + e);
+        }
+        if (genInput != null) {
           try {
-            genInput=directory.openInput(IndexFileNames.SEGMENTS_GEN);
-          }
- catch (          FileNotFoundException e) {
-            message("segments.gen open: FileNotFoundException " + e);
-            break;
-          }
-catch (          IOException e) {
-            message("segments.gen open: IOException " + e);
-          }
-          if (genInput != null) {
-            try {
-              int version=genInput.readInt();
-              if (version == FORMAT_LOCKLESS) {
-                long gen0=genInput.readLong();
-                long gen1=genInput.readLong();
-                message("fallback check: " + gen0 + "; "+ gen1);
-                if (gen0 == gen1) {
-                  genB=gen0;
-                  break;
-                }
+            int version=genInput.readInt();
+            if (version == FORMAT_LOCKLESS) {
+              long gen0=genInput.readLong();
+              long gen1=genInput.readLong();
+              message("fallback check: " + gen0 + "; "+ gen1);
+              if (gen0 == gen1) {
+                genB=gen0;
+                break;
               }
             }
- catch (            IOException err2) {
-            }
+          }
+ catch (          IOException err2) {
+          }
  finally {
-              genInput.close();
-            }
+            genInput.close();
           }
-          try {
-            Thread.sleep(defaultGenFileRetryPauseMsec);
-          }
- catch (          InterruptedException ie) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(ie);
-          }
+        }
+        try {
+          Thread.sleep(defaultGenFileRetryPauseMsec);
+        }
+ catch (        InterruptedException ie) {
+          Thread.currentThread().interrupt();
+          throw new RuntimeException(ie);
         }
       }
       message(IndexFileNames.SEGMENTS_GEN + " check: genB=" + genB);
