@@ -6,24 +6,26 @@
  else {
     fieldInfos=new FieldInfos();
   }
-  for (int i=0; i < readers.size(); i++) {
-    IndexReader reader=(IndexReader)readers.get(i);
+  for (Iterator iter=readers.iterator(); iter.hasNext(); ) {
+    IndexReader reader=(IndexReader)iter.next();
     if (reader instanceof SegmentReader) {
       SegmentReader segmentReader=(SegmentReader)reader;
-      for (int j=0; j < segmentReader.getFieldInfos().size(); j++) {
-        FieldInfo fi=segmentReader.getFieldInfos().fieldInfo(j);
+      FieldInfos readerFieldInfos=segmentReader.getFieldInfos();
+      int numReaderFieldInfos=readerFieldInfos.size();
+      for (int j=0; j < numReaderFieldInfos; j++) {
+        FieldInfo fi=readerFieldInfos.fieldInfo(j);
         fieldInfos.add(fi.name,fi.isIndexed,fi.storeTermVector,fi.storePositionWithTermVector,fi.storeOffsetWithTermVector,!reader.hasNorms(fi.name),fi.storePayloads,fi.omitTermFreqAndPositions);
       }
     }
  else {
-      addIndexed(reader,fieldInfos,reader.getFieldNames(IndexReader.FieldOption.TERMVECTOR_WITH_POSITION_OFFSET),true,true,true,false,false);
-      addIndexed(reader,fieldInfos,reader.getFieldNames(IndexReader.FieldOption.TERMVECTOR_WITH_POSITION),true,true,false,false,false);
-      addIndexed(reader,fieldInfos,reader.getFieldNames(IndexReader.FieldOption.TERMVECTOR_WITH_OFFSET),true,false,true,false,false);
-      addIndexed(reader,fieldInfos,reader.getFieldNames(IndexReader.FieldOption.TERMVECTOR),true,false,false,false,false);
-      addIndexed(reader,fieldInfos,reader.getFieldNames(IndexReader.FieldOption.OMIT_TF),false,false,false,false,true);
-      addIndexed(reader,fieldInfos,reader.getFieldNames(IndexReader.FieldOption.STORES_PAYLOADS),false,false,false,true,false);
-      addIndexed(reader,fieldInfos,reader.getFieldNames(IndexReader.FieldOption.INDEXED),false,false,false,false,false);
-      fieldInfos.add(reader.getFieldNames(IndexReader.FieldOption.UNINDEXED),false);
+      addIndexed(reader,fieldInfos,reader.getFieldNames(FieldOption.TERMVECTOR_WITH_POSITION_OFFSET),true,true,true,false,false);
+      addIndexed(reader,fieldInfos,reader.getFieldNames(FieldOption.TERMVECTOR_WITH_POSITION),true,true,false,false,false);
+      addIndexed(reader,fieldInfos,reader.getFieldNames(FieldOption.TERMVECTOR_WITH_OFFSET),true,false,true,false,false);
+      addIndexed(reader,fieldInfos,reader.getFieldNames(FieldOption.TERMVECTOR),true,false,false,false,false);
+      addIndexed(reader,fieldInfos,reader.getFieldNames(FieldOption.OMIT_TERM_FREQ_AND_POSITIONS),false,false,false,false,true);
+      addIndexed(reader,fieldInfos,reader.getFieldNames(FieldOption.STORES_PAYLOADS),false,false,false,true,false);
+      addIndexed(reader,fieldInfos,reader.getFieldNames(FieldOption.INDEXED),false,false,false,false,false);
+      fieldInfos.add(reader.getFieldNames(FieldOption.UNINDEXED),false);
     }
   }
   fieldInfos.write(directory,segment + ".fnm");
@@ -38,57 +40,22 @@
 ;
     final FieldsWriter fieldsWriter=new FieldsWriter(directory,segment,fieldInfos);
     try {
-      for (int i=0; i < readers.size(); i++) {
-        final IndexReader reader=(IndexReader)readers.get(i);
-        final SegmentReader matchingSegmentReader=matchingSegmentReaders[i];
-        final FieldsReader matchingFieldsReader;
-        final boolean hasMatchingReader;
+      int idx=0;
+      for (Iterator iter=readers.iterator(); iter.hasNext(); ) {
+        final IndexReader reader=(IndexReader)iter.next();
+        final SegmentReader matchingSegmentReader=matchingSegmentReaders[idx++];
+        FieldsReader matchingFieldsReader=null;
         if (matchingSegmentReader != null) {
           final FieldsReader fieldsReader=matchingSegmentReader.getFieldsReader();
-          if (fieldsReader != null && !fieldsReader.canReadRawDocs()) {
-            matchingFieldsReader=null;
-            hasMatchingReader=false;
-          }
- else {
+          if (fieldsReader != null && fieldsReader.canReadRawDocs()) {
             matchingFieldsReader=fieldsReader;
-            hasMatchingReader=true;
           }
         }
- else {
-          hasMatchingReader=false;
-          matchingFieldsReader=null;
+        if (reader.hasDeletions()) {
+          docCount+=copyFieldsWithDeletions(fieldSelectorMerge,fieldsWriter,reader,matchingFieldsReader);
         }
-        final int maxDoc=reader.maxDoc();
-        final boolean hasDeletions=reader.hasDeletions();
-        for (int j=0; j < maxDoc; ) {
-          if (!hasDeletions || !reader.isDeleted(j)) {
-            if (hasMatchingReader) {
-              int start=j;
-              int numDocs=0;
-              do {
-                j++;
-                numDocs++;
-                if (j >= maxDoc)                 break;
-                if (hasDeletions && matchingSegmentReader.isDeleted(j)) {
-                  j++;
-                  break;
-                }
-              }
- while (numDocs < MAX_RAW_MERGE_DOCS);
-              IndexInput stream=matchingFieldsReader.rawDocs(rawDocLengths,start,numDocs);
-              fieldsWriter.addRawDocuments(stream,rawDocLengths,numDocs);
-              docCount+=numDocs;
-              if (checkAbort != null)               checkAbort.work(300 * numDocs);
-            }
  else {
-              Document doc=reader.document(j,fieldSelectorMerge);
-              fieldsWriter.addDocument(doc);
-              j++;
-              docCount++;
-              if (checkAbort != null)               checkAbort.work(300);
-            }
-          }
- else           j++;
+          docCount+=copyFieldsNoDeletions(fieldSelectorMerge,fieldsWriter,reader,matchingFieldsReader);
         }
       }
     }
@@ -98,6 +65,8 @@
     final long fdxFileLength=directory.fileLength(segment + "." + IndexFileNames.FIELDS_INDEX_EXTENSION);
     if (4 + ((long)docCount) * 8 != fdxFileLength)     throw new RuntimeException("mergeFields produced an invalid result: docCount is " + docCount + " but fdx file size is "+ fdxFileLength+ "; now aborting this merge to prevent index corruption");
   }
- else   for (int i=0; i < readers.size(); i++)   docCount+=((IndexReader)readers.get(i)).numDocs();
+ else   for (Iterator iter=readers.iterator(); iter.hasNext(); ) {
+    docCount+=((IndexReader)iter.next()).numDocs();
+  }
   return docCount;
 }
