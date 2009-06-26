@@ -1,0 +1,59 @@
+{
+  final Status.TermIndexStatus status=new Status.TermIndexStatus();
+  try {
+    if (infoStream != null) {
+      infoStream.print("    test: terms, freq, prox...");
+    }
+    final TermEnum termEnum=reader.terms();
+    final TermPositions termPositions=reader.termPositions();
+    final MySegmentTermDocs myTermDocs=new MySegmentTermDocs(reader);
+    final int maxDoc=reader.maxDoc();
+    while (termEnum.next()) {
+      status.termCount++;
+      final Term term=termEnum.term();
+      final int docFreq=termEnum.docFreq();
+      termPositions.seek(term);
+      int lastDoc=-1;
+      int freq0=0;
+      status.totFreq+=docFreq;
+      while (termPositions.next()) {
+        freq0++;
+        final int doc=termPositions.doc();
+        final int freq=termPositions.freq();
+        if (doc <= lastDoc)         throw new RuntimeException("term " + term + ": doc "+ doc+ " <= lastDoc "+ lastDoc);
+        if (doc >= maxDoc)         throw new RuntimeException("term " + term + ": doc "+ doc+ " >= maxDoc "+ maxDoc);
+        lastDoc=doc;
+        if (freq <= 0)         throw new RuntimeException("term " + term + ": doc "+ doc+ ": freq "+ freq+ " is out of bounds");
+        int lastPos=-1;
+        status.totPos+=freq;
+        for (int j=0; j < freq; j++) {
+          final int pos=termPositions.nextPosition();
+          if (pos < -1)           throw new RuntimeException("term " + term + ": doc "+ doc+ ": pos "+ pos+ " is out of bounds");
+          if (pos < lastPos)           throw new RuntimeException("term " + term + ": doc "+ doc+ ": pos "+ pos+ " < lastPos "+ lastPos);
+        }
+      }
+      final int delCount;
+      if (reader.hasDeletions()) {
+        myTermDocs.seek(term);
+        while (myTermDocs.next()) {
+        }
+        delCount=myTermDocs.delCount;
+      }
+ else {
+        delCount=0;
+      }
+      if (freq0 + delCount != docFreq) {
+        throw new RuntimeException("term " + term + " docFreq="+ docFreq+ " != num docs seen "+ freq0+ " + num docs deleted "+ delCount);
+      }
+    }
+    msg("OK [" + status.termCount + " terms; "+ status.totFreq+ " terms/docs pairs; "+ status.totPos+ " tokens]");
+  }
+ catch (  Throwable e) {
+    msg("ERROR [" + String.valueOf(e.getMessage()) + "]");
+    status.error=e;
+    if (infoStream != null) {
+      e.printStackTrace(infoStream);
+    }
+  }
+  return status;
+}

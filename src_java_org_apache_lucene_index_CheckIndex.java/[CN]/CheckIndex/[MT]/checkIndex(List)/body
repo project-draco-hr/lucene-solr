@@ -154,76 +154,28 @@
         msg("OK");
       }
       if (reader.maxDoc() != info.docCount)       throw new RuntimeException("SegmentReader.maxDoc() " + reader.maxDoc() + " != SegmentInfos.docCount "+ info.docCount);
-      if (infoStream != null)       infoStream.print("    test: fields, norms.......");
-      Collection fieldNames=reader.getFieldNames(IndexReader.FieldOption.ALL);
-      Iterator it=fieldNames.iterator();
-      final byte[] b=new byte[reader.maxDoc()];
-      while (it.hasNext()) {
-        final String fieldName=(String)it.next();
-        reader.norms(fieldName,b,0);
+      if (infoStream != null) {
+        infoStream.print("    test: fields..............");
       }
+      Collection fieldNames=reader.getFieldNames(IndexReader.FieldOption.ALL);
       msg("OK [" + fieldNames.size() + " fields]");
       segInfoStat.numFields=fieldNames.size();
-      if (infoStream != null)       infoStream.print("    test: terms, freq, prox...");
-      final TermEnum termEnum=reader.terms();
-      final TermPositions termPositions=reader.termPositions();
-      final MySegmentTermDocs myTermDocs=new MySegmentTermDocs(reader);
-      long termCount=0;
-      long totFreq=0;
-      long totPos=0;
-      final int maxDoc=reader.maxDoc();
-      while (termEnum.next()) {
-        termCount++;
-        final Term term=termEnum.term();
-        final int docFreq=termEnum.docFreq();
-        termPositions.seek(term);
-        int lastDoc=-1;
-        int freq0=0;
-        totFreq+=docFreq;
-        while (termPositions.next()) {
-          freq0++;
-          final int doc=termPositions.doc();
-          final int freq=termPositions.freq();
-          if (doc <= lastDoc)           throw new RuntimeException("term " + term + ": doc "+ doc+ " <= lastDoc "+ lastDoc);
-          if (doc >= maxDoc)           throw new RuntimeException("term " + term + ": doc "+ doc+ " >= maxDoc "+ maxDoc);
-          lastDoc=doc;
-          if (freq <= 0)           throw new RuntimeException("term " + term + ": doc "+ doc+ ": freq "+ freq+ " is out of bounds");
-          int lastPos=-1;
-          totPos+=freq;
-          for (int j=0; j < freq; j++) {
-            final int pos=termPositions.nextPosition();
-            if (pos < -1)             throw new RuntimeException("term " + term + ": doc "+ doc+ ": pos "+ pos+ " is out of bounds");
-            if (pos < lastPos)             throw new RuntimeException("term " + term + ": doc "+ doc+ ": pos "+ pos+ " < lastPos "+ lastPos);
-          }
-        }
-        final int delCount;
-        if (reader.hasDeletions()) {
-          myTermDocs.seek(term);
-          while (myTermDocs.next()) {
-          }
-          delCount=myTermDocs.delCount;
-        }
- else         delCount=0;
-        if (freq0 + delCount != docFreq)         throw new RuntimeException("term " + term + " docFreq="+ docFreq+ " != num docs seen "+ freq0+ " + num docs deleted "+ delCount);
+      segInfoStat.fieldNormStatus=testFieldNorms(fieldNames,reader);
+      segInfoStat.termIndexStatus=testTermIndex(info,reader);
+      segInfoStat.storedFieldStatus=testStoredFields(info,reader,nf);
+      segInfoStat.termVectorStatus=testTermVectors(info,reader,nf);
+      if (segInfoStat.fieldNormStatus.error != null) {
+        throw new RuntimeException("Field Norm test failed");
       }
-      msg("OK [" + termCount + " terms; "+ totFreq+ " terms/docs pairs; "+ totPos+ " tokens]");
-      if (infoStream != null)       infoStream.print("    test: stored fields.......");
-      int docCount=0;
-      long totFields=0;
-      for (int j=0; j < info.docCount; j++)       if (!reader.isDeleted(j)) {
-        docCount++;
-        Document doc=reader.document(j);
-        totFields+=doc.getFields().size();
+ else       if (segInfoStat.termIndexStatus.error != null) {
+        throw new RuntimeException("Term Index test failed");
       }
-      if (docCount != reader.numDocs())       throw new RuntimeException("docCount=" + docCount + " but saw "+ docCount+ " undeleted docs");
-      msg("OK [" + totFields + " total field count; avg "+ nf.format((((float)totFields) / docCount))+ " fields per doc]");
-      if (infoStream != null)       infoStream.print("    test: term vectors........");
-      int totVectors=0;
-      for (int j=0; j < info.docCount; j++)       if (!reader.isDeleted(j)) {
-        TermFreqVector[] tfv=reader.getTermFreqVectors(j);
-        if (tfv != null)         totVectors+=tfv.length;
+ else       if (segInfoStat.storedFieldStatus.error != null) {
+        throw new RuntimeException("Stored Field test failed");
       }
-      msg("OK [" + totVectors + " total vector count; avg "+ nf.format((((float)totVectors) / docCount))+ " term/freq vector fields per doc]");
+ else       if (segInfoStat.termVectorStatus.error != null) {
+        throw new RuntimeException("Term Vector test failed");
+      }
       msg("");
     }
  catch (    Throwable t) {
