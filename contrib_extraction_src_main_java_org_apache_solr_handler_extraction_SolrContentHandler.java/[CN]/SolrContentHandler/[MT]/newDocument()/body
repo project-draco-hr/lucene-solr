@@ -2,64 +2,19 @@
   float boost=1.0f;
   for (  String name : metadata.names()) {
     String[] vals=metadata.getValues(name);
-    name=findMappedMetadataName(name);
-    SchemaField schFld=schema.getFieldOrNull(name);
-    if (schFld != null) {
-      boost=getBoost(name);
-      if (schFld.multiValued()) {
-        for (int i=0; i < vals.length; i++) {
-          String val=vals[i];
-          document.addField(name,transformValue(val,schFld),boost);
-        }
-      }
- else {
-        StringBuilder builder=new StringBuilder();
-        for (int i=0; i < vals.length; i++) {
-          builder.append(vals[i]).append(' ');
-        }
-        document.addField(name,transformValue(builder.toString().trim(),schFld),boost);
-      }
-    }
- else {
-      if (ignoreUndeclaredFields == false) {
-        if (name != Metadata.RESOURCE_NAME_KEY) {
-          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Invalid field: " + name);
-        }
-      }
-    }
+    addField(name,null,vals);
   }
   Iterator<String> paramNames=params.getParameterNamesIterator();
   while (paramNames.hasNext()) {
-    String name=paramNames.next();
-    if (name.startsWith(LITERALS_PREFIX)) {
-      String fieldName=name.substring(LITERALS_PREFIX.length());
-      SchemaField schFld=schema.getFieldOrNull(fieldName);
-      if (schFld != null) {
-        String[] values=params.getParams(name);
-        if (schFld.multiValued() == false && values.length > 1) {
-          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"The Field " + fieldName + " is not multivalued");
-        }
-        boost=getBoost(fieldName);
-        for (int i=0; i < values.length; i++) {
-          document.addField(fieldName,values[i],boost);
-        }
-      }
- else {
-        handleUndeclaredField(fieldName);
-      }
-    }
+    String pname=paramNames.next();
+    if (!pname.startsWith(LITERALS_PREFIX))     continue;
+    String name=pname.substring(LITERALS_PREFIX.length());
+    addField(name,null,params.getParams(pname));
   }
-  document.addField(defaultFieldName,catchAllBuilder.toString(),getBoost(defaultFieldName));
+  addField(contentFieldName,catchAllBuilder.toString(),null);
   for (  Map.Entry<String,StringBuilder> entry : fieldBuilders.entrySet()) {
     if (entry.getValue().length() > 0) {
-      String fieldName=findMappedName(entry.getKey());
-      SchemaField schFld=schema.getFieldOrNull(fieldName);
-      if (schFld != null) {
-        document.addField(fieldName,transformValue(entry.getValue().toString(),schFld),getBoost(fieldName));
-      }
- else {
-        handleUndeclaredField(fieldName);
-      }
+      addField(entry.getKey(),entry.getValue().toString(),null);
     }
   }
   if (log.isDebugEnabled()) {
