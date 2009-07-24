@@ -11,7 +11,6 @@
         final int valueLength=stringValue.length();
         perThread.singleTokenTokenStream.reinit(stringValue,0,valueLength);
         fieldState.attributeSource=perThread.singleTokenTokenStream;
-        perThread.localTokenStream.reset();
         consumer.start(field);
         boolean success=false;
         try {
@@ -45,28 +44,13 @@
         final boolean allowMinus1Position=docState.allowMinus1Position;
         try {
           int offsetEnd=fieldState.offset - 1;
-          boolean useNewTokenStreamAPI=stream.useNewAPI();
-          Token localToken=null;
-          if (useNewTokenStreamAPI) {
-            fieldState.attributeSource=stream;
-          }
- else {
-            fieldState.attributeSource=perThread.localTokenStream;
-            localToken=perThread.localToken;
-          }
-          consumer.start(field);
+          boolean hasMoreTokens=stream.incrementToken();
+          fieldState.attributeSource=stream;
           OffsetAttribute offsetAttribute=(OffsetAttribute)fieldState.attributeSource.addAttribute(OffsetAttribute.class);
           PositionIncrementAttribute posIncrAttribute=(PositionIncrementAttribute)fieldState.attributeSource.addAttribute(PositionIncrementAttribute.class);
+          consumer.start(field);
           for (; ; ) {
-            Token token=null;
-            if (useNewTokenStreamAPI) {
-              if (!stream.incrementToken())               break;
-            }
- else {
-              token=stream.next(localToken);
-              if (token == null)               break;
-              perThread.localTokenStream.set(token);
-            }
+            if (!hasMoreTokens)             break;
             final int posIncr=posIncrAttribute.getPositionIncrement();
             fieldState.position+=posIncr;
             if (allowMinus1Position || fieldState.position > 0) {
@@ -87,6 +71,7 @@
               if (docState.infoStream != null)               docState.infoStream.println("maxFieldLength " + maxFieldLength + " reached for field "+ fieldInfo.name+ ", ignoring following tokens");
               break;
             }
+            hasMoreTokens=stream.incrementToken();
           }
           fieldState.offset=offsetEnd + 1;
         }
