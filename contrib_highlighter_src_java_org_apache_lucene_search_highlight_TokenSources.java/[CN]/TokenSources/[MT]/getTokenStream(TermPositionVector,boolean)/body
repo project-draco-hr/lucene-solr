@@ -1,2 +1,70 @@
 {
+class StoredTokenStream extends TokenStream {
+    Token tokens[];
+    int currentToken=0;
+    TermAttribute termAtt;
+    OffsetAttribute offsetAtt;
+    StoredTokenStream(    Token tokens[]){
+      this.tokens=tokens;
+      termAtt=(TermAttribute)addAttribute(TermAttribute.class);
+      offsetAtt=(OffsetAttribute)addAttribute(OffsetAttribute.class);
+    }
+    public boolean incrementToken() throws IOException {
+      if (currentToken >= tokens.length) {
+        return false;
+      }
+      Token token=tokens[currentToken++];
+      termAtt.setTermBuffer(token.term());
+      offsetAtt.setOffset(token.startOffset(),token.endOffset());
+      return true;
+    }
+  }
+  String[] terms=tpv.getTerms();
+  int[] freq=tpv.getTermFrequencies();
+  int totalTokens=0;
+  for (int t=0; t < freq.length; t++) {
+    totalTokens+=freq[t];
+  }
+  Token tokensInOriginalOrder[]=new Token[totalTokens];
+  ArrayList unsortedTokens=null;
+  for (int t=0; t < freq.length; t++) {
+    TermVectorOffsetInfo[] offsets=tpv.getOffsets(t);
+    if (offsets == null) {
+      return null;
+    }
+    int[] pos=null;
+    if (tokenPositionsGuaranteedContiguous) {
+      pos=tpv.getTermPositions(t);
+    }
+    if (pos == null) {
+      if (unsortedTokens == null) {
+        unsortedTokens=new ArrayList();
+      }
+      for (int tp=0; tp < offsets.length; tp++) {
+        Token token=new Token(offsets[tp].getStartOffset(),offsets[tp].getEndOffset());
+        token.setTermBuffer(terms[t]);
+        unsortedTokens.add(token);
+      }
+    }
+ else {
+      for (int tp=0; tp < pos.length; tp++) {
+        Token token=new Token(terms[t],offsets[tp].getStartOffset(),offsets[tp].getEndOffset());
+        tokensInOriginalOrder[pos[tp]]=token;
+      }
+    }
+  }
+  if (unsortedTokens != null) {
+    tokensInOriginalOrder=(Token[])unsortedTokens.toArray(new Token[unsortedTokens.size()]);
+    Arrays.sort(tokensInOriginalOrder,new Comparator(){
+      public int compare(      Object o1,      Object o2){
+        Token t1=(Token)o1;
+        Token t2=(Token)o2;
+        if (t1.startOffset() > t2.endOffset())         return 1;
+        if (t1.startOffset() < t2.startOffset())         return -1;
+        return 0;
+      }
+    }
+);
+  }
+  return new StoredTokenStream(tokensInOriginalOrder);
 }
