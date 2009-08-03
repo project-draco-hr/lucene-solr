@@ -1,0 +1,64 @@
+{
+  if (node instanceof ParametricRangeQueryNode) {
+    ParametricRangeQueryNode parametricRangeNode=(ParametricRangeQueryNode)node;
+    ParametricQueryNode upper=parametricRangeNode.getUpperBound();
+    ParametricQueryNode lower=parametricRangeNode.getLowerBound();
+    Locale locale=Locale.getDefault();
+    Collator collator=null;
+    DateTools.Resolution dateRes=null;
+    boolean inclusive=false;
+    if (!getQueryConfigHandler().hasAttribute(MultiTermRewriteMethodAttribute.class)) {
+      throw new IllegalArgumentException("MultiTermRewriteMethodAttribute should be set on the QueryConfigHandler");
+    }
+    MultiTermQuery.RewriteMethod rewriteMethod=((MultiTermRewriteMethodAttribute)getQueryConfigHandler().getAttribute(MultiTermRewriteMethodAttribute.class)).getMultiTermRewriteMethod();
+    if (getQueryConfigHandler().hasAttribute(RangeCollatorAttribute.class)) {
+      collator=((RangeCollatorAttribute)getQueryConfigHandler().getAttribute(RangeCollatorAttribute.class)).getRangeCollator();
+    }
+    if (getQueryConfigHandler().hasAttribute(LocaleAttribute.class)) {
+      locale=((LocaleAttribute)getQueryConfigHandler().getAttribute(LocaleAttribute.class)).getLocale();
+    }
+    FieldConfig fieldConfig=getQueryConfigHandler().getFieldConfig(parametricRangeNode.getField());
+    if (fieldConfig != null) {
+      if (fieldConfig.hasAttribute(DateResolutionAttribute.class)) {
+        dateRes=((DateResolutionAttribute)fieldConfig.getAttribute(DateResolutionAttribute.class)).getDateResolution();
+      }
+    }
+    if (upper.getOperator() == CompareOperator.LE) {
+      inclusive=true;
+    }
+ else     if (lower.getOperator() == CompareOperator.GE) {
+      inclusive=true;
+    }
+    String part1=lower.getTextAsString();
+    String part2=upper.getTextAsString();
+    try {
+      DateFormat df=DateFormat.getDateInstance(DateFormat.SHORT,Locale.getDefault());
+      df.setLenient(true);
+      Date d1=df.parse(part1);
+      Date d2=df.parse(part2);
+      if (inclusive) {
+        Calendar cal=Calendar.getInstance(locale);
+        cal.setTime(d2);
+        cal.set(Calendar.HOUR_OF_DAY,23);
+        cal.set(Calendar.MINUTE,59);
+        cal.set(Calendar.SECOND,59);
+        cal.set(Calendar.MILLISECOND,999);
+        d2=cal.getTime();
+      }
+      if (dateRes == null) {
+        part1=DateField.dateToString(d1);
+        part2=DateField.dateToString(d2);
+      }
+ else {
+        part1=DateTools.dateToString(d1,dateRes);
+        part2=DateTools.dateToString(d2,dateRes);
+      }
+    }
+ catch (    Exception e) {
+    }
+    lower.setText(part1);
+    upper.setText(part2);
+    return new RangeQueryNode(lower,upper,collator,rewriteMethod);
+  }
+  return node;
+}
