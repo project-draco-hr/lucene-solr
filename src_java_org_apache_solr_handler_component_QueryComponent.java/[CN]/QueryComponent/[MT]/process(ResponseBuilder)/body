@@ -44,7 +44,6 @@
   if (fsv) {
     Sort sort=rb.getSortSpec().getSort();
     SortField[] sortFields=sort == null ? new SortField[]{SortField.FIELD_SCORE} : sort.getSort();
-    ScoreDoc sd=new ScoreDoc(0,1.0f);
     NamedList sortVals=new NamedList();
     Field field=new Field("dummy","",Field.Store.YES,Field.Index.NO);
     SolrIndexReader reader=searcher.getReader();
@@ -58,8 +57,8 @@
     for (    SortField sortField : sortFields) {
       int type=sortField.getType();
       if (type == SortField.SCORE || type == SortField.DOC)       continue;
-      ScoreDocComparator comparator=null;
-      ScoreDocComparator comparators[]=(readers == null) ? null : new ScoreDocComparator[readers.length];
+      FieldComparator comparator=null;
+      FieldComparator comparators[]=(readers == null) ? null : new FieldComparator[readers.length];
       String fieldname=sortField.getField();
       FieldType ft=fieldname == null ? null : req.getSchema().getFieldTypeNoEx(fieldname);
       DocList docList=rb.getResults().docList;
@@ -68,19 +67,21 @@
       int offset=0;
       int idx=0;
       while (it.hasNext()) {
-        sd.doc=it.nextDoc();
+        int doc=it.nextDoc();
         if (readers != null) {
-          idx=SolrIndexReader.readerIndex(sd.doc,offsets);
+          idx=SolrIndexReader.readerIndex(doc,offsets);
           subReader=readers[idx];
           offset=offsets[idx];
           comparator=comparators[idx];
         }
         if (comparator == null) {
-          comparator=getComparator(subReader,sortField);
+          comparator=sortField.getComparator(1,0,sortField.getReverse());
+          comparator.setNextReader(subReader,offset,0);
           if (comparators != null)           comparators[idx]=comparator;
         }
-        sd.doc-=offset;
-        Object val=comparator.sortValue(sd);
+        doc-=offset;
+        comparator.copy(0,doc);
+        Object val=comparator.value(0);
         if (val instanceof String) {
           field.setValue((String)val);
           val=ft.toObject(field);
