@@ -2,25 +2,32 @@
   int iter=1000;
   String iterS=System.getProperty("iter");
   if (iterS != null)   iter=Integer.parseInt(iterS);
+  boolean includeDoc=Boolean.parseBoolean(System.getProperty("includeDoc","true"));
+  String doc=System.getProperty("doc");
+  if (doc != null) {
+    StrUtils.splitSmart(doc,",",true);
+  }
   SolrQueryRequest req=lrf.makeRequest();
   IndexSchema schema=req.getSchema();
   UpdateHandler updateHandler=req.getCore().getUpdateHandler();
   String[] fields={"text","simple","text","test","text","how now brown cow","text","what's that?","text","radical!","text","what's all this about, anyway?","text","just how fast is this text indexing?"};
-  Document ldoc=new Document();
-  for (int i=0; i < fields.length; i+=2) {
-    String field=fields[i];
-    String val=fields[i + 1];
-    Field f=schema.getField(field).createField(val,1.0f);
-    ldoc.add(f);
-  }
+  long start=System.currentTimeMillis();
   AddUpdateCommand add=new AddUpdateCommand();
   add.allowDups=true;
-  add.doc=ldoc;
-  long start=System.currentTimeMillis();
   for (int i=0; i < iter; i++) {
+    if (includeDoc || add.doc == null) {
+      add.doc=new Document();
+      for (int j=0; j < fields.length; j+=2) {
+        String field=fields[j];
+        String val=fields[j + 1];
+        Field f=schema.getField(field).createField(val,1.0f);
+        add.doc.add(f);
+      }
+    }
     updateHandler.addDoc(add);
   }
   long end=System.currentTimeMillis();
+  System.out.println("includeDoc=" + includeDoc + " doc="+ Arrays.toString(fields));
   System.out.println("iter=" + iter + " time="+ (end - start)+ " throughput="+ ((long)iter * 1000) / (end - start));
   updateHandler.rollback(new RollbackUpdateCommand());
   req.close();
