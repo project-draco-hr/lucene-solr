@@ -1,9 +1,7 @@
 {
-  String timeLastReplicated="", confFilesReplicated="", confFilesReplicatedTime="", timesIndexReplicated="", timesConfigReplicated="";
   NamedList<Object> details=new SimpleOrderedMap<Object>();
   NamedList<Object> master=new SimpleOrderedMap<Object>();
   NamedList<Object> slave=new SimpleOrderedMap<Object>();
-  FileInputStream inFile=null;
   details.add("indexSize",readableSize(getIndexSize()));
   details.add("indexPath",core.getIndexDir());
   details.add(CMD_SHOW_COMMITS,getCommits());
@@ -15,12 +13,8 @@
   IndexCommit commit=indexCommitPoint;
   if (isMaster) {
     if (includeConfFiles != null)     master.add(CONF_FILES,includeConfFiles);
-    String replicateAfterString="";
-    if (replicateOnCommit)     replicateAfterString+="commit, ";
-    if (replicateOnOptimize)     replicateAfterString+="optimize, ";
-    if (replicateOnStart)     replicateAfterString+="startup, ";
-    if (replicateAfterString.lastIndexOf(',') > -1)     replicateAfterString=replicateAfterString.substring(0,replicateAfterString.lastIndexOf(','));
-    master.add(REPLICATE_AFTER,replicateAfterString);
+    master.add(REPLICATE_AFTER,getReplicateAfterStrings());
+    master.add("replicationEnabled",String.valueOf(replicationEnabled.get()));
   }
   if (isMaster && commit != null) {
     master.add("replicatableIndexVersion",commit.getVersion());
@@ -28,25 +22,7 @@
   }
   SnapPuller snapPuller=tempSnapPuller;
   if (showSlaveDetails && snapPuller != null) {
-    try {
-      Properties props=new Properties();
-      File f=new File(core.getDataDir(),SnapPuller.REPLICATION_PROPERTIES);
-      if (f.exists()) {
-        inFile=new FileInputStream(f);
-        props.load(inFile);
-        timeLastReplicated=props.getProperty("indexReplicatedAt");
-        if (props.containsKey("timesIndexReplicated"))         timesIndexReplicated=props.getProperty("timesIndexReplicated");
-        if (props.containsKey("confFilesReplicated"))         confFilesReplicated=props.getProperty("confFilesReplicated");
-        if (props.containsKey("confFilesReplicatedAt"))         confFilesReplicatedTime=props.getProperty("confFilesReplicatedAt");
-        if (props.containsKey("timesConfigReplicated"))         timesConfigReplicated=props.getProperty("timesConfigReplicated");
-      }
-    }
- catch (    Exception e) {
-      LOG.warn("Exception while reading " + SnapPuller.REPLICATION_PROPERTIES);
-    }
- finally {
-      IOUtils.closeQuietly(inFile);
-    }
+    Properties props=loadReplicationProperties();
     try {
       NamedList<String> command=new NamedList<String>();
       command.add(COMMAND,CMD_DETAILS);
@@ -55,7 +31,7 @@
       slave.add("masterDetails",nl.get(CMD_DETAILS));
     }
  catch (    Exception e) {
-      LOG.warn("Exception while invoking a 'details' method on master ",e);
+      LOG.warn("Exception while invoking 'details' method for replication on master ",e);
       slave.add(ERR_STATUS,"invalid_master");
     }
     slave.add(MASTER_URL,snapPuller.getMasterUrl());
@@ -63,104 +39,93 @@
       slave.add(SnapPuller.POLL_INTERVAL,snapPuller.getPollInterval());
     }
     if (snapPuller.getNextScheduledExecTime() != null && !isPollingDisabled()) {
-      Date d=new Date(snapPuller.getNextScheduledExecTime());
-      slave.add("nextExecutionAt",d.toString());
+      slave.add(NEXT_EXECUTION_AT,new Date(snapPuller.getNextScheduledExecTime()).toString());
     }
  else     if (isPollingDisabled()) {
-      slave.add("nextExecutionAt","Polling disabled");
+      slave.add(NEXT_EXECUTION_AT,"Polling disabled");
     }
- else     slave.add("nextExecutionAt","");
-    if (timeLastReplicated != null && timeLastReplicated.length() > 0) {
-      Date d=new Date(Long.valueOf(timeLastReplicated));
-      slave.add("indexReplicatedAt",d.toString());
-    }
- else {
-      slave.add("indexReplicatedAt","");
-    }
-    slave.add("timesIndexReplicated",timesIndexReplicated);
-    slave.add("confFilesReplicated",confFilesReplicated);
-    slave.add("timesConfigReplicated",timesConfigReplicated);
-    if (confFilesReplicatedTime != null && confFilesReplicatedTime.length() > 0) {
-      Date d=new Date(Long.valueOf(confFilesReplicatedTime));
-      slave.add("confFilesReplicatedAt",d.toString());
-    }
- else {
-      slave.add("confFilesReplicatedAt",confFilesReplicatedTime);
-    }
-    try {
-      long bytesToDownload=0;
-      List<String> filesToDownload=new ArrayList<String>();
-      if (snapPuller.getFilesToDownload() != null) {
+    addVal(slave,SnapPuller.INDEX_REPLICATED_AT,props,Date.class);
+    addVal(slave,SnapPuller.INDEX_REPLICATED_AT_LIST,props,List.class);
+    addVal(slave,SnapPuller.REPLICATION_FAILED_AT_LIST,props,List.class);
+    addVal(slave,SnapPuller.TIMES_INDEX_REPLICATED,props,Integer.class);
+    addVal(slave,SnapPuller.CONF_FILES_REPLICATED,props,Integer.class);
+    addVal(slave,SnapPuller.TIMES_CONFIG_REPLICATED,props,Integer.class);
+    addVal(slave,SnapPuller.CONF_FILES_REPLICATED_AT,props,Integer.class);
+    addVal(slave,SnapPuller.LAST_CYCLE_BYTES_DOWNLOADED,props,Long.class);
+    addVal(slave,SnapPuller.TIMES_FAILED,props,Integer.class);
+    addVal(slave,SnapPuller.REPLICATION_FAILED_AT,props,Date.class);
+    addVal(slave,SnapPuller.PREVIOUS_CYCLE_TIME_TAKEN,props,Long.class);
+    boolean isReplicating=isReplicating();
+    slave.add("isReplicating",String.valueOf(isReplicating));
+    if (isReplicating) {
+      try {
+        long bytesToDownload=0;
+        List<String> filesToDownload=new ArrayList<String>();
         for (        Map<String,Object> file : snapPuller.getFilesToDownload()) {
           filesToDownload.add((String)file.get(NAME));
           bytesToDownload+=(Long)file.get(SIZE);
         }
-      }
-      for (      Map<String,Object> file : snapPuller.getConfFilesToDownload()) {
-        filesToDownload.add((String)file.get(NAME));
-        bytesToDownload+=(Long)file.get(SIZE);
-      }
-      slave.add("filesToDownload",filesToDownload.toString());
-      slave.add("numFilesToDownload",String.valueOf(filesToDownload.size()));
-      slave.add("bytesToDownload",readableSize(bytesToDownload));
-      long bytesDownloaded=0;
-      List<String> filesDownloaded=new ArrayList<String>();
-      for (      Map<String,Object> file : snapPuller.getFilesDownloaded()) {
-        filesDownloaded.add((String)file.get(NAME));
-        bytesDownloaded+=(Long)file.get(SIZE);
-      }
-      for (      Map<String,Object> file : snapPuller.getConfFilesDownloaded()) {
-        filesDownloaded.add((String)file.get(NAME));
-        bytesDownloaded+=(Long)file.get(SIZE);
-      }
-      slave.add("filesDownloaded",filesDownloaded.toString());
-      slave.add("numFilesDownloaded",String.valueOf(filesDownloaded.size()));
-      Map<String,Object> currentFile=snapPuller.getCurrentFile();
-      String currFile=null;
-      long currFileSize=0, currFileSizeDownloaded=0;
-      float percentDownloaded=0;
-      if (currentFile != null) {
-        currFile=(String)currentFile.get(NAME);
-        currFileSize=(Long)currentFile.get(SIZE);
-        if (currentFile.containsKey("bytesDownloaded")) {
-          currFileSizeDownloaded=(Long)currentFile.get("bytesDownloaded");
-          bytesDownloaded+=currFileSizeDownloaded;
-          if (currFileSize > 0)           percentDownloaded=(currFileSizeDownloaded * 100) / currFileSize;
+        for (        Map<String,Object> file : snapPuller.getConfFilesToDownload()) {
+          filesToDownload.add((String)file.get(NAME));
+          bytesToDownload+=(Long)file.get(SIZE);
         }
+        slave.add("filesToDownload",filesToDownload);
+        slave.add("numFilesToDownload",String.valueOf(filesToDownload.size()));
+        slave.add("bytesToDownload",readableSize(bytesToDownload));
+        long bytesDownloaded=0;
+        List<String> filesDownloaded=new ArrayList<String>();
+        for (        Map<String,Object> file : snapPuller.getFilesDownloaded()) {
+          filesDownloaded.add((String)file.get(NAME));
+          bytesDownloaded+=(Long)file.get(SIZE);
+        }
+        for (        Map<String,Object> file : snapPuller.getConfFilesDownloaded()) {
+          filesDownloaded.add((String)file.get(NAME));
+          bytesDownloaded+=(Long)file.get(SIZE);
+        }
+        Map<String,Object> currentFile=snapPuller.getCurrentFile();
+        String currFile=null;
+        long currFileSize=0, currFileSizeDownloaded=0;
+        float percentDownloaded=0;
+        if (currentFile != null) {
+          currFile=(String)currentFile.get(NAME);
+          currFileSize=(Long)currentFile.get(SIZE);
+          if (currentFile.containsKey("bytesDownloaded")) {
+            currFileSizeDownloaded=(Long)currentFile.get("bytesDownloaded");
+            bytesDownloaded+=currFileSizeDownloaded;
+            if (currFileSize > 0)             percentDownloaded=(currFileSizeDownloaded * 100) / currFileSize;
+          }
+        }
+        slave.add("filesDownloaded",filesDownloaded);
+        slave.add("numFilesDownloaded",String.valueOf(filesDownloaded.size()));
+        long estimatedTimeRemaining=0;
+        if (snapPuller.getReplicationStartTime() > 0) {
+          slave.add("replicationStartTime",new Date(snapPuller.getReplicationStartTime()).toString());
+        }
+        long elapsed=getTimeElapsed(snapPuller);
+        slave.add("timeElapsed",String.valueOf(elapsed) + "s");
+        if (bytesDownloaded > 0)         estimatedTimeRemaining=((bytesToDownload - bytesDownloaded) * elapsed) / bytesDownloaded;
+        float totalPercent=0;
+        long downloadSpeed=0;
+        if (bytesToDownload > 0)         totalPercent=(bytesDownloaded * 100) / bytesToDownload;
+        if (elapsed > 0)         downloadSpeed=(bytesDownloaded / elapsed);
+        if (currFile != null)         slave.add("currentFile",currFile);
+        slave.add("currentFileSize",readableSize(currFileSize));
+        slave.add("currentFileSizeDownloaded",readableSize(currFileSizeDownloaded));
+        slave.add("currentFileSizePercent",String.valueOf(percentDownloaded));
+        slave.add("bytesDownloaded",readableSize(bytesDownloaded));
+        slave.add("totalPercent",String.valueOf(totalPercent));
+        slave.add("timeRemaining",String.valueOf(estimatedTimeRemaining) + "s");
+        slave.add("downloadSpeed",readableSize(downloadSpeed));
+        slave.add("isPollingDisabled",String.valueOf(isPollingDisabled()));
       }
-      long timeElapsed=0, estimatedTimeRemaining=0;
-      Date replicationStartTime=null;
-      if (snapPuller.getReplicationStartTime() > 0) {
-        replicationStartTime=new Date(snapPuller.getReplicationStartTime());
-        timeElapsed=(System.currentTimeMillis() - snapPuller.getReplicationStartTime()) / 1000;
+ catch (      Exception e) {
+        LOG.error("Exception while writing replication details: ",e);
       }
-      if (replicationStartTime != null) {
-        slave.add("replicationStartTime",replicationStartTime.toString());
-      }
-      slave.add("timeElapsed",String.valueOf(timeElapsed) + "s");
-      if (bytesDownloaded > 0)       estimatedTimeRemaining=((bytesToDownload - bytesDownloaded) * timeElapsed) / bytesDownloaded;
-      float totalPercent=0;
-      long downloadSpeed=0;
-      if (bytesToDownload > 0)       totalPercent=(bytesDownloaded * 100) / bytesToDownload;
-      if (timeElapsed > 0)       downloadSpeed=(bytesDownloaded / timeElapsed);
-      if (currFile != null)       slave.add("currentFile",currFile);
-      slave.add("currentFileSize",readableSize(currFileSize));
-      slave.add("currentFileSizeDownloaded",readableSize(currFileSizeDownloaded));
-      slave.add("currentFileSizePercent",String.valueOf(percentDownloaded));
-      slave.add("bytesDownloaded",readableSize(bytesDownloaded));
-      slave.add("totalPercent",String.valueOf(totalPercent));
-      slave.add("timeRemaining",String.valueOf(estimatedTimeRemaining) + "s");
-      slave.add("downloadSpeed",readableSize(downloadSpeed));
-      slave.add("isPollingDisabled",String.valueOf(isPollingDisabled()));
-      slave.add("isReplicating",String.valueOf(isReplicating()));
     }
- catch (    Exception e) {
-      LOG.error("Exception while writing details: ",e);
-    }
+    if (isMaster)     details.add("master",master);
+    if (isSlave && showSlaveDetails)     details.add("slave",slave);
+    NamedList snapshotStats=snapShootDetails;
+    if (snapshotStats != null)     details.add(CMD_BACKUP,snapshotStats);
   }
-  if (isMaster)   details.add("master",master);
-  if (isSlave && showSlaveDetails)   details.add("slave",slave);
-  NamedList snapshotStats=snapShootDetails;
-  if (snapshotStats != null)   details.add(CMD_BACKUP,snapshotStats);
   return details;
 }
