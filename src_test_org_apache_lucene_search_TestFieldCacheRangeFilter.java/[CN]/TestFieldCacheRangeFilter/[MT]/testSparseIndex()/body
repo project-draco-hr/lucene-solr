@@ -1,0 +1,34 @@
+{
+  RAMDirectory dir=new RAMDirectory();
+  IndexWriter writer=new IndexWriter(dir,new SimpleAnalyzer(),T,IndexWriter.MaxFieldLength.LIMITED);
+  for (int d=-20; d <= 20; d++) {
+    Document doc=new Document();
+    doc.add(new Field("id",Integer.toString(d),Field.Store.NO,Field.Index.NOT_ANALYZED));
+    doc.add(new Field("body","body",Field.Store.NO,Field.Index.NOT_ANALYZED));
+    writer.addDocument(doc);
+  }
+  writer.optimize();
+  writer.deleteDocuments(new Term("id","0"));
+  writer.close();
+  IndexReader reader=IndexReader.open(dir);
+  IndexSearcher search=new IndexSearcher(reader);
+  assertTrue(reader.hasDeletions());
+  ScoreDoc[] result;
+  FieldCacheRangeFilter fcrf;
+  Query q=new TermQuery(new Term("body","body"));
+  result=search.search(q,fcrf=FieldCacheRangeFilter.newByteRange("id",new Byte((byte)-20),new Byte((byte)20),T,T),100).scoreDocs;
+  assertFalse("DocIdSet must be not cacheable",fcrf.getDocIdSet(reader.getSequentialSubReaders()[0]).isCacheable());
+  assertEquals("find all",40,result.length);
+  result=search.search(q,fcrf=FieldCacheRangeFilter.newByteRange("id",new Byte((byte)0),new Byte((byte)20),T,T),100).scoreDocs;
+  assertFalse("DocIdSet must be not cacheable",fcrf.getDocIdSet(reader.getSequentialSubReaders()[0]).isCacheable());
+  assertEquals("find all",20,result.length);
+  result=search.search(q,fcrf=FieldCacheRangeFilter.newByteRange("id",new Byte((byte)-20),new Byte((byte)0),T,T),100).scoreDocs;
+  assertFalse("DocIdSet must be not cacheable",fcrf.getDocIdSet(reader.getSequentialSubReaders()[0]).isCacheable());
+  assertEquals("find all",20,result.length);
+  result=search.search(q,fcrf=FieldCacheRangeFilter.newByteRange("id",new Byte((byte)10),new Byte((byte)20),T,T),100).scoreDocs;
+  assertTrue("DocIdSet must be cacheable",fcrf.getDocIdSet(reader.getSequentialSubReaders()[0]).isCacheable());
+  assertEquals("find all",11,result.length);
+  result=search.search(q,fcrf=FieldCacheRangeFilter.newByteRange("id",new Byte((byte)-20),new Byte((byte)-10),T,T),100).scoreDocs;
+  assertTrue("DocIdSet must be cacheable",fcrf.getDocIdSet(reader.getSequentialSubReaders()[0]).isCacheable());
+  assertEquals("find all",11,result.length);
+}
