@@ -37,11 +37,10 @@
   for (int i=0; i < files.length; i++) {
     startDiskUsage+=startDir.fileLength(files[i]);
   }
-  for (int iter=0; iter < 6; iter++) {
+  for (int iter=0; iter < 3; iter++) {
     if (debug)     System.out.println("TEST: iter=" + iter);
     long diskFree=diskUsage + 100;
-    boolean autoCommit=iter % 2 == 0;
-    int method=iter / 2;
+    int method=iter;
     boolean success=false;
     boolean done=false;
     String methodName;
@@ -56,7 +55,7 @@
     }
     while (!done) {
       MockRAMDirectory dir=new MockRAMDirectory(startDir);
-      writer=new IndexWriter(dir,autoCommit,new WhitespaceAnalyzer(),false);
+      writer=new IndexWriter(dir,new WhitespaceAnalyzer(),false,IndexWriter.MaxFieldLength.UNLIMITED);
       IOException err=null;
       MergeScheduler ms=writer.getMergeScheduler();
       for (int x=0; x < 2; x++) {
@@ -77,12 +76,12 @@
           if (diskRatio >= 6.0) {
             rate=0.0;
           }
-          if (debug)           testName="disk full test " + methodName + " with disk full at "+ diskFree+ " bytes autoCommit="+ autoCommit;
+          if (debug)           testName="disk full test " + methodName + " with disk full at "+ diskFree+ " bytes";
         }
  else {
           thisDiskFree=0;
           rate=0.0;
-          if (debug)           testName="disk full test " + methodName + " with unlimited disk space autoCommit="+ autoCommit;
+          if (debug)           testName="disk full test " + methodName + " with unlimited disk space";
         }
         if (debug)         System.out.println("\ncycle: " + testName);
         dir.setMaxSizeInBytes(thisDiskFree);
@@ -129,17 +128,6 @@
           }
         }
         _TestUtil.syncConcurrentMerges(writer);
-        if (autoCommit) {
-          String successStr;
-          if (success) {
-            successStr="success";
-          }
- else {
-            successStr="IOException";
-          }
-          String message=methodName + " failed to delete unreferenced files after " + successStr+ " ("+ diskFree+ " bytes)";
-          assertNoUnreferencedFiles(dir,message);
-        }
         if (debug) {
           System.out.println("  now test readers");
         }
@@ -152,11 +140,8 @@
         }
         int result=reader.docFreq(searchTerm);
         if (success) {
-          if (autoCommit && result != END_COUNT) {
-            fail(testName + ": method did not throw exception but docFreq('aaa') is " + result+ " instead of expected "+ END_COUNT);
-          }
- else           if (!autoCommit && result != START_COUNT) {
-            fail(testName + ": method did not throw exception but docFreq('aaa') is " + result+ " instead of expected "+ START_COUNT+ " [autoCommit = false]");
+          if (result != START_COUNT) {
+            fail(testName + ": method did not throw exception but docFreq('aaa') is " + result+ " instead of expected "+ START_COUNT);
           }
         }
  else {
