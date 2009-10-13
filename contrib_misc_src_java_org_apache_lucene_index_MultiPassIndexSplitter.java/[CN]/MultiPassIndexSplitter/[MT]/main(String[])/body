@@ -1,0 +1,70 @@
+{
+  if (args.length < 5) {
+    System.err.println("Usage: MultiPassIndexSplitter -out <outputDir> -num <numParts> [-seq] <inputIndex1> [<inputIndex2 ...]");
+    System.err.println("\tinputIndex\tpath to input index, multiple values are ok");
+    System.err.println("\t-out ouputDir\tpath to output directory to contain partial indexes");
+    System.err.println("\t-num numParts\tnumber of parts to produce");
+    System.err.println("\t-seq\tsequential docid-range split (default is round-robin)");
+    System.exit(-1);
+  }
+  ArrayList<IndexReader> indexes=new ArrayList<IndexReader>();
+  String outDir=null;
+  int numParts=-1;
+  boolean seq=false;
+  for (int i=0; i < args.length; i++) {
+    if (args[i].equals("-out")) {
+      outDir=args[++i];
+    }
+ else     if (args[i].equals("-num")) {
+      numParts=Integer.parseInt(args[++i]);
+    }
+ else     if (args[i].equals("-seq")) {
+      seq=true;
+    }
+ else {
+      File file=new File(args[i]);
+      if (!file.exists() || !file.isDirectory()) {
+        System.err.println("Invalid input path - skipping: " + file);
+        continue;
+      }
+      Directory dir=FSDirectory.open(new File(args[i]));
+      try {
+        if (!IndexReader.indexExists(dir)) {
+          System.err.println("Invalid input index - skipping: " + file);
+          continue;
+        }
+      }
+ catch (      Exception e) {
+        System.err.println("Invalid input index - skipping: " + file);
+        continue;
+      }
+      indexes.add(IndexReader.open(dir,true));
+    }
+  }
+  if (outDir == null) {
+    throw new Exception("Required argument missing: -out outputDir");
+  }
+  if (numParts < 2) {
+    throw new Exception("Invalid value of required argument: -num numParts");
+  }
+  if (indexes.size() == 0) {
+    throw new Exception("No input indexes to process");
+  }
+  File out=new File(outDir);
+  if (!out.mkdirs()) {
+    throw new Exception("Can't create output directory: " + out);
+  }
+  Directory[] dirs=new Directory[numParts];
+  for (int i=0; i < numParts; i++) {
+    dirs[i]=FSDirectory.open(new File(out,"part-" + i));
+  }
+  MultiPassIndexSplitter splitter=new MultiPassIndexSplitter();
+  IndexReader input;
+  if (indexes.size() == 1) {
+    input=indexes.get(0);
+  }
+ else {
+    input=new MultiReader((IndexReader[])indexes.toArray(new IndexReader[indexes.size()]));
+  }
+  splitter.split(input,dirs,seq);
+}

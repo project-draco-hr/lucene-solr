@@ -1,0 +1,39 @@
+{
+  if (outputs == null || outputs.length < 2) {
+    throw new IOException("Invalid number of outputs.");
+  }
+  if (input == null || input.numDocs() < 2) {
+    throw new IOException("Not enough documents for splitting");
+  }
+  int numParts=outputs.length;
+  input=new FakeDeleteIndexReader(input);
+  int maxDoc=input.maxDoc();
+  int partLen=maxDoc / numParts;
+  for (int i=0; i < numParts; i++) {
+    input.undeleteAll();
+    if (seq) {
+      int lo=partLen * i;
+      int hi=lo + partLen;
+      for (int j=0; j < lo; j++) {
+        input.deleteDocument(j);
+      }
+      if (i < numParts - 1) {
+        for (int j=hi; j < maxDoc; j++) {
+          input.deleteDocument(j);
+        }
+      }
+    }
+ else {
+      for (int j=0; j < maxDoc; j++) {
+        if ((j + numParts - i) % numParts != 0) {
+          input.deleteDocument(j);
+        }
+      }
+    }
+    IndexWriter w=new IndexWriter(outputs[i],new WhitespaceAnalyzer(),true,MaxFieldLength.UNLIMITED);
+    System.err.println("Writing part " + (i + 1) + " ...");
+    w.addIndexes(new IndexReader[]{input});
+    w.close();
+  }
+  System.err.println("Done.");
+}
