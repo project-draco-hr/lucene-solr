@@ -1,0 +1,45 @@
+{
+  Set<Term> nonWeightedTerms=new HashSet<Term>();
+  spanQuery.extractTerms(nonWeightedTerms);
+  Set<String> fieldNames;
+  if (fieldName == null) {
+    fieldNames=new HashSet<String>();
+    for (    final Term queryTerm : nonWeightedTerms) {
+      fieldNames.add(queryTerm.field());
+    }
+  }
+ else {
+    fieldNames=new HashSet<String>(1);
+    fieldNames.add(fieldName);
+  }
+  if (defaultField != null) {
+    fieldNames.add(defaultField);
+  }
+  List<PositionSpan> spanPositions=new ArrayList<PositionSpan>();
+  for (  final String field : fieldNames) {
+    IndexReader reader=getReaderForField(field);
+    Spans spans=spanQuery.getSpans(reader);
+    while (spans.next()) {
+      spanPositions.add(new PositionSpan(spans.start(),spans.end() - 1));
+    }
+  }
+  if (spanPositions.size() == 0) {
+    return;
+  }
+  for (  final Term queryTerm : nonWeightedTerms) {
+    if (fieldNameComparator(queryTerm.field())) {
+      WeightedSpanTerm weightedSpanTerm=terms.get(queryTerm.text());
+      if (weightedSpanTerm == null) {
+        weightedSpanTerm=new WeightedSpanTerm(spanQuery.getBoost(),queryTerm.text());
+        weightedSpanTerm.addPositionSpans(spanPositions);
+        weightedSpanTerm.positionSensitive=true;
+        terms.put(queryTerm.text(),weightedSpanTerm);
+      }
+ else {
+        if (spanPositions.size() > 0) {
+          weightedSpanTerm.addPositionSpans(spanPositions);
+        }
+      }
+    }
+  }
+}
