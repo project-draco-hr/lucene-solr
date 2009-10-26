@@ -1,0 +1,56 @@
+{
+  int count=0;
+  final int TEXT_PLAIN_LENGTH=TEXT_TO_COMPRESS.length() * 2;
+  final int BINARY_PLAIN_LENGTH=BINARY_TO_COMPRESS.length;
+  IndexReader reader=IndexReader.open(dir,true);
+  try {
+    List<IndexReader> readers=new ArrayList<IndexReader>();
+    ReaderUtil.gatherSubReaders(readers,reader);
+    for (    IndexReader ir : readers) {
+      final FieldsReader fr=((SegmentReader)ir).getFieldsReader();
+      assertTrue("for a 2.9 index, FieldsReader.canReadRawDocs() must be false and other way round for a trunk index",shouldStillBeCompressed != fr.canReadRawDocs());
+    }
+    for (int i=0; i < reader.maxDoc(); i++) {
+      if (!reader.isDeleted(i)) {
+        Document d=reader.document(i);
+        if (d.get("content3") != null)         continue;
+        count++;
+        Fieldable compressed=d.getFieldable("compressed");
+        if (Integer.parseInt(d.get("id")) % 2 == 0) {
+          assertFalse(compressed.isBinary());
+          assertEquals("incorrectly decompressed string",TEXT_TO_COMPRESS,compressed.stringValue());
+        }
+ else {
+          assertTrue(compressed.isBinary());
+          assertTrue("incorrectly decompressed binary",Arrays.equals(BINARY_TO_COMPRESS,compressed.getBinaryValue()));
+        }
+      }
+    }
+    for (int i=0; i < reader.maxDoc(); i++) {
+      if (!reader.isDeleted(i)) {
+        Document d=reader.document(i,new FieldSelector(){
+          public FieldSelectorResult accept(          String fieldName){
+            return ("compressed".equals(fieldName)) ? FieldSelectorResult.SIZE : FieldSelectorResult.LOAD;
+          }
+        }
+);
+        if (d.get("content3") != null)         continue;
+        count++;
+        final DataInputStream ds=new DataInputStream(new ByteArrayInputStream(d.getFieldable("compressed").getBinaryValue()));
+        final int actualSize=ds.readInt();
+        ds.close();
+        final int compressedSize=Integer.parseInt(d.get("compressedSize"));
+        final boolean binary=Integer.parseInt(d.get("id")) % 2 > 0;
+        final int shouldSize=shouldStillBeCompressed ? compressedSize : (binary ? BINARY_PLAIN_LENGTH : TEXT_PLAIN_LENGTH);
+        assertEquals("size incorrect",shouldSize,actualSize);
+        if (!shouldStillBeCompressed) {
+          assertFalse("uncompressed field should have another size than recorded in index",compressedSize == actualSize);
+        }
+      }
+    }
+    assertEquals("correct number of tests",34 * 2,count);
+  }
+  finally {
+    reader.close();
+  }
+}
