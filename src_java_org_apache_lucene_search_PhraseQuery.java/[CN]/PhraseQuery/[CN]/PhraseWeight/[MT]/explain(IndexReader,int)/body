@@ -25,12 +25,16 @@
   result.addDetail(queryExpl);
   Explanation fieldExpl=new Explanation();
   fieldExpl.setDescription("fieldWeight(" + field + ":"+ query+ " in "+ doc+ "), product of:");
-  Scorer scorer=scorer(reader,true,false);
+  PhraseScorer scorer=(PhraseScorer)scorer(reader,true,false);
   if (scorer == null) {
     return new Explanation(0.0f,"no matching docs");
   }
-  Explanation tfExpl=scorer.explain(doc);
-  fieldExpl.addDetail(tfExpl);
+  Explanation tfExplanation=new Explanation();
+  int d=scorer.advance(doc);
+  float phraseFreq=(d == doc) ? scorer.currentFreq() : 0.0f;
+  tfExplanation.setValue(similarity.tf(phraseFreq));
+  tfExplanation.setDescription("tf(phraseFreq=" + phraseFreq + ")");
+  fieldExpl.addDetail(tfExplanation);
   fieldExpl.addDetail(idfExpl);
   Explanation fieldNormExpl=new Explanation();
   byte[] fieldNorms=reader.norms(field);
@@ -38,7 +42,7 @@
   fieldNormExpl.setValue(fieldNorm);
   fieldNormExpl.setDescription("fieldNorm(field=" + field + ", doc="+ doc+ ")");
   fieldExpl.addDetail(fieldNormExpl);
-  fieldExpl.setValue(tfExpl.getValue() * idfExpl.getValue() * fieldNormExpl.getValue());
+  fieldExpl.setValue(tfExplanation.getValue() * idfExpl.getValue() * fieldNormExpl.getValue());
   result.addDetail(fieldExpl);
   result.setValue(queryExpl.getValue() * fieldExpl.getValue());
   if (queryExpl.getValue() == 1.0f)   return fieldExpl;
