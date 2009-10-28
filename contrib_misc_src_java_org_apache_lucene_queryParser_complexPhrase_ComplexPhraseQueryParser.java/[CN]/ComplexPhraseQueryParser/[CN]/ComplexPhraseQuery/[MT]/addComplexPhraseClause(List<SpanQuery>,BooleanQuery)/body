@@ -1,0 +1,37 @@
+{
+  ArrayList<SpanQuery> ors=new ArrayList<SpanQuery>();
+  ArrayList<SpanQuery> nots=new ArrayList<SpanQuery>();
+  BooleanClause[] bclauses=qc.getClauses();
+  for (int i=0; i < bclauses.length; i++) {
+    Query childQuery=bclauses[i].getQuery();
+    ArrayList<SpanQuery> chosenList=ors;
+    if (bclauses[i].getOccur() == BooleanClause.Occur.MUST_NOT) {
+      chosenList=nots;
+    }
+    if (childQuery instanceof TermQuery) {
+      TermQuery tq=(TermQuery)childQuery;
+      SpanTermQuery stq=new SpanTermQuery(tq.getTerm());
+      stq.setBoost(tq.getBoost());
+      chosenList.add(stq);
+    }
+ else     if (childQuery instanceof BooleanQuery) {
+      BooleanQuery cbq=(BooleanQuery)childQuery;
+      addComplexPhraseClause(chosenList,cbq);
+    }
+ else {
+      throw new IllegalArgumentException("Unknown query type:" + childQuery.getClass().getName());
+    }
+  }
+  if (ors.size() == 0) {
+    return;
+  }
+  SpanOrQuery soq=new SpanOrQuery(ors.toArray(new SpanQuery[ors.size()]));
+  if (nots.size() == 0) {
+    spanClauses.add(soq);
+  }
+ else {
+    SpanOrQuery snqs=new SpanOrQuery(nots.toArray(new SpanQuery[nots.size()]));
+    SpanNotQuery snq=new SpanNotQuery(soq,snqs);
+    spanClauses.add(snq);
+  }
+}
