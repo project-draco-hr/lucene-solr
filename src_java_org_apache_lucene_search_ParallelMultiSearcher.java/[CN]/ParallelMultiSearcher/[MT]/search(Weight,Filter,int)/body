@@ -1,29 +1,13 @@
 {
-  HitQueue hq=new HitQueue(nDocs,false);
-  int totalHits=0;
-  MultiSearcherThread[] msta=new MultiSearcherThread[searchables.length];
+  final HitQueue hq=new HitQueue(nDocs,false);
+  final Lock lock=new ReentrantLock();
+  @SuppressWarnings("unchecked") final Future<TopDocs>[] searchThreads=new Future[searchables.length];
   for (int i=0; i < searchables.length; i++) {
-    msta[i]=new MultiSearcherThread(searchables[i],weight,filter,nDocs,hq,i,starts,"MultiSearcher thread #" + (i + 1));
-    msta[i].start();
+    searchThreads[i]=executor.submit(new MultiSearcherCallableNoSort(lock,searchables[i],weight,filter,nDocs,hq,i,starts));
   }
-  for (int i=0; i < searchables.length; i++) {
-    try {
-      msta[i].join();
-    }
- catch (    InterruptedException ie) {
-      Thread.currentThread().interrupt();
-      throw new RuntimeException(ie);
-    }
-    IOException ioe=msta[i].getIOException();
-    if (ioe == null) {
-      totalHits+=msta[i].hits();
-    }
- else {
-      throw ioe;
-    }
-  }
-  ScoreDoc[] scoreDocs=new ScoreDoc[hq.size()];
+  final CountTotalHits<TopDocs> func=new CountTotalHits<TopDocs>();
+  foreach(func,Arrays.asList(searchThreads));
+  final ScoreDoc[] scoreDocs=new ScoreDoc[hq.size()];
   for (int i=hq.size() - 1; i >= 0; i--)   scoreDocs[i]=hq.pop();
-  float maxScore=(totalHits == 0) ? Float.NEGATIVE_INFINITY : scoreDocs[0].score;
-  return new TopDocs(totalHits,scoreDocs,maxScore);
+  return new TopDocs(func.totalHits,scoreDocs,func.maxScore);
 }

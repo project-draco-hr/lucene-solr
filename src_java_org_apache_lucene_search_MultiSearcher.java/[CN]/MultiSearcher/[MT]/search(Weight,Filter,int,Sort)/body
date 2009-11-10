@@ -1,29 +1,13 @@
 {
-  FieldDocSortedHitQueue hq=null;
+  FieldDocSortedHitQueue hq=new FieldDocSortedHitQueue(n);
   int totalHits=0;
   float maxScore=Float.NEGATIVE_INFINITY;
   for (int i=0; i < searchables.length; i++) {
-    TopFieldDocs docs=searchables[i].search(weight,filter,n,sort);
-    for (int j=0; j < docs.fields.length; j++) {
-      if (docs.fields[j].getType() == SortField.DOC) {
-        for (int j2=0; j2 < docs.scoreDocs.length; j2++) {
-          FieldDoc fd=(FieldDoc)docs.scoreDocs[j2];
-          fd.fields[j]=Integer.valueOf(((Integer)fd.fields[j]).intValue() + starts[i]);
-        }
-        break;
-      }
-    }
-    if (hq == null)     hq=new FieldDocSortedHitQueue(docs.fields,n);
+    final TopFieldDocs docs=new MultiSearcherCallableWithSort(DummyConcurrentLock.INSTANCE,searchables[i],weight,filter,n,hq,sort,i,starts).call();
     totalHits+=docs.totalHits;
     maxScore=Math.max(maxScore,docs.getMaxScore());
-    ScoreDoc[] scoreDocs=docs.scoreDocs;
-    for (int j=0; j < scoreDocs.length; j++) {
-      ScoreDoc scoreDoc=scoreDocs[j];
-      scoreDoc.doc+=starts[i];
-      if (scoreDoc == hq.insertWithOverflow((FieldDoc)scoreDoc))       break;
-    }
   }
-  ScoreDoc[] scoreDocs=new ScoreDoc[hq.size()];
+  final ScoreDoc[] scoreDocs=new ScoreDoc[hq.size()];
   for (int i=hq.size() - 1; i >= 0; i--)   scoreDocs[i]=hq.pop();
   return new TopFieldDocs(totalHits,scoreDocs,hq.getFields(),maxScore);
 }
