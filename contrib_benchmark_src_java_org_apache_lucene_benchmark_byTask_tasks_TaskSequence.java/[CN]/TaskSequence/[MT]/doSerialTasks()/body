@@ -6,18 +6,43 @@
   int count=0;
   final long t0=System.currentTimeMillis();
   final long runTime=(long)(runTimeSec * 1000);
+  List<RunBackgroundTask> bgTasks=null;
   for (int k=0; fixedTime || (repetitions == REPEAT_EXHAUST && !exhausted) || k < repetitions; k++) {
-    for (int l=0; l < tasksArray.length; l++)     try {
-      final PerfTask task=tasksArray[l];
-      count+=task.runAndMaybeStats(letChildReport);
-      if (anyExhaustibleTasks)       updateExhausted(task);
+    if (stopNow) {
+      break;
     }
- catch (    NoMoreDataException e) {
-      exhausted=true;
+    for (int l=0; l < tasksArray.length; l++) {
+      final PerfTask task=tasksArray[l];
+      if (task.getRunInBackground()) {
+        if (bgTasks == null) {
+          bgTasks=new ArrayList<RunBackgroundTask>();
+        }
+        RunBackgroundTask bgTask=new RunBackgroundTask(task,letChildReport);
+        bgTask.start();
+        bgTasks.add(bgTask);
+      }
+ else {
+        try {
+          count+=task.runAndMaybeStats(letChildReport);
+          if (anyExhaustibleTasks)           updateExhausted(task);
+        }
+ catch (        NoMoreDataException e) {
+          exhausted=true;
+        }
+      }
     }
     if (fixedTime && System.currentTimeMillis() - t0 > runTime) {
       repetitions=k + 1;
       break;
+    }
+  }
+  if (bgTasks != null) {
+    for (    RunBackgroundTask bgTask : bgTasks) {
+      bgTask.stopNow();
+    }
+    for (    RunBackgroundTask bgTask : bgTasks) {
+      bgTask.join();
+      count+=bgTask.getCount();
     }
   }
   return count;

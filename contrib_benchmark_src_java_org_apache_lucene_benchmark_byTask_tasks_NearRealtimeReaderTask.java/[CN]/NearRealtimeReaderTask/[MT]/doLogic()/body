@@ -1,8 +1,30 @@
 {
-  if (t == null) {
-    IndexWriter w=getRunData().getIndexWriter();
-    t=new ReopenThread(w,pauseSec);
-    t.start();
+  final PerfRunData runData=getRunData();
+  IndexWriter w=runData.getIndexWriter();
+  if (w == null) {
+    throw new RuntimeException("please open the writer before invoking NearRealtimeReader");
   }
-  return 1;
+  if (runData.getIndexReader() != null) {
+    throw new RuntimeException("please close the existing reader before invoking NearRealtimeReader");
+  }
+  long t=System.currentTimeMillis();
+  IndexReader r=w.getReader();
+  runData.setIndexReader(r);
+  r.decRef();
+  int reopenCount=0;
+  while (!stopNow) {
+    long waitForMsec=(long)(pauseMSec - (System.currentTimeMillis() - t));
+    if (waitForMsec > 0) {
+      Thread.sleep(waitForMsec);
+    }
+    t=System.currentTimeMillis();
+    final IndexReader newReader=r.reopen();
+    if (r != newReader) {
+      runData.setIndexReader(newReader);
+      newReader.decRef();
+      r=newReader;
+      reopenCount++;
+    }
+  }
+  return reopenCount;
 }
