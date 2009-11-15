@@ -1,22 +1,40 @@
 {
   RAMDirectory dir=new RAMDirectory();
   IndexWriter w=null;
+  boolean first=true;
   while (!finish) {
     try {
-      w=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
-      ((ConcurrentMergeScheduler)w.getMergeScheduler()).setSuppressExceptions();
-      w.setMaxBufferedDocs(2);
-      w.setMergeFactor(2);
-      Document doc=new Document();
-      doc.add(new Field("field","some text contents",Field.Store.YES,Field.Index.ANALYZED));
-      for (int i=0; i < 100; i++) {
-        w.addDocument(doc);
-        w.commit();
+      while (true) {
+        if (w != null) {
+          w.close();
+        }
+        w=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
+        if (!first && !allowInterrupt) {
+          allowInterrupt=true;
+        }
+        w.setMaxBufferedDocs(2);
+        w.setMergeFactor(2);
+        Document doc=new Document();
+        doc.add(new Field("field","some text contents",Field.Store.YES,Field.Index.ANALYZED));
+        for (int i=0; i < 100; i++) {
+          w.addDocument(doc);
+          w.commit();
+        }
+        w.close();
+        _TestUtil.checkIndex(dir);
+        IndexReader.open(dir,true).close();
+        if (first && !allowInterrupt) {
+          allowInterrupt=true;
+          first=false;
+        }
       }
     }
  catch (    ThreadInterruptedException re) {
       Throwable e=re.getCause();
       assertTrue(e instanceof InterruptedException);
+      if (finish) {
+        break;
+      }
       if (false && interrupted()) {
         System.out.println("FAILED; InterruptedException hit but thread.interrupted() was true");
         e.printStackTrace(System.out);
@@ -29,22 +47,6 @@ catch (    Throwable t) {
       t.printStackTrace(System.out);
       failed=true;
       break;
-    }
- finally {
-      try {
-synchronized (this) {
-          interrupted();
-          if (w != null) {
-            w.close();
-          }
-        }
-      }
- catch (      Throwable t) {
-        System.out.println("FAILED; unexpected exception during close");
-        t.printStackTrace(System.out);
-        failed=true;
-        break;
-      }
     }
   }
   if (!failed) {
