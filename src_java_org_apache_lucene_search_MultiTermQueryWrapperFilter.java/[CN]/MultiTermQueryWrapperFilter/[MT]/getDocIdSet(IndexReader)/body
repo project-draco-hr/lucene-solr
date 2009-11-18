@@ -3,12 +3,34 @@
   try {
     if (enumerator.term() == null)     return DocIdSet.EMPTY_DOCIDSET;
     final OpenBitSet bitSet=new OpenBitSet(reader.maxDoc());
-    new TermGenerator(){
-      @Override public void handleDoc(      int doc){
-        bitSet.set(doc);
+    final int[] docs=new int[32];
+    final int[] freqs=new int[32];
+    TermDocs termDocs=reader.termDocs();
+    try {
+      int termCount=0;
+      do {
+        Term term=enumerator.term();
+        if (term == null)         break;
+        termCount++;
+        termDocs.seek(term);
+        while (true) {
+          final int count=termDocs.read(docs,freqs);
+          if (count != 0) {
+            for (int i=0; i < count; i++) {
+              bitSet.set(docs[i]);
+            }
+          }
+ else {
+            break;
+          }
+        }
       }
+ while (enumerator.next());
+      query.incTotalNumberOfTerms(termCount);
     }
-.generate(reader,enumerator);
+  finally {
+      termDocs.close();
+    }
     return bitSet;
   }
   finally {
