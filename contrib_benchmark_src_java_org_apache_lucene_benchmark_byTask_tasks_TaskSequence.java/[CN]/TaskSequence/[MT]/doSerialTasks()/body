@@ -4,9 +4,9 @@
   }
   initTasksArray();
   int count=0;
-  final long t0=System.currentTimeMillis();
   final long runTime=(long)(runTimeSec * 1000);
   List<RunBackgroundTask> bgTasks=null;
+  final long t0=System.currentTimeMillis();
   for (int k=0; fixedTime || (repetitions == REPEAT_EXHAUST && !exhausted) || k < repetitions; k++) {
     if (stopNow) {
       break;
@@ -18,12 +18,21 @@
           bgTasks=new ArrayList<RunBackgroundTask>();
         }
         RunBackgroundTask bgTask=new RunBackgroundTask(task,letChildReport);
+        bgTask.setPriority(getBackgroundDeltaPriority() + Thread.currentThread().getPriority());
         bgTask.start();
         bgTasks.add(bgTask);
       }
  else {
         try {
-          count+=task.runAndMaybeStats(letChildReport);
+          final int inc=task.runAndMaybeStats(letChildReport);
+          count+=inc;
+          if (countsByTime != null) {
+            final int slot=(int)((System.currentTimeMillis() - t0) / logByTimeMsec);
+            if (slot >= countsByTime.length) {
+              countsByTime=ArrayUtil.grow(countsByTime,1 + slot);
+            }
+            countsByTime[slot]+=inc;
+          }
           if (anyExhaustibleTasks)           updateExhausted(task);
         }
  catch (        NoMoreDataException e) {
@@ -44,6 +53,9 @@
       bgTask.join();
       count+=bgTask.getCount();
     }
+  }
+  if (countsByTime != null) {
+    getRunData().getPoints().getCurrentStats().setCountsByTime(countsByTime,logByTimeMsec);
   }
   return count;
 }
