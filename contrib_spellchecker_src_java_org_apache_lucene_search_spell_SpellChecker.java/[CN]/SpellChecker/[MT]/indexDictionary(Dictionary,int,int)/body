@@ -1,22 +1,25 @@
 {
-  IndexWriter writer=new IndexWriter(spellIndex,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
-  writer.setMergeFactor(mergeFactor);
-  writer.setRAMBufferSizeMB(ramMB);
-  Iterator<String> iter=dict.getWordsIterator();
-  while (iter.hasNext()) {
-    String word=iter.next();
-    int len=word.length();
-    if (len < 3) {
-      continue;
+synchronized (modifyCurrentIndexLock) {
+    ensureOpen();
+    final Directory dir=this.spellIndex;
+    final IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
+    writer.setMergeFactor(mergeFactor);
+    writer.setRAMBufferSizeMB(ramMB);
+    Iterator<String> iter=dict.getWordsIterator();
+    while (iter.hasNext()) {
+      String word=iter.next();
+      int len=word.length();
+      if (len < 3) {
+        continue;
+      }
+      if (this.exist(word)) {
+        continue;
+      }
+      Document doc=createDocument(word,getMin(len),getMax(len));
+      writer.addDocument(doc);
     }
-    if (this.exist(word)) {
-      continue;
-    }
-    Document doc=createDocument(word,getMin(len),getMax(len));
-    writer.addDocument(doc);
+    writer.optimize();
+    writer.close();
+    swapSearcher(dir);
   }
-  writer.optimize();
-  writer.close();
-  searcher.close();
-  searcher=new IndexSearcher(this.spellIndex,true);
 }
