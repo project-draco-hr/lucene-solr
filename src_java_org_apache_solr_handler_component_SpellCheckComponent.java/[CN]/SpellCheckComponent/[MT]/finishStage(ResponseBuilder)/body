@@ -1,0 +1,109 @@
+{
+  SolrParams params=rb.req.getParams();
+  if (!params.getBool(COMPONENT_NAME,false) || rb.stage != ResponseBuilder.STAGE_GET_FIELDS)   return;
+  boolean extendedResults=params.getBool(SPELLCHECK_EXTENDED_RESULTS,false);
+  boolean collate=params.getBool(SPELLCHECK_COLLATE,false);
+  String origQuery=params.get(SPELLCHECK_Q);
+  if (origQuery == null) {
+    origQuery=rb.getQueryString();
+    if (origQuery == null) {
+      origQuery=params.get(CommonParams.Q);
+    }
+  }
+  int count=rb.req.getParams().getInt(SPELLCHECK_COUNT,1);
+  float min=0.5f;
+  StringDistance sd=null;
+  int numSug=Math.max(count,AbstractLuceneSpellChecker.DEFAULT_SUGGESTION_COUNT);
+  SolrSpellChecker checker=getSpellChecker(rb.req.getParams());
+  if (checker instanceof AbstractLuceneSpellChecker) {
+    AbstractLuceneSpellChecker spellChecker=(AbstractLuceneSpellChecker)checker;
+    min=spellChecker.getAccuracy();
+    sd=spellChecker.getStringDistance();
+  }
+  if (sd == null)   sd=new LevensteinDistance();
+  Collection<Token> tokens=null;
+  try {
+    tokens=getTokens(origQuery,checker.getQueryAnalyzer());
+  }
+ catch (  IOException e) {
+    LOG.error("Could not get tokens (this should never happen)",e);
+  }
+  Map<String,SpellCheckResponse.Suggestion> origVsSuggestion=new HashMap<String,SpellCheckResponse.Suggestion>();
+  Map<String,Integer> origVsFreq=new HashMap<String,Integer>();
+  Map<String,HashSet<String>> origVsSuggested=new LinkedHashMap<String,HashSet<String>>();
+  Map<String,SuggestWord> suggestedVsWord=new HashMap<String,SuggestWord>();
+  for (  ShardRequest sreq : rb.finished) {
+    for (    ShardResponse srsp : sreq.responses) {
+      NamedList nl=(NamedList)srsp.getSolrResponse().getResponse().get("spellcheck");
+      LOG.info(srsp.getShard() + " " + nl);
+      if (nl != null) {
+        SpellCheckResponse spellCheckResp=new SpellCheckResponse(nl);
+        for (        SpellCheckResponse.Suggestion suggestion : spellCheckResp.getSuggestions()) {
+          origVsSuggestion.put(suggestion.getToken(),suggestion);
+          HashSet<String> suggested=origVsSuggested.get(suggestion.getToken());
+          if (suggested == null) {
+            suggested=new HashSet<String>();
+            origVsSuggested.put(suggestion.getToken(),suggested);
+          }
+          int origFreq=0;
+          Integer o=origVsFreq.get(suggestion.getToken());
+          if (o != null)           origFreq+=o;
+          origFreq+=suggestion.getOriginalFrequency();
+          origVsFreq.put(suggestion.getToken(),origFreq);
+          for (int i=0; i < suggestion.getNumFound(); i++) {
+            String alternative=suggestion.getAlternatives().get(i);
+            suggested.add(alternative);
+            SuggestWord sug=suggestedVsWord.get(alternative);
+            if (sug == null) {
+              sug=new SuggestWord();
+              suggestedVsWord.put(alternative,sug);
+            }
+            sug.string=alternative;
+            if (suggestion.getAlternativeFrequencies() != null && suggestion.getAlternativeFrequencies().size() > 0) {
+              Integer freq=suggestion.getAlternativeFrequencies().get(i);
+              if (freq != null)               sug.freq+=freq;
+            }
+          }
+        }
+      }
+    }
+  }
+  SpellingResult result=new SpellingResult(tokens);
+  for (  Map.Entry<String,HashSet<String>> entry : origVsSuggested.entrySet()) {
+    String original=entry.getKey();
+    HashSet<String> suggested=entry.getValue();
+    SuggestWordQueue sugQueue=new SuggestWordQueue(numSug);
+    for (    String suggestion : suggested) {
+      SuggestWord sug=suggestedVsWord.get(suggestion);
+      sug.score=sd.getDistance(original,sug.string);
+      if (sug.score < min)       continue;
+      sugQueue.insertWithOverflow(sug);
+      if (sugQueue.size() == numSug) {
+        min=((SuggestWord)sugQueue.top()).score;
+      }
+    }
+    SpellCheckResponse.Suggestion suggestion=origVsSuggestion.get(original);
+    Token token=new Token();
+    token.setTermText(original);
+    token.setStartOffset(suggestion.getStartOffset());
+    token.setEndOffset(suggestion.getEndOffset());
+    SuggestWord[] suggestions=new SuggestWord[Math.min(count,sugQueue.size())];
+    for (int k=0; k < sugQueue.size() - count; k++)     sugQueue.pop();
+    for (int k=Math.min(count,sugQueue.size()) - 1; k >= 0; k--) {
+      suggestions[k]=((SuggestWord)sugQueue.pop());
+    }
+    if (extendedResults) {
+      Integer o=origVsFreq.get(original);
+      if (o != null)       result.add(token,o);
+      for (      SuggestWord word : suggestions)       result.add(token,word.string,word.freq);
+    }
+ else {
+      List<String> words=new ArrayList<String>(sugQueue.size());
+      for (      SuggestWord word : suggestions)       words.add(word.string);
+      result.add(token,words);
+    }
+  }
+  NamedList response=new SimpleOrderedMap();
+  response.add("suggestions",toNamedList(result,origQuery,extendedResults,collate));
+  rb.rsp.add("spellcheck",response);
+}
