@@ -1,35 +1,26 @@
 {
-  final Collection<Term> pendingTerms=new ArrayList<Term>();
   final int docCountCutoff=(int)((docCountPercent / 100.) * reader.maxDoc());
   final int termCountLimit=Math.min(BooleanQuery.getMaxClauseCount(),termCountCutoff);
-  int docVisitCount=0;
-  FilteredTermEnum enumerator=query.getEnum(reader);
-  try {
-    while (true) {
-      Term t=enumerator.term();
-      if (t != null) {
-        pendingTerms.add(t);
-        docVisitCount+=reader.docFreq(t);
-      }
-      if (pendingTerms.size() >= termCountLimit || docVisitCount >= docCountCutoff) {
-        Query result=new ConstantScoreQuery(new MultiTermQueryWrapperFilter<MultiTermQuery>(query));
-        result.setBoost(query.getBoost());
-        return result;
-      }
- else       if (!enumerator.next()) {
-        BooleanQuery bq=new BooleanQuery(true);
-        for (        final Term term : pendingTerms) {
-          TermQuery tq=new TermQuery(term);
-          bq.add(tq,BooleanClause.Occur.SHOULD);
-        }
-        Query result=new ConstantScoreQuery(new QueryWrapperFilter(bq));
-        result.setBoost(query.getBoost());
-        query.incTotalNumberOfTerms(pendingTerms.size());
-        return result;
-      }
-    }
+  final CutOffTermCollector col=new CutOffTermCollector(reader,docCountCutoff,termCountLimit);
+  collectTerms(reader,query,col);
+  if (col.hasCutOff) {
+    return CONSTANT_SCORE_FILTER_REWRITE.rewrite(reader,query);
   }
-  finally {
-    enumerator.close();
+ else {
+    final Query result;
+    if (col.pendingTerms.isEmpty()) {
+      result=new BooleanQuery(true);
+    }
+ else {
+      BooleanQuery bq=new BooleanQuery(true);
+      for (      Term term : col.pendingTerms) {
+        TermQuery tq=new TermQuery(term);
+        bq.add(tq,BooleanClause.Occur.SHOULD);
+      }
+      result=new ConstantScoreQuery(new QueryWrapperFilter(bq));
+      result.setBoost(query.getBoost());
+    }
+    query.incTotalNumberOfTerms(col.pendingTerms.size());
+    return result;
   }
 }
