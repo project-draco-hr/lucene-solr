@@ -1,0 +1,69 @@
+{
+  boolean score=false;
+  if (sort != null && order != null) {
+    boolean top=true;
+    if ("desc".equals(order) || "top".equals(order)) {
+      top=true;
+    }
+ else     if ("asc".equals(order) || "bottom".equals(order)) {
+      top=false;
+    }
+ else {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown sort order: " + order);
+    }
+    if ("score".equals(sort)) {
+      score=true;
+      if (top) {
+        lst.add(SortField.FIELD_SCORE);
+      }
+ else {
+        lst.add(new SortField(null,SortField.SCORE,true));
+      }
+    }
+ else     if (DOCID.equals(sort)) {
+      lst.add(new SortField(null,SortField.DOC,top));
+    }
+ else {
+      SchemaField f=null;
+      try {
+        f=schema.getField(sort);
+      }
+ catch (      SolrException e) {
+      }
+      if (f != null) {
+        if (f == null || !f.indexed()) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"can not sort on unindexed field: " + sort);
+        }
+        lst.add(f.getType().getSortField(f,top));
+      }
+ else {
+        FunctionQuery query=null;
+        try {
+          query=parseFunction(sort,schema);
+          if (query != null) {
+            ValueSource valueSource=query.getValueSource();
+            try {
+              lst.add(valueSource.getSortField(top));
+            }
+ catch (            IOException e) {
+              throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"error getting the sort for this function: " + sort,e);
+            }
+          }
+ else {
+            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"can not sort on undefined function: " + sort);
+          }
+        }
+ catch (        ParseException e) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"can not sort on undefined field or function: " + sort,e);
+        }
+      }
+    }
+  }
+ else   if (sort == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Must declare sort field or function");
+  }
+ else   if (order == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Missing sort order: ");
+  }
+  return score;
+}
