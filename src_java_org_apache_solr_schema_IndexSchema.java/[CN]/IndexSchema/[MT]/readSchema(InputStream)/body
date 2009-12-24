@@ -4,6 +4,7 @@
     Config schemaConf=new Config(loader,"schema",is,"/schema/");
     Document document=schemaConf.getDocument();
     final XPath xpath=schemaConf.getXPath();
+    final List<SchemaAware> schemaAware=new ArrayList<SchemaAware>();
     Node nd=(Node)xpath.evaluate("/schema/@name",document,XPathConstants.NODE);
     if (nd == null) {
       log.warn("schema has no name!");
@@ -29,6 +30,9 @@
         if (analyzer != null) {
           ft.setAnalyzer(analyzer);
           ft.setQueryAnalyzer(queryAnalyzer);
+        }
+        if (ft instanceof SchemaAware) {
+          schemaAware.add((SchemaAware)ft);
         }
         return ft;
       }
@@ -83,21 +87,7 @@
         }
       }
  else       if (node.getNodeName().equals("dynamicField")) {
-        boolean dup=false;
-        for (        DynamicField df : dFields) {
-          if (df.regex.equals(f.name)) {
-            String msg="[schema.xml] Duplicate DynamicField definition for '" + f.getName() + "' ignoring: "+ f.toString();
-            Throwable t=new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg);
-            SolrException.logOnce(log,null,t);
-            SolrConfig.severeErrors.add(t);
-            dup=true;
-            break;
-          }
-        }
-        if (!dup) {
-          dFields.add(new DynamicField(f));
-          log.debug("dynamic field defined: " + f);
-        }
+        addDynamicField(dFields,f);
       }
  else {
         throw new RuntimeException("Unknown field type");
@@ -131,6 +121,9 @@
           }
         }
 ;
+      }
+      if (similarityFactory instanceof SchemaAware) {
+        schemaAware.add((SchemaAware)similarityFactory);
       }
       log.debug("using similarity factory" + similarityFactory.getClass().getName());
     }
@@ -201,6 +194,9 @@
       if (entry.getValue() > 1 && !entry.getKey().multiValued()) {
         log.warn("Field " + entry.getKey().name + " is not multivalued "+ "and destination for multiple copyFields ("+ entry.getValue()+ ")");
       }
+    }
+    for (    SchemaAware aware : schemaAware) {
+      aware.inform(this);
     }
   }
  catch (  SolrException e) {
