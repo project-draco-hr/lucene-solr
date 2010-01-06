@@ -1,0 +1,35 @@
+{
+  final String TEXT="the fox did not jump";
+  final Directory directory=new RAMDirectory();
+  final IndexWriter indexWriter=new IndexWriter(directory,new WhitespaceAnalyzer(),MaxFieldLength.UNLIMITED);
+  try {
+    final Document document=new Document();
+    document.add(new Field(FIELD,new TokenStreamSparse(),TermVector.WITH_POSITIONS_OFFSETS));
+    indexWriter.addDocument(document);
+  }
+  finally {
+    indexWriter.close();
+  }
+  final IndexReader indexReader=IndexReader.open(directory,true);
+  try {
+    assertEquals(1,indexReader.numDocs());
+    final IndexSearcher indexSearcher=new IndexSearcher(indexReader);
+    try {
+      final PhraseQuery phraseQuery=new PhraseQuery();
+      phraseQuery.add(new Term(FIELD,"did"));
+      phraseQuery.add(new Term(FIELD,"jump"));
+      phraseQuery.setSlop(0);
+      TopDocs hits=indexSearcher.search(phraseQuery,1);
+      assertEquals(0,hits.totalHits);
+      final Highlighter highlighter=new Highlighter(new SimpleHTMLFormatter(),new SimpleHTMLEncoder(),new QueryScorer(phraseQuery));
+      final TokenStream tokenStream=TokenSources.getTokenStream((TermPositionVector)indexReader.getTermFreqVector(0,FIELD),false);
+      assertEquals(highlighter.getBestFragment(new TokenStreamSparse(),TEXT),highlighter.getBestFragment(tokenStream,TEXT));
+    }
+  finally {
+      indexSearcher.close();
+    }
+  }
+  finally {
+    indexReader.close();
+  }
+}

@@ -1,0 +1,50 @@
+{
+  final String TEXT="the fox jumped";
+  final Directory directory=new RAMDirectory();
+  final IndexWriter indexWriter=new IndexWriter(directory,new WhitespaceAnalyzer(),MaxFieldLength.UNLIMITED);
+  try {
+    final Document document=new Document();
+    document.add(new Field(FIELD,new TokenStreamConcurrent(),TermVector.WITH_POSITIONS_OFFSETS));
+    indexWriter.addDocument(document);
+  }
+  finally {
+    indexWriter.close();
+  }
+  final IndexReader indexReader=IndexReader.open(directory,true);
+  try {
+    assertEquals(1,indexReader.numDocs());
+    final IndexSearcher indexSearcher=new IndexSearcher(indexReader);
+    try {
+      final Query phraseQuery=new SpanNearQuery(new SpanQuery[]{new SpanTermQuery(new Term(FIELD,"fox")),new SpanTermQuery(new Term(FIELD,"jumped"))},0,true);
+      final OpenBitSet bitset=new OpenBitSet();
+      indexSearcher.search(phraseQuery,new Collector(){
+        private int baseDoc;
+        public boolean acceptsDocsOutOfOrder(){
+          return true;
+        }
+        public void collect(        int i) throws IOException {
+          bitset.set(this.baseDoc + i);
+        }
+        public void setNextReader(        IndexReader indexreader,        int i) throws IOException {
+          this.baseDoc=i;
+        }
+        public void setScorer(        org.apache.lucene.search.Scorer scorer) throws IOException {
+        }
+      }
+);
+      assertEquals(1,bitset.cardinality());
+      final Highlighter highlighter=new Highlighter(new SimpleHTMLFormatter(),new SimpleHTMLEncoder(),new QueryScorer(phraseQuery));
+      for (int position=bitset.nextSetBit(0); position >= 0; position=bitset.nextSetBit(position + 1)) {
+        assertEquals(0,position);
+        final TokenStream tokenStream=TokenSources.getTokenStream((TermPositionVector)indexReader.getTermFreqVector(position,FIELD),false);
+        assertEquals(highlighter.getBestFragment(new TokenStreamConcurrent(),TEXT),highlighter.getBestFragment(tokenStream,TEXT));
+      }
+    }
+  finally {
+      indexSearcher.close();
+    }
+  }
+  finally {
+    indexReader.close();
+  }
+}
