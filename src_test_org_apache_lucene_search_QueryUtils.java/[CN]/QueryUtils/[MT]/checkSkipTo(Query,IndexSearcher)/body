@@ -8,6 +8,7 @@
     final int opidx[]={0};
     final int lastDoc[]={-1};
     final float maxDiff=1e-5f;
+    final IndexReader lastReader[]={null};
     s.search(q,new Collector(){
       private Scorer sc;
       private IndexReader reader;
@@ -40,7 +41,16 @@
           throw new RuntimeException(e);
         }
       }
-      @Override public void setNextReader(      IndexReader reader,      int docBase){
+      @Override public void setNextReader(      IndexReader reader,      int docBase) throws IOException {
+        if (lastReader[0] != null) {
+          final IndexReader previousReader=lastReader[0];
+          Weight w=q.weight(new IndexSearcher(previousReader));
+          Scorer scorer=w.scorer(previousReader,true,false);
+          if (scorer != null) {
+            boolean more=scorer.advance(lastDoc[0] + 1) != DocIdSetIterator.NO_MORE_DOCS;
+            Assert.assertFalse("query's last doc was " + lastDoc[0] + " but skipTo("+ (lastDoc[0] + 1)+ ") got to "+ scorer.docID(),more);
+          }
+        }
         this.reader=reader;
         this.scorer=null;
         lastDoc[0]=-1;
@@ -50,16 +60,13 @@
       }
     }
 );
-    List<IndexReader> readerList=new ArrayList<IndexReader>();
-    ReaderUtil.gatherSubReaders(readerList,s.getIndexReader());
-    IndexReader[] readers=readerList.toArray(new IndexReader[0]);
-    for (int i=0; i < readers.length; i++) {
-      IndexReader reader=readers[i];
-      Weight w=q.weight(s);
-      Scorer scorer=w.scorer(reader,true,false);
+    if (lastReader[0] != null) {
+      final IndexReader previousReader=lastReader[0];
+      Weight w=q.weight(new IndexSearcher(previousReader));
+      Scorer scorer=w.scorer(previousReader,true,false);
       if (scorer != null) {
         boolean more=scorer.advance(lastDoc[0] + 1) != DocIdSetIterator.NO_MORE_DOCS;
-        if (more && lastDoc[0] != -1)         Assert.assertFalse("query's last doc was " + lastDoc[0] + " but skipTo("+ (lastDoc[0] + 1)+ ") got to "+ scorer.docID(),more);
+        Assert.assertFalse("query's last doc was " + lastDoc[0] + " but skipTo("+ (lastDoc[0] + 1)+ ") got to "+ scorer.docID(),more);
       }
     }
   }
