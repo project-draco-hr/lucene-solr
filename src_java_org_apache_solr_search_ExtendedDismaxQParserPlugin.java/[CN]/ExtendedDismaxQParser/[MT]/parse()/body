@@ -4,6 +4,7 @@
   SolrParams solrParams=localParams == null ? params : new DefaultSolrParams(localParams,params);
   queryFields=U.parseFieldBoosts(solrParams.getParams(DMP.QF));
   Map<String,Float> phraseFields=U.parseFieldBoosts(solrParams.getParams(DMP.PF));
+  Map<String,Float> phraseFields2=U.parseFieldBoosts(solrParams.getParams("pf2"));
   Map<String,Float> phraseFields3=U.parseFieldBoosts(solrParams.getParams("pf3"));
   float tiebreaker=solrParams.getFloat(DMP.TIE,0.0f);
   int pslop=solrParams.getInt(DMP.PS,0);
@@ -142,7 +143,7 @@
       }
     }
     query.add(parsedUserQuery,BooleanClause.Occur.MUST);
-    if (phraseFields.size() > 0 || phraseFields3.size() > 0) {
+    if (phraseFields.size() > 0 || phraseFields2.size() > 0 || phraseFields3.size() > 0) {
       List<Clause> normalClauses=new ArrayList<Clause>(clauses.size());
       for (      Clause clause : clauses) {
         if (clause.field != null || clause.isPhrase)         continue;
@@ -152,54 +153,9 @@
         }
         normalClauses.add(clause);
       }
-      Map<String,Float> pf=phraseFields;
-      if (normalClauses.size() >= 2 && pf.size() > 0) {
-        StringBuilder sb=new StringBuilder();
-        for (int i=0; i < normalClauses.size() - 1; i++) {
-          sb.append('"');
-          sb.append(normalClauses.get(i).val);
-          sb.append(' ');
-          sb.append(normalClauses.get(i + 1).val);
-          sb.append('"');
-          sb.append(' ');
-        }
-        String userPhraseQuery=sb.toString();
-        ExtendedSolrQueryParser pp=new ExtendedSolrQueryParser(this,IMPOSSIBLE_FIELD_NAME);
-        pp.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,pf);
-        pp.setPhraseSlop(pslop);
-        pp.makeDismax=false;
-        pp.setRemoveStopFilter(true);
-        pp.minClauseSize=2;
-        Query phrase=pp.parse(userPhraseQuery);
-        if (phrase != null) {
-          query.add(phrase,BooleanClause.Occur.SHOULD);
-        }
-      }
-      pf=phraseFields3;
-      if (normalClauses.size() >= 3 && pf.size() > 0) {
-        StringBuilder sb=new StringBuilder();
-        for (int i=0; i < normalClauses.size() - 2; i++) {
-          sb.append('"');
-          sb.append(normalClauses.get(i).val);
-          sb.append(' ');
-          sb.append(normalClauses.get(i + 1).val);
-          sb.append(' ');
-          sb.append(normalClauses.get(i + 2).val);
-          sb.append('"');
-          sb.append(' ');
-        }
-        String userPhraseQuery=sb.toString();
-        ExtendedSolrQueryParser pp=new ExtendedSolrQueryParser(this,IMPOSSIBLE_FIELD_NAME);
-        pp.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,pf);
-        pp.setPhraseSlop(pslop);
-        pp.makeDismax=false;
-        pp.setRemoveStopFilter(true);
-        pp.minClauseSize=2;
-        Query phrase=pp.parse(userPhraseQuery);
-        if (phrase != null) {
-          query.add(phrase,BooleanClause.Occur.SHOULD);
-        }
-      }
+      addShingledPhraseQueries(query,normalClauses,phraseFields,0,tiebreaker,pslop);
+      addShingledPhraseQueries(query,normalClauses,phraseFields2,2,tiebreaker,pslop);
+      addShingledPhraseQueries(query,normalClauses,phraseFields3,3,tiebreaker,pslop);
     }
   }
   boostParams=solrParams.getParams(DMP.BQ);
@@ -213,21 +169,8 @@
     }
   }
   if (null != boostQueries) {
-    if (1 == boostQueries.size() && 1 == boostParams.length) {
-      Query f=boostQueries.get(0);
-      if (1.0f == f.getBoost() && f instanceof BooleanQuery) {
-        for (        Object c : ((BooleanQuery)f).clauses()) {
-          query.add((BooleanClause)c);
-        }
-      }
- else {
-        query.add(f,BooleanClause.Occur.SHOULD);
-      }
-    }
- else {
-      for (      Query f : boostQueries) {
-        query.add(f,BooleanClause.Occur.SHOULD);
-      }
+    for (    Query f : boostQueries) {
+      query.add(f,BooleanClause.Occur.SHOULD);
     }
   }
   String[] boostFuncs=solrParams.getParams(DMP.BF);
