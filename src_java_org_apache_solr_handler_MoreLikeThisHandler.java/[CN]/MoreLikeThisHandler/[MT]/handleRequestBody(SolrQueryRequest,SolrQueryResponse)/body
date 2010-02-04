@@ -1,51 +1,58 @@
 {
   SolrParams params=req.getParams();
   SolrIndexSearcher searcher=req.getSearcher();
-  Reader reader=null;
-  String q=params.get(CommonParams.Q);
-  if (q == null || q.trim().length() < 1) {
-    Iterable<ContentStream> streams=req.getContentStreams();
-    if (streams != null) {
-      Iterator<ContentStream> iter=streams.iterator();
-      if (iter.hasNext()) {
-        reader=iter.next().getReader();
-      }
-      if (iter.hasNext()) {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MoreLikeThis does not support multiple ContentStreams");
-      }
-    }
-  }
   MoreLikeThisHelper mlt=new MoreLikeThisHelper(params,searcher);
   List<Query> filters=SolrPluginUtils.parseFilterQueries(req);
   TermStyle termStyle=TermStyle.get(params.get(MoreLikeThisParams.INTERESTING_TERMS));
   List<InterestingTerm> interesting=(termStyle == TermStyle.NONE) ? null : new ArrayList<InterestingTerm>(mlt.mlt.getMaxQueryTerms());
-  String fl=params.get(CommonParams.FL);
-  int flags=0;
-  if (fl != null) {
-    flags|=SolrPluginUtils.setReturnFields(fl,rsp);
-  }
-  int start=params.getInt(CommonParams.START,0);
-  int rows=params.getInt(CommonParams.ROWS,10);
   DocListAndSet mltDocs=null;
-  if (reader != null) {
-    mltDocs=mlt.getMoreLikeThis(reader,start,rows,filters,interesting,flags);
-  }
- else   if (q != null) {
-    boolean includeMatch=params.getBool(MoreLikeThisParams.MATCH_INCLUDE,true);
-    int matchOffset=params.getInt(MoreLikeThisParams.MATCH_OFFSET,0);
-    Query query=QueryParsing.parseQuery(q,params.get(CommonParams.DF),params,req.getSchema());
-    DocList match=searcher.getDocList(query,null,null,matchOffset,1,flags);
-    if (includeMatch) {
-      rsp.add("match",match);
+  String q=params.get(CommonParams.Q);
+  Reader reader=null;
+  try {
+    if (q == null || q.trim().length() < 1) {
+      Iterable<ContentStream> streams=req.getContentStreams();
+      if (streams != null) {
+        Iterator<ContentStream> iter=streams.iterator();
+        if (iter.hasNext()) {
+          reader=iter.next().getReader();
+        }
+        if (iter.hasNext()) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MoreLikeThis does not support multiple ContentStreams");
+        }
+      }
     }
-    DocIterator iterator=match.iterator();
-    if (iterator.hasNext()) {
-      int id=iterator.nextDoc();
-      mltDocs=mlt.getMoreLikeThis(id,start,rows,filters,interesting,flags);
+    String fl=params.get(CommonParams.FL);
+    int flags=0;
+    if (fl != null) {
+      flags|=SolrPluginUtils.setReturnFields(fl,rsp);
     }
-  }
+    int start=params.getInt(CommonParams.START,0);
+    int rows=params.getInt(CommonParams.ROWS,10);
+    if (reader != null) {
+      mltDocs=mlt.getMoreLikeThis(reader,start,rows,filters,interesting,flags);
+    }
+ else     if (q != null) {
+      boolean includeMatch=params.getBool(MoreLikeThisParams.MATCH_INCLUDE,true);
+      int matchOffset=params.getInt(MoreLikeThisParams.MATCH_OFFSET,0);
+      Query query=QueryParsing.parseQuery(q,params.get(CommonParams.DF),params,req.getSchema());
+      DocList match=searcher.getDocList(query,null,null,matchOffset,1,flags);
+      if (includeMatch) {
+        rsp.add("match",match);
+      }
+      DocIterator iterator=match.iterator();
+      if (iterator.hasNext()) {
+        int id=iterator.nextDoc();
+        mltDocs=mlt.getMoreLikeThis(id,start,rows,filters,interesting,flags);
+      }
+    }
  else {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MoreLikeThis requires either a query (?q=) or text to find similar documents.");
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MoreLikeThis requires either a query (?q=) or text to find similar documents.");
+    }
+  }
+  finally {
+    if (reader != null) {
+      reader.close();
+    }
   }
   if (mltDocs == null) {
     mltDocs=new DocListAndSet();

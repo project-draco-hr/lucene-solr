@@ -1,5 +1,6 @@
 {
   HttpMethod method=null;
+  InputStream is=null;
   SolrParams params=request.getParams();
   Collection<ContentStream> streams=requestWriter.getContentStreams(request);
   String path=requestWriter.getPath(request);
@@ -68,7 +69,13 @@
                     return c.getSize();
                   }
                   @Override protected void sendData(                  OutputStream out) throws IOException {
-                    IOUtils.copy(c.getReader(),out);
+                    Reader reader=c.getReader();
+                    try {
+                      IOUtils.copy(reader,out);
+                    }
+  finally {
+                      reader.close();
+                    }
                   }
                 }
 );
@@ -105,7 +112,8 @@
 );
             }
  else {
-              post.setRequestEntity(new InputStreamRequestEntity(contentStream[0].getStream(),contentStream[0].getContentType()));
+              is=contentStream[0].getStream();
+              post.setRequestEntity(new InputStreamRequestEntity(is,contentStream[0].getContentType()));
             }
             method=post;
           }
@@ -117,6 +125,9 @@
  catch (      NoHttpResponseException r) {
         method.releaseConnection();
         method=null;
+        if (is != null) {
+          is.close();
+        }
         if ((tries < 1)) {
           throw r;
         }
@@ -183,5 +194,8 @@ catch (  IOException e) {
   }
  finally {
     method.releaseConnection();
+    if (is != null) {
+      is.close();
+    }
   }
 }
