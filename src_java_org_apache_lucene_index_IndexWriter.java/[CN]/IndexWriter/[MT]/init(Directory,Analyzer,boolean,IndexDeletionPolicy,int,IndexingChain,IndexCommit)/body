@@ -1,0 +1,61 @@
+{
+  directory=d;
+  analyzer=a;
+  setMessageID(defaultInfoStream);
+  this.maxFieldLength=maxFieldLength;
+  if (indexingChain == null)   indexingChain=DocumentsWriter.DefaultIndexingChain;
+  if (create) {
+    directory.clearLock(WRITE_LOCK_NAME);
+  }
+  Lock writeLock=directory.makeLock(WRITE_LOCK_NAME);
+  if (!writeLock.obtain(writeLockTimeout))   throw new LockObtainFailedException("Index locked for write: " + writeLock);
+  this.writeLock=writeLock;
+  try {
+    if (create) {
+      boolean doCommit;
+      try {
+        segmentInfos.read(directory);
+        segmentInfos.clear();
+        doCommit=false;
+      }
+ catch (      IOException e) {
+        doCommit=true;
+      }
+      if (doCommit) {
+        segmentInfos.commit(directory);
+        synced.addAll(segmentInfos.files(directory,true));
+      }
+ else {
+        changeCount++;
+      }
+    }
+ else {
+      segmentInfos.read(directory);
+      if (commit != null) {
+        if (commit.getDirectory() != directory)         throw new IllegalArgumentException("IndexCommit's directory doesn't match my directory");
+        SegmentInfos oldInfos=new SegmentInfos();
+        oldInfos.read(directory,commit.getSegmentsFileName());
+        segmentInfos.replace(oldInfos);
+        changeCount++;
+        if (infoStream != null)         message("init: loaded commit \"" + commit.getSegmentsFileName() + "\"");
+      }
+      synced.addAll(segmentInfos.files(directory,true));
+    }
+    setRollbackSegmentInfos(segmentInfos);
+    docWriter=new DocumentsWriter(directory,this,indexingChain);
+    docWriter.setInfoStream(infoStream);
+    docWriter.setMaxFieldLength(maxFieldLength);
+    deleter=new IndexFileDeleter(directory,deletionPolicy == null ? new KeepOnlyLastCommitDeletionPolicy() : deletionPolicy,segmentInfos,infoStream,docWriter);
+    if (deleter.startingCommitDeleted)     changeCount++;
+    pushMaxBufferedDocs();
+    if (infoStream != null) {
+      message("init: create=" + create);
+      messageState();
+    }
+  }
+ catch (  IOException e) {
+    this.writeLock.release();
+    this.writeLock=null;
+    throw e;
+  }
+}
