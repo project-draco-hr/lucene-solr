@@ -4,14 +4,13 @@
   Field idField=new Field("id","",Field.Store.YES,Field.Index.NOT_ANALYZED);
   doc.add(idField);
   for (int pass=0; pass < 2; pass++) {
-    IndexWriter writer=new IndexWriter(directory,new WhitespaceAnalyzer(TEST_VERSION_CURRENT),true,IndexWriter.MaxFieldLength.UNLIMITED);
+    IndexWriterConfig conf=new IndexWriterConfig(TEST_VERSION_CURRENT).setOpenMode(OpenMode.CREATE).setMaxBufferedDocs(2);
+    if (pass == 2) {
+      conf.setMergeScheduler(new SerialMergeScheduler());
+    }
+    IndexWriter writer=new IndexWriter(directory,conf);
+    ((LogMergePolicy)writer.getMergePolicy()).setMergeFactor(100);
     for (int iter=0; iter < 10; iter++) {
-      MergeScheduler ms;
-      if (pass == 1)       ms=new ConcurrentMergeScheduler();
- else       ms=new SerialMergeScheduler();
-      writer.setMergeScheduler(ms);
-      writer.setMaxBufferedDocs(2);
-      writer.setMergeFactor(100);
       for (int j=0; j < 199; j++) {
         idField.setValue(Integer.toString(iter * 201 + j));
         writer.addDocument(doc);
@@ -21,7 +20,7 @@
         writer.deleteDocuments(new Term("id",Integer.toString(delID)));
         delID+=5;
       }
-      writer.setMergeFactor(2);
+      ((LogMergePolicy)writer.getMergePolicy()).setMergeFactor(2);
       final IndexWriter finalWriter=writer;
       final ArrayList<Throwable> failure=new ArrayList<Throwable>();
       Thread t1=new Thread(){
@@ -58,7 +57,7 @@ catch (              Throwable e) {
       t1.join();
       IndexReader reader=IndexReader.open(directory,true);
       reader.close();
-      writer=new IndexWriter(directory,new WhitespaceAnalyzer(TEST_VERSION_CURRENT),false,IndexWriter.MaxFieldLength.UNLIMITED);
+      writer=new IndexWriter(directory,new IndexWriterConfig(TEST_VERSION_CURRENT).setOpenMode(OpenMode.APPEND));
     }
     writer.close();
   }
