@@ -1,0 +1,53 @@
+{
+  String[] ALT_DOCS=new String[]{"jumpin jack flash","Sargent Peppers Lonely Hearts Club Band","Born to Run","Thunder Road","Londons Burning","A Horse with No Name","Sweet Caroline"};
+  IndexBasedSpellChecker checker=new IndexBasedSpellChecker();
+  NamedList spellchecker=new NamedList();
+  spellchecker.add("classname",IndexBasedSpellChecker.class.getName());
+  File tmpDir=new File(System.getProperty("java.io.tmpdir"));
+  File indexDir=new File(tmpDir,"spellingIdx" + new Date().getTime());
+  File altIndexDir=new File(tmpDir,"alternateIdx" + new Date().getTime());
+  IndexWriter iw=new IndexWriter(altIndexDir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.LIMITED);
+  for (int i=0; i < ALT_DOCS.length; i++) {
+    Document doc=new Document();
+    doc.add(new Field("title",ALT_DOCS[i],Field.Store.YES,Field.Index.TOKENIZED));
+    iw.addDocument(doc);
+  }
+  iw.optimize();
+  iw.close();
+  indexDir.mkdirs();
+  spellchecker.add(AbstractLuceneSpellChecker.INDEX_DIR,indexDir.getAbsolutePath());
+  spellchecker.add(AbstractLuceneSpellChecker.LOCATION,altIndexDir.getAbsolutePath());
+  spellchecker.add(IndexBasedSpellChecker.FIELD,"title");
+  spellchecker.add(AbstractLuceneSpellChecker.SPELLCHECKER_ARG_NAME,spellchecker);
+  SolrCore core=h.getCore();
+  String dictName=checker.init(spellchecker,core);
+  assertTrue(dictName + " is not equal to " + SolrSpellChecker.DEFAULT_DICTIONARY_NAME,dictName.equals(SolrSpellChecker.DEFAULT_DICTIONARY_NAME) == true);
+  RefCounted<SolrIndexSearcher> holder=core.getSearcher();
+  SolrIndexSearcher searcher=holder.get();
+  try {
+    checker.build(core,searcher);
+    IndexReader reader=searcher.getReader();
+    Collection<Token> tokens=queryConverter.convert("flesh");
+    SpellingResult result=checker.getSuggestions(tokens,reader,1,false,true);
+    assertTrue("result is null and it shouldn't be",result != null);
+    Map<String,Integer> suggestions=result.get(tokens.iterator().next());
+    assertTrue("flesh is null and it shouldn't be",suggestions != null);
+    assertTrue("flesh Size: " + suggestions.size() + " is not: "+ 1,suggestions.size() == 1);
+    Map.Entry<String,Integer> entry=suggestions.entrySet().iterator().next();
+    assertTrue(entry.getKey() + " is not equal to " + "flash",entry.getKey().equals("flash") == true);
+    assertTrue(entry.getValue() + " does not equal: " + 1,entry.getValue() == 1);
+    tokens=queryConverter.convert("super");
+    result=checker.getSuggestions(tokens,reader,1,false,true);
+    assertTrue("result is null and it shouldn't be",result != null);
+    suggestions=result.get(tokens.iterator().next());
+    assertTrue("suggestions is not null and it should be",suggestions == null);
+    tokens=queryConverter.convert("Caroline");
+    result=checker.getSuggestions(tokens,reader,1,false,true);
+    assertTrue("result is null and it shouldn't be",result != null);
+    suggestions=result.get(tokens.iterator().next());
+    assertTrue("suggestions is not null and it should be",suggestions == null);
+  }
+  finally {
+    holder.decref();
+  }
+}

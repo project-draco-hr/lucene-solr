@@ -1,0 +1,52 @@
+{
+  SolrParams params=rb.req.getParams();
+  if (!params.getBool(COMPONENT_NAME,false)) {
+    return;
+  }
+  NamedList termVectors=new NamedList();
+  rb.rsp.add(TERM_VECTORS,termVectors);
+  boolean termFreq=params.getBool(TermVectorParams.TF,false);
+  boolean positions=params.getBool(TermVectorParams.POSITIONS,false);
+  boolean offsets=params.getBool(TermVectorParams.OFFSETS,false);
+  boolean docFreq=params.getBool(TermVectorParams.DF,false);
+  boolean tfIdf=params.getBool(TermVectorParams.TF_IDF,false);
+  boolean all=params.getBool(TermVectorParams.ALL,false);
+  if (all == true) {
+    termFreq=true;
+    positions=true;
+    offsets=true;
+    docFreq=true;
+    tfIdf=true;
+  }
+  String[] fields=params.getParams(TermVectorParams.FIELDS);
+  if (fields == null) {
+    fields=params.getParams(CommonParams.FL);
+  }
+  DocListAndSet listAndSet=rb.getResults();
+  List<Integer> docIds=getInts(params.getParams(TermVectorParams.DOC_IDS));
+  Iterator<Integer> iter;
+  if (docIds != null && docIds.isEmpty() == false) {
+    iter=docIds.iterator();
+  }
+ else {
+    DocList list=listAndSet.docList;
+    iter=list.iterator();
+  }
+  SolrIndexSearcher searcher=rb.req.getSearcher();
+  IndexReader reader=searcher.getReader();
+  TVMapper mapper=new TVMapper(fields,reader,termFreq,positions,offsets,docFreq,tfIdf);
+  IndexSchema schema=rb.req.getSchema();
+  String uniqFieldName=schema.getUniqueKeyField().getName();
+  SetBasedFieldSelector fieldSelector=new SetBasedFieldSelector(Collections.singleton(uniqFieldName),Collections.emptySet());
+  while (iter.hasNext()) {
+    Integer docId=iter.next();
+    NamedList docNL=new NamedList();
+    termVectors.add("doc-" + docId,docNL);
+    mapper.docNL=docNL;
+    Document document=reader.document(docId,fieldSelector);
+    String uniqId=document.get(uniqFieldName);
+    docNL.add("uniqueKey",uniqId);
+    reader.getTermFreqVector(docId,mapper);
+  }
+  termVectors.add("uniqueKeyFieldName",uniqFieldName);
+}

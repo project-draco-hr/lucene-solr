@@ -1,0 +1,74 @@
+{
+  if (sortSpec == null || sortSpec.length() == 0)   return null;
+  char[] chars=sortSpec.toCharArray();
+  int i=0;
+  StringBuilder buffer=new StringBuilder(sortSpec.length());
+  String sort=null;
+  String order=null;
+  int functionDepth=0;
+  boolean score=true;
+  List<SortField> lst=new ArrayList<SortField>(5);
+  boolean needOrder=false;
+  while (i < chars.length) {
+    if (Character.isWhitespace(chars[i]) && functionDepth == 0) {
+      if (buffer.length() == 0) {
+      }
+ else {
+        if (needOrder == false) {
+          sort=buffer.toString().trim();
+          buffer.setLength(0);
+          needOrder=true;
+        }
+ else {
+          order=buffer.toString().trim();
+          buffer.setLength(0);
+          needOrder=false;
+        }
+      }
+    }
+ else     if (chars[i] == '(' && functionDepth >= 0) {
+      buffer.append(chars[i]);
+      functionDepth++;
+    }
+ else     if (chars[i] == ')' && functionDepth > 0) {
+      buffer.append(chars[i]);
+      functionDepth--;
+    }
+ else     if (chars[i] == ',' && functionDepth == 0) {
+      if (needOrder == true && buffer.length() > 0) {
+        order=buffer.toString().trim();
+        buffer.setLength(0);
+        needOrder=false;
+      }
+      score=processSort(schema,sort,order,lst);
+      sort=null;
+      order=null;
+      buffer.setLength(0);
+    }
+ else     if (chars[i] == ',' && functionDepth > 0) {
+      buffer.append(chars[i]);
+    }
+ else {
+      buffer.append(chars[i]);
+    }
+    i++;
+  }
+  if (buffer.length() > 0 && needOrder) {
+    order=buffer.toString().trim();
+    buffer.setLength(0);
+    needOrder=false;
+  }
+  if (functionDepth != 0) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unable to parse sort spec, mismatched parentheses: " + sortSpec);
+  }
+  if (buffer.length() > 0) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unable to parse sort spec: " + sortSpec);
+  }
+  if (needOrder == false && sort != null && sort.equals("") == false && order != null && order.equals("") == false) {
+    score=processSort(schema,sort,order,lst);
+  }
+  if (lst.size() == 1 && score == true && lst.get(0).getReverse() == false) {
+    return null;
+  }
+  return new Sort((SortField[])lst.toArray(new SortField[lst.size()]));
+}

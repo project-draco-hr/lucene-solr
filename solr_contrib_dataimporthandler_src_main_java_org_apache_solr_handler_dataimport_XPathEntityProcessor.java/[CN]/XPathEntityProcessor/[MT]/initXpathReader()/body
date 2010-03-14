@@ -1,0 +1,62 @@
+{
+  useSolrAddXml=Boolean.parseBoolean(context.getEntityAttribute(USE_SOLR_ADD_SCHEMA));
+  streamRows=Boolean.parseBoolean(context.getEntityAttribute(STREAM));
+  if (context.getResolvedEntityAttribute("batchSize") != null) {
+    blockingQueueSize=Integer.parseInt(context.getEntityAttribute("batchSize"));
+  }
+  if (context.getResolvedEntityAttribute("readTimeOut") != null) {
+    blockingQueueTimeOut=Integer.parseInt(context.getEntityAttribute("readTimeOut"));
+  }
+  String xslt=context.getEntityAttribute(XSL);
+  if (xslt != null) {
+    xslt=context.replaceTokens(xslt);
+    try {
+      Source xsltSource=new StreamSource(xslt);
+      TransformerFactory transFact=TransformerFactory.newInstance();
+      xslTransformer=transFact.newTransformer(xsltSource);
+      LOG.info("Using xslTransformer: " + xslTransformer.getClass().getName());
+    }
+ catch (    Exception e) {
+      throw new DataImportHandlerException(SEVERE,"Error initializing XSL ",e);
+    }
+  }
+  if (useSolrAddXml) {
+    xpathReader=new XPathRecordReader("/add/doc");
+    xpathReader.addField("name","/add/doc/field/@name",true);
+    xpathReader.addField("value","/add/doc/field",true);
+  }
+ else {
+    String forEachXpath=context.getEntityAttribute(FOR_EACH);
+    if (forEachXpath == null)     throw new DataImportHandlerException(SEVERE,"Entity : " + context.getEntityAttribute("name") + " must have a 'forEach' attribute");
+    try {
+      xpathReader=new XPathRecordReader(forEachXpath);
+      for (      Map<String,String> field : context.getAllEntityFields()) {
+        if (field.get(XPATH) == null)         continue;
+        int flags=0;
+        if ("true".equals(field.get("flatten"))) {
+          flags=XPathRecordReader.FLATTEN;
+        }
+        String xpath=field.get(XPATH);
+        xpath=context.replaceTokens(xpath);
+        xpathReader.addField(field.get(DataImporter.COLUMN),xpath,Boolean.parseBoolean(field.get(DataImporter.MULTI_VALUED)),flags);
+      }
+    }
+ catch (    RuntimeException e) {
+      throw new DataImportHandlerException(SEVERE,"Exception while reading xpaths for fields",e);
+    }
+  }
+  String url=context.getEntityAttribute(URL);
+  List<String> l=url == null ? Collections.EMPTY_LIST : TemplateString.getVariables(url);
+  for (  String s : l) {
+    if (s.startsWith(entityName + ".")) {
+      if (placeHolderVariables == null)       placeHolderVariables=new ArrayList<String>();
+      placeHolderVariables.add(s.substring(entityName.length() + 1));
+    }
+  }
+  for (  Map<String,String> fld : context.getAllEntityFields()) {
+    if (fld.get(COMMON_FIELD) != null && "true".equals(fld.get(COMMON_FIELD))) {
+      if (commonFields == null)       commonFields=new ArrayList<String>();
+      commonFields.add(fld.get(DataImporter.COLUMN));
+    }
+  }
+}

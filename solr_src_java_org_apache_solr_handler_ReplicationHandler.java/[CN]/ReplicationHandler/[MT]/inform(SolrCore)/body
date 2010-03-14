@@ -1,0 +1,96 @@
+{
+  this.core=core;
+  registerFileStreamResponseWriter();
+  registerCloseHook();
+  NamedList slave=(NamedList)initArgs.get("slave");
+  boolean enableSlave=slave != null && (null == slave.get("enable") || "true".equals(slave.get("enable")));
+  if (enableSlave) {
+    tempSnapPuller=snapPuller=new SnapPuller(slave,this,core);
+    isSlave=true;
+  }
+  NamedList master=(NamedList)initArgs.get("master");
+  boolean enableMaster=master != null && (null == master.get("enable") || "true".equals(master.get("enable")));
+  if (enableMaster) {
+    includeConfFiles=(String)master.get(CONF_FILES);
+    if (includeConfFiles != null && includeConfFiles.trim().length() > 0) {
+      List<String> files=Arrays.asList(includeConfFiles.split(","));
+      for (      String file : files) {
+        if (file.trim().length() == 0)         continue;
+        String[] strs=file.split(":");
+        confFileNameAlias.add(strs[0],strs.length > 1 ? strs[1] : null);
+      }
+      LOG.info("Replication enabled for following config files: " + includeConfFiles);
+    }
+    List backup=master.getAll("backupAfter");
+    boolean backupOnCommit=backup.contains("commit");
+    boolean backupOnOptimize=backup.contains("optimize");
+    List replicateAfter=master.getAll(REPLICATE_AFTER);
+    replicateOnCommit=replicateAfter.contains("commit");
+    replicateOnOptimize=replicateAfter.contains("optimize");
+    if (replicateOnOptimize && !replicateOnCommit) {
+      IndexDeletionPolicyWrapper wrapper=core.getDeletionPolicy();
+      IndexDeletionPolicy policy=wrapper == null ? null : wrapper.getWrappedDeletionPolicy();
+      if (policy instanceof SolrDeletionPolicy) {
+        SolrDeletionPolicy solrPolicy=(SolrDeletionPolicy)policy;
+        if (solrPolicy.getMaxOptimizedCommitsToKeep() < 1) {
+          solrPolicy.setMaxOptimizedCommitsToKeep(1);
+        }
+      }
+ else {
+        LOG.warn("Replication can't call setMaxOptimizedCommitsToKeep on " + policy);
+      }
+    }
+    if (replicateOnOptimize || backupOnOptimize) {
+      core.getUpdateHandler().registerOptimizeCallback(getEventListener(backupOnOptimize,replicateOnOptimize));
+    }
+    if (replicateOnCommit || backupOnCommit) {
+      replicateOnCommit=true;
+      core.getUpdateHandler().registerCommitCallback(getEventListener(backupOnCommit,replicateOnCommit));
+    }
+    if (replicateAfter.contains("startup")) {
+      replicateOnStart=true;
+      RefCounted<SolrIndexSearcher> s=core.getNewestSearcher(false);
+      try {
+        IndexReader reader=s == null ? null : s.get().getReader();
+        if (reader != null && reader.getIndexCommit() != null && reader.getIndexCommit().getGeneration() != 1L) {
+          try {
+            if (!replicateOnCommit && replicateOnOptimize) {
+              Collection<IndexCommit> commits=IndexReader.listCommits(reader.directory());
+              for (              IndexCommit ic : commits) {
+                if (ic.isOptimized()) {
+                  if (indexCommitPoint == null || indexCommitPoint.getVersion() < ic.getVersion())                   indexCommitPoint=ic;
+                }
+              }
+            }
+ else {
+              indexCommitPoint=reader.getIndexCommit();
+            }
+          }
+  finally {
+            if (indexCommitPoint != null) {
+              core.getDeletionPolicy().saveCommitPoint(indexCommitPoint.getVersion());
+            }
+          }
+        }
+        if (core.getUpdateHandler() instanceof DirectUpdateHandler2) {
+          ((DirectUpdateHandler2)core.getUpdateHandler()).forceOpenWriter();
+        }
+ else {
+          LOG.warn("The update handler being used is not an instance or sub-class of DirectUpdateHandler2. " + "Replicate on Startup cannot work.");
+        }
+      }
+ catch (      IOException e) {
+        LOG.warn("Unable to get IndexCommit on startup",e);
+      }
+ finally {
+        if (s != null)         s.decref();
+      }
+    }
+    String reserve=(String)master.get(RESERVE);
+    if (reserve != null && !reserve.trim().equals("")) {
+      reserveCommitDuration=SnapPuller.readInterval(reserve);
+    }
+    LOG.info("Commits will be reserved for  " + reserveCommitDuration);
+    isMaster=true;
+  }
+}

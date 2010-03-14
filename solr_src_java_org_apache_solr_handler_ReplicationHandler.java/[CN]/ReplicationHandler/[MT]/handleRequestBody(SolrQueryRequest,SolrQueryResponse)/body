@@ -1,0 +1,96 @@
+{
+  rsp.setHttpCaching(false);
+  final SolrParams solrParams=req.getParams();
+  String command=solrParams.get(COMMAND);
+  if (command == null) {
+    rsp.add(STATUS,OK_STATUS);
+    rsp.add("message","No command");
+    return;
+  }
+  if (command.equals(CMD_INDEX_VERSION)) {
+    IndexCommit commitPoint=indexCommitPoint;
+    if (commitPoint != null && replicationEnabled.get()) {
+      core.getDeletionPolicy().setReserveDuration(commitPoint.getVersion(),reserveCommitDuration);
+      rsp.add(CMD_INDEX_VERSION,commitPoint.getVersion());
+      rsp.add(GENERATION,commitPoint.getGeneration());
+    }
+ else {
+      rsp.add(CMD_INDEX_VERSION,0L);
+      rsp.add(GENERATION,0L);
+    }
+  }
+ else   if (command.equals(CMD_GET_FILE)) {
+    getFileStream(solrParams,rsp);
+  }
+ else   if (command.equals(CMD_GET_FILE_LIST)) {
+    getFileList(solrParams,rsp);
+  }
+ else   if (command.equalsIgnoreCase(CMD_BACKUP)) {
+    doSnapShoot(new ModifiableSolrParams(solrParams),rsp,req);
+    rsp.add(STATUS,OK_STATUS);
+  }
+ else   if (command.equalsIgnoreCase(CMD_FETCH_INDEX)) {
+    String masterUrl=solrParams.get(MASTER_URL);
+    if (!isSlave && masterUrl == null) {
+      rsp.add(STATUS,ERR_STATUS);
+      rsp.add("message","No slave configured or no 'masterUrl' Specified");
+      return;
+    }
+    final SolrParams paramsCopy=new ModifiableSolrParams(solrParams);
+    new Thread(){
+      public void run(){
+        doFetch(paramsCopy);
+      }
+    }
+.start();
+    rsp.add(STATUS,OK_STATUS);
+  }
+ else   if (command.equalsIgnoreCase(CMD_DISABLE_POLL)) {
+    if (snapPuller != null) {
+      snapPuller.disablePoll();
+      rsp.add(STATUS,OK_STATUS);
+    }
+ else {
+      rsp.add(STATUS,ERR_STATUS);
+      rsp.add("message","No slave configured");
+    }
+  }
+ else   if (command.equalsIgnoreCase(CMD_ENABLE_POLL)) {
+    if (snapPuller != null) {
+      snapPuller.enablePoll();
+      rsp.add(STATUS,OK_STATUS);
+    }
+ else {
+      rsp.add(STATUS,ERR_STATUS);
+      rsp.add("message","No slave configured");
+    }
+  }
+ else   if (command.equalsIgnoreCase(CMD_ABORT_FETCH)) {
+    if (snapPuller != null) {
+      snapPuller.abortPull();
+      rsp.add(STATUS,OK_STATUS);
+    }
+ else {
+      rsp.add(STATUS,ERR_STATUS);
+      rsp.add("message","No slave configured");
+    }
+  }
+ else   if (command.equals(CMD_FILE_CHECKSUM)) {
+    getFileChecksum(solrParams,rsp);
+  }
+ else   if (command.equals(CMD_SHOW_COMMITS)) {
+    rsp.add(CMD_SHOW_COMMITS,getCommits());
+  }
+ else   if (command.equals(CMD_DETAILS)) {
+    rsp.add(CMD_DETAILS,getReplicationDetails(solrParams.getBool("slave",true)));
+    RequestHandlerUtils.addExperimentalFormatWarning(rsp);
+  }
+ else   if (CMD_ENABLE_REPL.equalsIgnoreCase(command)) {
+    replicationEnabled.set(true);
+    rsp.add(STATUS,OK_STATUS);
+  }
+ else   if (CMD_DISABLE_REPL.equalsIgnoreCase(command)) {
+    replicationEnabled.set(false);
+    rsp.add(STATUS,OK_STATUS);
+  }
+}

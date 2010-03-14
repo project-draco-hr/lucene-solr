@@ -1,0 +1,32 @@
+{
+  for (int i=0; i < 10; i++) {
+    assertU(adoc("id",String.valueOf(i),"tdate","1995-12-31T23:" + (i < 10 ? "0" + i : i) + ":59.999Z"));
+  }
+  assertU(commit());
+  SolrQueryRequest req=req("q","*:*","fq","tdate:[1995-12-31T23:00:59.999Z TO 1995-12-31T23:04:59.999Z]");
+  assertQ("Range filter must match only 5 documents",req,"//*[@numFound='5']");
+  assertQ("Range filter tint:[1995-12-31T23:00:59.999Z to *] must match 10 documents",req("q","*:*","fq","tdate:[1995-12-31T23:00:59.999Z TO *]"),"//*[@numFound='10']");
+  assertQ("Range filter tint:[* to 1995-12-31T23:09:59.999Z] must match 10 documents",req("q","*:*","fq","tdate:[* TO 1995-12-31T23:09:59.999Z]"),"//*[@numFound='10']");
+  assertQ("Range filter tint:[* to *] must match 10 documents",req("q","*:*","fq","tdate:[* TO *]"),"//*[@numFound='10']");
+  SimpleDateFormat format=new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'");
+  format.setTimeZone(TimeZone.getTimeZone("UTC"));
+  assertU(delQ("*:*"));
+  DateMathParser dmp=new DateMathParser(DateField.UTC,Locale.US);
+  String largestDate="";
+  for (int i=0; i < 10; i++) {
+    String d=format.format(i == 0 ? dmp.parseMath("/DAY") : dmp.parseMath("/DAY+" + i + "DAYS"));
+    assertU(adoc("id",String.valueOf(i),"tdate",d));
+    if (i == 9)     largestDate=d;
+  }
+  assertU(commit());
+  assertQ("Range filter must match only 10 documents",req("q","*:*","fq","tdate:[* TO *]"),"//*[@numFound='10']");
+  req=req("q","*:*","fq","tdate:[NOW/DAY TO NOW/DAY+5DAYS]");
+  assertQ("Range filter must match only 6 documents",req,"//*[@numFound='6']");
+  assertU(adoc("id","11","tdate","1995-12-31T23:59:59.999Z"));
+  assertU(commit());
+  assertQ("Term query must match only 1 document",req("q","tdate:1995-12-31T23\\:59\\:59.999Z"),"//*[@numFound='1']");
+  assertQ("Term query must match only 1 document",req("q","*:*","fq","tdate:1995-12-31T23\\:59\\:59.999Z"),"//*[@numFound='1']");
+  assertQ("Sort descending does not work correctly on tdate fields",req("q","*:*","sort","tdate desc"),"//*[@numFound='11']","//date[@name='tdate'][.='" + largestDate + "']");
+  assertQ("Sort ascending does not work correctly on tdate fields",req("q","*:*","sort","tdate asc"),"//*[@numFound='11']","//date[@name='tdate'][.='1995-12-31T23:59:59.999Z']");
+  assertQ("Function queries does not work correctly on tdate fields",req("q","_val_:\"sum(tdate,1.0)\""),"//*[@numFound='11']","//date[@name='tdate'][.='" + largestDate + "']");
+}

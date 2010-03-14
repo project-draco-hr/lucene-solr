@@ -1,0 +1,70 @@
+{
+  SolrQueryRequest req=rb.req;
+  SolrParams params=req.getParams();
+  if (!params.getBool(ENABLE,true)) {
+    return;
+  }
+  boolean force=params.getBool(FORCE_ELEVATION,forceElevation);
+  Query query=rb.getQuery();
+  String qstr=rb.getQueryString();
+  if (query == null || qstr == null) {
+    return;
+  }
+  qstr=getAnalyzedQuery(qstr);
+  IndexReader reader=req.getSearcher().getReader();
+  ElevationObj booster=null;
+  try {
+    booster=getElevationMap(reader,req.getCore()).get(qstr);
+  }
+ catch (  Exception ex) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error loading elevation",ex);
+  }
+  if (booster != null) {
+    BooleanQuery newq=new BooleanQuery(true);
+    newq.add(query,BooleanClause.Occur.SHOULD);
+    newq.add(booster.include,BooleanClause.Occur.SHOULD);
+    if (booster.exclude != null) {
+      for (      BooleanClause bq : booster.exclude) {
+        newq.add(bq);
+      }
+    }
+    rb.setQuery(newq);
+    SortSpec sortSpec=rb.getSortSpec();
+    if (sortSpec.getSort() == null) {
+      sortSpec.setSort(new Sort(new SortField[]{new SortField(idField,booster.comparatorSource,false),new SortField(null,SortField.SCORE,false)}));
+    }
+ else {
+      boolean modify=false;
+      SortField[] current=sortSpec.getSort().getSort();
+      ArrayList<SortField> sorts=new ArrayList<SortField>(current.length + 1);
+      if (force && current[0].getType() != SortField.SCORE) {
+        sorts.add(new SortField(idField,booster.comparatorSource,false));
+        modify=true;
+      }
+      for (      SortField sf : current) {
+        if (sf.getType() == SortField.SCORE) {
+          sorts.add(new SortField(idField,booster.comparatorSource,sf.getReverse()));
+          modify=true;
+        }
+        sorts.add(sf);
+      }
+      if (modify) {
+        sortSpec.setSort(new Sort(sorts.toArray(new SortField[sorts.size()])));
+      }
+    }
+  }
+  if (rb.isDebug()) {
+    List<String> match=null;
+    if (booster != null) {
+      match=new ArrayList<String>(booster.priority.size());
+      for (      Object o : booster.include.clauses()) {
+        TermQuery tq=(TermQuery)((BooleanClause)o).getQuery();
+        match.add(tq.getTerm().text());
+      }
+    }
+    SimpleOrderedMap<Object> dbg=new SimpleOrderedMap<Object>();
+    dbg.add("q",qstr);
+    dbg.add("match",match);
+    rb.addDebugInfo("queryBoosting",dbg);
+  }
+}

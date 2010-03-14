@@ -1,0 +1,68 @@
+{
+  Query out;
+  String t;
+  DisjunctionMaxQueryParser qp=new SolrPluginUtils.DisjunctionMaxQueryParser(h.getCore().getSchema());
+  qp.addAlias("hoss",0.01f,SolrPluginUtils.parseFieldBoosts("title^2.0 title_stemmed name^1.2 subject^0.5"));
+  qp.addAlias("test",0.01f,SolrPluginUtils.parseFieldBoosts("text^2.0"));
+  qp.addAlias("unused",1.0f,SolrPluginUtils.parseFieldBoosts("subject^0.5 sind^1.5"));
+  t="XXXXXXXX";
+  out=qp.parse(t);
+  assertNotNull(t + " sanity test gave back null",out);
+  assertTrue(t + " sanity test isn't TermQuery: " + out.getClass(),out instanceof TermQuery);
+  assertEquals(t + " sanity test is wrong field",h.getCore().getSchema().getDefaultSearchFieldName(),((TermQuery)out).getTerm().field());
+  t="subject:XXXXXXXX";
+  out=qp.parse(t);
+  assertNotNull(t + " sanity test gave back null",out);
+  assertTrue(t + " sanity test isn't TermQuery: " + out.getClass(),out instanceof TermQuery);
+  assertEquals(t + " sanity test is wrong field","subject",((TermQuery)out).getTerm().field());
+  t="sind:\"simple phrase\"";
+  out=qp.parse(t);
+  assertNotNull(t + " sanity test gave back null",out);
+  assertTrue(t + " sanity test isn't TermQuery: " + out.getClass(),out instanceof TermQuery);
+  assertEquals(t + " sanity test is wrong field","sind",((TermQuery)out).getTerm().field());
+  t="subject:\"simple phrase\"";
+  out=qp.parse(t);
+  assertNotNull(t + " sanity test gave back null",out);
+  assertTrue(t + " sanity test isn't PhraseQuery: " + out.getClass(),out instanceof PhraseQuery);
+  assertEquals(t + " sanity test is wrong field","subject",((PhraseQuery)out).getTerms()[0].field());
+  t="hoss:XXXXXXXX";
+  out=qp.parse(t);
+  assertNotNull(t + " was null",out);
+  assertTrue(t + " wasn't a DMQ:" + out.getClass(),out instanceof DisjunctionMaxQuery);
+  assertEquals(t + " wrong number of clauses",4,countItems(((DisjunctionMaxQuery)out).iterator()));
+  t="test:YYYYY";
+  out=qp.parse(t);
+  assertNotNull(t + " was null",out);
+  assertTrue(t + " wasn't a DMQ:" + out.getClass(),out instanceof DisjunctionMaxQuery);
+  assertEquals(t + " wrong number of clauses",1,countItems(((DisjunctionMaxQuery)out).iterator()));
+  t="hoss:XXXXXXXX test:YYYYY";
+  out=qp.parse(t);
+  assertNotNull(t + " was null",out);
+  assertTrue(t + " wasn't a boolean:" + out.getClass(),out instanceof BooleanQuery);
+{
+    BooleanQuery bq=(BooleanQuery)out;
+    List<BooleanClause> clauses=bq.clauses();
+    assertEquals(t + " wrong number of clauses",2,clauses.size());
+    Query sub=clauses.get(0).getQuery();
+    assertTrue(t + " first wasn't a DMQ:" + sub.getClass(),sub instanceof DisjunctionMaxQuery);
+    assertEquals(t + " first had wrong number of clauses",4,countItems(((DisjunctionMaxQuery)sub).iterator()));
+    sub=clauses.get(1).getQuery();
+    assertTrue(t + " second wasn't a DMQ:" + sub.getClass(),sub instanceof DisjunctionMaxQuery);
+    assertEquals(t + " second had wrong number of clauses",1,countItems(((DisjunctionMaxQuery)sub).iterator()));
+  }
+  t="hoss:\"XXXXXX YYYYY\" hoss:the";
+  out=qp.parse(t);
+  assertNotNull(t + " was null",out);
+  assertTrue(t + " wasn't a boolean:" + out.getClass(),out instanceof BooleanQuery);
+{
+    BooleanQuery bq=(BooleanQuery)out;
+    List<BooleanClause> clauses=bq.clauses();
+    assertEquals(t + " wrong number of clauses",2,clauses.size());
+    Query sub=clauses.get(0).getQuery();
+    assertTrue(t + " first wasn't a DMQ:" + sub.getClass(),sub instanceof DisjunctionMaxQuery);
+    assertEquals(t + " first had wrong number of clauses",4,countItems(((DisjunctionMaxQuery)sub).iterator()));
+    sub=clauses.get(1).getQuery();
+    assertTrue(t + " second wasn't a DMQ:" + sub.getClass(),sub instanceof DisjunctionMaxQuery);
+    assertEquals(t + " second had wrong number of clauses (stop words)",2,countItems(((DisjunctionMaxQuery)sub).iterator()));
+  }
+}

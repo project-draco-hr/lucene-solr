@@ -1,0 +1,53 @@
+{
+  if (cmd.optimize) {
+    optimizeCommands.incrementAndGet();
+  }
+ else {
+    commitCommands.incrementAndGet();
+    if (cmd.expungeDeletes)     expungeDeleteCommands.incrementAndGet();
+  }
+  Future[] waitSearcher=null;
+  if (cmd.waitSearcher) {
+    waitSearcher=new Future[1];
+  }
+  boolean error=true;
+  iwCommit.lock();
+  try {
+    log.info("start " + cmd);
+    if (cmd.optimize) {
+      openWriter();
+      writer.optimize(cmd.maxOptimizeSegments);
+    }
+ else     if (cmd.expungeDeletes) {
+      openWriter();
+      writer.expungeDeletes();
+    }
+    closeWriter();
+    callPostCommitCallbacks();
+    if (cmd.optimize) {
+      callPostOptimizeCallbacks();
+    }
+    core.getSearcher(true,false,waitSearcher);
+    tracker.didCommit();
+    log.info("end_commit_flush");
+    error=false;
+  }
+  finally {
+    iwCommit.unlock();
+    addCommands.set(0);
+    deleteByIdCommands.set(0);
+    deleteByQueryCommands.set(0);
+    numErrors.set(error ? 1 : 0);
+  }
+  if (waitSearcher != null && waitSearcher[0] != null) {
+    try {
+      waitSearcher[0].get();
+    }
+ catch (    InterruptedException e) {
+      SolrException.log(log,e);
+    }
+catch (    ExecutionException e) {
+      SolrException.log(log,e);
+    }
+  }
+}

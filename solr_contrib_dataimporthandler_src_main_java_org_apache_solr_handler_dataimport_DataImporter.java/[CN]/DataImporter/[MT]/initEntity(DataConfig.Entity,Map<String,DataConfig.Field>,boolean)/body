@@ -1,0 +1,48 @@
+{
+  e.allAttributes.put(DATA_SRC,e.dataSource);
+  if (!docRootFound && !"false".equals(e.docRoot)) {
+    e.isDocRoot=true;
+  }
+  if (e.allAttributes.get("threads") != null) {
+    if (docRootFound)     throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"'threads' not allowed below rootEntity ");
+    config.isMultiThreaded=true;
+  }
+  if (e.fields != null) {
+    for (    DataConfig.Field f : e.fields) {
+      if (schema != null) {
+        if (f.name != null && f.name.contains("${")) {
+          f.dynamicName=true;
+          continue;
+        }
+        SchemaField schemaField=schema.getFieldOrNull(f.getName());
+        if (schemaField == null) {
+          schemaField=config.lowerNameVsSchemaField.get(f.getName().toLowerCase());
+          if (schemaField != null)           f.name=schemaField.getName();
+        }
+        if (schemaField != null) {
+          f.multiValued=schemaField.multiValued();
+          f.allAttributes.put(MULTI_VALUED,Boolean.toString(schemaField.multiValued()));
+          f.allAttributes.put(TYPE,schemaField.getType().getTypeName());
+          f.allAttributes.put("indexed",Boolean.toString(schemaField.indexed()));
+          f.allAttributes.put("stored",Boolean.toString(schemaField.stored()));
+          f.allAttributes.put("defaultValue",schemaField.getDefaultValue());
+        }
+ else {
+          f.toWrite=false;
+        }
+      }
+      fields.put(f.getName(),f);
+      f.entity=e;
+      f.allAttributes.put("boost",f.boost.toString());
+      f.allAttributes.put("toWrite",Boolean.toString(f.toWrite));
+      e.allFieldsList.add(Collections.unmodifiableMap(f.allAttributes));
+    }
+  }
+  e.allFieldsList=Collections.unmodifiableList(e.allFieldsList);
+  e.allAttributes=Collections.unmodifiableMap(e.allAttributes);
+  if (e.entities == null)   return;
+  for (  DataConfig.Entity e1 : e.entities) {
+    e1.parentEntity=e;
+    initEntity(e1,fields,e.isDocRoot || docRootFound);
+  }
+}

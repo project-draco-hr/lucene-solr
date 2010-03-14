@@ -1,0 +1,89 @@
+{
+  this.loader=new SolrResourceLoader(dir);
+  solrHome=loader.getInstanceDir();
+  try {
+    Config cfg=new Config(loader,null,cfgis,null);
+    String dcoreName=cfg.get("solr/cores/@defaultCoreName",null);
+    if (dcoreName != null) {
+      defaultCoreName=dcoreName;
+    }
+    persistent=cfg.getBool("solr/@persistent",false);
+    libDir=cfg.get("solr/@sharedLib",null);
+    adminPath=cfg.get("solr/cores/@adminPath",null);
+    shareSchema=cfg.getBool("solr/cores/@shareSchema",false);
+    if (shareSchema) {
+      indexSchemaCache=new ConcurrentHashMap<String,IndexSchema>();
+    }
+    adminHandler=cfg.get("solr/cores/@adminHandler",null);
+    managementPath=cfg.get("solr/cores/@managementPath",null);
+    if (libDir != null) {
+      File f=FileUtils.resolvePath(new File(dir),libDir);
+      log.info("loading shared library: " + f.getAbsolutePath());
+      libLoader=SolrResourceLoader.createClassLoader(f,null);
+    }
+    if (adminPath != null) {
+      if (adminHandler == null) {
+        coreAdminHandler=new CoreAdminHandler(this);
+      }
+ else {
+        coreAdminHandler=this.createMultiCoreHandler(adminHandler);
+      }
+    }
+    try {
+      containerProperties=readProperties(cfg,((NodeList)cfg.evaluate("solr",XPathConstants.NODESET)).item(0));
+    }
+ catch (    Throwable e) {
+      SolrConfig.severeErrors.add(e);
+      SolrException.logOnce(log,null,e);
+    }
+    NodeList nodes=(NodeList)cfg.evaluate("solr/cores/core",XPathConstants.NODESET);
+    boolean defaultCoreFound=false;
+    for (int i=0; i < nodes.getLength(); i++) {
+      Node node=nodes.item(i);
+      try {
+        String name=DOMUtil.getAttr(node,"name",null);
+        if (name.equals(defaultCoreName)) {
+          if (defaultCoreFound)           throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Only one 'DEFAULT_CORE' is allowed ");
+          defaultCoreFound=true;
+          name="";
+        }
+        CoreDescriptor p=new CoreDescriptor(this,name,DOMUtil.getAttr(node,"instanceDir",null));
+        String opt=DOMUtil.getAttr(node,"config",null);
+        if (solrConfigFilenameOverride != null && name.equals("")) {
+          p.setConfigName(solrConfigFilenameOverride);
+        }
+ else         if (opt != null) {
+          p.setConfigName(opt);
+        }
+        opt=DOMUtil.getAttr(node,"schema",null);
+        if (opt != null) {
+          p.setSchemaName(opt);
+        }
+        opt=DOMUtil.getAttr(node,"properties",null);
+        if (opt != null) {
+          p.setPropertiesName(opt);
+        }
+        opt=DOMUtil.getAttr(node,CoreAdminParams.DATA_DIR,null);
+        if (opt != null) {
+          p.setDataDir(opt);
+        }
+        p.setCoreProperties(readProperties(cfg,node));
+        SolrCore core=create(p);
+        register(name,core,false);
+      }
+ catch (      Throwable ex) {
+        SolrConfig.severeErrors.add(ex);
+        SolrException.logOnce(log,null,ex);
+      }
+    }
+  }
+  finally {
+    if (cfgis != null) {
+      try {
+        cfgis.close();
+      }
+ catch (      Exception xany) {
+      }
+    }
+  }
+}

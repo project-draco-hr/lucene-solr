@@ -1,0 +1,29 @@
+{
+  final Map<String,Evaluator> evaluators=new HashMap<String,Evaluator>();
+  evaluators.put(DATE_FORMAT_EVALUATOR,getDateFormatEvaluator());
+  evaluators.put(SQL_ESCAPE_EVALUATOR,getSqlEscapingEvaluator());
+  evaluators.put(URL_ENCODE_EVALUATOR,getUrlEvaluator());
+  evaluators.put(ESCAPE_SOLR_QUERY_CHARS,getSolrQueryEscapingEvaluator());
+  SolrCore core=docBuilder == null ? null : docBuilder.dataImporter.getCore();
+  for (  Map<String,String> map : fn) {
+    try {
+      evaluators.put(map.get(NAME),(Evaluator)loadClass(map.get(CLASS),core).newInstance());
+    }
+ catch (    Exception e) {
+      wrapAndThrow(SEVERE,e,"Unable to instantiate evaluator: " + map.get(CLASS));
+    }
+  }
+  return new HashMap<String,Object>(){
+    @Override public String get(    Object key){
+      if (key == null)       return null;
+      Matcher m=FORMAT_METHOD.matcher((String)key);
+      if (!m.find())       return null;
+      String fname=m.group(1);
+      Evaluator evaluator=evaluators.get(fname);
+      if (evaluator == null)       return null;
+      VariableResolverImpl vri=VariableResolverImpl.CURRENT_VARIABLE_RESOLVER.get();
+      return evaluator.evaluate(m.group(2),Context.CURRENT_CONTEXT.get());
+    }
+  }
+;
+}

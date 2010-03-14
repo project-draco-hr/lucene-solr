@@ -1,0 +1,105 @@
+{
+  replicationStartTime=System.currentTimeMillis();
+  try {
+    NamedList response=null;
+    try {
+      response=getLatestVersion();
+    }
+ catch (    Exception e) {
+      LOG.error("Master at: " + masterUrl + " is not available. Index fetch failed. Exception: "+ e.getMessage());
+      return false;
+    }
+    long latestVersion=(Long)response.get(CMD_INDEX_VERSION);
+    long latestGeneration=(Long)response.get(GENERATION);
+    if (latestVersion == 0L) {
+      return false;
+    }
+    IndexCommit commit;
+    RefCounted<SolrIndexSearcher> searcherRefCounted=null;
+    try {
+      searcherRefCounted=core.getNewestSearcher(false);
+      commit=searcherRefCounted.get().getReader().getIndexCommit();
+    }
+  finally {
+      if (searcherRefCounted != null)       searcherRefCounted.decref();
+    }
+    if (commit.getVersion() == latestVersion && commit.getGeneration() == latestGeneration) {
+      LOG.info("Slave in sync with master.");
+      return false;
+    }
+    LOG.info("Master's version: " + latestVersion + ", generation: "+ latestGeneration);
+    LOG.info("Slave's version: " + commit.getVersion() + ", generation: "+ commit.getGeneration());
+    LOG.info("Starting replication process");
+    fetchFileList(latestVersion);
+    if (filesToDownload.isEmpty())     return false;
+    LOG.info("Number of files in latest index in master: " + filesToDownload.size());
+    fsyncService=Executors.newSingleThreadExecutor();
+    filesDownloaded=Collections.synchronizedList(new ArrayList<Map<String,Object>>());
+    boolean isFullCopyNeeded=commit.getGeneration() >= latestGeneration;
+    File tmpIndexDir=createTempindexDir(core);
+    if (isIndexStale())     isFullCopyNeeded=true;
+    successfulInstall=false;
+    boolean deleteTmpIdxDir=true;
+    try {
+      File indexDir=new File(core.getIndexDir());
+      downloadIndexFiles(isFullCopyNeeded,tmpIndexDir,latestVersion);
+      LOG.info("Total time taken for download : " + ((System.currentTimeMillis() - replicationStartTime) / 1000) + " secs");
+      Collection<Map<String,Object>> modifiedConfFiles=getModifiedConfFiles(confFilesToDownload);
+      if (!modifiedConfFiles.isEmpty()) {
+        downloadConfFiles(confFilesToDownload,latestVersion);
+        if (isFullCopyNeeded) {
+          modifyIndexProps(tmpIndexDir.getName());
+        }
+ else {
+          successfulInstall=copyIndexFiles(tmpIndexDir,indexDir);
+        }
+        if (successfulInstall) {
+          LOG.info("Configuration files are modified, core will be reloaded");
+          logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
+          reloadCore();
+        }
+      }
+ else {
+        terminateAndWaitFsyncService();
+        if (isFullCopyNeeded) {
+          successfulInstall=modifyIndexProps(tmpIndexDir.getName());
+          deleteTmpIdxDir=false;
+        }
+ else {
+          successfulInstall=copyIndexFiles(tmpIndexDir,indexDir);
+        }
+        if (successfulInstall) {
+          logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
+          doCommit();
+        }
+      }
+      replicationStartTime=0;
+      return successfulInstall;
+    }
+ catch (    ReplicationHandlerException e) {
+      LOG.error("User aborted Replication");
+    }
+catch (    SolrException e) {
+      throw e;
+    }
+catch (    Exception e) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Index fetch failed : ",e);
+    }
+ finally {
+      if (deleteTmpIdxDir)       delTree(tmpIndexDir);
+    }
+    return successfulInstall;
+  }
+  finally {
+    if (!successfulInstall) {
+      logReplicationTimeAndConfFiles(null,successfulInstall);
+    }
+    filesToDownload=filesDownloaded=confFilesDownloaded=confFilesToDownload=null;
+    replicationStartTime=0;
+    fileFetcher=null;
+    if (fsyncService != null && !fsyncService.isShutdown())     fsyncService.shutdownNow();
+    fsyncService=null;
+    stop=false;
+    fsyncException=null;
+  }
+}

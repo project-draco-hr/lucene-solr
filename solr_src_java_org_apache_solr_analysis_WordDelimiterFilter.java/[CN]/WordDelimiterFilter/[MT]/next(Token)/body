@@ -1,0 +1,162 @@
+{
+  if (queuePos < queue.size()) {
+    return queue.get(queuePos++);
+  }
+  if (queuePos != 0) {
+    queuePos=0;
+    queue.clear();
+  }
+  int origPosIncrement=0;
+  Token t;
+  while (true) {
+    t=input.next(in);
+    if (t == null)     return null;
+    char[] termBuffer=t.termBuffer();
+    int len=t.termLength();
+    int start=0;
+    if (len == 0)     continue;
+    int posInc=t.getPositionIncrement();
+    origPosIncrement+=posInc;
+    if (protWords != null && protWords.contains(termBuffer,0,len)) {
+      t.setPositionIncrement(origPosIncrement);
+      return t;
+    }
+    int ch=termBuffer[start];
+    int type=charType(ch);
+    int numWords=0;
+    while (start < len) {
+      while ((type & SUBWORD_DELIM) != 0 && ++start < len) {
+        ch=termBuffer[start];
+        type=charType(ch);
+      }
+      int pos=start;
+      int firstType=type;
+      int lastType=type;
+      while (pos < len) {
+        if ((type & lastType) == 0) {
+          if (stemEnglishPossessive != 0 && ((lastType & ALPHA) != 0)) {
+            if (ch == '\'' && pos + 1 < len && (termBuffer[pos + 1] == 's' || termBuffer[pos + 1] == 'S')) {
+              int subWordEnd=pos;
+              if (pos + 2 >= len) {
+                pos+=2;
+              }
+ else {
+                int ch2=termBuffer[pos + 2];
+                int type2=charType(ch2);
+                if ((type2 & SUBWORD_DELIM) != 0) {
+                  ch=ch2;
+                  type=type2;
+                  pos+=2;
+                }
+              }
+              queue.add(newTok(t,start,subWordEnd));
+              if ((firstType & ALPHA) != 0)               numWords++;
+              break;
+            }
+          }
+          if (splitOnCaseChange == 0 && (lastType & ALPHA) != 0 && (type & ALPHA) != 0) {
+          }
+ else           if ((lastType & UPPER) != 0 && (type & ALPHA) != 0) {
+          }
+ else           if (splitOnNumerics == 0 && (((lastType & ALPHA) != 0 && (type & DIGIT) != 0) || ((lastType & DIGIT) != 0 && (type & ALPHA) != 0))) {
+          }
+ else {
+            queue.add(newTok(t,start,pos));
+            if ((firstType & ALPHA) != 0)             numWords++;
+            break;
+          }
+        }
+        if (++pos >= len) {
+          if (start == 0) {
+            t.setPositionIncrement(origPosIncrement);
+            return t;
+          }
+          if (queue.size() == 0 && preserveOriginal == 0) {
+            t.setTermBuffer(termBuffer,start,len - start);
+            t.setStartOffset(t.startOffset() + start);
+            t.setPositionIncrement(origPosIncrement);
+            return t;
+          }
+          Token newtok=newTok(t,start,pos);
+          queue.add(newtok);
+          if ((firstType & ALPHA) != 0)           numWords++;
+          break;
+        }
+        lastType=type;
+        ch=termBuffer[pos];
+        type=charType(ch);
+      }
+      start=pos;
+    }
+    final int numtok=queue.size();
+    if (numtok == 0) {
+      if (preserveOriginal != 0) {
+        return t;
+      }
+      if (posInc == 1)       origPosIncrement-=1;
+      continue;
+    }
+    if (numtok == 1) {
+      break;
+    }
+    final int numNumbers=numtok - numWords;
+    if (catenateAll == 0 && (catenateWords == 0 || numWords <= 1) && (catenateNumbers == 0 || numNumbers <= 1) && (generateWordParts != 0 || numWords == 0) && (generateNumberParts != 0 || numNumbers == 0)) {
+      break;
+    }
+    ArrayList<Token> tmp=tlist;
+    tlist=queue;
+    queue=tmp;
+    queue.clear();
+    if (numWords == 0) {
+      addCombos(tlist,0,numtok,generateNumberParts != 0,catenateNumbers != 0 || catenateAll != 0,1);
+      if (queue.size() > 0 || preserveOriginal != 0)       break;
+ else       continue;
+    }
+ else     if (numNumbers == 0) {
+      addCombos(tlist,0,numtok,generateWordParts != 0,catenateWords != 0 || catenateAll != 0,1);
+      if (queue.size() > 0 || preserveOriginal != 0)       break;
+ else       continue;
+    }
+ else     if (generateNumberParts == 0 && generateWordParts == 0 && catenateNumbers == 0 && catenateWords == 0) {
+      addCombos(tlist,0,numtok,false,catenateAll != 0,1);
+      if (queue.size() > 0 || preserveOriginal != 0)       break;
+ else       continue;
+    }
+    Token tok=tlist.get(0);
+    boolean isWord=(tokType(tok) & ALPHA) != 0;
+    boolean wasWord=isWord;
+    for (int i=0; i < numtok; ) {
+      int j;
+      for (j=i + 1; j < numtok; j++) {
+        wasWord=isWord;
+        tok=tlist.get(j);
+        isWord=(tokType(tok) & ALPHA) != 0;
+        if (isWord != wasWord)         break;
+      }
+      if (wasWord) {
+        addCombos(tlist,i,j,generateWordParts != 0,catenateWords != 0,1);
+      }
+ else {
+        addCombos(tlist,i,j,generateNumberParts != 0,catenateNumbers != 0,1);
+      }
+      i=j;
+    }
+    if (catenateAll != 0) {
+      addCombos(tlist,0,numtok,false,true,0);
+    }
+    if (queue.size() > 0 || preserveOriginal != 0)     break;
+  }
+  if (preserveOriginal != 0) {
+    queuePos=0;
+    if (queue.size() > 0) {
+      queue.get(0).setPositionIncrement(0);
+    }
+    return t;
+  }
+ else {
+    queuePos=1;
+    Token tok=queue.get(0);
+    tok.setPositionIncrement(origPosIncrement);
+    return tok;
+  }
+}

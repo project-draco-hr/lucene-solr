@@ -1,0 +1,39 @@
+{
+  String handler="";
+  final String[] fields={"foo_s","foo_i","foo_l","foo_f","foo_d","foo_pi","foo_pl","foo_pf","foo_pd","foo_ti","foo_tl","foo_tf","foo_td"};
+  final int l=5;
+  final int u=25;
+  createIndex(15,new DocProcessor(){
+    public void process(    SolrInputDocument doc){
+      addInt(doc,l,u,fields);
+    }
+  }
+);
+  assertU(commit());
+  String[] norm_fields={"foo_i","foo_l","foo_f","foo_d","foo_ti","foo_tl","foo_tf","foo_td"};
+  String[] frange_fields={"foo_i","foo_l","foo_f","foo_d","foo_pi","foo_pl","foo_pf","foo_pd"};
+  for (int i=0; i < 1000; i++) {
+    int lower=l + r.nextInt(u - l + 10) - 5;
+    int upper=lower + r.nextInt(u + 5 - lower);
+    boolean lowerMissing=r.nextInt(10) == 1;
+    boolean upperMissing=r.nextInt(10) == 1;
+    boolean inclusive=lowerMissing || upperMissing || r.nextBoolean();
+    List<String> qs=new ArrayList<String>();
+    for (    String field : norm_fields) {
+      String q=field + ':' + (inclusive ? '[' : '{')+ (lowerMissing ? "*" : lower)+ " TO "+ (upperMissing ? "*" : upper)+ (inclusive ? ']' : '}');
+      qs.add(q);
+    }
+    for (    String field : frange_fields) {
+      String q="{!frange v=" + field + (lowerMissing ? "" : (" l=" + lower))+ (upperMissing ? "" : (" u=" + upper))+ (inclusive ? "" : " incl=false")+ (inclusive ? "" : " incu=false")+ "}";
+      qs.add(q);
+    }
+    SolrQueryResponse last=null;
+    for (    String q : qs) {
+      SolrQueryResponse qr=h.queryAndResponse(handler,req("q",q,"rows","1000"));
+      if (last != null) {
+        sameDocs((DocSet)qr.getValues().get("response"),(DocSet)last.getValues().get("response"));
+      }
+      last=qr;
+    }
+  }
+}
