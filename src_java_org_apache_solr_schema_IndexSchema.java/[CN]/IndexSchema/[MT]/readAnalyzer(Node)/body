@@ -3,14 +3,30 @@
   NamedNodeMap attrs=node.getAttributes();
   String analyzerName=DOMUtil.getAttr(attrs,"class");
   if (analyzerName != null) {
-    return (Analyzer)loader.newInstance(analyzerName);
+    final Class<? extends Analyzer> clazz=loader.findClass(analyzerName).asSubclass(Analyzer.class);
+    try {
+      try {
+        Constructor<? extends Analyzer> cnstr=clazz.getConstructor(Version.class);
+        final String matchVersionStr=DOMUtil.getAttr(attrs,LUCENE_MATCH_VERSION_PARAM);
+        final Version luceneMatchVersion=(matchVersionStr == null) ? solrConfig.luceneMatchVersion : Config.parseLuceneVersionString(matchVersionStr);
+        return cnstr.newInstance(luceneMatchVersion);
+      }
+ catch (      NoSuchMethodException nsme) {
+        return clazz.newInstance();
+      }
+    }
+ catch (    Exception e) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Cannot load analyzer: " + analyzerName);
+    }
   }
   XPath xpath=XPathFactory.newInstance().newXPath();
   final ArrayList<CharFilterFactory> charFilters=new ArrayList<CharFilterFactory>();
   AbstractPluginLoader<CharFilterFactory> charFilterLoader=new AbstractPluginLoader<CharFilterFactory>("[schema.xml] analyzer/charFilter",false,false){
     @Override protected void init(    CharFilterFactory plugin,    Node node) throws Exception {
       if (plugin != null) {
-        plugin.init(DOMUtil.toMapExcept(node.getAttributes(),"class"));
+        final Map<String,String> params=DOMUtil.toMapExcept(node.getAttributes(),"class");
+        if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))         params.put(LUCENE_MATCH_VERSION_PARAM,solrConfig.luceneMatchVersion.toString());
+        plugin.init(params);
         charFilters.add(plugin);
       }
     }
@@ -26,7 +42,9 @@
       if (!tokenizers.isEmpty()) {
         throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"The schema defines multiple tokenizers for: " + node);
       }
-      plugin.init(DOMUtil.toMapExcept(node.getAttributes(),"class"));
+      final Map<String,String> params=DOMUtil.toMapExcept(node.getAttributes(),"class");
+      if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))       params.put(LUCENE_MATCH_VERSION_PARAM,solrConfig.luceneMatchVersion.toString());
+      plugin.init(params);
       tokenizers.add(plugin);
     }
     @Override protected TokenizerFactory register(    String name,    TokenizerFactory plugin) throws Exception {
@@ -42,7 +60,9 @@
   AbstractPluginLoader<TokenFilterFactory> filterLoader=new AbstractPluginLoader<TokenFilterFactory>("[schema.xml] analyzer/filter",false,false){
     @Override protected void init(    TokenFilterFactory plugin,    Node node) throws Exception {
       if (plugin != null) {
-        plugin.init(DOMUtil.toMapExcept(node.getAttributes(),"class"));
+        final Map<String,String> params=DOMUtil.toMapExcept(node.getAttributes(),"class");
+        if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))         params.put(LUCENE_MATCH_VERSION_PARAM,solrConfig.luceneMatchVersion.toString());
+        plugin.init(params);
         filters.add(plugin);
       }
     }
