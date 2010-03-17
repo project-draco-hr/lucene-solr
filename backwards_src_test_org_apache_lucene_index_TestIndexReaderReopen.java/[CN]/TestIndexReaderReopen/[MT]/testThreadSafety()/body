@@ -1,0 +1,131 @@
+{
+  final Directory dir=new MockRAMDirectory();
+  final int n=30;
+  IndexWriter writer=new IndexWriter(dir,new StandardAnalyzer(org.apache.lucene.util.Version.LUCENE_CURRENT),IndexWriter.MaxFieldLength.LIMITED);
+  for (int i=0; i < n; i++) {
+    writer.addDocument(createDocument(i,3));
+  }
+  writer.optimize();
+  writer.close();
+  final TestReopen test=new TestReopen(){
+    @Override protected void modifyIndex(    int i) throws IOException {
+      if (i % 3 == 0) {
+        IndexReader modifier=IndexReader.open(dir,false);
+        modifier.setNorm(i,"field1",50);
+        modifier.close();
+      }
+ else       if (i % 3 == 1) {
+        IndexReader modifier=IndexReader.open(dir,false);
+        modifier.deleteDocument(i % modifier.maxDoc());
+        modifier.close();
+      }
+ else {
+        IndexWriter modifier=new IndexWriter(dir,new StandardAnalyzer(org.apache.lucene.util.Version.LUCENE_CURRENT),IndexWriter.MaxFieldLength.LIMITED);
+        modifier.addDocument(createDocument(n + i,6));
+        modifier.close();
+      }
+    }
+    @Override protected IndexReader openReader() throws IOException {
+      return IndexReader.open(dir,false);
+    }
+  }
+;
+  final List readers=Collections.synchronizedList(new ArrayList());
+  IndexReader firstReader=IndexReader.open(dir,false);
+  IndexReader reader=firstReader;
+  final Random rnd=newRandom();
+  ReaderThread[] threads=new ReaderThread[n];
+  final Set readersToClose=Collections.synchronizedSet(new HashSet());
+  for (int i=0; i < n; i++) {
+    if (i % 2 == 0) {
+      IndexReader refreshed=reader.reopen();
+      if (refreshed != reader) {
+        readersToClose.add(reader);
+      }
+      reader=refreshed;
+    }
+    final IndexReader r=reader;
+    final int index=i;
+    ReaderThreadTask task;
+    if (i < 4 || (i >= 10 && i < 14) || i > 18) {
+      task=new ReaderThreadTask(){
+        @Override public void run() throws Exception {
+          while (!stopped) {
+            if (index % 2 == 0) {
+              ReaderCouple c=(refreshReader(r,test,index,true));
+              readersToClose.add(c.newReader);
+              readersToClose.add(c.refreshedReader);
+              readers.add(c);
+              break;
+            }
+ else {
+              IndexReader refreshed=r.reopen();
+              IndexSearcher searcher=new IndexSearcher(refreshed);
+              ScoreDoc[] hits=searcher.search(new TermQuery(new Term("field1","a" + rnd.nextInt(refreshed.maxDoc()))),null,1000).scoreDocs;
+              if (hits.length > 0) {
+                searcher.doc(hits[0].doc);
+              }
+              if (refreshed != r) {
+                refreshed.close();
+              }
+              readersToClose.add(refreshed);
+            }
+synchronized (this) {
+              wait(1000);
+            }
+          }
+        }
+      }
+;
+    }
+ else {
+      task=new ReaderThreadTask(){
+        @Override public void run() throws Exception {
+          while (!stopped) {
+            int numReaders=readers.size();
+            if (numReaders > 0) {
+              ReaderCouple c=(ReaderCouple)readers.get(rnd.nextInt(numReaders));
+              TestIndexReader.assertIndexEquals(c.newReader,c.refreshedReader);
+            }
+synchronized (this) {
+              wait(100);
+            }
+          }
+        }
+      }
+;
+    }
+    threads[i]=new ReaderThread(task);
+    threads[i].start();
+  }
+synchronized (this) {
+    wait(1000);
+  }
+  for (int i=0; i < n; i++) {
+    if (threads[i] != null) {
+      threads[i].stopThread();
+    }
+  }
+  for (int i=0; i < n; i++) {
+    if (threads[i] != null) {
+      threads[i].join();
+      if (threads[i].error != null) {
+        String msg="Error occurred in thread " + threads[i].getName() + ":\n"+ threads[i].error.getMessage();
+        fail(msg);
+      }
+    }
+  }
+  Iterator it=readersToClose.iterator();
+  while (it.hasNext()) {
+    ((IndexReader)it.next()).close();
+  }
+  firstReader.close();
+  reader.close();
+  it=readersToClose.iterator();
+  while (it.hasNext()) {
+    assertReaderClosed((IndexReader)it.next(),true,true);
+  }
+  assertReaderClosed(reader,true,true);
+  assertReaderClosed(firstReader,true,true);
+  dir.close();
+}

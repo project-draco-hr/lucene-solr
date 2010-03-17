@@ -1,0 +1,45 @@
+{
+  final int docEnd=docIDStart + reader.maxDoc();
+  boolean any=false;
+  TermDocs docs=reader.termDocs();
+  try {
+    for (    Entry<Term,BufferedDeletes.Num> entry : deletesFlushed.terms.entrySet()) {
+      Term term=entry.getKey();
+      docs.seek(term);
+      int limit=entry.getValue().getNum();
+      while (docs.next()) {
+        int docID=docs.doc();
+        if (docIDStart + docID >= limit)         break;
+        reader.deleteDocument(docID);
+        any=true;
+      }
+    }
+  }
+  finally {
+    docs.close();
+  }
+  for (  Integer docIdInt : deletesFlushed.docIDs) {
+    int docID=docIdInt.intValue();
+    if (docID >= docIDStart && docID < docEnd) {
+      reader.deleteDocument(docID - docIDStart);
+      any=true;
+    }
+  }
+  IndexSearcher searcher=new IndexSearcher(reader);
+  for (  Entry<Query,Integer> entry : deletesFlushed.queries.entrySet()) {
+    Query query=entry.getKey();
+    int limit=entry.getValue().intValue();
+    Weight weight=query.weight(searcher);
+    Scorer scorer=weight.scorer(reader,true,false);
+    if (scorer != null) {
+      while (true) {
+        int doc=scorer.nextDoc();
+        if (((long)docIDStart) + doc >= limit)         break;
+        reader.deleteDocument(doc);
+        any=true;
+      }
+    }
+  }
+  searcher.close();
+  return any;
+}

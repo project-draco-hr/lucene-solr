@@ -1,0 +1,48 @@
+{
+  final DocumentsWriterThreadState state=getThreadState(doc,delTerm);
+  final DocState docState=state.docState;
+  docState.doc=doc;
+  docState.analyzer=analyzer;
+  boolean success=false;
+  try {
+    final DocWriter perDoc=state.consumer.processDocument();
+    finishDocument(state,perDoc);
+    success=true;
+  }
+  finally {
+    if (!success) {
+synchronized (this) {
+        if (aborting) {
+          state.isIdle=true;
+          notifyAll();
+          abort();
+        }
+ else {
+          skipDocWriter.docID=docState.docID;
+          boolean success2=false;
+          try {
+            waitQueue.add(skipDocWriter);
+            success2=true;
+          }
+  finally {
+            if (!success2) {
+              state.isIdle=true;
+              notifyAll();
+              abort();
+              return false;
+            }
+          }
+          state.isIdle=true;
+          notifyAll();
+          if (state.doFlushAfter) {
+            state.doFlushAfter=false;
+            flushPending=false;
+            notifyAll();
+          }
+          addDeleteDocID(state.docState.docID);
+        }
+      }
+    }
+  }
+  return state.doFlushAfter || timeToFlushDeletes();
+}

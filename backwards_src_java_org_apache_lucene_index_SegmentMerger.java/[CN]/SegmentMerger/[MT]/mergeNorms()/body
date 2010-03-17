@@ -1,0 +1,39 @@
+{
+  byte[] normBuffer=null;
+  IndexOutput output=null;
+  try {
+    int numFieldInfos=fieldInfos.size();
+    for (int i=0; i < numFieldInfos; i++) {
+      FieldInfo fi=fieldInfos.fieldInfo(i);
+      if (fi.isIndexed && !fi.omitNorms) {
+        if (output == null) {
+          output=directory.createOutput(segment + "." + IndexFileNames.NORMS_EXTENSION);
+          output.writeBytes(NORMS_HEADER,NORMS_HEADER.length);
+        }
+        for (        IndexReader reader : readers) {
+          int maxDoc=reader.maxDoc();
+          if (normBuffer == null || normBuffer.length < maxDoc) {
+            normBuffer=new byte[maxDoc];
+          }
+          reader.norms(fi.name,normBuffer,0);
+          if (!reader.hasDeletions()) {
+            output.writeBytes(normBuffer,maxDoc);
+          }
+ else {
+            for (int k=0; k < maxDoc; k++) {
+              if (!reader.isDeleted(k)) {
+                output.writeByte(normBuffer[k]);
+              }
+            }
+          }
+          checkAbort.work(maxDoc);
+        }
+      }
+    }
+  }
+  finally {
+    if (output != null) {
+      output.close();
+    }
+  }
+}

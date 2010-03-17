@@ -1,0 +1,71 @@
+{
+  RAMDirectory dir=new RAMDirectory();
+  IndexWriter w=null;
+  boolean first=true;
+  while (!finish) {
+    try {
+      while (true) {
+        if (w != null) {
+          w.close();
+        }
+        w=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
+        if (!first && !allowInterrupt) {
+          allowInterrupt=true;
+        }
+        w.setMaxBufferedDocs(2);
+        w.setMergeFactor(2);
+        Document doc=new Document();
+        doc.add(new Field("field","some text contents",Field.Store.YES,Field.Index.ANALYZED));
+        for (int i=0; i < 100; i++) {
+          w.addDocument(doc);
+          w.commit();
+        }
+        w.close();
+        _TestUtil.checkIndex(dir);
+        IndexReader.open(dir,true).close();
+        if (first && !allowInterrupt) {
+          allowInterrupt=true;
+          first=false;
+        }
+      }
+    }
+ catch (    ThreadInterruptedException re) {
+      Throwable e=re.getCause();
+      assertTrue(e instanceof InterruptedException);
+      if (finish) {
+        break;
+      }
+      if (false && interrupted()) {
+        System.out.println("FAILED; InterruptedException hit but thread.interrupted() was true");
+        e.printStackTrace(System.out);
+        failed=true;
+        break;
+      }
+    }
+catch (    Throwable t) {
+      System.out.println("FAILED; unexpected exception");
+      t.printStackTrace(System.out);
+      failed=true;
+      break;
+    }
+  }
+  if (!failed) {
+    try {
+      _TestUtil.checkIndex(dir);
+    }
+ catch (    Exception e) {
+      failed=true;
+      System.out.println("CheckIndex FAILED: unexpected exception");
+      e.printStackTrace(System.out);
+    }
+    try {
+      IndexReader r=IndexReader.open(dir,true);
+      r.close();
+    }
+ catch (    Exception e) {
+      failed=true;
+      System.out.println("IndexReader.open FAILED: unexpected exception");
+      e.printStackTrace(System.out);
+    }
+  }
+}

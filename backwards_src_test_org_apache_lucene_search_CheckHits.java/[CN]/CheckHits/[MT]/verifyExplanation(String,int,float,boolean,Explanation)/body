@@ -1,0 +1,62 @@
+{
+  float value=expl.getValue();
+  Assert.assertEquals(q + ": score(doc=" + doc+ ")="+ score+ " != explanationScore="+ value+ " Explanation: "+ expl,score,value,EXPLAIN_SCORE_TOLERANCE_DELTA);
+  if (!deep)   return;
+  Explanation detail[]=expl.getDetails();
+  if (detail != null) {
+    if (detail.length == 1) {
+      verifyExplanation(q,doc,score,deep,detail[0]);
+    }
+ else {
+      float x=0;
+      String descr=expl.getDescription().toLowerCase();
+      boolean productOf=descr.endsWith("product of:");
+      boolean sumOf=descr.endsWith("sum of:");
+      boolean maxOf=descr.endsWith("max of:");
+      boolean maxTimesOthers=false;
+      if (!(productOf || sumOf || maxOf)) {
+        int k1=descr.indexOf("max plus ");
+        if (k1 >= 0) {
+          k1+="max plus ".length();
+          int k2=descr.indexOf(" ",k1);
+          try {
+            x=Float.parseFloat(descr.substring(k1,k2).trim());
+            if (descr.substring(k2).trim().equals("times others of:")) {
+              maxTimesOthers=true;
+            }
+          }
+ catch (          NumberFormatException e) {
+          }
+        }
+      }
+      Assert.assertTrue(q + ": multi valued explanation description=\"" + descr+ "\" must be 'max of plus x times others' or end with 'product of'"+ " or 'sum of:' or 'max of:' - "+ expl,productOf || sumOf || maxOf|| maxTimesOthers);
+      float sum=0;
+      float product=1;
+      float max=0;
+      for (int i=0; i < detail.length; i++) {
+        float dval=detail[i].getValue();
+        verifyExplanation(q,doc,dval,deep,detail[i]);
+        product*=dval;
+        sum+=dval;
+        max=Math.max(max,dval);
+      }
+      float combined=0;
+      if (productOf) {
+        combined=product;
+      }
+ else       if (sumOf) {
+        combined=sum;
+      }
+ else       if (maxOf) {
+        combined=max;
+      }
+ else       if (maxTimesOthers) {
+        combined=max + x * (sum - max);
+      }
+ else {
+        Assert.assertTrue("should never get here!",false);
+      }
+      Assert.assertEquals(q + ": actual subDetails combined==" + combined+ " != value="+ value+ " Explanation: "+ expl,combined,value,EXPLAIN_SCORE_TOLERANCE_DELTA);
+    }
+  }
+}

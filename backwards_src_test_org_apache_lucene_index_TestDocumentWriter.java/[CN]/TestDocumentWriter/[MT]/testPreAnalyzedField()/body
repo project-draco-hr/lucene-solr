@@ -1,0 +1,37 @@
+{
+  IndexWriter writer=new IndexWriter(dir,new SimpleAnalyzer(),true,IndexWriter.MaxFieldLength.LIMITED);
+  Document doc=new Document();
+  doc.add(new Field("preanalyzed",new TokenStream(){
+    private String[] tokens=new String[]{"term1","term2","term3","term2"};
+    private int index=0;
+    private TermAttribute termAtt=addAttribute(TermAttribute.class);
+    @Override public boolean incrementToken() throws IOException {
+      if (index == tokens.length) {
+        return false;
+      }
+ else {
+        termAtt.setTermBuffer(tokens[index++]);
+        return true;
+      }
+    }
+  }
+,TermVector.NO));
+  writer.addDocument(doc);
+  writer.commit();
+  SegmentInfo info=writer.newestSegment();
+  writer.close();
+  SegmentReader reader=SegmentReader.get(true,info,IndexReader.DEFAULT_TERMS_INDEX_DIVISOR);
+  TermPositions termPositions=reader.termPositions(new Term("preanalyzed","term1"));
+  assertTrue(termPositions.next());
+  assertEquals(1,termPositions.freq());
+  assertEquals(0,termPositions.nextPosition());
+  termPositions.seek(new Term("preanalyzed","term2"));
+  assertTrue(termPositions.next());
+  assertEquals(2,termPositions.freq());
+  assertEquals(1,termPositions.nextPosition());
+  assertEquals(3,termPositions.nextPosition());
+  termPositions.seek(new Term("preanalyzed","term3"));
+  assertTrue(termPositions.next());
+  assertEquals(1,termPositions.freq());
+  assertEquals(2,termPositions.nextPosition());
+}

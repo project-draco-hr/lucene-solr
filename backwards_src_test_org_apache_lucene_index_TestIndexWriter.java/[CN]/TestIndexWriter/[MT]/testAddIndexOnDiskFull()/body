@@ -1,0 +1,198 @@
+{
+  int START_COUNT=57;
+  int NUM_DIR=50;
+  int END_COUNT=START_COUNT + NUM_DIR * 25;
+  boolean debug=false;
+  Directory[] dirs=new Directory[NUM_DIR];
+  long inputDiskUsage=0;
+  for (int i=0; i < NUM_DIR; i++) {
+    dirs[i]=new RAMDirectory();
+    IndexWriter writer=new IndexWriter(dirs[i],new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.LIMITED);
+    for (int j=0; j < 25; j++) {
+      addDocWithIndex(writer,25 * i + j);
+    }
+    writer.close();
+    String[] files=dirs[i].listAll();
+    for (int j=0; j < files.length; j++) {
+      inputDiskUsage+=dirs[i].fileLength(files[j]);
+    }
+  }
+  RAMDirectory startDir=new RAMDirectory();
+  IndexWriter writer=new IndexWriter(startDir,new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.LIMITED);
+  for (int j=0; j < START_COUNT; j++) {
+    addDocWithIndex(writer,j);
+  }
+  writer.close();
+  Term searchTerm=new Term("content","aaa");
+  IndexReader reader=IndexReader.open(startDir,true);
+  assertEquals("first docFreq",57,reader.docFreq(searchTerm));
+  IndexSearcher searcher=new IndexSearcher(reader);
+  ScoreDoc[] hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+  assertEquals("first number of hits",57,hits.length);
+  searcher.close();
+  reader.close();
+  long diskUsage=startDir.sizeInBytes();
+  long startDiskUsage=0;
+  String[] files=startDir.listAll();
+  for (int i=0; i < files.length; i++) {
+    startDiskUsage+=startDir.fileLength(files[i]);
+  }
+  for (int iter=0; iter < 3; iter++) {
+    if (debug)     System.out.println("TEST: iter=" + iter);
+    long diskFree=diskUsage + 100;
+    int method=iter;
+    boolean success=false;
+    boolean done=false;
+    String methodName;
+    if (0 == method) {
+      methodName="addIndexes(Directory[]) + optimize()";
+    }
+ else     if (1 == method) {
+      methodName="addIndexes(IndexReader[])";
+    }
+ else {
+      methodName="addIndexesNoOptimize(Directory[])";
+    }
+    while (!done) {
+      MockRAMDirectory dir=new MockRAMDirectory(startDir);
+      writer=new IndexWriter(dir,new WhitespaceAnalyzer(),false,IndexWriter.MaxFieldLength.UNLIMITED);
+      IOException err=null;
+      MergeScheduler ms=writer.getMergeScheduler();
+      for (int x=0; x < 2; x++) {
+        if (ms instanceof ConcurrentMergeScheduler)         if (0 == x)         ((ConcurrentMergeScheduler)ms).setSuppressExceptions();
+ else         ((ConcurrentMergeScheduler)ms).clearSuppressExceptions();
+        double rate=0.05;
+        double diskRatio=((double)diskFree) / diskUsage;
+        long thisDiskFree;
+        String testName=null;
+        if (0 == x) {
+          thisDiskFree=diskFree;
+          if (diskRatio >= 2.0) {
+            rate/=2;
+          }
+          if (diskRatio >= 4.0) {
+            rate/=2;
+          }
+          if (diskRatio >= 6.0) {
+            rate=0.0;
+          }
+          if (debug)           testName="disk full test " + methodName + " with disk full at "+ diskFree+ " bytes";
+        }
+ else {
+          thisDiskFree=0;
+          rate=0.0;
+          if (debug)           testName="disk full test " + methodName + " with unlimited disk space";
+        }
+        if (debug)         System.out.println("\ncycle: " + testName);
+        dir.setMaxSizeInBytes(thisDiskFree);
+        dir.setRandomIOExceptionRate(rate,diskFree);
+        try {
+          if (0 == method) {
+            writer.addIndexesNoOptimize(dirs);
+            writer.optimize();
+          }
+ else           if (1 == method) {
+            IndexReader readers[]=new IndexReader[dirs.length];
+            for (int i=0; i < dirs.length; i++) {
+              readers[i]=IndexReader.open(dirs[i],true);
+            }
+            try {
+              writer.addIndexes(readers);
+            }
+  finally {
+              for (int i=0; i < dirs.length; i++) {
+                readers[i].close();
+              }
+            }
+          }
+ else {
+            writer.addIndexesNoOptimize(dirs);
+          }
+          success=true;
+          if (debug) {
+            System.out.println("  success!");
+          }
+          if (0 == x) {
+            done=true;
+          }
+        }
+ catch (        IOException e) {
+          success=false;
+          err=e;
+          if (debug) {
+            System.out.println("  hit IOException: " + e);
+            e.printStackTrace(System.out);
+          }
+          if (1 == x) {
+            e.printStackTrace(System.out);
+            fail(methodName + " hit IOException after disk space was freed up");
+          }
+        }
+        _TestUtil.syncConcurrentMerges(writer);
+        if (debug) {
+          System.out.println("  now test readers");
+        }
+        try {
+          reader=IndexReader.open(dir,true);
+        }
+ catch (        IOException e) {
+          e.printStackTrace(System.out);
+          fail(testName + ": exception when creating IndexReader: " + e);
+        }
+        int result=reader.docFreq(searchTerm);
+        if (success) {
+          if (result != START_COUNT) {
+            fail(testName + ": method did not throw exception but docFreq('aaa') is " + result+ " instead of expected "+ START_COUNT);
+          }
+        }
+ else {
+          if (result != START_COUNT && result != END_COUNT) {
+            err.printStackTrace(System.out);
+            fail(testName + ": method did throw exception but docFreq('aaa') is " + result+ " instead of expected "+ START_COUNT+ " or "+ END_COUNT);
+          }
+        }
+        searcher=new IndexSearcher(reader);
+        try {
+          hits=searcher.search(new TermQuery(searchTerm),null,END_COUNT).scoreDocs;
+        }
+ catch (        IOException e) {
+          e.printStackTrace(System.out);
+          fail(testName + ": exception when searching: " + e);
+        }
+        int result2=hits.length;
+        if (success) {
+          if (result2 != result) {
+            fail(testName + ": method did not throw exception but hits.length for search on term 'aaa' is " + result2+ " instead of expected "+ result);
+          }
+        }
+ else {
+          if (result2 != result) {
+            err.printStackTrace(System.out);
+            fail(testName + ": method did throw exception but hits.length for search on term 'aaa' is " + result2+ " instead of expected "+ result);
+          }
+        }
+        searcher.close();
+        reader.close();
+        if (debug) {
+          System.out.println("  count is " + result);
+        }
+        if (done || result == END_COUNT) {
+          break;
+        }
+      }
+      if (debug) {
+        System.out.println("  start disk = " + startDiskUsage + "; input disk = "+ inputDiskUsage+ "; max used = "+ dir.getMaxUsedSizeInBytes());
+      }
+      if (done) {
+        assertTrue("max free Directory space required exceeded 1X the total input index sizes during " + methodName + ": max temp usage = "+ (dir.getMaxUsedSizeInBytes() - startDiskUsage)+ " bytes; "+ "starting disk usage = "+ startDiskUsage+ " bytes; "+ "input index disk usage = "+ inputDiskUsage+ " bytes",(dir.getMaxUsedSizeInBytes() - startDiskUsage) < 2 * (startDiskUsage + inputDiskUsage));
+      }
+      dir.setMaxSizeInBytes(0);
+      dir.setRandomIOExceptionRate(0.0,0);
+      writer.close();
+      _TestUtil.syncConcurrentMerges(ms);
+      dir.close();
+      diskFree+=5000;
+    }
+  }
+  startDir.close();
+}

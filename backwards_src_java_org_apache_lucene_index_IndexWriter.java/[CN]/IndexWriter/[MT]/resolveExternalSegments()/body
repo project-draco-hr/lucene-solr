@@ -1,0 +1,33 @@
+{
+  boolean any=false;
+  boolean done=false;
+  while (!done) {
+    SegmentInfo info=null;
+    MergePolicy.OneMerge merge=null;
+synchronized (this) {
+      if (stopMerges)       throw new MergePolicy.MergeAbortedException("rollback() was called or addIndexes* hit an unhandled exception");
+      final int numSegments=segmentInfos.size();
+      done=true;
+      for (int i=0; i < numSegments; i++) {
+        info=segmentInfos.info(i);
+        if (info.dir != directory) {
+          done=false;
+          final MergePolicy.OneMerge newMerge=new MergePolicy.OneMerge(segmentInfos.range(i,1 + i),mergePolicy instanceof LogMergePolicy && getUseCompoundFile());
+          if (registerMerge(newMerge)) {
+            merge=newMerge;
+            pendingMerges.remove(merge);
+            runningMerges.add(merge);
+            break;
+          }
+        }
+      }
+      if (!done && merge == null)       merge=getNextExternalMerge();
+      if (!done && merge == null)       doWait();
+    }
+    if (merge != null) {
+      any=true;
+      merge(merge);
+    }
+  }
+  if (any)   mergeScheduler.merge(this);
+}

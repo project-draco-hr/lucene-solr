@@ -1,0 +1,45 @@
+{
+  ensureOpen();
+  if (maxNumSegments < 1)   throw new IllegalArgumentException("maxNumSegments must be >= 1; got " + maxNumSegments);
+  if (infoStream != null)   message("optimize: index now " + segString());
+  flush(true,false,true);
+synchronized (this) {
+    resetMergeExceptions();
+    segmentsToOptimize=new HashSet<SegmentInfo>();
+    final int numSegments=segmentInfos.size();
+    for (int i=0; i < numSegments; i++)     segmentsToOptimize.add(segmentInfos.info(i));
+    for (    final MergePolicy.OneMerge merge : pendingMerges) {
+      merge.optimize=true;
+      merge.maxNumSegmentsOptimize=maxNumSegments;
+    }
+    for (    final MergePolicy.OneMerge merge : runningMerges) {
+      merge.optimize=true;
+      merge.maxNumSegmentsOptimize=maxNumSegments;
+    }
+  }
+  maybeMerge(maxNumSegments,true);
+  if (doWait) {
+synchronized (this) {
+      while (true) {
+        if (hitOOM) {
+          throw new IllegalStateException("this writer hit an OutOfMemoryError; cannot complete optimize");
+        }
+        if (mergeExceptions.size() > 0) {
+          final int size=mergeExceptions.size();
+          for (int i=0; i < size; i++) {
+            final MergePolicy.OneMerge merge=mergeExceptions.get(i);
+            if (merge.optimize) {
+              IOException err=new IOException("background merge hit exception: " + merge.segString(directory));
+              final Throwable t=merge.getException();
+              if (t != null)               err.initCause(t);
+              throw err;
+            }
+          }
+        }
+        if (optimizeMergesPending())         doWait();
+ else         break;
+      }
+    }
+    ensureOpen();
+  }
+}

@@ -1,0 +1,75 @@
+{
+  MockRAMDirectory.Failure failure=new MockRAMDirectory.Failure(){
+    boolean sawMaybe=false;
+    boolean failed=false;
+    @Override public MockRAMDirectory.Failure reset(){
+      sawMaybe=false;
+      failed=false;
+      return this;
+    }
+    @Override public void eval(    MockRAMDirectory dir) throws IOException {
+      if (sawMaybe && !failed) {
+        boolean seen=false;
+        StackTraceElement[] trace=new Exception().getStackTrace();
+        for (int i=0; i < trace.length; i++) {
+          if ("applyDeletes".equals(trace[i].getMethodName())) {
+            seen=true;
+            break;
+          }
+        }
+        if (!seen) {
+          failed=true;
+          throw new IOException("fail after applyDeletes");
+        }
+      }
+      if (!failed) {
+        StackTraceElement[] trace=new Exception().getStackTrace();
+        for (int i=0; i < trace.length; i++) {
+          if ("applyDeletes".equals(trace[i].getMethodName())) {
+            sawMaybe=true;
+            break;
+          }
+        }
+      }
+    }
+  }
+;
+  String[] keywords={"1","2"};
+  String[] unindexed={"Netherlands","Italy"};
+  String[] unstored={"Amsterdam has lots of bridges","Venice has lots of canals"};
+  String[] text={"Amsterdam","Venice"};
+  MockRAMDirectory dir=new MockRAMDirectory();
+  IndexWriter modifier=new IndexWriter(dir,new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.UNLIMITED);
+  modifier.setUseCompoundFile(true);
+  modifier.setMaxBufferedDeleteTerms(2);
+  dir.failOn(failure.reset());
+  for (int i=0; i < keywords.length; i++) {
+    Document doc=new Document();
+    doc.add(new Field("id",keywords[i],Field.Store.YES,Field.Index.NOT_ANALYZED));
+    doc.add(new Field("country",unindexed[i],Field.Store.YES,Field.Index.NO));
+    doc.add(new Field("contents",unstored[i],Field.Store.NO,Field.Index.ANALYZED));
+    doc.add(new Field("city",text[i],Field.Store.YES,Field.Index.ANALYZED));
+    modifier.addDocument(doc);
+  }
+  modifier.optimize();
+  modifier.commit();
+  Term term=new Term("city","Amsterdam");
+  int hitCount=getHitCount(dir,term);
+  assertEquals(1,hitCount);
+  modifier.deleteDocuments(term);
+  Document doc=new Document();
+  modifier.addDocument(doc);
+  boolean failed=false;
+  try {
+    modifier.commit();
+  }
+ catch (  IOException ioe) {
+    failed=true;
+  }
+  assertTrue(failed);
+  modifier.commit();
+  hitCount=getHitCount(dir,term);
+  assertEquals(0,hitCount);
+  modifier.close();
+  dir.close();
+}

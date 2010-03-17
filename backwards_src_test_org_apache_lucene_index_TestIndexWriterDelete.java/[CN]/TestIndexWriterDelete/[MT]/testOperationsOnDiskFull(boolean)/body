@@ -1,0 +1,132 @@
+{
+  boolean debug=false;
+  Term searchTerm=new Term("content","aaa");
+  int START_COUNT=157;
+  int END_COUNT=144;
+  MockRAMDirectory startDir=new MockRAMDirectory();
+  IndexWriter writer=new IndexWriter(startDir,new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.UNLIMITED);
+  for (int i=0; i < 157; i++) {
+    Document d=new Document();
+    d.add(new Field("id",Integer.toString(i),Field.Store.YES,Field.Index.NOT_ANALYZED));
+    d.add(new Field("content","aaa " + i,Field.Store.NO,Field.Index.ANALYZED));
+    writer.addDocument(d);
+  }
+  writer.close();
+  long diskUsage=startDir.sizeInBytes();
+  long diskFree=diskUsage + 10;
+  IOException err=null;
+  boolean done=false;
+  while (!done) {
+    MockRAMDirectory dir=new MockRAMDirectory(startDir);
+    dir.setPreventDoubleWrite(false);
+    IndexWriter modifier=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
+    modifier.setMaxBufferedDocs(1000);
+    modifier.setMaxBufferedDeleteTerms(1000);
+    boolean success=false;
+    for (int x=0; x < 2; x++) {
+      double rate=0.1;
+      double diskRatio=((double)diskFree) / diskUsage;
+      long thisDiskFree;
+      String testName;
+      if (0 == x) {
+        thisDiskFree=diskFree;
+        if (diskRatio >= 2.0) {
+          rate/=2;
+        }
+        if (diskRatio >= 4.0) {
+          rate/=2;
+        }
+        if (diskRatio >= 6.0) {
+          rate=0.0;
+        }
+        if (debug) {
+          System.out.println("\ncycle: " + diskFree + " bytes");
+        }
+        testName="disk full during reader.close() @ " + thisDiskFree + " bytes";
+      }
+ else {
+        thisDiskFree=0;
+        rate=0.0;
+        if (debug) {
+          System.out.println("\ncycle: same writer: unlimited disk space");
+        }
+        testName="reader re-use after disk full";
+      }
+      dir.setMaxSizeInBytes(thisDiskFree);
+      dir.setRandomIOExceptionRate(rate,diskFree);
+      try {
+        if (0 == x) {
+          int docId=12;
+          for (int i=0; i < 13; i++) {
+            if (updates) {
+              Document d=new Document();
+              d.add(new Field("id",Integer.toString(i),Field.Store.YES,Field.Index.NOT_ANALYZED));
+              d.add(new Field("content","bbb " + i,Field.Store.NO,Field.Index.ANALYZED));
+              modifier.updateDocument(new Term("id",Integer.toString(docId)),d);
+            }
+ else {
+              modifier.deleteDocuments(new Term("id",Integer.toString(docId)));
+            }
+            docId+=12;
+          }
+        }
+        modifier.close();
+        success=true;
+        if (0 == x) {
+          done=true;
+        }
+      }
+ catch (      IOException e) {
+        if (debug) {
+          System.out.println("  hit IOException: " + e);
+          e.printStackTrace(System.out);
+        }
+        err=e;
+        if (1 == x) {
+          e.printStackTrace();
+          fail(testName + " hit IOException after disk space was freed up");
+        }
+      }
+      if (success)       TestIndexWriter.assertNoUnreferencedFiles(dir,"after writer.close");
+      IndexReader newReader=null;
+      try {
+        newReader=IndexReader.open(dir,true);
+      }
+ catch (      IOException e) {
+        e.printStackTrace();
+        fail(testName + ":exception when creating IndexReader after disk full during close: " + e);
+      }
+      IndexSearcher searcher=new IndexSearcher(newReader);
+      ScoreDoc[] hits=null;
+      try {
+        hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+      }
+ catch (      IOException e) {
+        e.printStackTrace();
+        fail(testName + ": exception when searching: " + e);
+      }
+      int result2=hits.length;
+      if (success) {
+        if (x == 0 && result2 != END_COUNT) {
+          fail(testName + ": method did not throw exception but hits.length for search on term 'aaa' is " + result2+ " instead of expected "+ END_COUNT);
+        }
+ else         if (x == 1 && result2 != START_COUNT && result2 != END_COUNT) {
+          fail(testName + ": method did not throw exception but hits.length for search on term 'aaa' is " + result2+ " instead of expected "+ START_COUNT+ " or "+ END_COUNT);
+        }
+      }
+ else {
+        if (result2 != START_COUNT && result2 != END_COUNT) {
+          err.printStackTrace();
+          fail(testName + ": method did throw exception but hits.length for search on term 'aaa' is " + result2+ " instead of expected "+ START_COUNT+ " or "+ END_COUNT);
+        }
+      }
+      searcher.close();
+      newReader.close();
+      if (result2 == END_COUNT) {
+        break;
+      }
+    }
+    dir.close();
+    diskFree+=10;
+  }
+}

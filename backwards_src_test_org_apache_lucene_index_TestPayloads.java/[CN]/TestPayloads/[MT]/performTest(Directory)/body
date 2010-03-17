@@ -1,0 +1,111 @@
+{
+  PayloadAnalyzer analyzer=new PayloadAnalyzer();
+  IndexWriter writer=new IndexWriter(dir,analyzer,true,IndexWriter.MaxFieldLength.LIMITED);
+  final int skipInterval=16;
+  final int numTerms=5;
+  final String fieldName="f1";
+  int numDocs=skipInterval + 1;
+  Term[] terms=generateTerms(fieldName,numTerms);
+  StringBuilder sb=new StringBuilder();
+  for (int i=0; i < terms.length; i++) {
+    sb.append(terms[i].text);
+    sb.append(" ");
+  }
+  String content=sb.toString();
+  int payloadDataLength=numTerms * numDocs * 2 + numTerms * numDocs * (numDocs - 1) / 2;
+  byte[] payloadData=generateRandomData(payloadDataLength);
+  Document d=new Document();
+  d.add(new Field(fieldName,content,Field.Store.NO,Field.Index.ANALYZED));
+  int offset=0;
+  for (int i=0; i < 2 * numDocs; i++) {
+    analyzer.setPayloadData(fieldName,payloadData,offset,1);
+    offset+=numTerms;
+    writer.addDocument(d);
+  }
+  writer.commit();
+  for (int i=0; i < numDocs; i++) {
+    analyzer.setPayloadData(fieldName,payloadData,offset,i);
+    offset+=i * numTerms;
+    writer.addDocument(d);
+  }
+  writer.optimize();
+  writer.close();
+  IndexReader reader=IndexReader.open(dir,true);
+  byte[] verifyPayloadData=new byte[payloadDataLength];
+  offset=0;
+  TermPositions[] tps=new TermPositions[numTerms];
+  for (int i=0; i < numTerms; i++) {
+    tps[i]=reader.termPositions(terms[i]);
+  }
+  while (tps[0].next()) {
+    for (int i=1; i < numTerms; i++) {
+      tps[i].next();
+    }
+    int freq=tps[0].freq();
+    for (int i=0; i < freq; i++) {
+      for (int j=0; j < numTerms; j++) {
+        tps[j].nextPosition();
+        tps[j].getPayload(verifyPayloadData,offset);
+        offset+=tps[j].getPayloadLength();
+      }
+    }
+  }
+  for (int i=0; i < numTerms; i++) {
+    tps[i].close();
+  }
+  assertByteArrayEquals(payloadData,verifyPayloadData);
+  TermPositions tp=reader.termPositions(terms[0]);
+  tp.next();
+  tp.nextPosition();
+  tp.nextPosition();
+  assertEquals("Wrong payload length.",1,tp.getPayloadLength());
+  byte[] payload=tp.getPayload(null,0);
+  assertEquals(payload[0],payloadData[numTerms]);
+  tp.nextPosition();
+  tp.skipTo(5);
+  tp.nextPosition();
+  assertEquals("Wrong payload length.",1,tp.getPayloadLength());
+  payload=tp.getPayload(null,0);
+  assertEquals(payload[0],payloadData[5 * numTerms]);
+  tp.seek(terms[1]);
+  tp.next();
+  tp.nextPosition();
+  assertEquals("Wrong payload length.",1,tp.getPayloadLength());
+  tp.skipTo(skipInterval - 1);
+  tp.nextPosition();
+  assertEquals("Wrong payload length.",1,tp.getPayloadLength());
+  tp.skipTo(2 * skipInterval - 1);
+  tp.nextPosition();
+  assertEquals("Wrong payload length.",1,tp.getPayloadLength());
+  tp.skipTo(3 * skipInterval - 1);
+  tp.nextPosition();
+  assertEquals("Wrong payload length.",3 * skipInterval - 2 * numDocs - 1,tp.getPayloadLength());
+  tp.getPayload(null,0);
+  try {
+    tp.getPayload(null,0);
+    fail("Expected exception not thrown");
+  }
+ catch (  Exception expected) {
+  }
+  reader.close();
+  analyzer=new PayloadAnalyzer();
+  writer=new IndexWriter(dir,analyzer,true,IndexWriter.MaxFieldLength.LIMITED);
+  String singleTerm="lucene";
+  d=new Document();
+  d.add(new Field(fieldName,singleTerm,Field.Store.NO,Field.Index.ANALYZED));
+  payloadData=generateRandomData(2000);
+  analyzer.setPayloadData(fieldName,payloadData,100,1500);
+  writer.addDocument(d);
+  writer.optimize();
+  writer.close();
+  reader=IndexReader.open(dir,true);
+  tp=reader.termPositions(new Term(fieldName,singleTerm));
+  tp.next();
+  tp.nextPosition();
+  verifyPayloadData=new byte[tp.getPayloadLength()];
+  tp.getPayload(verifyPayloadData,0);
+  byte[] portion=new byte[1500];
+  System.arraycopy(payloadData,100,portion,0,1500);
+  assertByteArrayEquals(portion,verifyPayloadData);
+  reader.close();
+}

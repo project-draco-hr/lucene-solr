@@ -1,0 +1,49 @@
+{
+  rnd=newRandom();
+  final int numThreads=5;
+  final int numDocs=50;
+  final ByteArrayPool pool=new ByteArrayPool(numThreads,5);
+  Directory dir=new RAMDirectory();
+  final IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.LIMITED);
+  final String field="test";
+  Thread[] ingesters=new Thread[numThreads];
+  for (int i=0; i < numThreads; i++) {
+    ingesters[i]=new Thread(){
+      @Override public void run(){
+        try {
+          for (int j=0; j < numDocs; j++) {
+            Document d=new Document();
+            d.add(new Field(field,new PoolingPayloadTokenStream(pool)));
+            writer.addDocument(d);
+          }
+        }
+ catch (        Exception e) {
+          e.printStackTrace();
+          fail(e.toString());
+        }
+      }
+    }
+;
+    ingesters[i].start();
+  }
+  for (int i=0; i < numThreads; i++) {
+    ingesters[i].join();
+  }
+  writer.close();
+  IndexReader reader=IndexReader.open(dir,true);
+  TermEnum terms=reader.terms();
+  while (terms.next()) {
+    TermPositions tp=reader.termPositions(terms.term());
+    while (tp.next()) {
+      int freq=tp.freq();
+      for (int i=0; i < freq; i++) {
+        tp.nextPosition();
+        assertEquals(pool.bytesToString(tp.getPayload(new byte[5],0)),terms.term().text);
+      }
+    }
+    tp.close();
+  }
+  terms.close();
+  reader.close();
+  assertEquals(pool.size(),numThreads);
+}

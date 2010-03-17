@@ -1,0 +1,42 @@
+{
+  int NUM_THREADS=3;
+  for (int iter=0; iter < 2; iter++) {
+    MockRAMDirectory dir=new MockRAMDirectory();
+    IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),IndexWriter.MaxFieldLength.LIMITED);
+    ConcurrentMergeScheduler cms=new ConcurrentMergeScheduler();
+    cms.setSuppressExceptions();
+    writer.setMergeScheduler(cms);
+    writer.setMaxBufferedDocs(2);
+    writer.setMergeFactor(4);
+    IndexerThread[] threads=new IndexerThread[NUM_THREADS];
+    for (int i=0; i < NUM_THREADS; i++)     threads[i]=new IndexerThread(writer,true);
+    for (int i=0; i < NUM_THREADS; i++)     threads[i].start();
+    Thread.sleep(10);
+    dir.failOn(failure);
+    failure.setDoFail();
+    for (int i=0; i < NUM_THREADS; i++) {
+      threads[i].join();
+      assertTrue("hit unexpected Throwable",threads[i].error == null);
+    }
+    boolean success=false;
+    try {
+      writer.close(false);
+      success=true;
+    }
+ catch (    IOException ioe) {
+      failure.clearDoFail();
+      writer.close(false);
+    }
+    if (success) {
+      IndexReader reader=IndexReader.open(dir,true);
+      for (int j=0; j < reader.maxDoc(); j++) {
+        if (!reader.isDeleted(j)) {
+          reader.document(j);
+          reader.getTermFreqVectors(j);
+        }
+      }
+      reader.close();
+    }
+    dir.close();
+  }
+}

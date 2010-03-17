@@ -1,0 +1,27 @@
+{
+  RAMDirectory directory=new RAMDirectory();
+  IndexWriter writer=new IndexWriter(directory,new TestPayloadAnalyzer(),IndexWriter.MaxFieldLength.LIMITED);
+  Document doc=new Document();
+  doc.add(new Field("content",new StringReader("a b c d e f g h i j a k")));
+  writer.addDocument(doc);
+  writer.close();
+  IndexSearcher is=new IndexSearcher(directory,true);
+  SpanTermQuery stq1=new SpanTermQuery(new Term("content","a"));
+  SpanTermQuery stq2=new SpanTermQuery(new Term("content","k"));
+  SpanQuery[] sqs={stq1,stq2};
+  SpanNearQuery snq=new SpanNearQuery(sqs,1,true);
+  Spans spans=snq.getSpans(is.getIndexReader());
+  TopDocs topDocs=is.search(snq,1);
+  Set payloadSet=new HashSet();
+  for (int i=0; i < topDocs.scoreDocs.length; i++) {
+    while (spans.next()) {
+      Collection payloads=spans.getPayload();
+      for (Iterator it=payloads.iterator(); it.hasNext(); ) {
+        payloadSet.add(new String((byte[])it.next()));
+      }
+    }
+  }
+  assertEquals(2,payloadSet.size());
+  assertTrue(payloadSet.contains("a:Noise:10"));
+  assertTrue(payloadSet.contains("k:Noise:11"));
+}

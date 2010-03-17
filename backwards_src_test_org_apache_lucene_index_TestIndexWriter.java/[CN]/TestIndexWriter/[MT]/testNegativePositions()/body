@@ -1,0 +1,41 @@
+{
+  final TokenStream tokens=new TokenStream(){
+    final TermAttribute termAtt=addAttribute(TermAttribute.class);
+    final PositionIncrementAttribute posIncrAtt=addAttribute(PositionIncrementAttribute.class);
+    final Iterator tokens=Arrays.asList(new String[]{"a","b","c"}).iterator();
+    boolean first=true;
+    @Override public boolean incrementToken(){
+      if (!tokens.hasNext())       return false;
+      clearAttributes();
+      termAtt.setTermBuffer((String)tokens.next());
+      posIncrAtt.setPositionIncrement(first ? 0 : 1);
+      first=false;
+      return true;
+    }
+  }
+;
+  MockRAMDirectory dir=new MockRAMDirectory();
+  IndexWriter w=new IndexWriter(dir,new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.UNLIMITED);
+  Document doc=new Document();
+  doc.add(new Field("field",tokens));
+  w.addDocument(doc);
+  w.commit();
+  IndexSearcher s=new IndexSearcher(dir,false);
+  PhraseQuery pq=new PhraseQuery();
+  pq.add(new Term("field","a"));
+  pq.add(new Term("field","b"));
+  pq.add(new Term("field","c"));
+  ScoreDoc[] hits=s.search(pq,null,1000).scoreDocs;
+  assertEquals(1,hits.length);
+  Query q=new SpanTermQuery(new Term("field","a"));
+  hits=s.search(q,null,1000).scoreDocs;
+  assertEquals(1,hits.length);
+  TermPositions tps=s.getIndexReader().termPositions(new Term("field","a"));
+  assertTrue(tps.next());
+  assertEquals(1,tps.freq());
+  assertEquals(0,tps.nextPosition());
+  w.close();
+  assertTrue(_TestUtil.checkIndex(dir));
+  s.close();
+  dir.close();
+}

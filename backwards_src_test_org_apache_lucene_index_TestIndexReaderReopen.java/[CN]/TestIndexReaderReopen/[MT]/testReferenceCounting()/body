@@ -1,0 +1,92 @@
+{
+  for (int mode=0; mode < 4; mode++) {
+    Directory dir1=new MockRAMDirectory();
+    createIndex(dir1,true);
+    IndexReader reader0=IndexReader.open(dir1,false);
+    assertRefCountEquals(1,reader0);
+    assertTrue(reader0 instanceof DirectoryReader);
+    IndexReader[] subReaders0=reader0.getSequentialSubReaders();
+    for (int i=0; i < subReaders0.length; i++) {
+      assertRefCountEquals(1,subReaders0[i]);
+    }
+    IndexReader modifier=IndexReader.open(dir1,false);
+    modifier.deleteDocument(0);
+    modifier.close();
+    IndexReader reader1=refreshReader(reader0,true).refreshedReader;
+    assertTrue(reader1 instanceof DirectoryReader);
+    IndexReader[] subReaders1=reader1.getSequentialSubReaders();
+    assertEquals(subReaders0.length,subReaders1.length);
+    for (int i=0; i < subReaders0.length; i++) {
+      if (subReaders0[i] != subReaders1[i]) {
+        assertRefCountEquals(1,subReaders0[i]);
+        assertRefCountEquals(1,subReaders1[i]);
+      }
+ else {
+        assertRefCountEquals(2,subReaders0[i]);
+      }
+    }
+    modifier=IndexReader.open(dir1,false);
+    modifier.deleteDocument(1);
+    modifier.close();
+    IndexReader reader2=refreshReader(reader1,true).refreshedReader;
+    assertTrue(reader2 instanceof DirectoryReader);
+    IndexReader[] subReaders2=reader2.getSequentialSubReaders();
+    assertEquals(subReaders1.length,subReaders2.length);
+    for (int i=0; i < subReaders2.length; i++) {
+      if (subReaders2[i] == subReaders1[i]) {
+        if (subReaders1[i] == subReaders0[i]) {
+          assertRefCountEquals(3,subReaders2[i]);
+        }
+ else {
+          assertRefCountEquals(2,subReaders2[i]);
+        }
+      }
+ else {
+        assertRefCountEquals(1,subReaders2[i]);
+        if (subReaders0[i] == subReaders1[i]) {
+          assertRefCountEquals(2,subReaders2[i]);
+          assertRefCountEquals(2,subReaders0[i]);
+        }
+ else {
+          assertRefCountEquals(1,subReaders0[i]);
+          assertRefCountEquals(1,subReaders1[i]);
+        }
+      }
+    }
+    IndexReader reader3=refreshReader(reader0,true).refreshedReader;
+    assertTrue(reader3 instanceof DirectoryReader);
+    IndexReader[] subReaders3=reader3.getSequentialSubReaders();
+    assertEquals(subReaders3.length,subReaders0.length);
+switch (mode) {
+case 0:
+      reader0.close();
+    reader1.close();
+  reader2.close();
+reader3.close();
+break;
+case 1:
+reader3.close();
+reader2.close();
+reader1.close();
+reader0.close();
+break;
+case 2:
+reader2.close();
+reader3.close();
+reader0.close();
+reader1.close();
+break;
+case 3:
+reader1.close();
+reader3.close();
+reader2.close();
+reader0.close();
+break;
+}
+assertReaderClosed(reader0,true,true);
+assertReaderClosed(reader1,true,true);
+assertReaderClosed(reader2,true,true);
+assertReaderClosed(reader3,true,true);
+dir1.close();
+}
+}

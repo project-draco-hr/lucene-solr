@@ -1,0 +1,46 @@
+{
+  for (int pass=0; pass < 2; pass++) {
+    boolean useCompoundFile=(pass % 2) != 0;
+    KeepAllDeletionPolicy policy=new KeepAllDeletionPolicy();
+    Directory dir=new RAMDirectory();
+    policy.dir=dir;
+    IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),true,policy,IndexWriter.MaxFieldLength.UNLIMITED);
+    writer.setMaxBufferedDocs(10);
+    writer.setUseCompoundFile(useCompoundFile);
+    writer.setMergeScheduler(new SerialMergeScheduler());
+    for (int i=0; i < 107; i++) {
+      addDoc(writer);
+    }
+    writer.close();
+    writer=new IndexWriter(dir,new WhitespaceAnalyzer(),false,policy,IndexWriter.MaxFieldLength.UNLIMITED);
+    writer.setUseCompoundFile(useCompoundFile);
+    writer.optimize();
+    writer.close();
+    assertEquals(2,policy.numOnInit);
+    assertEquals(2,policy.numOnCommit);
+    Collection commits=IndexReader.listCommits(dir);
+    assertEquals(3,commits.size());
+    Iterator it=commits.iterator();
+    while (it.hasNext()) {
+      IndexCommit commit=(IndexCommit)it.next();
+      IndexReader r=IndexReader.open(commit,null,false);
+      r.close();
+    }
+    dir.deleteFile(IndexFileNames.SEGMENTS_GEN);
+    long gen=SegmentInfos.getCurrentSegmentGeneration(dir);
+    while (gen > 0) {
+      IndexReader reader=IndexReader.open(dir,true);
+      reader.close();
+      dir.deleteFile(IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",gen));
+      gen--;
+      if (gen > 0) {
+        int preCount=dir.listAll().length;
+        writer=new IndexWriter(dir,new WhitespaceAnalyzer(),false,policy,IndexWriter.MaxFieldLength.LIMITED);
+        writer.close();
+        int postCount=dir.listAll().length;
+        assertTrue(postCount < preCount);
+      }
+    }
+    dir.close();
+  }
+}

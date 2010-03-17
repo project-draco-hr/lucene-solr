@@ -1,0 +1,57 @@
+{
+  boolean debug=false;
+  for (int pass=0; pass < 2; pass++) {
+    if (debug)     System.out.println("TEST: pass=" + pass);
+    boolean doAbort=pass == 1;
+    long diskFree=200;
+    while (true) {
+      if (debug)       System.out.println("TEST: cycle: diskFree=" + diskFree);
+      MockRAMDirectory dir=new MockRAMDirectory();
+      dir.setMaxSizeInBytes(diskFree);
+      IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.UNLIMITED);
+      MergeScheduler ms=writer.getMergeScheduler();
+      if (ms instanceof ConcurrentMergeScheduler)       ((ConcurrentMergeScheduler)ms).setSuppressExceptions();
+      boolean hitError=false;
+      try {
+        for (int i=0; i < 200; i++) {
+          addDoc(writer);
+        }
+      }
+ catch (      IOException e) {
+        if (debug) {
+          System.out.println("TEST: exception on addDoc");
+          e.printStackTrace(System.out);
+        }
+        hitError=true;
+      }
+      if (hitError) {
+        if (doAbort) {
+          writer.rollback();
+        }
+ else {
+          try {
+            writer.close();
+          }
+ catch (          IOException e) {
+            if (debug) {
+              System.out.println("TEST: exception on close");
+              e.printStackTrace(System.out);
+            }
+            dir.setMaxSizeInBytes(0);
+            writer.close();
+          }
+        }
+        _TestUtil.syncConcurrentMerges(ms);
+        assertNoUnreferencedFiles(dir,"after disk full during addDocument");
+        IndexReader.open(dir,true).close();
+        dir.close();
+        diskFree+=500;
+      }
+ else {
+        _TestUtil.syncConcurrentMerges(writer);
+        dir.close();
+        break;
+      }
+    }
+  }
+}

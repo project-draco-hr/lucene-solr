@@ -1,0 +1,53 @@
+{
+  IndexReader reader=IndexReader.open(small,true);
+  IndexSearcher search=new IndexSearcher(reader);
+  Query q=csrq("data","1","6",T,T);
+  q.setBoost(100);
+  search.search(q,null,new Collector(){
+    private int base=0;
+    private Scorer scorer;
+    @Override public void setScorer(    Scorer scorer) throws IOException {
+      this.scorer=scorer;
+    }
+    @Override public void collect(    int doc) throws IOException {
+      assertEquals("score for doc " + (doc + base) + " was not correct",1.0f,scorer.score());
+    }
+    @Override public void setNextReader(    IndexReader reader,    int docBase){
+      base=docBase;
+    }
+    @Override public boolean acceptsDocsOutOfOrder(){
+      return true;
+    }
+  }
+);
+  Query q1=csrq("data","A","A",T,T);
+  q1.setBoost(.1f);
+  Query q2=csrq("data","Z","Z",T,T);
+  BooleanQuery bq=new BooleanQuery(true);
+  bq.add(q1,BooleanClause.Occur.SHOULD);
+  bq.add(q2,BooleanClause.Occur.SHOULD);
+  ScoreDoc[] hits=search.search(bq,null,1000).scoreDocs;
+  assertEquals(1,hits[0].doc);
+  assertEquals(0,hits[1].doc);
+  assertTrue(hits[0].score > hits[1].score);
+  q1=csrq("data","A","A",T,T,MultiTermQuery.CONSTANT_SCORE_BOOLEAN_QUERY_REWRITE);
+  q1.setBoost(.1f);
+  q2=csrq("data","Z","Z",T,T,MultiTermQuery.CONSTANT_SCORE_BOOLEAN_QUERY_REWRITE);
+  bq=new BooleanQuery(true);
+  bq.add(q1,BooleanClause.Occur.SHOULD);
+  bq.add(q2,BooleanClause.Occur.SHOULD);
+  hits=search.search(bq,null,1000).scoreDocs;
+  assertEquals(1,hits[0].doc);
+  assertEquals(0,hits[1].doc);
+  assertTrue(hits[0].score > hits[1].score);
+  q1=csrq("data","A","A",T,T);
+  q1.setBoost(10f);
+  q2=csrq("data","Z","Z",T,T);
+  bq=new BooleanQuery(true);
+  bq.add(q1,BooleanClause.Occur.SHOULD);
+  bq.add(q2,BooleanClause.Occur.SHOULD);
+  hits=search.search(bq,null,1000).scoreDocs;
+  assertEquals(0,hits[0].doc);
+  assertEquals(1,hits[1].doc);
+  assertTrue(hits[0].score > hits[1].score);
+}

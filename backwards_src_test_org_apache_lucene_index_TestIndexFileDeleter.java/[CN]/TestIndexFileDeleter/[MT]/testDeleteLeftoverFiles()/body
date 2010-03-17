@@ -1,0 +1,58 @@
+{
+  Directory dir=new RAMDirectory();
+  IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.LIMITED);
+  writer.setMaxBufferedDocs(10);
+  int i;
+  for (i=0; i < 35; i++) {
+    addDoc(writer,i);
+  }
+  writer.setUseCompoundFile(false);
+  for (; i < 45; i++) {
+    addDoc(writer,i);
+  }
+  writer.close();
+  IndexReader reader=IndexReader.open(dir,false);
+  Term searchTerm=new Term("id","7");
+  int delCount=reader.deleteDocuments(searchTerm);
+  assertEquals("didn't delete the right number of documents",1,delCount);
+  reader.setNorm(21,"content",(float)1.5);
+  reader.close();
+  String[] files=dir.listAll();
+  CompoundFileReader cfsReader=new CompoundFileReader(dir,"_2.cfs");
+  FieldInfos fieldInfos=new FieldInfos(cfsReader,"_2.fnm");
+  int contentFieldIndex=-1;
+  for (i=0; i < fieldInfos.size(); i++) {
+    FieldInfo fi=fieldInfos.fieldInfo(i);
+    if (fi.name.equals("content")) {
+      contentFieldIndex=i;
+      break;
+    }
+  }
+  cfsReader.close();
+  assertTrue("could not locate the 'content' field number in the _2.cfs segment",contentFieldIndex != -1);
+  String normSuffix="s" + contentFieldIndex;
+  copyFile(dir,"_2_1." + normSuffix,"_2_2." + normSuffix);
+  copyFile(dir,"_2_1." + normSuffix,"_2_2.f" + contentFieldIndex);
+  copyFile(dir,"_2_1." + normSuffix,"_1_1." + normSuffix);
+  copyFile(dir,"_2_1." + normSuffix,"_1_1.f" + contentFieldIndex);
+  copyFile(dir,"_0_1.del","_0_2.del");
+  copyFile(dir,"_0_1.del","_1_1.del");
+  copyFile(dir,"_0_1.del","_188_1.del");
+  copyFile(dir,"_0.cfs","_188.cfs");
+  copyFile(dir,"_0.cfs","_0.fnm");
+  copyFile(dir,"_0.cfs","deletable");
+  copyFile(dir,"segments_3","segments");
+  copyFile(dir,"segments_3","segments_2");
+  copyFile(dir,"_2.cfs","_3.cfs");
+  String[] filesPre=dir.listAll();
+  writer=new IndexWriter(dir,new WhitespaceAnalyzer(),false,IndexWriter.MaxFieldLength.LIMITED);
+  writer.close();
+  String[] files2=dir.listAll();
+  dir.close();
+  Arrays.sort(files);
+  Arrays.sort(files2);
+  Set dif=difFiles(files,files2);
+  if (!Arrays.equals(files,files2)) {
+    fail("IndexFileDeleter failed to delete unreferenced extra files: should have deleted " + (filesPre.length - files.length) + " files but only deleted "+ (filesPre.length - files2.length)+ "; expected files:\n    "+ asString(files)+ "\n  actual files:\n    "+ asString(files2)+ "\ndif: "+ dif);
+  }
+}

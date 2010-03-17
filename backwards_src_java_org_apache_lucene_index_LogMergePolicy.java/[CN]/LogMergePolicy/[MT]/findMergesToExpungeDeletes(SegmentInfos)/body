@@ -1,0 +1,29 @@
+{
+  final int numSegments=segmentInfos.size();
+  if (verbose())   message("findMergesToExpungeDeletes: " + numSegments + " segments");
+  MergeSpecification spec=new MergeSpecification();
+  int firstSegmentWithDeletions=-1;
+  for (int i=0; i < numSegments; i++) {
+    final SegmentInfo info=segmentInfos.info(i);
+    int delCount=writer.numDeletedDocs(info);
+    if (delCount > 0) {
+      if (verbose())       message("  segment " + info.name + " has deletions");
+      if (firstSegmentWithDeletions == -1)       firstSegmentWithDeletions=i;
+ else       if (i - firstSegmentWithDeletions == mergeFactor) {
+        if (verbose())         message("  add merge " + firstSegmentWithDeletions + " to "+ (i - 1)+ " inclusive");
+        spec.add(new OneMerge(segmentInfos.range(firstSegmentWithDeletions,i),useCompoundFile));
+        firstSegmentWithDeletions=i;
+      }
+    }
+ else     if (firstSegmentWithDeletions != -1) {
+      if (verbose())       message("  add merge " + firstSegmentWithDeletions + " to "+ (i - 1)+ " inclusive");
+      spec.add(new OneMerge(segmentInfos.range(firstSegmentWithDeletions,i),useCompoundFile));
+      firstSegmentWithDeletions=-1;
+    }
+  }
+  if (firstSegmentWithDeletions != -1) {
+    if (verbose())     message("  add merge " + firstSegmentWithDeletions + " to "+ (numSegments - 1)+ " inclusive");
+    spec.add(new OneMerge(segmentInfos.range(firstSegmentWithDeletions,numSegments),useCompoundFile));
+  }
+  return spec;
+}

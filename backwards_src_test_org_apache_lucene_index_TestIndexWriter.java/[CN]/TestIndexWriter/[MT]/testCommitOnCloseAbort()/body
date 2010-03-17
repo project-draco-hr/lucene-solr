@@ -1,0 +1,48 @@
+{
+  MockRAMDirectory dir=new MockRAMDirectory();
+  IndexWriter writer=new IndexWriter(dir,new WhitespaceAnalyzer(),true,IndexWriter.MaxFieldLength.LIMITED);
+  writer.setMaxBufferedDocs(10);
+  for (int i=0; i < 14; i++) {
+    addDoc(writer);
+  }
+  writer.close();
+  Term searchTerm=new Term("content","aaa");
+  IndexSearcher searcher=new IndexSearcher(dir,false);
+  ScoreDoc[] hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+  assertEquals("first number of hits",14,hits.length);
+  searcher.close();
+  writer=new IndexWriter(dir,new WhitespaceAnalyzer(),false,IndexWriter.MaxFieldLength.LIMITED);
+  writer.setMaxBufferedDocs(10);
+  for (int j=0; j < 17; j++) {
+    addDoc(writer);
+  }
+  writer.deleteDocuments(searchTerm);
+  searcher=new IndexSearcher(dir,false);
+  hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+  assertEquals("reader incorrectly sees changes from writer",14,hits.length);
+  searcher.close();
+  writer.rollback();
+  assertNoUnreferencedFiles(dir,"unreferenced files remain after rollback()");
+  searcher=new IndexSearcher(dir,false);
+  hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+  assertEquals("saw changes after writer.abort",14,hits.length);
+  searcher.close();
+  writer=new IndexWriter(dir,new WhitespaceAnalyzer(),false,IndexWriter.MaxFieldLength.LIMITED);
+  writer.setMaxBufferedDocs(10);
+  dir.setPreventDoubleWrite(false);
+  for (int i=0; i < 12; i++) {
+    for (int j=0; j < 17; j++) {
+      addDoc(writer);
+    }
+    searcher=new IndexSearcher(dir,false);
+    hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+    assertEquals("reader incorrectly sees changes from writer",14,hits.length);
+    searcher.close();
+  }
+  writer.close();
+  searcher=new IndexSearcher(dir,false);
+  hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+  assertEquals("didn't see changes after close",218,hits.length);
+  searcher.close();
+  dir.close();
+}

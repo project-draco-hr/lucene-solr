@@ -1,0 +1,48 @@
+{
+  final Random rnd=newRandom();
+  String field="data";
+  String[] vals={"1","2","3","4","5","6","A","Z","B","Y","Z","X","foo"};
+  int maxLev=4;
+  TestBoolean2.Callback minNrCB=new TestBoolean2.Callback(){
+    public void postCreate(    BooleanQuery q){
+      BooleanClause[] c=q.getClauses();
+      int opt=0;
+      for (int i=0; i < c.length; i++) {
+        if (c[i].getOccur() == BooleanClause.Occur.SHOULD)         opt++;
+      }
+      q.setMinimumNumberShouldMatch(rnd.nextInt(opt + 2));
+    }
+  }
+;
+  for (int i=0; i < 50; i++) {
+    int lev=rnd.nextInt(maxLev);
+    final long seed=rnd.nextLong();
+    BooleanQuery q1=TestBoolean2.randBoolQuery(new Random(seed),true,lev,field,vals,null);
+    BooleanQuery q2=TestBoolean2.randBoolQuery(new Random(seed),true,lev,field,vals,null);
+    minNrCB.postCreate(q2);
+    TopDocs top1=s.search(q1,null,100);
+    TopDocs top2=s.search(q2,null,100);
+    if (i < 100) {
+      QueryUtils.check(q1,s);
+      QueryUtils.check(q2,s);
+    }
+    if (top2.totalHits > top1.totalHits) {
+      TestCase.fail("Constrained results not a subset:\n" + CheckHits.topdocsString(top1,0,0) + CheckHits.topdocsString(top2,0,0)+ "for query:"+ q2.toString());
+    }
+    for (int hit=0; hit < top2.totalHits; hit++) {
+      int id=top2.scoreDocs[hit].doc;
+      float score=top2.scoreDocs[hit].score;
+      boolean found=false;
+      for (int other=0; other < top1.totalHits; other++) {
+        if (top1.scoreDocs[other].doc == id) {
+          found=true;
+          float otherScore=top1.scoreDocs[other].score;
+          if (Math.abs(otherScore - score) > 1.0e-6f) {
+            TestCase.fail("Doc " + id + " scores don't match\n"+ CheckHits.topdocsString(top1,0,0)+ CheckHits.topdocsString(top2,0,0)+ "for query:"+ q2.toString());
+          }
+        }
+      }
+      if (!found)       TestCase.fail("Doc " + id + " not found\n"+ CheckHits.topdocsString(top1,0,0)+ CheckHits.topdocsString(top2,0,0)+ "for query:"+ q2.toString());
+    }
+  }
+}

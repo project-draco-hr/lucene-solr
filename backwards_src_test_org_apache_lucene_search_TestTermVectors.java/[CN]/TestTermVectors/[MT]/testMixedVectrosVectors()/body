@@ -1,0 +1,33 @@
+{
+  IndexWriter writer=new IndexWriter(directory,new SimpleAnalyzer(),true,IndexWriter.MaxFieldLength.LIMITED);
+  Document doc=new Document();
+  doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.NO));
+  doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.YES));
+  doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.WITH_POSITIONS));
+  doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.WITH_OFFSETS));
+  doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.WITH_POSITIONS_OFFSETS));
+  writer.addDocument(doc);
+  writer.close();
+  searcher=new IndexSearcher(directory,true);
+  Query query=new TermQuery(new Term("field","one"));
+  ScoreDoc[] hits=searcher.search(query,null,1000).scoreDocs;
+  assertEquals(1,hits.length);
+  TermFreqVector[] vector=searcher.reader.getTermFreqVectors(hits[0].doc);
+  assertTrue(vector != null);
+  assertTrue(vector.length == 1);
+  TermPositionVector tfv=(TermPositionVector)vector[0];
+  assertTrue(tfv.getField().equals("field"));
+  String[] terms=tfv.getTerms();
+  assertEquals(1,terms.length);
+  assertEquals(terms[0],"one");
+  assertEquals(5,tfv.getTermFrequencies()[0]);
+  int[] positions=tfv.getTermPositions(0);
+  assertEquals(5,positions.length);
+  for (int i=0; i < 5; i++)   assertEquals(i,positions[i]);
+  TermVectorOffsetInfo[] offsets=tfv.getOffsets(0);
+  assertEquals(5,offsets.length);
+  for (int i=0; i < 5; i++) {
+    assertEquals(4 * i,offsets[i].getStartOffset());
+    assertEquals(4 * i + 3,offsets[i].getEndOffset());
+  }
+}

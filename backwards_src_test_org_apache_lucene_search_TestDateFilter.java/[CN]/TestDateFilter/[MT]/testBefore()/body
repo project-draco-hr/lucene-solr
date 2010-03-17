@@ -1,0 +1,29 @@
+{
+  RAMDirectory indexStore=new RAMDirectory();
+  IndexWriter writer=new IndexWriter(indexStore,new SimpleAnalyzer(),true,IndexWriter.MaxFieldLength.LIMITED);
+  long now=System.currentTimeMillis();
+  Document doc=new Document();
+  doc.add(new Field("datefield",DateTools.timeToString(now - 1000,DateTools.Resolution.MILLISECOND),Field.Store.YES,Field.Index.NOT_ANALYZED));
+  doc.add(new Field("body","Today is a very sunny day in New York City",Field.Store.YES,Field.Index.ANALYZED));
+  writer.addDocument(doc);
+  writer.optimize();
+  writer.close();
+  IndexSearcher searcher=new IndexSearcher(indexStore,true);
+  TermRangeFilter df1=new TermRangeFilter("datefield",DateTools.timeToString(now - 2000,DateTools.Resolution.MILLISECOND),DateTools.timeToString(now,DateTools.Resolution.MILLISECOND),false,true);
+  TermRangeFilter df2=new TermRangeFilter("datefield",DateTools.timeToString(0,DateTools.Resolution.MILLISECOND),DateTools.timeToString(now - 2000,DateTools.Resolution.MILLISECOND),true,false);
+  Query query1=new TermQuery(new Term("body","NoMatchForThis"));
+  Query query2=new TermQuery(new Term("body","sunny"));
+  ScoreDoc[] result;
+  result=searcher.search(query1,null,1000).scoreDocs;
+  assertEquals(0,result.length);
+  result=searcher.search(query2,null,1000).scoreDocs;
+  assertEquals(1,result.length);
+  result=searcher.search(query1,df1,1000).scoreDocs;
+  assertEquals(0,result.length);
+  result=searcher.search(query1,df2,1000).scoreDocs;
+  assertEquals(0,result.length);
+  result=searcher.search(query2,df1,1000).scoreDocs;
+  assertEquals(1,result.length);
+  result=searcher.search(query2,df2,1000).scoreDocs;
+  assertEquals(0,result.length);
+}
