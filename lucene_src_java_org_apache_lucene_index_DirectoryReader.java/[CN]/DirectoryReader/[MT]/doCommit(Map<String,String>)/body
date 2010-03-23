@@ -1,2 +1,27 @@
 {
+  if (hasChanges) {
+    segmentInfos.setUserData(commitUserData);
+    IndexFileDeleter deleter=new IndexFileDeleter(directory,deletionPolicy == null ? new KeepOnlyLastCommitDeletionPolicy() : deletionPolicy,segmentInfos,null,null);
+    startCommit();
+    boolean success=false;
+    try {
+      for (int i=0; i < subReaders.length; i++)       subReaders[i].commit();
+      directory.sync(segmentInfos.files(directory,false));
+      segmentInfos.commit(directory);
+      success=true;
+    }
+  finally {
+      if (!success) {
+        rollbackCommit();
+        deleter.refresh();
+      }
+    }
+    deleter.checkpoint(segmentInfos,true);
+    deleter.close();
+    if (writeLock != null) {
+      writeLock.release();
+      writeLock=null;
+    }
+  }
+  hasChanges=false;
 }
