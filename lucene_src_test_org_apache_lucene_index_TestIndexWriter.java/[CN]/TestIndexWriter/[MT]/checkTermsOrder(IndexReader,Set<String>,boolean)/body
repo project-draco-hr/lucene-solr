@@ -1,0 +1,36 @@
+{
+  TermsEnum terms=MultiFields.getFields(r).terms("f").iterator();
+  char[] last=new char[2];
+  int lastLength=0;
+  Set<String> seenTerms=new HashSet<String>();
+  UnicodeUtil.UTF16Result utf16=new UnicodeUtil.UTF16Result();
+  while (true) {
+    final BytesRef term=terms.next();
+    if (term == null) {
+      break;
+    }
+    UnicodeUtil.UTF8toUTF16(term.bytes,term.offset,term.length,utf16);
+    assertTrue(utf16.length <= 2);
+    int i=0;
+    for (i=0; i < lastLength && i < utf16.length; i++) {
+      assertTrue("UTF16 code unit " + termDesc(new String(utf16.result,0,utf16.length)) + " incorrectly sorted after code unit "+ termDesc(new String(last,0,lastLength)),last[i] <= utf16.result[i]);
+      if (last[i] < utf16.result[i]) {
+        break;
+      }
+    }
+    assertTrue(lastLength != utf16.length || i < lastLength);
+    final String s=new String(utf16.result,0,utf16.length);
+    assertTrue("term " + termDesc(s) + " was not added to index (count="+ allTerms.size()+ ")",allTerms.contains(s));
+    seenTerms.add(s);
+    System.arraycopy(utf16.result,0,last,0,utf16.length);
+    lastLength=utf16.length;
+  }
+  if (isTop) {
+    assertTrue(allTerms.equals(seenTerms));
+  }
+  Iterator<String> it=seenTerms.iterator();
+  while (it.hasNext()) {
+    BytesRef tr=new BytesRef(it.next());
+    assertEquals("seek failed for term=" + termDesc(tr.utf8ToString()),TermsEnum.SeekStatus.FOUND,terms.seek(tr));
+  }
+}

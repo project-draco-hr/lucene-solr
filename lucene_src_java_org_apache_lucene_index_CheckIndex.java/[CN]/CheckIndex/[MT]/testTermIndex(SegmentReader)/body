@@ -1,0 +1,114 @@
+{
+  final Status.TermIndexStatus status=new Status.TermIndexStatus();
+  final int maxDoc=reader.maxDoc();
+  final Bits delDocs=reader.getDeletedDocs();
+  try {
+    if (infoStream != null) {
+      infoStream.print("    test: terms, freq, prox...");
+    }
+    final Fields fields=reader.fields();
+    if (fields == null) {
+      msg("OK [no fields/terms]");
+      return status;
+    }
+    final FieldsEnum fieldsEnum=fields.iterator();
+    while (true) {
+      final String field=fieldsEnum.next();
+      if (field == null) {
+        break;
+      }
+      final TermsEnum terms=fieldsEnum.terms();
+      DocsEnum docs=null;
+      DocsAndPositionsEnum postings=null;
+      boolean hasOrd=true;
+      final long termCountStart=status.termCount;
+      while (true) {
+        final BytesRef term=terms.next();
+        if (term == null) {
+          break;
+        }
+        final int docFreq=terms.docFreq();
+        status.totFreq+=docFreq;
+        docs=terms.docs(delDocs,docs);
+        postings=terms.docsAndPositions(delDocs,postings);
+        if (hasOrd) {
+          long ord=-1;
+          try {
+            ord=terms.ord();
+          }
+ catch (          UnsupportedOperationException uoe) {
+            hasOrd=false;
+          }
+          if (hasOrd) {
+            final long ordExpected=status.termCount - termCountStart;
+            if (ord != ordExpected) {
+              throw new RuntimeException("ord mismatch: TermsEnum has ord=" + ord + " vs actual="+ ordExpected);
+            }
+          }
+        }
+        status.termCount++;
+        final DocsEnum docs2;
+        if (postings != null) {
+          docs2=postings;
+        }
+ else {
+          docs2=docs;
+        }
+        int lastDoc=-1;
+        while (true) {
+          final int doc=docs2.nextDoc();
+          if (doc == DocsEnum.NO_MORE_DOCS) {
+            break;
+          }
+          final int freq=docs2.freq();
+          status.totPos+=freq;
+          if (doc <= lastDoc) {
+            throw new RuntimeException("term " + term + ": doc "+ doc+ " <= lastDoc "+ lastDoc);
+          }
+          if (doc >= maxDoc) {
+            throw new RuntimeException("term " + term + ": doc "+ doc+ " >= maxDoc "+ maxDoc);
+          }
+          lastDoc=doc;
+          if (freq <= 0) {
+            throw new RuntimeException("term " + term + ": doc "+ doc+ ": freq "+ freq+ " is out of bounds");
+          }
+          int lastPos=-1;
+          if (postings != null) {
+            for (int j=0; j < freq; j++) {
+              final int pos=postings.nextPosition();
+              if (pos < -1) {
+                throw new RuntimeException("term " + term + ": doc "+ doc+ ": pos "+ pos+ " is out of bounds");
+              }
+              if (pos < lastPos) {
+                throw new RuntimeException("term " + term + ": doc "+ doc+ ": pos "+ pos+ " < lastPos "+ lastPos);
+              }
+              lastPos=pos;
+              if (postings.getPayloadLength() != 0) {
+                postings.getPayload();
+              }
+            }
+          }
+        }
+        if (reader.hasDeletions()) {
+          final DocsEnum docsNoDel=terms.docs(null,docs);
+          int count=0;
+          while (docsNoDel.nextDoc() != DocsEnum.NO_MORE_DOCS) {
+            count++;
+          }
+          if (count != docFreq) {
+            throw new RuntimeException("term " + term + " docFreq="+ docFreq+ " != tot docs w/o deletions "+ count);
+          }
+        }
+      }
+    }
+    msg("OK [" + status.termCount + " terms; "+ status.totFreq+ " terms/docs pairs; "+ status.totPos+ " tokens]");
+  }
+ catch (  Throwable e) {
+    msg("ERROR [" + String.valueOf(e.getMessage()) + "]");
+    status.error=e;
+    if (infoStream != null) {
+      e.printStackTrace(infoStream);
+    }
+  }
+  return status;
+}

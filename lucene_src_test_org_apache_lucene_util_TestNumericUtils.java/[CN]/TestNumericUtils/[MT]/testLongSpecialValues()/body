@@ -1,8 +1,9 @@
 {
   long[] vals=new long[]{Long.MIN_VALUE,Long.MIN_VALUE + 1,Long.MIN_VALUE + 2,-5003400000000L,-4000L,-3000L,-2000L,-1000L,-1L,0L,1L,10L,300L,50006789999999999L,Long.MAX_VALUE - 2,Long.MAX_VALUE - 1,Long.MAX_VALUE};
-  String[] prefixVals=new String[vals.length];
+  BytesRef[] prefixVals=new BytesRef[vals.length];
   for (int i=0; i < vals.length; i++) {
-    prefixVals[i]=NumericUtils.longToPrefixCoded(vals[i]);
+    prefixVals[i]=new BytesRef(NumericUtils.BUF_SIZE_LONG);
+    NumericUtils.longToPrefixCoded(vals[i],0,prefixVals[i]);
     assertEquals("forward and back conversion should generate same long",vals[i],NumericUtils.prefixCodedToLong(prefixVals[i]));
     try {
       NumericUtils.prefixCodedToInt(prefixVals[i]);
@@ -12,11 +13,13 @@
     }
   }
   for (int i=1; i < prefixVals.length; i++) {
-    assertTrue("check sort order",prefixVals[i - 1].compareTo(prefixVals[i]) < 0);
+    assertTrue("check sort order",BytesRef.getUTF8SortedAsUTF16Comparator().compare(prefixVals[i - 1],prefixVals[i]) < 0);
   }
+  final BytesRef ref=new BytesRef(NumericUtils.BUF_SIZE_LONG);
   for (int i=0; i < vals.length; i++) {
     for (int j=0; j < 64; j++) {
-      long prefixVal=NumericUtils.prefixCodedToLong(NumericUtils.longToPrefixCoded(vals[i],j));
+      NumericUtils.longToPrefixCoded(vals[i],j,ref);
+      long prefixVal=NumericUtils.prefixCodedToLong(ref);
       long mask=(1L << j) - 1L;
       assertEquals("difference between prefix val and original value for " + vals[i] + " with shift="+ j,vals[i] & mask,vals[i] - prefixVal);
     }

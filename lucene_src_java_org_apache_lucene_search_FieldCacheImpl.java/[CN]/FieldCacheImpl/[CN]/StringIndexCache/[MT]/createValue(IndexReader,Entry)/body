@@ -2,34 +2,37 @@
   String field=StringHelper.intern(entryKey.field);
   final int[] retArray=new int[reader.maxDoc()];
   String[] mterms=new String[reader.maxDoc() + 1];
-  TermDocs termDocs=reader.termDocs();
-  TermEnum termEnum=reader.terms(new Term(field));
+  Terms terms=MultiFields.getTerms(reader,field);
   int t=0;
   mterms[t++]=null;
-  try {
-    do {
-      Term term=termEnum.term();
-      if (term == null || term.field() != field)       break;
-      mterms[t]=term.text();
-      termDocs.seek(termEnum);
-      while (termDocs.next()) {
-        retArray[termDocs.doc()]=t;
+  if (terms != null) {
+    final TermsEnum termsEnum=terms.iterator();
+    final Bits delDocs=MultiFields.getDeletedDocs(reader);
+    DocsEnum docs=null;
+    while (true) {
+      final BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      mterms[t]=term.utf8ToString();
+      docs=termsEnum.docs(delDocs,docs);
+      while (true) {
+        final int docID=docs.nextDoc();
+        if (docID == DocsEnum.NO_MORE_DOCS) {
+          break;
+        }
+        retArray[docID]=t;
       }
       t++;
     }
- while (termEnum.next());
-  }
-  finally {
-    termDocs.close();
-    termEnum.close();
   }
   if (t == 0) {
     mterms=new String[1];
   }
  else   if (t < mterms.length) {
-    String[] terms=new String[t];
-    System.arraycopy(mterms,0,terms,0,t);
-    mterms=terms;
+    String[] newTerms=new String[t];
+    System.arraycopy(mterms,0,newTerms,0,t);
+    mterms=newTerms;
   }
   StringIndex value=new StringIndex(retArray,mterms);
   return value;

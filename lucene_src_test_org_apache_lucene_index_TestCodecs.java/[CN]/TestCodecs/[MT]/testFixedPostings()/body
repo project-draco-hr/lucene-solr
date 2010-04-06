@@ -1,0 +1,31 @@
+{
+  RANDOM=this.newRandom();
+  final int NUM_TERMS=100;
+  final TermData[] terms=new TermData[NUM_TERMS];
+  for (int i=0; i < NUM_TERMS; i++) {
+    final int[] docs=new int[]{1};
+    final String text=Integer.toString(i,Character.MAX_RADIX);
+    terms[i]=new TermData(text,docs,null);
+  }
+  final FieldInfos fieldInfos=new FieldInfos();
+  final FieldData field=new FieldData("field",fieldInfos,terms,true,false);
+  final FieldData[] fields=new FieldData[]{field};
+  final Directory dir=new MockRAMDirectory();
+  this.write(fieldInfos,dir,fields);
+  final SegmentInfo si=new SegmentInfo(SEGMENT,10000,dir,CodecProvider.getDefault().getWriter(null));
+  si.setHasProx(false);
+  final FieldsProducer reader=si.getCodec().fieldsProducer(new SegmentReadState(dir,si,fieldInfos,64,IndexReader.DEFAULT_TERMS_INDEX_DIVISOR));
+  final FieldsEnum fieldsEnum=reader.iterator();
+  assertNotNull(fieldsEnum.next());
+  final TermsEnum termsEnum=fieldsEnum.terms();
+  for (int i=0; i < NUM_TERMS; i++) {
+    final BytesRef term=termsEnum.next();
+    assertNotNull(term);
+    assertEquals(terms[i].text2,term.utf8ToString());
+  }
+  assertNull(termsEnum.next());
+  for (int i=0; i < NUM_TERMS; i++) {
+    assertEquals(termsEnum.seek(new BytesRef(terms[i].text2)),TermsEnum.SeekStatus.FOUND);
+  }
+  assertNull(fieldsEnum.next());
+}

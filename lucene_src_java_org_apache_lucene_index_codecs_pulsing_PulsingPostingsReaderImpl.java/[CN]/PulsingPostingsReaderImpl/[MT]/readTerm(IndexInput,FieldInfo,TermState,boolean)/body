@@ -1,0 +1,66 @@
+{
+  PulsingTermState termState=(PulsingTermState)_termState;
+  termState.pendingIndexTerm|=isIndexTerm;
+  if (termState.docFreq <= maxPulsingDocFreq) {
+    int docID=0;
+    for (int i=0; i < termState.docFreq; i++) {
+      Document doc=termState.docs[i];
+      if (doc == null) {
+        doc=termState.docs[i]=new Document();
+      }
+      final int code=termsIn.readVInt();
+      if (fieldInfo.omitTermFreqAndPositions) {
+        docID+=code;
+        doc.numPositions=1;
+      }
+ else {
+        docID+=code >>> 1;
+        if ((code & 1) != 0) {
+          doc.numPositions=1;
+        }
+ else {
+          doc.numPositions=termsIn.readVInt();
+        }
+        if (doc.numPositions > doc.positions.length) {
+          doc.reallocPositions(doc.numPositions);
+        }
+        int position=0;
+        int payloadLength=-1;
+        for (int j=0; j < doc.numPositions; j++) {
+          final Position pos=doc.positions[j];
+          final int code2=termsIn.readVInt();
+          if (fieldInfo.storePayloads) {
+            position+=code2 >>> 1;
+            if ((code2 & 1) != 0) {
+              payloadLength=termsIn.readVInt();
+            }
+            if (payloadLength > 0) {
+              if (pos.payload == null) {
+                pos.payload=new BytesRef();
+                pos.payload.bytes=new byte[payloadLength];
+              }
+ else               if (payloadLength > pos.payload.bytes.length) {
+                pos.payload.grow(payloadLength);
+              }
+              pos.payload.length=payloadLength;
+              termsIn.readBytes(pos.payload.bytes,0,payloadLength);
+            }
+ else             if (pos.payload != null) {
+              pos.payload.length=0;
+            }
+          }
+ else {
+            position+=code2;
+          }
+          pos.pos=position;
+        }
+      }
+      doc.docID=docID;
+    }
+  }
+ else {
+    termState.wrappedTermState.docFreq=termState.docFreq;
+    wrappedPostingsReader.readTerm(termsIn,fieldInfo,termState.wrappedTermState,termState.pendingIndexTerm);
+    termState.pendingIndexTerm=false;
+  }
+}

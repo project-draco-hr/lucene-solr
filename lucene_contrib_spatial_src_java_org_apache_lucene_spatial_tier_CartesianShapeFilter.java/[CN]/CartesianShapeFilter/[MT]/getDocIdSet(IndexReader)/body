@@ -1,15 +1,33 @@
 {
-  final OpenBitSet bits=new OpenBitSet(reader.maxDoc());
-  final TermDocs termDocs=reader.termDocs();
+  final Bits delDocs=MultiFields.getDeletedDocs(reader);
   final List<Double> area=shape.getArea();
-  int sz=area.size();
-  final Term term=new Term(fieldName);
-  for (int i=0; i < sz; i++) {
-    double boxId=area.get(i).doubleValue();
-    termDocs.seek(term.createTerm(NumericUtils.doubleToPrefixCoded(boxId)));
-    while (termDocs.next()) {
-      bits.fastSet(termDocs.doc());
+  final int sz=area.size();
+  final BytesRef bytesRef=new BytesRef(NumericUtils.BUF_SIZE_LONG);
+  if (sz == 1) {
+    double boxId=area.get(0).doubleValue();
+    NumericUtils.longToPrefixCoded(NumericUtils.doubleToSortableLong(boxId),0,bytesRef);
+    return new DocIdSet(){
+      @Override public DocIdSetIterator iterator() throws IOException {
+        return MultiFields.getTermDocsEnum(reader,delDocs,fieldName,bytesRef);
+      }
+      @Override public boolean isCacheable(){
+        return false;
+      }
     }
+;
   }
-  return bits;
+ else {
+    final OpenBitSet bits=new OpenBitSet(reader.maxDoc());
+    for (int i=0; i < sz; i++) {
+      double boxId=area.get(i).doubleValue();
+      NumericUtils.longToPrefixCoded(NumericUtils.doubleToSortableLong(boxId),0,bytesRef);
+      final DocsEnum docsEnum=MultiFields.getTermDocsEnum(reader,delDocs,fieldName,bytesRef);
+      if (docsEnum == null)       continue;
+      int doc;
+      while ((doc=docsEnum.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+        bits.fastSet(doc);
+      }
+    }
+    return bits;
+  }
 }

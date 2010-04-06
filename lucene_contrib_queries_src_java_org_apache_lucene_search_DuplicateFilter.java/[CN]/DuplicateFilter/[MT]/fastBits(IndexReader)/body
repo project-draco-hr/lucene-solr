@@ -1,31 +1,39 @@
 {
   OpenBitSet bits=new OpenBitSet(reader.maxDoc());
   bits.set(0,reader.maxDoc());
-  Term startTerm=new Term(fieldName);
-  TermEnum te=reader.terms(startTerm);
-  if (te != null) {
-    Term currTerm=te.term();
-    while ((currTerm != null) && (currTerm.field() == startTerm.field())) {
-      if (te.docFreq() > 1) {
-        int lastDoc=-1;
-        TermDocs td=reader.termDocs(currTerm);
-        td.next();
-        if (keepMode == KM_USE_FIRST_OCCURRENCE) {
-          td.next();
-        }
-        do {
-          lastDoc=td.doc();
-          bits.clear(lastDoc);
-        }
- while (td.next());
-        if (keepMode == KM_USE_LAST_OCCURRENCE) {
-          bits.set(lastDoc);
-        }
-      }
-      if (!te.next()) {
+  final Bits delDocs=MultiFields.getDeletedDocs(reader);
+  Terms terms=reader.fields().terms(fieldName);
+  if (terms != null) {
+    TermsEnum termsEnum=terms.iterator();
+    DocsEnum docs=null;
+    while (true) {
+      BytesRef currTerm=termsEnum.next();
+      if (currTerm == null) {
         break;
       }
-      currTerm=te.term();
+ else {
+        if (termsEnum.docFreq() > 1) {
+          docs=termsEnum.docs(delDocs,docs);
+          int doc=docs.nextDoc();
+          if (doc != docs.NO_MORE_DOCS) {
+            if (keepMode == KM_USE_FIRST_OCCURRENCE) {
+              doc=docs.nextDoc();
+            }
+          }
+          int lastDoc=-1;
+          while (true) {
+            lastDoc=doc;
+            bits.clear(lastDoc);
+            doc=docs.nextDoc();
+            if (doc == docs.NO_MORE_DOCS) {
+              break;
+            }
+          }
+          if (keepMode == KM_USE_LAST_OCCURRENCE) {
+            bits.set(lastDoc);
+          }
+        }
+      }
     }
   }
   return bits;

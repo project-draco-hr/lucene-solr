@@ -1,0 +1,38 @@
+{
+  InputStream stream=getClass().getResourceAsStream("fuzzyTestData.txt");
+  BufferedReader reader=new BufferedReader(new InputStreamReader(stream,"UTF-8"));
+  int bits=Integer.parseInt(reader.readLine());
+  int terms=(int)Math.pow(2,bits);
+  RAMDirectory dir=new RAMDirectory();
+  IndexWriter writer=new IndexWriter(dir,new KeywordAnalyzer(),IndexWriter.MaxFieldLength.UNLIMITED);
+  Document doc=new Document();
+  Field field=new Field("field","",Field.Store.NO,Field.Index.ANALYZED);
+  doc.add(field);
+  for (int i=0; i < terms; i++) {
+    field.setValue(Integer.toBinaryString(i));
+    writer.addDocument(doc);
+  }
+  writer.optimize();
+  writer.close();
+  IndexSearcher searcher=new IndexSearcher(dir);
+  String line;
+  while ((line=reader.readLine()) != null) {
+    String params[]=line.split(",");
+    String query=Integer.toBinaryString(Integer.parseInt(params[0]));
+    int prefix=Integer.parseInt(params[1]);
+    int pqSize=Integer.parseInt(params[2]);
+    float minScore=Float.parseFloat(params[3]);
+    FuzzyQuery q=new FuzzyQuery(new Term("field",query),minScore,prefix);
+    q.setRewriteMethod(new MultiTermQuery.TopTermsBoostOnlyBooleanQueryRewrite(pqSize));
+    int expectedResults=Integer.parseInt(reader.readLine());
+    TopDocs docs=searcher.search(q,expectedResults);
+    assertEquals(expectedResults,docs.totalHits);
+    for (int i=0; i < expectedResults; i++) {
+      String scoreDoc[]=reader.readLine().split(",");
+      assertEquals(Integer.parseInt(scoreDoc[0]),docs.scoreDocs[i].doc);
+      assertEquals(Float.parseFloat(scoreDoc[1]),docs.scoreDocs[i].score,epsilon);
+    }
+  }
+  searcher.close();
+  dir.close();
+}

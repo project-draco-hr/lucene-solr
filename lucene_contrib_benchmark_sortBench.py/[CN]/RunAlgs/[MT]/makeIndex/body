@@ -1,0 +1,53 @@
+def makeIndex(self, label, dir, source, numDocs, balancedNumSegs=None, deletePcts=None):
+    if (source not in ('wiki', 'random')):
+        raise RuntimeError('source must be wiki or random')
+    if (dir is not None):
+        fullDir = ('%s/contrib/benchmark' % dir)
+        if DEBUG:
+            print ('  chdir %s' % fullDir)
+        os.chdir(fullDir)
+    indexName = ('%s.%s.nd%gM' % (source, label, (numDocs / 1000000.0)))
+    if (balancedNumSegs is not None):
+        indexName += ('_balanced%d' % balancedNumSegs)
+    fullIndexPath = ('%s/%s' % (INDEX_DIR_BASE, indexName))
+    if os.path.exists(fullIndexPath):
+        print ('Index %s already exists...' % fullIndexPath)
+        return indexName
+    print ('Now create index %s...' % fullIndexPath)
+    s = BASE_INDEX_ALG
+    if (source == 'wiki'):
+        other = ('doc.index.props = true\ncontent.source=org.apache.lucene.benchmark.byTask.feeds.EnwikiContentSource\ndocs.file=%s\n' % WIKI_FILE)
+        addDoc = 'AddDoc'
+    else:
+        other = 'doc.index.props = true\ncontent.source=org.apache.lucene.benchmark.byTask.feeds.SortableSingleDocSource\n'
+        addDoc = 'AddDoc'
+    if (INDEX_NUM_THREADS > 1):
+        s = s.replace('$INDEX_LINE$', ('[ { "AddDocs" %s > : %s } : %s' % (addDoc, (numDocs / INDEX_NUM_THREADS), INDEX_NUM_THREADS)))
+    else:
+        s = s.replace('$INDEX_LINE$', ('{ "AddDocs" %s > : %s' % (addDoc, numDocs)))
+    s = s.replace('$WORKDIR$', fullIndexPath)
+    if (deletePcts is not None):
+        dp = '# Do deletions\n'
+        dp += 'OpenReader(false)\n'
+        for pct in deletePcts:
+            if (pct != 0):
+                dp += ('DeleteByPercent(%g)\n' % pct)
+                dp += ('CommitIndex(dp%g)\n' % pct)
+        dp += 'CloseReader()\n'
+    else:
+        dp = ''
+    s = s.replace('$DELETIONS$', dp)
+    if (balancedNumSegs is not None):
+        other += ('  merge.factor=1000\n  max.buffered=%d\n  ram.flush.mb=2000\n  ' % (numDocs / balancedNumSegs))
+    elif (source == 'random'):
+        other += 'ram.flush.mb=1.0\n'
+    else:
+        other += 'ram.flush.mb=32.0\n'
+    s = s.replace('$OTHER$', other)
+    try:
+        self.runOne(dir, s, ('index_%s' % indexName), isIndex=True)
+    except:
+        if os.path.exists(fullIndexPath):
+            shutil.rmtree(fullIndexPath)
+        raise
+    return indexName

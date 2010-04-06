@@ -1,0 +1,39 @@
+{
+  rnd=newRandom();
+  for (int iter=0; iter < 5; iter++) {
+    long ceil=2;
+    for (int nbits=1; nbits < 63; nbits++) {
+      final int valueCount=100 + rnd.nextInt(500);
+      final Directory d=new MockRAMDirectory();
+      IndexOutput out=d.createOutput("out.bin");
+      PackedInts.Writer w=PackedInts.getWriter(out,valueCount,nbits);
+      final long[] values=new long[valueCount];
+      for (int i=0; i < valueCount; i++) {
+        long v=rnd.nextLong() % ceil;
+        if (v < 0) {
+          v=-v;
+        }
+        values[i]=v;
+        w.add(values[i]);
+      }
+      w.finish();
+      final long fp=out.getFilePointer();
+      out.close();
+      IndexInput in=d.openInput("out.bin");
+      PackedInts.Reader r=PackedInts.getReader(in);
+      assertEquals(fp,in.getFilePointer());
+      for (int i=0; i < valueCount; i++) {
+        assertEquals("index=" + i + " ceil="+ ceil+ " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ r.getClass().getSimpleName(),values[i],r.get(i));
+      }
+      in.close();
+      in=d.openInput("out.bin");
+      PackedInts.ReaderIterator r2=PackedInts.getReaderIterator(in);
+      for (int i=0; i < valueCount; i++) {
+        assertEquals("index=" + i + " ceil="+ ceil+ " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ r.getClass().getSimpleName(),values[i],r2.next());
+      }
+      assertEquals(fp,in.getFilePointer());
+      in.close();
+      ceil*=2;
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  TermEnum termEnum=r.terms();
+  final Fields fields=MultiFields.getFields(r);
+  if (fields == null) {
+    return;
+  }
+  FieldsEnum fieldsEnum=fields.iterator();
+  while (true) {
+    final String field=fieldsEnum.next();
+    if (field == null) {
+      boolean result=termEnum.next();
+      if (result) {
+        System.out.println("got unexpected term=" + termEnum.term() + " termEnum="+ termEnum);
+      }
+      assertFalse(result);
+      break;
+    }
+    TermsEnum terms=fieldsEnum.terms();
+    DocsAndPositionsEnum postings=null;
+    DocsEnum docsEnum=null;
+    final TermPositions termPos=r.termPositions();
+    while (true) {
+      final BytesRef termRef=terms.next();
+      if (termRef == null) {
+        break;
+      }
+ else {
+        assertTrue(termEnum.next());
+        Term t=termEnum.term();
+        assertEquals(t.field(),field);
+        assertEquals(t.text(),termRef.utf8ToString());
+        assertEquals(termEnum.docFreq(),terms.docFreq());
+        postings=terms.docsAndPositions(MultiFields.getDeletedDocs(r),postings);
+        docsEnum=terms.docs(MultiFields.getDeletedDocs(r),docsEnum);
+        final DocsEnum docs;
+        if (postings != null) {
+          docs=postings;
+        }
+ else {
+          docs=docsEnum;
+        }
+        termPos.seek(t);
+        while (true) {
+          final int doc=docs.nextDoc();
+          if (doc == DocsEnum.NO_MORE_DOCS) {
+            assertFalse(termPos.next());
+            break;
+          }
+ else {
+            assertTrue(termPos.next());
+            assertEquals(termPos.doc(),doc);
+            assertEquals(termPos.freq(),docs.freq());
+            final int freq=docs.freq();
+            if (postings == null) {
+              assertEquals(1,freq);
+              assertEquals(false,termPos.isPayloadAvailable());
+            }
+ else {
+              for (int i=0; i < freq; i++) {
+                final int position=postings.nextPosition();
+                assertEquals(position,termPos.nextPosition());
+                assertEquals(postings.hasPayload(),termPos.isPayloadAvailable());
+                if (postings.hasPayload()) {
+                  assertEquals(postings.getPayloadLength(),termPos.getPayloadLength());
+                  BytesRef payload=postings.getPayload();
+                  byte[] b2=termPos.getPayload(null,0);
+                  assertNotNull(payload);
+                  assertNotNull(b2);
+                  assertTrue(equals(payload,b2));
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

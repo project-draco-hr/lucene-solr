@@ -11,26 +11,33 @@
     }
   }
   double[] retArray=null;
-  TermDocs termDocs=reader.termDocs();
-  TermEnum termEnum=reader.terms(new Term(field));
-  try {
-    do {
-      Term term=termEnum.term();
-      if (term == null || term.field() != field)       break;
-      double termval=parser.parseDouble(term.text());
-      if (retArray == null)       retArray=new double[reader.maxDoc()];
-      termDocs.seek(termEnum);
-      while (termDocs.next()) {
-        retArray[termDocs.doc()]=termval;
+  Terms terms=MultiFields.getTerms(reader,field);
+  if (terms != null) {
+    final TermsEnum termsEnum=terms.iterator();
+    final Bits delDocs=MultiFields.getDeletedDocs(reader);
+    DocsEnum docs=null;
+    try {
+      while (true) {
+        final BytesRef term=termsEnum.next();
+        if (term == null) {
+          break;
+        }
+        final double termval=parser.parseDouble(term);
+        if (retArray == null) {
+          retArray=new double[reader.maxDoc()];
+        }
+        docs=termsEnum.docs(delDocs,docs);
+        while (true) {
+          final int docID=docs.nextDoc();
+          if (docID == DocsEnum.NO_MORE_DOCS) {
+            break;
+          }
+          retArray[docID]=termval;
+        }
       }
     }
- while (termEnum.next());
-  }
- catch (  StopFillCacheException stop) {
-  }
- finally {
-    termDocs.close();
-    termEnum.close();
+ catch (    StopFillCacheException stop) {
+    }
   }
   if (retArray == null)   retArray=new double[reader.maxDoc()];
   return retArray;

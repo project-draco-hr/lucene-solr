@@ -1,23 +1,26 @@
 {
   String field=StringHelper.intern(entryKey.field);
   final String[] retArray=new String[reader.maxDoc()];
-  TermDocs termDocs=reader.termDocs();
-  TermEnum termEnum=reader.terms(new Term(field));
-  try {
-    do {
-      Term term=termEnum.term();
-      if (term == null || term.field() != field)       break;
-      String termval=term.text();
-      termDocs.seek(termEnum);
-      while (termDocs.next()) {
-        retArray[termDocs.doc()]=termval;
+  Terms terms=MultiFields.getTerms(reader,field);
+  if (terms != null) {
+    final TermsEnum termsEnum=terms.iterator();
+    final Bits delDocs=MultiFields.getDeletedDocs(reader);
+    DocsEnum docs=null;
+    while (true) {
+      final BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      docs=termsEnum.docs(delDocs,docs);
+      final String termval=term.utf8ToString();
+      while (true) {
+        final int docID=docs.nextDoc();
+        if (docID == DocsEnum.NO_MORE_DOCS) {
+          break;
+        }
+        retArray[docID]=termval;
       }
     }
- while (termEnum.next());
-  }
-  finally {
-    termDocs.close();
-    termEnum.close();
   }
   return retArray;
 }

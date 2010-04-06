@@ -12,28 +12,24 @@
       ScoreTermQueue variantsQ=new ScoreTermQueue(MAX_VARIANTS_PER_TERM);
       float minScore=0;
       Term startTerm=internSavingTemplateTerm.createTerm(term);
-      FuzzyTermEnum fe=new FuzzyTermEnum(reader,startTerm,f.minSimilarity,f.prefixLength);
-      TermEnum origEnum=reader.terms(startTerm);
-      int df=0;
-      if (startTerm.equals(origEnum.term())) {
-        df=origEnum.docFreq();
-      }
+      FuzzyTermsEnum fe=new FuzzyTermsEnum(reader,startTerm,f.minSimilarity,f.prefixLength);
+      int df=reader.docFreq(startTerm);
       int numVariants=0;
       int totalVariantDocFreqs=0;
-      do {
-        Term possibleMatch=fe.term();
+      BytesRef possibleMatch;
+      MultiTermQuery.BoostAttribute boostAtt=fe.attributes().addAttribute(MultiTermQuery.BoostAttribute.class);
+      while ((possibleMatch=fe.next()) != null) {
         if (possibleMatch != null) {
           numVariants++;
           totalVariantDocFreqs+=fe.docFreq();
-          float score=fe.difference();
+          float score=boostAtt.getBoost();
           if (variantsQ.size() < MAX_VARIANTS_PER_TERM || score > minScore) {
-            ScoreTerm st=new ScoreTerm(possibleMatch,score,startTerm);
+            ScoreTerm st=new ScoreTerm(new Term(startTerm.field(),possibleMatch.utf8ToString()),score,startTerm);
             variantsQ.insertWithOverflow(st);
             minScore=variantsQ.top().score;
           }
         }
       }
- while (fe.next());
       if (numVariants > 0) {
         int avgDf=totalVariantDocFreqs / numVariants;
         if (df == 0) {

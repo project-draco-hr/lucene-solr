@@ -11,6 +11,7 @@
   mergePolicy.setIndexWriter(this);
   mergeScheduler=conf.getMergeScheduler();
   mergedSegmentWarmer=conf.getMergedSegmentWarmer();
+  codecs=conf.getCodecProvider();
   poolReaders=conf.getReaderPooling();
   OpenMode mode=conf.getOpenMode();
   boolean create;
@@ -32,7 +33,7 @@
     if (create) {
       boolean doCommit;
       try {
-        segmentInfos.read(directory);
+        segmentInfos.read(directory,codecs);
         segmentInfos.clear();
         doCommit=false;
       }
@@ -47,12 +48,12 @@
       }
     }
  else {
-      segmentInfos.read(directory);
+      segmentInfos.read(directory,codecs);
       IndexCommit commit=conf.getIndexCommit();
       if (commit != null) {
         if (commit.getDirectory() != directory)         throw new IllegalArgumentException("IndexCommit's directory doesn't match my directory");
         SegmentInfos oldInfos=new SegmentInfos();
-        oldInfos.read(directory,commit.getSegmentsFileName());
+        oldInfos.read(directory,commit.getSegmentsFileName(),codecs);
         segmentInfos.replace(oldInfos);
         changeCount++;
         if (infoStream != null)         message("init: loaded commit \"" + commit.getSegmentsFileName() + "\"");
@@ -62,13 +63,14 @@
     docWriter=new DocumentsWriter(directory,this,conf.getIndexingChain(),conf.getMaxThreadStates());
     docWriter.setInfoStream(infoStream);
     docWriter.setMaxFieldLength(maxFieldLength);
-    deleter=new IndexFileDeleter(directory,conf.getIndexDeletionPolicy(),segmentInfos,infoStream,docWriter);
+    deleter=new IndexFileDeleter(directory,conf.getIndexDeletionPolicy(),segmentInfos,infoStream,docWriter,this.codecs);
     if (deleter.startingCommitDeleted)     changeCount++;
     docWriter.setMaxBufferedDeleteTerms(conf.getMaxBufferedDeleteTerms());
     docWriter.setRAMBufferSizeMB(conf.getRAMBufferSizeMB());
     docWriter.setMaxBufferedDocs(conf.getMaxBufferedDocs());
     pushMaxBufferedDocs();
     if (infoStream != null) {
+      message("init: create=" + create);
       messageState();
     }
   }

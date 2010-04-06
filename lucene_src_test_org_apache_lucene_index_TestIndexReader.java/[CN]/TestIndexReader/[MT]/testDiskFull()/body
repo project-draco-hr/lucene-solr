@@ -9,12 +9,14 @@
     d.add(new Field("id",Integer.toString(i),Field.Store.YES,Field.Index.NOT_ANALYZED));
     d.add(new Field("content","aaa " + i,Field.Store.NO,Field.Index.ANALYZED));
     writer.addDocument(d);
+    if (0 == i % 10)     writer.commit();
   }
   writer.close();
-  long diskUsage=startDir.sizeInBytes();
+  long diskUsage=((MockRAMDirectory)startDir).getRecomputedActualSizeInBytes();
   long diskFree=diskUsage + 100;
   IOException err=null;
   boolean done=false;
+  boolean gotExc=false;
   while (!done) {
     MockRAMDirectory dir=new MockRAMDirectory(startDir);
     dir.setPreventDoubleWrite(false);
@@ -56,7 +58,7 @@
           int docId=12;
           for (int i=0; i < 13; i++) {
             reader.deleteDocument(docId);
-            reader.setNorm(docId,"contents",(float)2.0);
+            reader.setNorm(docId,"content",(float)2.0);
             docId+=12;
           }
         }
@@ -72,29 +74,13 @@
           e.printStackTrace(System.out);
         }
         err=e;
+        gotExc=true;
         if (1 == x) {
           e.printStackTrace();
           fail(testName + " hit IOException after disk space was freed up");
         }
       }
-      String[] startFiles=dir.listAll();
-      SegmentInfos infos=new SegmentInfos();
-      infos.read(dir);
-      new IndexFileDeleter(dir,new KeepOnlyLastCommitDeletionPolicy(),infos,null,null);
-      String[] endFiles=dir.listAll();
-      Arrays.sort(startFiles);
-      Arrays.sort(endFiles);
-      if (!Arrays.equals(startFiles,endFiles)) {
-        String successStr;
-        if (success) {
-          successStr="success";
-        }
- else {
-          successStr="IOException";
-          err.printStackTrace();
-        }
-        fail("reader.close() failed to delete unreferenced files after " + successStr + " ("+ diskFree+ " bytes): before delete:\n    "+ arrayToString(startFiles)+ "\n  after delete:\n    "+ arrayToString(endFiles));
-      }
+      TestIndexWriter.assertNoUnreferencedFiles(dir,"reader.close() failed to delete unreferenced files");
       IndexReader newReader=null;
       try {
         newReader=IndexReader.open(dir,false);
@@ -127,6 +113,7 @@
       searcher.close();
       newReader.close();
       if (result2 == END_COUNT) {
+        if (!gotExc)         fail("never hit disk full");
         break;
       }
     }

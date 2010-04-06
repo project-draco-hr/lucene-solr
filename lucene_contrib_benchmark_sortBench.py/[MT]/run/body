@@ -1,0 +1,50 @@
+def run(mode, name):
+    for dir in (TRUNK_DIR, FLEX_DIR):
+        dir = ('%s/contrib/benchmark' % dir)
+        print ('"ant compile" in %s...' % dir)
+        os.chdir(dir)
+        if (os.system('ant compile') != 0):
+            raise RuntimeError('ant compile failed')
+    r = RunAlgs(name)
+    if (not os.path.exists(WIKI_FILE)):
+        print 
+        print ('ERROR: wiki source file "%s" does not exist' % WIKI_FILE)
+        print 
+        sys.exit(1)
+    print 
+    print ('JAVA:\n%s' % os.popen('java -version 2>&1').read())
+    print 
+    if (osName != 'windows'):
+        print ('OS:\n%s' % os.popen('uname -a 2>&1').read())
+    else:
+        print ('OS:\n%s' % sys.platform)
+    deletePcts = (0.0, 0.1, 1.0, 10)
+    indexes = {}
+    for rev in ('baseline', 'flex'):
+        if (rev == 'baseline'):
+            dir = TRUNK_DIR
+        else:
+            dir = FLEX_DIR
+        source = 'wiki'
+        indexes[rev] = r.makeIndex(rev, dir, source, INDEX_NUM_DOCS, deletePcts=deletePcts)
+    doVerify = (mode == 'verify')
+    source = 'wiki'
+    numHits = 10
+    queries = ('body:[tec TO tet]', 'real*', '1', '2', '+1 +2', '+1 -2', '1 2 3 -4', '"world economy"')
+    for query in queries:
+        for deletePct in deletePcts:
+            print ('\nRUN: query=%s deletes=%g%% nhits=%d' % (query, deletePct, numHits))
+            maxDocs = INDEX_NUM_DOCS
+            numDocs = int((INDEX_NUM_DOCS * (1.0 - (deletePct / 100.0))))
+            prefix = r.getLogPrefix(query=query, deletePct=deletePct)
+            indexPath = ('%s/%s' % (INDEX_DIR_BASE, indexes['baseline']))
+            s = r.getAlg(indexPath, 'Search', numHits, deletes=deletePct, verify=doVerify, printField='doctitle')
+            baseline = r.runOne(TRUNK_DIR, s, ('baseline_%s' % prefix), maxDocs, numDocs, query, verify=doVerify)
+            indexPath = ('%s/%s' % (INDEX_DIR_BASE, indexes['flex']))
+            s = r.getAlg(indexPath, 'Search', numHits, deletes=deletePct, verify=doVerify, printField='doctitle')
+            flex = r.runOne(FLEX_DIR, s, ('flex_%s' % prefix), maxDocs, numDocs, query, verify=doVerify)
+            print ('  %d hits' % flex[0])
+            verify(baseline, flex)
+            if ((mode == 'run') and (not DEBUG)):
+                r.compare(baseline, flex, query, deletePct, baseline[0])
+                r.save(name)
