@@ -1,43 +1,64 @@
 {
-  final Bits skipDocs;
-synchronized (reader) {
-    if (isCacheable()) {
-      skipDocs=null;
+  final Bits skipDocs=canIgnoreDeletedDocs ? null : MultiFields.getDeletedDocs(reader);
+  if (skipDocs == null) {
+    return new DocIdSetIterator(){
+      private int doc=-1;
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public int nextDoc(){
+        try {
+          do {
+            doc++;
+          }
+ while (!matchDoc(doc));
+          return doc;
+        }
+ catch (        ArrayIndexOutOfBoundsException e) {
+          return doc=NO_MORE_DOCS;
+        }
+      }
+      @Override public int advance(      int target){
+        try {
+          doc=target;
+          while (!matchDoc(doc)) {
+            doc++;
+          }
+          return doc;
+        }
+ catch (        ArrayIndexOutOfBoundsException e) {
+          return doc=NO_MORE_DOCS;
+        }
+      }
     }
- else {
-      skipDocs=MultiFields.getDeletedDocs(reader);
-    }
+;
   }
-  final int maxDoc=reader.maxDoc();
-  return new DocIdSetIterator(){
-    private int doc=-1;
-    @Override public int docID(){
-      return doc;
-    }
-    @Override public int nextDoc(){
-      try {
+ else {
+    final int maxDoc=reader.maxDoc();
+    return new DocIdSetIterator(){
+      private int doc=-1;
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public int nextDoc(){
         do {
           doc++;
+          if (doc >= maxDoc) {
+            return doc=NO_MORE_DOCS;
+          }
         }
- while ((skipDocs != null && doc < maxDoc && skipDocs.get(doc)) || !matchDoc(doc));
+ while (skipDocs.get(doc) || !matchDoc(doc));
         return doc;
       }
- catch (      ArrayIndexOutOfBoundsException e) {
+      @Override public int advance(      int target){
+        for (doc=target; doc < maxDoc; doc++) {
+          if (!skipDocs.get(doc) && matchDoc(doc)) {
+            return doc;
+          }
+        }
         return doc=NO_MORE_DOCS;
       }
     }
-    @Override public int advance(    int target){
-      try {
-        doc=target;
-        while (!matchDoc(doc)) {
-          doc++;
-        }
-        return doc;
-      }
- catch (      ArrayIndexOutOfBoundsException e) {
-        return doc=NO_MORE_DOCS;
-      }
-    }
-  }
 ;
+  }
 }
