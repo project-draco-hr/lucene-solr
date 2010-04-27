@@ -1,0 +1,28 @@
+{
+  FastLRUCache<Object,Object> fastCache=new FastLRUCache<Object,Object>();
+  Map<String,String> params=new HashMap<String,String>();
+  params.put("size",String.valueOf(limit));
+  params.put("initialSize","10");
+  params.put("autowarmCount",percentage + "%");
+  CacheRegenerator cr=createCodeRegenerator();
+  Object o=fastCache.init(params,null,cr);
+  fastCache.setState(SolrCache.State.LIVE);
+  for (int i=1; i <= limit; i++) {
+    fastCache.put(i,"" + i);
+  }
+  FastLRUCache<Object,Object> fastCacheNew=new FastLRUCache<Object,Object>();
+  fastCacheNew.init(params,o,cr);
+  fastCacheNew.warm(null,fastCache);
+  fastCacheNew.setState(SolrCache.State.LIVE);
+  fastCache.close();
+  for (  int hit : hits) {
+    assertEquals("The value " + hit + " should be on new cache",String.valueOf(hit),fastCacheNew.get(hit));
+  }
+  for (  int miss : misses) {
+    assertEquals("The value " + miss + " should NOT be on new cache",null,fastCacheNew.get(miss));
+  }
+  NamedList<Serializable> nl=fastCacheNew.getStatistics();
+  assertEquals(Long.valueOf(hits.length + misses.length),nl.get("lookups"));
+  assertEquals(Long.valueOf(hits.length),nl.get("hits"));
+  fastCacheNew.close();
+}
