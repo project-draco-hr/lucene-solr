@@ -1,0 +1,111 @@
+{
+  CompletionService<SegFacet> completionService=new ExecutorCompletionService<SegFacet>(executor);
+  baseSet=docs.getTopFilter();
+  SolrIndexReader topReader=searcher.getReader();
+  final SolrIndexReader[] leafReaders=topReader.getLeafReaders();
+  int[] offsets=topReader.getLeafOffsets();
+  LinkedList<Callable<SegFacet>> pending=new LinkedList<Callable<SegFacet>>();
+  int threads=nThreads <= 0 ? Integer.MAX_VALUE : nThreads;
+  for (int i=0; i < leafReaders.length; i++) {
+    final SegFacet segFacet=new SegFacet(leafReaders[i],offsets[i]);
+    Callable<SegFacet> task=new Callable<SegFacet>(){
+      public SegFacet call() throws Exception {
+        segFacet.countTerms();
+        return segFacet;
+      }
+    }
+;
+    if (--threads >= 0) {
+      completionService.submit(task);
+    }
+ else {
+      pending.add(task);
+    }
+  }
+  PriorityQueue<SegFacet> queue=new PriorityQueue<SegFacet>(){
+{
+      initialize(leafReaders.length);
+    }
+    @Override protected boolean lessThan(    SegFacet a,    SegFacet b){
+      return a.terms[a.pos].compareTo(b.terms[b.pos]) < 0;
+    }
+  }
+;
+  boolean hasMissingCount=false;
+  int missingCount=0;
+  for (int i=0; i < leafReaders.length; i++) {
+    SegFacet seg=null;
+    try {
+      Future<SegFacet> future=completionService.take();
+      seg=future.get();
+      if (!pending.isEmpty()) {
+        completionService.submit(pending.removeFirst());
+      }
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
+    }
+catch (    ExecutionException e) {
+      Throwable cause=e.getCause();
+      if (cause instanceof RuntimeException) {
+        throw (RuntimeException)cause;
+      }
+ else {
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error in per-segment faceting on field: " + fieldName,cause);
+      }
+    }
+    if (seg.startTermIndex < seg.endTermIndex) {
+      if (seg.startTermIndex == 0) {
+        hasMissingCount=true;
+        missingCount+=seg.counts[0];
+        seg.pos=1;
+      }
+ else {
+        seg.pos=seg.startTermIndex;
+      }
+      if (seg.pos < seg.endTermIndex) {
+        queue.add(seg);
+      }
+    }
+  }
+  FacetCollector collector;
+  if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
+    collector=new CountSortedFacetCollector(offset,limit,mincount);
+  }
+ else {
+    collector=new IndexSortedFacetCollector(offset,limit,mincount);
+  }
+  while (queue.size() > 0) {
+    SegFacet seg=queue.top();
+    String val=seg.terms[seg.pos];
+    int count=0;
+    do {
+      count+=seg.counts[seg.pos - seg.startTermIndex];
+      seg.pos++;
+      if (seg.pos >= seg.endTermIndex) {
+        queue.pop();
+        seg=queue.top();
+      }
+ else {
+        seg=queue.updateTop();
+      }
+    }
+ while (seg != null && val.compareTo(seg.terms[seg.pos]) == 0);
+    boolean stop=collector.collect(val,count);
+    if (stop)     break;
+  }
+  NamedList res=collector.getFacetCounts();
+  FieldType ft=searcher.getSchema().getFieldType(fieldName);
+  int sz=res.size();
+  for (int i=0; i < sz; i++) {
+    res.setName(i,ft.indexedToReadable(res.getName(i)));
+  }
+  if (missing) {
+    if (!hasMissingCount) {
+      missingCount=SimpleFacets.getFieldMissingCount(searcher,docs,fieldName);
+    }
+    res.add(null,missingCount);
+  }
+  return res;
+}
