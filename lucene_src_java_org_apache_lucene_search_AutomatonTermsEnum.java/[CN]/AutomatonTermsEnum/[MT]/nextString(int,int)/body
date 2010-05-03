@@ -1,19 +1,20 @@
 {
-  char c=0;
-  if (position < utf16.length) {
-    c=utf16.result[position];
-    if (c == '\uFFFF')     return false;
- else     c++;
+  int c=0;
+  if (position < seekBytesRef.length) {
+    c=seekBytesRef.bytes[position] & 0xff;
+    c=incrementUTF16(c);
+    if (c == -1)     return false;
   }
-  utf16.setLength(position);
+  seekBytesRef.length=position;
   visited[state]=curGen;
   Transition transitions[]=allTransitions[state];
   for (int i=0; i < transitions.length; i++) {
     Transition transition=transitions[i];
-    if (transition.getMax() >= c) {
-      char nextChar=(char)Math.max(c,transition.getMin());
-      utf16.setLength(utf16.length + 1);
-      utf16.result[utf16.length - 1]=nextChar;
+    if (compareToUTF16(transition.getMax(),c) >= 0) {
+      int nextChar=compareToUTF16(c,transition.getMin()) > 0 ? c : transition.getMin();
+      seekBytesRef.grow(seekBytesRef.length + 1);
+      seekBytesRef.length++;
+      seekBytesRef.bytes[seekBytesRef.length - 1]=(byte)nextChar;
       state=transition.getDest().getNumber();
       while (visited[state] != curGen && !runAutomaton.isAccept(state)) {
         visited[state]=curGen;
@@ -21,10 +22,11 @@
         state=transition.getDest().getNumber();
         if (!finite && !linear && visited[state] == curGen) {
           linear=true;
-          infinitePosition=utf16.length;
+          infinitePosition=seekBytesRef.length;
         }
-        utf16.setLength(utf16.length + 1);
-        utf16.result[utf16.length - 1]=transition.getMin();
+        seekBytesRef.grow(seekBytesRef.length + 1);
+        seekBytesRef.length++;
+        seekBytesRef.bytes[seekBytesRef.length - 1]=(byte)transition.getMin();
       }
       return true;
     }
