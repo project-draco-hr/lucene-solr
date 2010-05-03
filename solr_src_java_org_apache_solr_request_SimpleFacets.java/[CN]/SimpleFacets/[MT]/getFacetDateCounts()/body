@@ -38,6 +38,7 @@
     final DateMathParser dmp=new DateMathParser(ft.UTC,Locale.US);
     dmp.setNow(NOW);
     int minCount=params.getFieldInt(f,FacetParams.FACET_MINCOUNT,0);
+    final EnumSet<FacetDateInclude> include=FacetDateInclude.parseParam(params.getFieldParams(f,FacetParams.FACET_DATE_INCLUDE));
     try {
       Date low=start;
       while (low.before(end)) {
@@ -55,7 +56,9 @@
         if (high.before(low)) {
           throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"date facet infinite loop (is gap negative?)");
         }
-        int count=rangeCount(sf,low,high,true,true);
+        boolean includeLower=(include.contains(FacetDateInclude.LOWER) || (include.contains(FacetDateInclude.EDGE) && low.equals(start)));
+        boolean includeUpper=(include.contains(FacetDateInclude.UPPER) || (include.contains(FacetDateInclude.EDGE) && high.equals(end)));
+        int count=rangeCount(sf,low,high,includeLower,includeUpper);
         if (count >= minCount) {
           resInner.add(label,count);
         }
@@ -76,13 +79,13 @@
       if (!others.contains(FacetDateOther.NONE)) {
         boolean all=others.contains(FacetDateOther.ALL);
         if (all || others.contains(FacetDateOther.BEFORE)) {
-          resInner.add(FacetDateOther.BEFORE.toString(),rangeCount(sf,null,start,false,false));
+          resInner.add(FacetDateOther.BEFORE.toString(),rangeCount(sf,null,start,false,(include.contains(FacetDateInclude.OUTER) || (!(include.contains(FacetDateInclude.LOWER) || include.contains(FacetDateInclude.EDGE))))));
         }
         if (all || others.contains(FacetDateOther.AFTER)) {
-          resInner.add(FacetDateOther.AFTER.toString(),rangeCount(sf,end,null,false,false));
+          resInner.add(FacetDateOther.AFTER.toString(),rangeCount(sf,end,null,(include.contains(FacetDateInclude.OUTER) || (!(include.contains(FacetDateInclude.UPPER) || include.contains(FacetDateInclude.EDGE)))),false));
         }
         if (all || others.contains(FacetDateOther.BETWEEN)) {
-          resInner.add(FacetDateOther.BETWEEN.toString(),rangeCount(sf,start,end,true,true));
+          resInner.add(FacetDateOther.BETWEEN.toString(),rangeCount(sf,start,end,(include.contains(FacetDateInclude.LOWER) || include.contains(FacetDateInclude.EDGE)),(include.contains(FacetDateInclude.UPPER) || include.contains(FacetDateInclude.EDGE))));
         }
       }
     }
