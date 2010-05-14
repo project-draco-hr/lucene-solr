@@ -1,0 +1,95 @@
+{
+  Stack<Object> stack=new Stack<Object>();
+  Object obj=null;
+  boolean inArray=false;
+  if (ev != JSONParser.OBJECT_START) {
+    throw new IOException("object should already be started");
+  }
+  while (true) {
+switch (ev) {
+case JSONParser.STRING:
+      if (js.wasKey()) {
+        obj=stack.peek();
+        String v=js.getString();
+        if (obj instanceof SolrInputField) {
+          SolrInputField field=(SolrInputField)obj;
+          if ("boost".equals(v)) {
+            ev=js.nextEvent();
+            if (ev != JSONParser.NUMBER && ev != JSONParser.LONG && ev != JSONParser.BIGNUMBER) {
+              throw new IOException("boost should have number! " + JSONParser.getEventString(ev));
+            }
+            field.setBoost(Float.valueOf(js.getNumberChars().toString()));
+          }
+ else           if ("value".equals(v)) {
+            stack.push(field);
+          }
+ else {
+            throw new IOException("invalid key: " + v + " ["+ js.getPosition()+ "]");
+          }
+        }
+ else         if (obj instanceof SolrInputDocument) {
+          SolrInputDocument doc=(SolrInputDocument)obj;
+          SolrInputField f=doc.get(v);
+          if (f == null) {
+            f=new SolrInputField(v);
+            doc.put(f.getName(),f);
+          }
+          stack.push(f);
+        }
+ else {
+          throw new IOException("hymmm [" + js.getPosition() + "]");
+        }
+      }
+ else {
+        addValToField(stack,js.getString(),inArray,js);
+      }
+    break;
+case JSONParser.LONG:
+case JSONParser.NUMBER:
+case JSONParser.BIGNUMBER:
+  addValToField(stack,js.getNumberChars().toString(),inArray,js);
+break;
+case JSONParser.BOOLEAN:
+addValToField(stack,js.getBoolean(),inArray,js);
+break;
+case JSONParser.OBJECT_START:
+if (stack.isEmpty()) {
+stack.push(new SolrInputDocument());
+}
+ else {
+obj=stack.peek();
+if (obj instanceof SolrInputField) {
+}
+ else {
+throw new IOException("should not start new object with: " + obj + " ["+ js.getPosition()+ "]");
+}
+}
+break;
+case JSONParser.OBJECT_END:
+obj=stack.pop();
+if (obj instanceof SolrInputDocument) {
+return (SolrInputDocument)obj;
+}
+ else if (obj instanceof SolrInputField) {
+}
+ else {
+throw new IOException("should not start new object with: " + obj + " ["+ js.getPosition()+ "]");
+}
+break;
+case JSONParser.ARRAY_START:
+inArray=true;
+break;
+case JSONParser.ARRAY_END:
+inArray=false;
+stack.pop();
+break;
+default :
+System.out.println("UNKNOWN_EVENT_ID:" + ev);
+break;
+}
+ev=js.nextEvent();
+if (ev == JSONParser.EOF) {
+throw new IOException("should finish doc first!");
+}
+}
+}
