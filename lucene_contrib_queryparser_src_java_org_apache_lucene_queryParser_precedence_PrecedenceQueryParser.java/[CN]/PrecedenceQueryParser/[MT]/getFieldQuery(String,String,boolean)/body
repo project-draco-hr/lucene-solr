@@ -1,0 +1,61 @@
+{
+  TokenStream source=analyzer.tokenStream(field,new StringReader(queryText));
+  List<AttributeSource.State> list=new ArrayList<AttributeSource.State>();
+  int positionCount=0;
+  boolean severalTokensAtSamePosition=false;
+  TermAttribute termAtt=source.addAttribute(TermAttribute.class);
+  PositionIncrementAttribute posincrAtt=source.addAttribute(PositionIncrementAttribute.class);
+  try {
+    while (source.incrementToken()) {
+      list.add(source.captureState());
+      if (posincrAtt.getPositionIncrement() == 1)       positionCount++;
+ else       severalTokensAtSamePosition=true;
+    }
+    source.end();
+    source.close();
+  }
+ catch (  IOException e) {
+  }
+  if (list.size() == 0)   return null;
+ else   if (list.size() == 1) {
+    source.restoreState(list.get(0));
+    return new TermQuery(new Term(field,termAtt.term()));
+  }
+ else {
+    if (severalTokensAtSamePosition || !quoted) {
+      if (positionCount == 1 || !quoted) {
+        BooleanQuery q=new BooleanQuery(positionCount == 1);
+        BooleanClause.Occur occur=positionCount > 1 && operator == AND_OPERATOR ? BooleanClause.Occur.MUST : BooleanClause.Occur.SHOULD;
+        for (int i=0; i < list.size(); i++) {
+          source.restoreState(list.get(i));
+          TermQuery currentQuery=new TermQuery(new Term(field,termAtt.term()));
+          q.add(currentQuery,occur);
+        }
+        return q;
+      }
+ else {
+        MultiPhraseQuery mpq=new MultiPhraseQuery();
+        List<Term> multiTerms=new ArrayList<Term>();
+        for (int i=0; i < list.size(); i++) {
+          source.restoreState(list.get(i));
+          if (posincrAtt.getPositionIncrement() == 1 && multiTerms.size() > 0) {
+            mpq.add(multiTerms.toArray(new Term[0]));
+            multiTerms.clear();
+          }
+          multiTerms.add(new Term(field,termAtt.term()));
+        }
+        mpq.add(multiTerms.toArray(new Term[0]));
+        return mpq;
+      }
+    }
+ else {
+      PhraseQuery q=new PhraseQuery();
+      q.setSlop(phraseSlop);
+      for (int i=0; i < list.size(); i++) {
+        source.restoreState(list.get(i));
+        q.add(new Term(field,termAtt.term()));
+      }
+      return q;
+    }
+  }
+}
