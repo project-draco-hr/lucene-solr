@@ -1,58 +1,17 @@
 {
   ensureOpen();
-  docWriter.pauseAllThreads();
-  acquireRead();
   try {
+    String mergedName=newSegmentName();
+    SegmentMerger merger=new SegmentMerger(directory,termIndexInterval,mergedName,null,codecs,payloadProcessorProvider);
+    for (    IndexReader reader : readers)     merger.add(reader);
+    int docCount=merger.merge();
     SegmentInfo info=null;
-    String mergedName=null;
-    SegmentMerger merger=null;
-    boolean success=false;
-    try {
-      flush(true,false,true);
-      optimize();
-      success=true;
-    }
-  finally {
-      if (!success)       releaseRead();
-    }
-    startTransaction(true);
-    try {
-      mergedName=newSegmentName();
-      merger=new SegmentMerger(directory,termIndexInterval,mergedName,null,codecs,payloadProcessorProvider);
-      SegmentReader sReader=null;
 synchronized (this) {
-        if (segmentInfos.size() == 1) {
-          sReader=readerPool.get(segmentInfos.info(0),true,BufferedIndexInput.BUFFER_SIZE,-1);
-        }
-      }
-      success=false;
-      try {
-        if (sReader != null)         merger.add(sReader);
-        for (int i=0; i < readers.length; i++)         merger.add(readers[i]);
-        int docCount=merger.merge();
-synchronized (this) {
-          segmentInfos.clear();
-          info=new SegmentInfo(mergedName,docCount,directory,false,true,-1,null,false,merger.hasProx(),merger.getCodec());
-          setDiagnostics(info,"addIndexes(IndexReader...)");
-          segmentInfos.add(info);
-        }
-        docWriter.updateFlushedDocCount(docCount);
-        success=true;
-      }
-  finally {
-        if (sReader != null) {
-          readerPool.release(sReader);
-        }
-      }
-    }
-  finally {
-      if (!success) {
-        if (infoStream != null)         message("hit exception in addIndexes during merge");
-        rollbackTransaction();
-      }
- else {
-        commitTransaction();
-      }
+      info=new SegmentInfo(mergedName,docCount,directory,false,true,-1,null,false,merger.hasProx(),merger.getCodec());
+      setDiagnostics(info,"addIndexes(IndexReader...)");
+      segmentInfos.add(info);
+      checkpoint();
+      docWriter.updateFlushedDocCount(docCount);
     }
     if (mergePolicy instanceof LogMergePolicy && getUseCompoundFile()) {
       List<String> files=null;
@@ -63,34 +22,19 @@ synchronized (this) {
         }
       }
       if (files != null) {
-        success=false;
-        startTransaction(false);
         try {
           merger.createCompoundFile(mergedName + ".cfs",info);
 synchronized (this) {
             info.setUseCompoundFile(true);
           }
-          success=true;
         }
   finally {
           deleter.decRef(files);
-          if (!success) {
-            if (infoStream != null)             message("hit exception building compound file in addIndexes during merge");
-            rollbackTransaction();
-          }
- else {
-            commitTransaction();
-          }
         }
       }
     }
   }
  catch (  OutOfMemoryError oom) {
     handleOOM(oom,"addIndexes(IndexReader...)");
-  }
- finally {
-    if (docWriter != null) {
-      docWriter.resumeAllThreads();
-    }
   }
 }

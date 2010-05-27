@@ -5,11 +5,27 @@
   boolean success=false;
   try {
     stream=dir.openInput(name,readBufferSize);
-    int count=stream.readVInt();
+    int firstInt=stream.readVInt();
+    final int count;
+    final boolean stripSegmentName;
+    if (firstInt < CompoundFileWriter.FORMAT_PRE_VERSION) {
+      if (firstInt < CompoundFileWriter.FORMAT_CURRENT) {
+        throw new CorruptIndexException("Incompatible format version: " + firstInt + " expected "+ CompoundFileWriter.FORMAT_CURRENT);
+      }
+      count=stream.readVInt();
+      stripSegmentName=false;
+    }
+ else {
+      count=firstInt;
+      stripSegmentName=true;
+    }
     FileEntry entry=null;
     for (int i=0; i < count; i++) {
       long offset=stream.readLong();
       String id=stream.readString();
+      if (stripSegmentName) {
+        id=IndexFileNames.stripSegmentName(id);
+      }
       if (entry != null) {
         entry.length=offset - entry.offset;
       }
