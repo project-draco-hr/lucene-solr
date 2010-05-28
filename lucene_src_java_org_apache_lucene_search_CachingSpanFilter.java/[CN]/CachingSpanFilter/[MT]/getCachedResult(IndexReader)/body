@@ -1,22 +1,13 @@
 {
-  lock.lock();
-  try {
-    if (cache == null) {
-      cache=new WeakHashMap<IndexReader,SpanFilterResult>();
-    }
-    final SpanFilterResult cached=cache.get(reader);
-    if (cached != null)     return cached;
+  final Object coreKey=reader.getCoreCacheKey();
+  final Object delCoreKey=reader.hasDeletions() ? MultiFields.getDeletedDocs(reader) : coreKey;
+  SpanFilterResult result=cache.get(reader,coreKey,delCoreKey);
+  if (result != null) {
+    hitCount++;
+    return result;
   }
-  finally {
-    lock.unlock();
-  }
-  final SpanFilterResult result=filter.bitSpans(reader);
-  lock.lock();
-  try {
-    cache.put(reader,result);
-  }
-  finally {
-    lock.unlock();
-  }
+  missCount++;
+  result=filter.bitSpans(reader);
+  cache.put(coreKey,delCoreKey,result);
   return result;
 }

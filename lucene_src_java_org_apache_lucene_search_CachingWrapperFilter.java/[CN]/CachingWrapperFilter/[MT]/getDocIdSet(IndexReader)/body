@@ -1,24 +1,15 @@
 {
-  lock.lock();
-  try {
-    if (cache == null) {
-      cache=new WeakHashMap<IndexReader,DocIdSet>();
-    }
-    final DocIdSet cached=cache.get(reader);
-    if (cached != null)     return cached;
-  }
-  finally {
-    lock.unlock();
-  }
-  final DocIdSet docIdSet=docIdSetToCache(filter.getDocIdSet(reader),reader);
+  final Object coreKey=reader.getCoreCacheKey();
+  final Object delCoreKey=reader.hasDeletions() ? MultiFields.getDeletedDocs(reader) : coreKey;
+  DocIdSet docIdSet=cache.get(reader,coreKey,delCoreKey);
   if (docIdSet != null) {
-    lock.lock();
-    try {
-      cache.put(reader,docIdSet);
-    }
-  finally {
-      lock.unlock();
-    }
+    hitCount++;
+    return docIdSet;
+  }
+  missCount++;
+  docIdSet=docIdSetToCache(filter.getDocIdSet(reader),reader);
+  if (docIdSet != null) {
+    cache.put(coreKey,delCoreKey,docIdSet);
   }
   return docIdSet;
 }
