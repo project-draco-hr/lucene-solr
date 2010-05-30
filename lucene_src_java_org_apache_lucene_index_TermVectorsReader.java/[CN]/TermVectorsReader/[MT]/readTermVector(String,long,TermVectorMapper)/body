@@ -4,54 +4,29 @@
   if (numTerms == 0)   return;
   boolean storePositions;
   boolean storeOffsets;
-  if (format >= FORMAT_VERSION) {
-    byte bits=tvf.readByte();
-    storePositions=(bits & STORE_POSITIONS_WITH_TERMVECTOR) != 0;
-    storeOffsets=(bits & STORE_OFFSET_WITH_TERMVECTOR) != 0;
-  }
- else {
-    tvf.readVInt();
-    storePositions=false;
-    storeOffsets=false;
-  }
+  byte bits=tvf.readByte();
+  storePositions=(bits & STORE_POSITIONS_WITH_TERMVECTOR) != 0;
+  storeOffsets=(bits & STORE_OFFSET_WITH_TERMVECTOR) != 0;
   mapper.setExpectations(field,numTerms,storeOffsets,storePositions);
   int start=0;
   int deltaLength=0;
   int totalLength=0;
   byte[] byteBuffer;
-  char[] charBuffer;
-  final boolean preUTF8=format < FORMAT_UTF8_LENGTH_IN_BYTES;
-  if (preUTF8) {
-    charBuffer=new char[10];
-    byteBuffer=null;
-  }
- else {
-    charBuffer=null;
-    byteBuffer=new byte[20];
-  }
+  byteBuffer=new byte[20];
   for (int i=0; i < numTerms; i++) {
     start=tvf.readVInt();
     deltaLength=tvf.readVInt();
     totalLength=start + deltaLength;
     final String term;
-    if (preUTF8) {
-      if (charBuffer.length < totalLength) {
-        charBuffer=ArrayUtil.grow(charBuffer,totalLength);
-      }
-      tvf.readChars(charBuffer,start,deltaLength);
-      term=new String(charBuffer,0,totalLength);
+    if (byteBuffer.length < totalLength) {
+      byteBuffer=ArrayUtil.grow(byteBuffer,totalLength);
     }
- else {
-      if (byteBuffer.length < totalLength) {
-        byteBuffer=ArrayUtil.grow(byteBuffer,totalLength);
-      }
-      tvf.readBytes(byteBuffer,start,deltaLength);
-      term=new String(byteBuffer,0,totalLength,"UTF-8");
-    }
+    tvf.readBytes(byteBuffer,start,deltaLength);
+    term=new String(byteBuffer,0,totalLength,"UTF-8");
     int freq=tvf.readVInt();
     int[] positions=null;
     if (storePositions) {
-      if (mapper.isIgnoringPositions() == false) {
+      if (!mapper.isIgnoringPositions()) {
         positions=new int[freq];
         int prevPosition=0;
         for (int j=0; j < freq; j++) {
@@ -67,7 +42,7 @@
     }
     TermVectorOffsetInfo[] offsets=null;
     if (storeOffsets) {
-      if (mapper.isIgnoringOffsets() == false) {
+      if (!mapper.isIgnoringOffsets()) {
         offsets=new TermVectorOffsetInfo[freq];
         int prevOffset=0;
         for (int j=0; j < freq; j++) {
