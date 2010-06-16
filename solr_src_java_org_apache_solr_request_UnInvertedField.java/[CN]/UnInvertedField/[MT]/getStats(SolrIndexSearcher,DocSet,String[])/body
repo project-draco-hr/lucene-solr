@@ -23,7 +23,7 @@
   }
   final int[] index=this.index;
   final int[] counts=new int[numTermsInField];
-  NumberedTermEnum te=ti.getEnumerator(searcher.getReader());
+  NumberedTermsEnum te=ti.getEnumerator(searcher.getReader());
   boolean doNegative=false;
   if (finfo.length == 0) {
     doNegative=baseSize > maxDoc >> 1 && termInstances > 0 && docs instanceof BitDocSet;
@@ -35,11 +35,12 @@
   }
   for (  TopTerm tt : bigTerms.values()) {
     if (tt.termNum >= 0 && tt.termNum < numTermsInField) {
+      final Term t=new Term(ti.field,tt.term.utf8ToString());
       if (finfo.length == 0) {
-        counts[tt.termNum]=searcher.numDocs(new TermQuery(tt.term),docs);
+        counts[tt.termNum]=searcher.numDocs(new TermQuery(t),docs);
       }
  else {
-        DocSet bigTermDocSet=searcher.getDocSet(new TermQuery(tt.term)).intersection(docs);
+        DocSet bigTermDocSet=searcher.getDocSet(new TermQuery(t)).intersection(docs);
         DocIterator iter=bigTermDocSet.iterator();
         while (iter.hasNext()) {
           int doc=iter.nextDoc();
@@ -95,10 +96,12 @@
       }
     }
   }
+  CharArr spare=new CharArr();
   for (i=0; i < numTermsInField; i++) {
     int c=doNegative ? maxTermCounts[i] - counts[i] : counts[i];
     if (c == 0)     continue;
-    Double value=Double.parseDouble(ft.indexedToReadable(getTermText(te,i)));
+    String label=getReadableValue(getTermValue(te,i),ft,spare);
+    Double value=Double.parseDouble(label);
     allstats.accumulate(value,c);
     for (    FieldFacetStats f : finfo) {
       f.accumulateTermNum(i,value);

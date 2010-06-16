@@ -32,21 +32,24 @@
     writer.addDocument(testDoc4);
     writer.close();
     IndexSearcher knownSearcher=new IndexSearcher(dir,true);
-    TermEnum termEnum=knownSearcher.reader.terms();
-    TermDocs termDocs=knownSearcher.reader.termDocs();
-    while (termEnum.next() == true) {
-      Term term=termEnum.term();
-      termDocs.seek(term);
-      while (termDocs.next()) {
-        int docId=termDocs.doc();
-        int freq=termDocs.freq();
-        TermFreqVector vector=knownSearcher.reader.getTermFreqVector(docId,"field");
-        assertTrue(vector != null);
-        String[] vTerms=vector.getTerms();
-        int[] freqs=vector.getTermFrequencies();
-        for (int i=0; i < vTerms.length; i++) {
-          if (term.text().equals(vTerms[i])) {
-            assertTrue(freqs[i] == freq);
+    FieldsEnum fields=MultiFields.getFields(knownSearcher.reader).iterator();
+    DocsEnum docs=null;
+    while (fields.next() != null) {
+      TermsEnum terms=fields.terms();
+      while (terms.next() != null) {
+        String text=terms.term().utf8ToString();
+        docs=terms.docs(MultiFields.getDeletedDocs(knownSearcher.reader),docs);
+        while (docs.nextDoc() != DocsEnum.NO_MORE_DOCS) {
+          int docId=docs.docID();
+          int freq=docs.freq();
+          TermFreqVector vector=knownSearcher.reader.getTermFreqVector(docId,"field");
+          assertTrue(vector != null);
+          String[] vTerms=vector.getTerms();
+          int[] freqs=vector.getTermFrequencies();
+          for (int i=0; i < vTerms.length; i++) {
+            if (text.equals(vTerms[i])) {
+              assertTrue(freqs[i] == freq);
+            }
           }
         }
       }

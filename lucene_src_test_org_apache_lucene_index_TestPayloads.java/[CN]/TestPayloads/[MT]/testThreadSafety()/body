@@ -31,19 +31,20 @@
   }
   writer.close();
   IndexReader reader=IndexReader.open(dir,true);
-  TermEnum terms=reader.terms();
-  while (terms.next()) {
-    TermPositions tp=reader.termPositions(terms.term());
-    while (tp.next()) {
+  TermsEnum terms=MultiFields.getFields(reader).terms(field).iterator();
+  Bits delDocs=MultiFields.getDeletedDocs(reader);
+  DocsAndPositionsEnum tp=null;
+  while (terms.next() != null) {
+    String termText=terms.term().utf8ToString();
+    tp=terms.docsAndPositions(delDocs,tp);
+    while (tp.nextDoc() != DocsEnum.NO_MORE_DOCS) {
       int freq=tp.freq();
       for (int i=0; i < freq; i++) {
         tp.nextPosition();
-        assertEquals(pool.bytesToString(tp.getPayload(new byte[5],0)),terms.term().text);
+        assertEquals(tp.getPayload().utf8ToString(),termText);
       }
     }
-    tp.close();
   }
-  terms.close();
   reader.close();
   assertEquals(pool.size(),numThreads);
 }

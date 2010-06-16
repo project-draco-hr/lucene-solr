@@ -10,11 +10,11 @@
     final int[] counts=new int[numTermsInField];
     int startTerm=0;
     int endTerm=numTermsInField;
-    NumberedTermEnum te=ti.getEnumerator(searcher.getReader());
+    NumberedTermsEnum te=ti.getEnumerator(searcher.getReader());
     if (prefix != null && prefix.length() > 0) {
-      te.skipTo(prefix);
+      te.skipTo(new BytesRef(prefix));
       startTerm=te.getTermNumber();
-      te.skipTo(prefix + "\uffff\uffff\uffff\uffff");
+      te.skipTo(new BytesRef(prefix + "\uffff\uffff\uffff\uffff"));
       endTerm=te.getTermNumber();
     }
     boolean doNegative=baseSize > maxDoc >> 1 && termInstances > 0 && startTerm == 0 && endTerm == numTermsInField && docs instanceof BitDocSet;
@@ -25,7 +25,7 @@
     }
     for (    TopTerm tt : bigTerms.values()) {
       if (tt.termNum >= startTerm && tt.termNum < endTerm) {
-        counts[tt.termNum]=searcher.numDocs(new TermQuery(tt.term),docs);
+        counts[tt.termNum]=searcher.numDocs(new TermQuery(new Term(ti.field,tt.term.utf8ToString())),docs);
       }
     }
     if (termInstances > 0) {
@@ -66,6 +66,7 @@
         }
       }
     }
+    CharArr spare=new CharArr();
     int off=offset;
     int lim=limit >= 0 ? limit : Integer.MAX_VALUE;
     if (sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY)) {
@@ -86,7 +87,7 @@
         if (--lim < 0)         break;
         int c=-(int)(p.longValue() >>> 32);
         int tnum=(int)p.longValue();
-        String label=ft.indexedToReadable(getTermText(te,tnum));
+        String label=getReadableValue(getTermValue(te,tnum),ft,spare);
         res.add(label,c);
       }
     }
@@ -100,7 +101,7 @@
         int c=doNegative ? maxTermCounts[i] - counts[i] : counts[i];
         if (c < mincount || --off >= 0)         continue;
         if (--lim < 0)         break;
-        String label=ft.indexedToReadable(getTermText(te,i));
+        String label=getReadableValue(getTermValue(te,i),ft,spare);
         res.add(label,c);
       }
     }

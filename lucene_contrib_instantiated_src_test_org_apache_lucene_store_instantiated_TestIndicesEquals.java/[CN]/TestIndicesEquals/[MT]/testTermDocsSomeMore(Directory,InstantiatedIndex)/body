@@ -2,98 +2,56 @@
   IndexReader aprioriReader=IndexReader.open(aprioriIndex,false);
   IndexReader testReader=testIndex.indexReaderFactory();
   Term t=new Term("c","danny");
-  TermEnum aprioriTermEnum=aprioriReader.terms(t);
-  TermEnum testTermEnum=testReader.terms(t);
+  TermsEnum aprioriTermEnum=MultiFields.getTerms(aprioriReader,t.field()).iterator();
+  aprioriTermEnum.seek(new BytesRef(t.text()));
+  TermsEnum testTermEnum=MultiFields.getTerms(testReader,t.field()).iterator();
+  testTermEnum.seek(new BytesRef(t.text()));
   assertEquals(aprioriTermEnum.term(),testTermEnum.term());
-  t=aprioriTermEnum.term();
-  aprioriTermEnum.close();
-  testTermEnum.close();
-  TermDocs aprioriTermDocs=aprioriReader.termDocs(t);
-  TermDocs testTermDocs=testReader.termDocs(t);
-  assertEquals(aprioriTermDocs.next(),testTermDocs.next());
+  DocsEnum aprioriTermDocs=aprioriTermEnum.docs(MultiFields.getDeletedDocs(aprioriReader),null);
+  DocsEnum testTermDocs=testTermEnum.docs(MultiFields.getDeletedDocs(testReader),null);
+  assertEquals(aprioriTermDocs.nextDoc(),testTermDocs.nextDoc());
   assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-  assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
-  if (aprioriTermDocs.skipTo(4)) {
-    assertTrue(testTermDocs.skipTo(4));
+  if (aprioriTermDocs.advance(4) != DocsEnum.NO_MORE_DOCS) {
+    assertTrue(testTermDocs.advance(4) != DocsEnum.NO_MORE_DOCS);
     assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
+    assertEquals(aprioriTermDocs.docID(),testTermDocs.docID());
   }
  else {
-    assertFalse(testTermDocs.skipTo(4));
+    assertEquals(DocsEnum.NO_MORE_DOCS,testTermDocs.advance(4));
   }
-  if (aprioriTermDocs.next()) {
-    assertTrue(testTermDocs.next());
+  if (aprioriTermDocs.nextDoc() != DocsEnum.NO_MORE_DOCS) {
+    assertTrue(testTermDocs.nextDoc() != DocsEnum.NO_MORE_DOCS);
     assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
+    assertEquals(aprioriTermDocs.docID(),testTermDocs.docID());
   }
  else {
-    assertFalse(testTermDocs.next());
+    assertEquals(DocsEnum.NO_MORE_DOCS,testTermDocs.nextDoc());
   }
-  if (aprioriTermDocs.skipTo(100)) {
-    assertTrue(testTermDocs.skipTo(100));
+  if (aprioriTermDocs.advance(100) != DocsEnum.NO_MORE_DOCS) {
+    assertTrue(testTermDocs.advance(100) != DocsEnum.NO_MORE_DOCS);
     assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
+    assertEquals(aprioriTermDocs.docID(),testTermDocs.docID());
   }
  else {
-    assertFalse(testTermDocs.skipTo(100));
+    assertEquals(DocsEnum.NO_MORE_DOCS,testTermDocs.advance(100));
   }
-  if (aprioriTermDocs.next()) {
-    assertTrue(testTermDocs.next());
-    assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
-  }
- else {
-    assertFalse(testTermDocs.next());
-  }
-  if (aprioriTermDocs.skipTo(110)) {
-    assertTrue(testTermDocs.skipTo(110));
-    assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
-  }
- else {
-    assertFalse(testTermDocs.skipTo(110));
-  }
-  if (aprioriTermDocs.skipTo(10)) {
-    assertTrue(testTermDocs.skipTo(10));
-    assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
-  }
- else {
-    assertFalse(testTermDocs.skipTo(10));
-  }
-  if (aprioriTermDocs.skipTo(210)) {
-    assertTrue(testTermDocs.skipTo(210));
-    assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
-  }
- else {
-    assertFalse(testTermDocs.skipTo(210));
-  }
-  aprioriTermDocs.close();
-  testTermDocs.close();
-  aprioriTermDocs=aprioriReader.termDocs(null);
-  testTermDocs=testReader.termDocs(null);
-  while (aprioriTermDocs.next()) {
-    assertTrue(testTermDocs.next());
-    assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
-  }
-  assertFalse(testTermDocs.next());
-  aprioriTermDocs.close();
-  testTermDocs.close();
-  aprioriTermDocs=aprioriReader.termDocs();
-  testTermDocs=testReader.termDocs();
   t=new Term("","");
-  aprioriTermDocs.seek(t);
-  testTermDocs.seek(t);
-  while (aprioriTermDocs.next()) {
-    assertTrue(testTermDocs.next());
+  FieldsEnum apFieldsEnum=MultiFields.getFields(aprioriReader).iterator();
+  String apFirstField=apFieldsEnum.next();
+  FieldsEnum testFieldsEnum=MultiFields.getFields(testReader).iterator();
+  String testFirstField=testFieldsEnum.next();
+  assertEquals(apFirstField,testFirstField);
+  aprioriTermEnum=apFieldsEnum.terms();
+  testTermEnum=testFieldsEnum.terms();
+  assertEquals(aprioriTermEnum.next(),testTermEnum.next());
+  aprioriTermDocs=aprioriTermEnum.docs(MultiFields.getDeletedDocs(aprioriReader),aprioriTermDocs);
+  testTermDocs=testTermEnum.docs(MultiFields.getDeletedDocs(testReader),testTermDocs);
+  while (aprioriTermDocs.nextDoc() != DocsEnum.NO_MORE_DOCS) {
+    assertTrue(testTermDocs.nextDoc() != DocsEnum.NO_MORE_DOCS);
     assertEquals(aprioriTermDocs.freq(),testTermDocs.freq());
-    assertEquals(aprioriTermDocs.doc(),testTermDocs.doc());
+    assertEquals(aprioriTermDocs.docID(),testTermDocs.docID());
   }
-  assertFalse(testTermDocs.next());
-  aprioriTermDocs.close();
-  testTermDocs.close();
+  assertEquals(DocsEnum.NO_MORE_DOCS,testTermDocs.nextDoc());
   aprioriReader.close();
   testReader.close();
 }
