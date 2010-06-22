@@ -10,6 +10,7 @@
   NumberedTermsEnum te=ti.getEnumerator(reader);
   int threshold=maxDoc / 20 + 2;
   byte[] tempArr=new byte[12];
+  SolrIndexSearcher.DocsEnumState deState=null;
   for (; ; ) {
     BytesRef t=te.term();
     if (t == null)     break;
@@ -25,16 +26,22 @@
       topTerm.term=new BytesRef(t);
       topTerm.termNum=termNum;
       bigTerms.put(topTerm.termNum,topTerm);
-      DocSet set=searcher.getDocSet(new TermQuery(new Term(ti.field,topTerm.term.utf8ToString())));
+      if (deState == null) {
+        deState=new SolrIndexSearcher.DocsEnumState();
+        deState.termsEnum=te.tenum;
+        deState.reuse=te.docsEnum;
+      }
+      DocSet set=searcher.getDocSet(new TermQuery(new Term(ti.field,topTerm.term.utf8ToString())),deState);
+      te.docsEnum=deState.reuse;
       maxTermCounts[termNum]=set.size();
       te.next();
       continue;
     }
     termsInverted++;
-    DocsEnum td=te.getDocsEnum();
-    DocsEnum.BulkReadResult bulkResult=td.getBulkResult();
+    DocsEnum docsEnum=te.getDocsEnum();
+    DocsEnum.BulkReadResult bulkResult=docsEnum.getBulkResult();
     for (; ; ) {
-      int n=td.read();
+      int n=docsEnum.read();
       if (n <= 0)       break;
       maxTermCounts[termNum]+=n;
       for (int i=0; i < n; i++) {
