@@ -1,0 +1,58 @@
+{
+  final int numField=_TestUtil.nextInt(r,2,5);
+  List<Term> terms=new ArrayList<Term>();
+  int tc=0;
+  for (int f=0; f < numField; f++) {
+    String field="f" + f;
+    Term protoTerm=new Term(field);
+    fieldInfos.add(field,true,false,false,false,false,false,false);
+    final int numTerms=10000 * _TestUtil.getRandomMultiplier();
+    for (int i=0; i < numTerms; i++) {
+      String s;
+      if (r.nextInt(3) == 1) {
+        s=makeDifficultRandomUnicodeString(r);
+      }
+ else {
+        s=_TestUtil.randomUnicodeString(r);
+        s=s.replace((char)0xffff,(char)0xfffe);
+      }
+      terms.add(protoTerm.createTerm(s + "_" + (tc++)));
+    }
+  }
+  fieldInfos.write(dir,segName);
+  Collections.sort(terms);
+  TermInfosWriter w=new TermInfosWriter(dir,segName,fieldInfos,128);
+  TermInfo ti=new TermInfo();
+  BytesRef utf8=new BytesRef(10);
+  String lastText=null;
+  int uniqueTermCount=0;
+  if (DEBUG) {
+    System.out.println("TEST: utf16 order:");
+  }
+  for (  Term t : terms) {
+    FieldInfo fi=fieldInfos.fieldInfo(t.field());
+    String text=t.text();
+    if (lastText != null && lastText.equals(text)) {
+      continue;
+    }
+    fieldTerms.add(new FieldAndText(t));
+    uniqueTermCount++;
+    lastText=text;
+    UnicodeUtil.UTF16toUTF8(text,0,text.length(),utf8);
+    if (DEBUG) {
+      System.out.println("  " + toHexString(t));
+    }
+    w.add(fi.number,utf8.bytes,utf8.length,ti);
+  }
+  w.close();
+  Collections.sort(fieldTerms);
+  if (DEBUG) {
+    System.out.println("\nTEST: codepoint order");
+    for (    FieldAndText t : fieldTerms) {
+      System.out.println("  " + t.field + ":"+ UnicodeUtil.toHexString(t.text.utf8ToString()));
+    }
+  }
+  dir.createOutput(segName + ".prx").close();
+  dir.createOutput(segName + ".frq").close();
+  return new SegmentInfo(segName,uniqueTermCount,dir,false,-1,null,false,true,codec);
+}

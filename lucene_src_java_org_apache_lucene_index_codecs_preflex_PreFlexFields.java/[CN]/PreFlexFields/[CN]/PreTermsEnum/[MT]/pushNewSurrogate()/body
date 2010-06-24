@@ -1,0 +1,70 @@
+{
+  if (DEBUG_SURROGATES) {
+    System.out.println("  check push newSuffix=" + newSuffixStart + " stack="+ getStack());
+  }
+  final Term t=termEnum.term();
+  if (t == null || t.field() != fieldInfo.name) {
+    return false;
+  }
+  final String text=t.text();
+  final int textLen=text.length();
+  for (int i=Math.max(0,newSuffixStart); i < textLen; i++) {
+    final char ch=text.charAt(i);
+    if (ch >= UnicodeUtil.UNI_SUR_HIGH_START && ch <= UnicodeUtil.UNI_SUR_HIGH_END && (surrogateSeekUpto == 0 || i > surrogateSeekPending[surrogateSeekUpto - 1])) {
+      if (DEBUG_SURROGATES) {
+        System.out.println("    found high surr 0x" + Integer.toHexString(ch) + " at pos="+ i);
+      }
+      char[] testPrefix=new char[i + 1];
+      for (int j=0; j < i; j++) {
+        testPrefix[j]=text.charAt(j);
+      }
+      testPrefix[i]=1 + UnicodeUtil.UNI_SUR_LOW_END;
+      getTermsDict().seekEnum(seekTermEnum,protoTerm.createTerm(new String(testPrefix)));
+      Term t2=seekTermEnum.term();
+      boolean isPrefix;
+      if (t2 != null && t2.field() == fieldInfo.name) {
+        String seekText=t2.text();
+        isPrefix=true;
+        if (DEBUG_SURROGATES) {
+          System.out.println("      seek found " + UnicodeUtil.toHexString(seekText));
+        }
+        for (int j=0; j < i; j++) {
+          if (testPrefix[j] != seekText.charAt(j)) {
+            isPrefix=false;
+            break;
+          }
+        }
+        if (DEBUG_SURROGATES && !isPrefix) {
+          System.out.println("      no end terms");
+        }
+      }
+ else {
+        if (DEBUG_SURROGATES) {
+          System.out.println("      no end terms");
+        }
+        isPrefix=false;
+      }
+      if (isPrefix) {
+        pendingPrefix=testPrefix;
+        getTermsDict().seekEnum(termEnum,t2);
+        if (surrogateSeekUpto == surrogateSeekPending.length) {
+          surrogateSeekPending=ArrayUtil.grow(surrogateSeekPending);
+        }
+        if (surrogateSeekUpto == surrogateDidSeekBack.length) {
+          surrogateDidSeekBack=ArrayUtil.grow(surrogateDidSeekBack);
+        }
+        surrogateSeekPending[surrogateSeekUpto]=i;
+        surrogateDidSeekBack[surrogateSeekUpto]=false;
+        surrogateSeekUpto++;
+        if (DEBUG_SURROGATES) {
+          System.out.println("      do push " + i + "; end term="+ UnicodeUtil.toHexString(t2.text()));
+        }
+        newSuffixStart=i + 1;
+        return true;
+      }
+ else {
+      }
+    }
+  }
+  return false;
+}
