@@ -1,10 +1,11 @@
 {
   SolrQueryRequest req=rb.req;
   SolrParams params=req.getParams();
-  if (!params.getBool(ENABLE,true)) {
+  if (!params.getBool(QueryElevationParams.ENABLE,true)) {
     return;
   }
-  boolean force=params.getBool(FORCE_ELEVATION,forceElevation);
+  boolean exclusive=params.getBool(QueryElevationParams.EXCLUSIVE,false);
+  boolean force=params.getBool(QueryElevationParams.FORCE_ELEVATION,forceElevation);
   Query query=rb.getQuery();
   String qstr=rb.getQueryString();
   if (query == null || qstr == null) {
@@ -20,15 +21,20 @@
     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error loading elevation",ex);
   }
   if (booster != null) {
-    BooleanQuery newq=new BooleanQuery(true);
-    newq.add(query,BooleanClause.Occur.SHOULD);
-    newq.add(booster.include,BooleanClause.Occur.SHOULD);
-    if (booster.exclude != null) {
-      for (      BooleanClause bq : booster.exclude) {
-        newq.add(bq);
-      }
+    if (exclusive == true) {
+      rb.setQuery(booster.include);
     }
-    rb.setQuery(newq);
+ else {
+      BooleanQuery newq=new BooleanQuery(true);
+      newq.add(query,BooleanClause.Occur.SHOULD);
+      newq.add(booster.include,BooleanClause.Occur.SHOULD);
+      if (booster.exclude != null) {
+        for (        BooleanClause bq : booster.exclude) {
+          newq.add(bq);
+        }
+      }
+      rb.setQuery(newq);
+    }
     SortSpec sortSpec=rb.getSortSpec();
     if (sortSpec.getSort() == null) {
       sortSpec.setSort(new Sort(new SortField[]{new SortField(idField,booster.comparatorSource,false),new SortField(null,SortField.SCORE,false)}));
