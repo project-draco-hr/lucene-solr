@@ -1,26 +1,32 @@
 {
   final int docCountCutoff=(int)((docCountPercent / 100.) * reader.maxDoc());
   final int termCountLimit=Math.min(BooleanQuery.getMaxClauseCount(),termCountCutoff);
-  final CutOffTermCollector col=new CutOffTermCollector(reader,docCountCutoff,termCountLimit);
+  final CutOffTermCollector col=new CutOffTermCollector(reader,query.field,docCountCutoff,termCountLimit);
   collectTerms(reader,query,col);
   if (col.hasCutOff) {
     return CONSTANT_SCORE_FILTER_REWRITE.rewrite(reader,query);
   }
+ else   if (col.termCount == 0) {
+    return new BooleanQuery(true);
+  }
  else {
-    final Query result;
-    if (col.pendingTerms.isEmpty()) {
-      result=new BooleanQuery(true);
-    }
- else {
-      BooleanQuery bq=new BooleanQuery(true);
-      for (      Term term : col.pendingTerms) {
-        TermQuery tq=new TermQuery(term);
-        bq.add(tq,BooleanClause.Occur.SHOULD);
+    final PagedBytes.Reader bytesReader=col.pendingTerms.freeze(false);
+    try {
+      final BooleanQuery bq=new BooleanQuery(true);
+      final Term placeholderTerm=new Term(query.field);
+      long start=col.startOffset;
+      for (int i=0; i < col.termCount; i++) {
+        final BytesRef bytes=new BytesRef();
+        start=bytesReader.fillUsingLengthPrefix3(bytes,start);
+        bq.add(new TermQuery(placeholderTerm.createTerm(bytes)),BooleanClause.Occur.SHOULD);
       }
-      result=new ConstantScoreQuery(new QueryWrapperFilter(bq));
+      final Query result=new ConstantScoreQuery(new QueryWrapperFilter(bq));
       result.setBoost(query.getBoost());
+      query.incTotalNumberOfTerms(col.termCount);
+      return result;
     }
-    query.incTotalNumberOfTerms(col.pendingTerms.size());
-    return result;
+  finally {
+      bytesReader.close();
+    }
   }
 }
