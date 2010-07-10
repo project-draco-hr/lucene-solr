@@ -1,0 +1,73 @@
+{
+  BooleanQuery result=new BooleanQuery();
+  double[] point=new double[0];
+  try {
+    point=DistanceUtils.parseLatitudeLongitude(options.pointStr);
+  }
+ catch (  InvalidGeoException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
+  }
+  double[] ur;
+  double[] ll;
+  if (options.measStr == null || options.measStr.equals("hsin")) {
+    ur=DistanceUtils.latLonCornerDegs(point[LAT],point[LONG],options.distance,null,true,options.radius);
+    ll=DistanceUtils.latLonCornerDegs(point[LAT],point[LONG],options.distance,null,false,options.radius);
+  }
+ else {
+    ur=DistanceUtils.vectorBoxCorner(point,null,options.distance,true);
+    ll=DistanceUtils.vectorBoxCorner(point,null,options.distance,false);
+  }
+  SchemaField subSF;
+  Query range;
+  double angDistDegs=DistanceUtils.angularDistance(options.distance,DistanceUtils.EARTH_MEAN_RADIUS_MI) * DistanceUtils.RADIANS_TO_DEGREES;
+  if (point[LAT] + angDistDegs > 90.0) {
+    double minLat=Math.min(ll[LAT],ur[LAT]);
+    subSF=subField(options.field,LAT);
+    range=subSF.getType().getRangeQuery(parser,subSF,String.valueOf(minLat),"90",true,true);
+    result.add(range,BooleanClause.Occur.MUST);
+  }
+ else   if (point[LAT] - angDistDegs < -90.0) {
+    subSF=subField(options.field,LAT);
+    double maxLat=Math.max(ll[LAT],ur[LAT]);
+    range=subSF.getType().getRangeQuery(parser,subSF,"-90",String.valueOf(maxLat),true,true);
+    result.add(range,BooleanClause.Occur.MUST);
+  }
+ else {
+    if (ll[LONG] > 0.0 && ur[LONG] < 0.0) {
+      if (ll[LAT] < 0.0 && ur[LAT] > 0.0) {
+        addEquatorialBoundary(parser,options,result,ur[LAT],ll[LAT]);
+      }
+ else {
+        subSF=subField(options.field,LAT);
+        range=subSF.getType().getRangeQuery(parser,subSF,String.valueOf(ll[LAT]),String.valueOf(ur[LAT]),true,true);
+        result.add(range,BooleanClause.Occur.MUST);
+      }
+      addMeridianBoundary(parser,options,result,ur[LONG],ll[LONG],"180.0","-180.0");
+    }
+ else     if (ll[LONG] < 0.0 && ur[LONG] > 0.0) {
+      if (ll[LAT] < 0.0 && ur[LAT] > 0.0) {
+        addEquatorialBoundary(parser,options,result,ur[LAT],ll[LAT]);
+      }
+ else {
+        subSF=subField(options.field,LAT);
+        range=subSF.getType().getRangeQuery(parser,subSF,String.valueOf(ll[LAT]),String.valueOf(ur[LAT]),true,true);
+        result.add(range,BooleanClause.Occur.MUST);
+      }
+      addMeridianBoundary(parser,options,result,ur[LONG],ll[LONG],"0.0",".0");
+    }
+ else {
+      if (ll[LAT] < 0.0 && ur[LAT] > 0.0) {
+        addEquatorialBoundary(parser,options,result,ur[LAT],ll[LAT]);
+      }
+ else {
+        subSF=subField(options.field,LAT);
+        range=subSF.getType().getRangeQuery(parser,subSF,String.valueOf(ll[LAT]),String.valueOf(ur[LAT]),true,true);
+        result.add(range,BooleanClause.Occur.MUST);
+      }
+      subSF=subField(options.field,LONG);
+      range=subSF.getType().getRangeQuery(parser,subSF,String.valueOf(ll[LONG]),String.valueOf(ur[LONG]),true,true);
+      result.add(range,BooleanClause.Occur.MUST);
+    }
+  }
+  return result;
+}
