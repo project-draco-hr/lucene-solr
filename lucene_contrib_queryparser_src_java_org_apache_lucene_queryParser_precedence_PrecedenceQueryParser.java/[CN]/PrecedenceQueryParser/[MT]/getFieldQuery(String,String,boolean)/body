@@ -3,7 +3,7 @@
   List<AttributeSource.State> list=new ArrayList<AttributeSource.State>();
   int positionCount=0;
   boolean severalTokensAtSamePosition=false;
-  CharTermAttribute termAtt=source.addAttribute(CharTermAttribute.class);
+  TermToBytesRefAttribute termAtt=source.addAttribute(TermToBytesRefAttribute.class);
   PositionIncrementAttribute posincrAtt=source.addAttribute(PositionIncrementAttribute.class);
   try {
     while (source.incrementToken()) {
@@ -19,7 +19,9 @@
   if (list.size() == 0)   return null;
  else   if (list.size() == 1) {
     source.restoreState(list.get(0));
-    return new TermQuery(new Term(field,termAtt.toString()));
+    BytesRef term=new BytesRef();
+    termAtt.toBytesRef(term);
+    return new TermQuery(new Term(field,term));
   }
  else {
     if (severalTokensAtSamePosition || !quoted) {
@@ -27,8 +29,10 @@
         BooleanQuery q=new BooleanQuery(positionCount == 1);
         BooleanClause.Occur occur=positionCount > 1 && operator == AND_OPERATOR ? BooleanClause.Occur.MUST : BooleanClause.Occur.SHOULD;
         for (int i=0; i < list.size(); i++) {
+          BytesRef term=new BytesRef();
           source.restoreState(list.get(i));
-          TermQuery currentQuery=new TermQuery(new Term(field,termAtt.toString()));
+          termAtt.toBytesRef(term);
+          TermQuery currentQuery=new TermQuery(new Term(field,term));
           q.add(currentQuery,occur);
         }
         return q;
@@ -37,12 +41,14 @@
         MultiPhraseQuery mpq=new MultiPhraseQuery();
         List<Term> multiTerms=new ArrayList<Term>();
         for (int i=0; i < list.size(); i++) {
+          BytesRef term=new BytesRef();
           source.restoreState(list.get(i));
           if (posincrAtt.getPositionIncrement() == 1 && multiTerms.size() > 0) {
             mpq.add(multiTerms.toArray(new Term[0]));
             multiTerms.clear();
           }
-          multiTerms.add(new Term(field,termAtt.toString()));
+          termAtt.toBytesRef(term);
+          multiTerms.add(new Term(field,term));
         }
         mpq.add(multiTerms.toArray(new Term[0]));
         return mpq;
@@ -52,8 +58,10 @@
       PhraseQuery q=new PhraseQuery();
       q.setSlop(phraseSlop);
       for (int i=0; i < list.size(); i++) {
+        BytesRef term=new BytesRef();
         source.restoreState(list.get(i));
-        q.add(new Term(field,termAtt.toString()));
+        termAtt.toBytesRef(term);
+        q.add(new Term(field,term));
       }
       return q;
     }
