@@ -1,0 +1,49 @@
+{
+  boolean useCompoundDocStore=false;
+  String docStoreSegment;
+  boolean success=false;
+  try {
+    docStoreSegment=perThread.closeDocStore();
+    success=true;
+  }
+  finally {
+    if (!success && infoStream != null) {
+      message("hit exception closing doc store segment");
+    }
+  }
+  useCompoundDocStore=indexWriter.mergePolicy.useCompoundDocStore(indexWriter.segmentInfos);
+  if (useCompoundDocStore && docStoreSegment != null && perThread.closedFiles().size() != 0) {
+    if (infoStream != null) {
+      message("create compound file " + IndexFileNames.segmentFileName(docStoreSegment,"",IndexFileNames.COMPOUND_FILE_STORE_EXTENSION));
+    }
+    success=false;
+    final int numSegments=indexWriter.segmentInfos.size();
+    final String compoundFileName=IndexFileNames.segmentFileName(docStoreSegment,"",IndexFileNames.COMPOUND_FILE_STORE_EXTENSION);
+    try {
+      CompoundFileWriter cfsWriter=new CompoundFileWriter(directory,compoundFileName);
+      for (      final String file : perThread.closedFiles()) {
+        cfsWriter.addFile(file);
+      }
+      cfsWriter.close();
+      success=true;
+    }
+  finally {
+      if (!success) {
+        if (infoStream != null)         message("hit exception building compound file doc store for segment " + docStoreSegment);
+synchronized (indexWriter) {
+          indexWriter.deleter.deleteFile(compoundFileName);
+        }
+        abort();
+      }
+    }
+synchronized (indexWriter) {
+      for (int i=0; i < numSegments; i++) {
+        SegmentInfo si=indexWriter.segmentInfos.info(i);
+        if (si.getDocStoreOffset() != -1 && si.getDocStoreSegment().equals(docStoreSegment))         si.setDocStoreIsCompoundFile(true);
+      }
+      indexWriter.checkpoint();
+      indexWriter.deleter.deleteNewFiles(perThread.closedFiles());
+    }
+  }
+  return useCompoundDocStore;
+}
