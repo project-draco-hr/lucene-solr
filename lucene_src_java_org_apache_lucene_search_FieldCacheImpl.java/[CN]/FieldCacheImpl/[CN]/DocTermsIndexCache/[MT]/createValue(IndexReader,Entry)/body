@@ -6,6 +6,14 @@
   int startBytesBPV;
   int startTermsBPV;
   int startNumUniqueTerms;
+  int maxDoc=reader.maxDoc();
+  final int termCountHardLimit;
+  if (maxDoc == Integer.MAX_VALUE) {
+    termCountHardLimit=Integer.MAX_VALUE;
+  }
+ else {
+    termCountHardLimit=maxDoc + 1;
+  }
   if (terms != null) {
     long numUniqueTerms=0;
     try {
@@ -15,11 +23,11 @@
       numUniqueTerms=-1;
     }
     if (numUniqueTerms != -1) {
+      if (numUniqueTerms > termCountHardLimit) {
+        numUniqueTerms=termCountHardLimit;
+      }
       startBytesBPV=PackedInts.bitsRequired(numUniqueTerms * 4);
       startTermsBPV=PackedInts.bitsRequired(numUniqueTerms);
-      if (numUniqueTerms > Integer.MAX_VALUE - 1) {
-        throw new IllegalStateException("this field has too many (" + numUniqueTerms + ") unique terms");
-      }
       startNumUniqueTerms=(int)numUniqueTerms;
     }
  else {
@@ -46,6 +54,9 @@
       if (term == null) {
         break;
       }
+      if (termOrd >= termCountHardLimit) {
+        break;
+      }
       if (termOrd == termOrdToBytesOffset.size()) {
         termOrdToBytesOffset=termOrdToBytesOffset.resize(ArrayUtil.oversize(1 + termOrd,1));
       }
@@ -64,5 +75,5 @@
       termOrdToBytesOffset=termOrdToBytesOffset.resize(termOrd);
     }
   }
-  return new DocTermsIndexImpl(bytes.freeze(),termOrdToBytesOffset.getMutable(),docToTermOrd.getMutable(),termOrd);
+  return new DocTermsIndexImpl(bytes.freeze(true),termOrdToBytesOffset.getMutable(),docToTermOrd.getMutable(),termOrd);
 }

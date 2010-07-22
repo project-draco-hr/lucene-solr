@@ -1,5 +1,5 @@
 {
-  IndexWriter writer=new IndexWriter(directory,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(MockTokenizer.SIMPLE,true)).setOpenMode(OpenMode.CREATE));
+  RandomIndexWriter writer=new RandomIndexWriter(random,directory,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(MockTokenizer.SIMPLE,true)).setOpenMode(OpenMode.CREATE));
   Document doc=new Document();
   doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.NO));
   doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.YES));
@@ -7,8 +7,9 @@
   doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.WITH_OFFSETS));
   doc.add(new Field("field","one",Field.Store.YES,Field.Index.ANALYZED,Field.TermVector.WITH_POSITIONS_OFFSETS));
   writer.addDocument(doc);
+  IndexReader reader=writer.getReader();
   writer.close();
-  searcher=new IndexSearcher(directory,true);
+  searcher=new IndexSearcher(reader);
   Query query=new TermQuery(new Term("field","one"));
   ScoreDoc[] hits=searcher.search(query,null,1000).scoreDocs;
   assertEquals(1,hits.length);
@@ -17,9 +18,9 @@
   assertTrue(vector.length == 1);
   TermPositionVector tfv=(TermPositionVector)vector[0];
   assertTrue(tfv.getField().equals("field"));
-  String[] terms=tfv.getTerms();
+  BytesRef[] terms=tfv.getTerms();
   assertEquals(1,terms.length);
-  assertEquals(terms[0],"one");
+  assertEquals(terms[0].utf8ToString(),"one");
   assertEquals(5,tfv.getTermFrequencies()[0]);
   int[] positions=tfv.getTermPositions(0);
   assertEquals(5,positions.length);
@@ -30,4 +31,5 @@
     assertEquals(4 * i,offsets[i].getStartOffset());
     assertEquals(4 * i + 3,offsets[i].getEndOffset());
   }
+  reader.close();
 }

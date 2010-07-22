@@ -19,32 +19,28 @@
   List<String> notFound=new ArrayList<String>();
   int notFoundCount=0;
   int otherErrors=0;
-  TermDocs termDocs=null;
-  Term protoTerm=new Term(idName,"");
-  TermEnum termEnum=null;
   int numTimesNext=10;
   char delimiter='=';
-  String termVal;
-  boolean hasNext=true;
-  String prevKey="";
-  String lastVal="\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF";
+  BytesRef lastVal=new BytesRef("\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF");
+  BytesRef internalKey=new BytesRef();
+  BytesRef prevKey=new BytesRef();
+  BytesRef tmp;
   try {
-    termDocs=reader.termDocs();
-    termEnum=reader.terms(protoTerm);
-    Term t=termEnum.term();
-    if (t != null && t.field() == idName) {
-      termVal=t.text();
-    }
- else {
-      termVal=lastVal;
-    }
+    TermsEnum termsEnum=MultiFields.getTerms(reader,idName).iterator();
+    DocsEnum docsEnum=null;
+    BytesRef t=termsEnum.next();
+    if (t == null)     t=lastVal;
+    final Bits delDocs=MultiFields.getDeletedDocs(reader);
     for (String line; (line=r.readLine()) != null; ) {
       int delimIndex=line.indexOf(delimiter);
       if (delimIndex < 0)       continue;
       int endIndex=line.length();
       String key=line.substring(0,delimIndex);
       String val=line.substring(delimIndex + 1,endIndex);
-      String internalKey=idType.toInternal(key);
+      tmp=prevKey;
+      prevKey=internalKey;
+      internalKey=tmp;
+      idType.readableToIndexed(key,internalKey);
       float fval;
       try {
         fval=Float.parseFloat(val);
@@ -57,15 +53,15 @@
       }
       if (sorted) {
         sorted=internalKey.compareTo(prevKey) >= 0;
-        prevKey=internalKey;
         if (sorted) {
           int countNext=0;
           for (; ; ) {
-            int cmp=internalKey.compareTo(termVal);
+            int cmp=internalKey.compareTo(t);
             if (cmp == 0) {
-              termDocs.seek(termEnum);
-              while (termDocs.next()) {
-                vals[termDocs.doc()]=fval;
+              docsEnum=termsEnum.docs(delDocs,docsEnum);
+              int doc;
+              while ((doc=docsEnum.nextDoc()) != DocsEnum.NO_MORE_DOCS) {
+                vals[doc]=fval;
               }
               break;
             }
@@ -78,30 +74,25 @@
             }
  else {
               if (++countNext > numTimesNext) {
-                termEnum=reader.terms(protoTerm.createTerm(internalKey));
-                t=termEnum.term();
+                termsEnum.seek(internalKey);
+                t=termsEnum.term();
               }
  else {
-                hasNext=termEnum.next();
-                t=hasNext ? termEnum.term() : null;
+                t=termsEnum.next();
               }
-              if (t != null && t.field() == idName) {
-                termVal=t.text();
-              }
- else {
-                termVal=lastVal;
-              }
+              if (t == null)               t=lastVal;
             }
           }
         }
       }
       if (!sorted) {
-        termEnum=reader.terms(protoTerm.createTerm(internalKey));
-        t=termEnum.term();
-        if (t != null && t.field() == idName && internalKey.equals(t.text())) {
-          termDocs.seek(termEnum);
-          while (termDocs.next()) {
-            vals[termDocs.doc()]=fval;
+        TermsEnum.SeekStatus result=termsEnum.seek(internalKey);
+        t=termsEnum.term();
+        if (result == TermsEnum.SeekStatus.FOUND) {
+          docsEnum=termsEnum.docs(delDocs,docsEnum);
+          int doc;
+          while ((doc=docsEnum.nextDoc()) != DocsEnum.NO_MORE_DOCS) {
+            vals[doc]=fval;
           }
         }
  else {
@@ -117,16 +108,6 @@
     SolrCore.log.error("Error loading external value source: " + e);
   }
  finally {
-    if (termDocs != null)     try {
-      termDocs.close();
-    }
- catch (    Exception e) {
-    }
-    if (termEnum != null)     try {
-      termEnum.close();
-    }
- catch (    Exception e) {
-    }
     try {
       r.close();
     }

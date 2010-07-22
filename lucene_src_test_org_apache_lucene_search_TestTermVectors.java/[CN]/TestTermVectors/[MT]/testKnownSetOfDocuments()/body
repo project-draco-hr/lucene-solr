@@ -24,76 +24,76 @@
   Document testDoc4=new Document();
   setupDoc(testDoc4,test4);
   Directory dir=new MockRAMDirectory();
-  try {
-    IndexWriter writer=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(MockTokenizer.SIMPLE,true)).setOpenMode(OpenMode.CREATE));
-    writer.addDocument(testDoc1);
-    writer.addDocument(testDoc2);
-    writer.addDocument(testDoc3);
-    writer.addDocument(testDoc4);
-    writer.close();
-    IndexSearcher knownSearcher=new IndexSearcher(dir,true);
-    TermEnum termEnum=knownSearcher.reader.terms();
-    TermDocs termDocs=knownSearcher.reader.termDocs();
-    while (termEnum.next() == true) {
-      Term term=termEnum.term();
-      termDocs.seek(term);
-      while (termDocs.next()) {
-        int docId=termDocs.doc();
-        int freq=termDocs.freq();
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(MockTokenizer.SIMPLE,true)).setOpenMode(OpenMode.CREATE));
+  writer.addDocument(testDoc1);
+  writer.addDocument(testDoc2);
+  writer.addDocument(testDoc3);
+  writer.addDocument(testDoc4);
+  IndexReader reader=writer.getReader();
+  writer.close();
+  IndexSearcher knownSearcher=new IndexSearcher(reader);
+  FieldsEnum fields=MultiFields.getFields(knownSearcher.reader).iterator();
+  DocsEnum docs=null;
+  while (fields.next() != null) {
+    TermsEnum terms=fields.terms();
+    while (terms.next() != null) {
+      String text=terms.term().utf8ToString();
+      docs=terms.docs(MultiFields.getDeletedDocs(knownSearcher.reader),docs);
+      while (docs.nextDoc() != DocsEnum.NO_MORE_DOCS) {
+        int docId=docs.docID();
+        int freq=docs.freq();
         TermFreqVector vector=knownSearcher.reader.getTermFreqVector(docId,"field");
         assertTrue(vector != null);
-        String[] vTerms=vector.getTerms();
+        BytesRef[] vTerms=vector.getTerms();
         int[] freqs=vector.getTermFrequencies();
         for (int i=0; i < vTerms.length; i++) {
-          if (term.text().equals(vTerms[i])) {
+          if (text.equals(vTerms[i].utf8ToString())) {
             assertTrue(freqs[i] == freq);
           }
         }
       }
     }
-    Query query=new TermQuery(new Term("field","chocolate"));
-    ScoreDoc[] hits=knownSearcher.search(query,null,1000).scoreDocs;
-    assertTrue(hits.length == 3);
-    assertTrue(hits[0].doc == 2);
-    assertTrue(hits[1].doc == 3);
-    assertTrue(hits[2].doc == 0);
-    TermFreqVector vector=knownSearcher.reader.getTermFreqVector(hits[1].doc,"field");
-    assertTrue(vector != null);
-    String[] terms=vector.getTerms();
-    int[] freqs=vector.getTermFrequencies();
-    assertTrue(terms != null && terms.length == 10);
-    for (int i=0; i < terms.length; i++) {
-      String term=terms[i];
-      int freq=freqs[i];
-      assertTrue(test4.indexOf(term) != -1);
-      Integer freqInt=test4Map.get(term);
-      assertTrue(freqInt != null);
-      assertTrue(freqInt.intValue() == freq);
-    }
-    SortedTermVectorMapper mapper=new SortedTermVectorMapper(new TermVectorEntryFreqSortedComparator());
-    knownSearcher.reader.getTermFreqVector(hits[1].doc,mapper);
-    SortedSet<TermVectorEntry> vectorEntrySet=mapper.getTermVectorEntrySet();
-    assertTrue("mapper.getTermVectorEntrySet() Size: " + vectorEntrySet.size() + " is not: "+ 10,vectorEntrySet.size() == 10);
-    TermVectorEntry last=null;
-    for (    final TermVectorEntry tve : vectorEntrySet) {
-      if (tve != null && last != null) {
-        assertTrue("terms are not properly sorted",last.getFrequency() >= tve.getFrequency());
-        Integer expectedFreq=test4Map.get(tve.getTerm());
-        assertTrue("Frequency is not correct:",tve.getFrequency() == 2 * expectedFreq.intValue());
-      }
-      last=tve;
-    }
-    FieldSortedTermVectorMapper fieldMapper=new FieldSortedTermVectorMapper(new TermVectorEntryFreqSortedComparator());
-    knownSearcher.reader.getTermFreqVector(hits[1].doc,fieldMapper);
-    Map<String,SortedSet<TermVectorEntry>> map=fieldMapper.getFieldToTerms();
-    assertTrue("map Size: " + map.size() + " is not: "+ 2,map.size() == 2);
-    vectorEntrySet=map.get("field");
-    assertTrue("vectorEntrySet is null and it shouldn't be",vectorEntrySet != null);
-    assertTrue("vectorEntrySet Size: " + vectorEntrySet.size() + " is not: "+ 10,vectorEntrySet.size() == 10);
-    knownSearcher.close();
   }
- catch (  IOException e) {
-    e.printStackTrace();
-    assertTrue(false);
+  Query query=new TermQuery(new Term("field","chocolate"));
+  ScoreDoc[] hits=knownSearcher.search(query,null,1000).scoreDocs;
+  assertTrue(hits.length == 3);
+  assertTrue(hits[0].doc == 2);
+  assertTrue(hits[1].doc == 3);
+  assertTrue(hits[2].doc == 0);
+  TermFreqVector vector=knownSearcher.reader.getTermFreqVector(hits[1].doc,"field");
+  assertTrue(vector != null);
+  BytesRef[] terms=vector.getTerms();
+  int[] freqs=vector.getTermFrequencies();
+  assertTrue(terms != null && terms.length == 10);
+  for (int i=0; i < terms.length; i++) {
+    String term=terms[i].utf8ToString();
+    int freq=freqs[i];
+    assertTrue(test4.indexOf(term) != -1);
+    Integer freqInt=test4Map.get(term);
+    assertTrue(freqInt != null);
+    assertTrue(freqInt.intValue() == freq);
   }
+  SortedTermVectorMapper mapper=new SortedTermVectorMapper(new TermVectorEntryFreqSortedComparator());
+  knownSearcher.reader.getTermFreqVector(hits[1].doc,mapper);
+  SortedSet<TermVectorEntry> vectorEntrySet=mapper.getTermVectorEntrySet();
+  assertTrue("mapper.getTermVectorEntrySet() Size: " + vectorEntrySet.size() + " is not: "+ 10,vectorEntrySet.size() == 10);
+  TermVectorEntry last=null;
+  for (  final TermVectorEntry tve : vectorEntrySet) {
+    if (tve != null && last != null) {
+      assertTrue("terms are not properly sorted",last.getFrequency() >= tve.getFrequency());
+      Integer expectedFreq=test4Map.get(tve.getTerm().utf8ToString());
+      assertTrue("Frequency is not correct:",tve.getFrequency() == 2 * expectedFreq.intValue());
+    }
+    last=tve;
+  }
+  FieldSortedTermVectorMapper fieldMapper=new FieldSortedTermVectorMapper(new TermVectorEntryFreqSortedComparator());
+  knownSearcher.reader.getTermFreqVector(hits[1].doc,fieldMapper);
+  Map<String,SortedSet<TermVectorEntry>> map=fieldMapper.getFieldToTerms();
+  assertTrue("map Size: " + map.size() + " is not: "+ 2,map.size() == 2);
+  vectorEntrySet=map.get("field");
+  assertTrue("vectorEntrySet is null and it shouldn't be",vectorEntrySet != null);
+  assertTrue("vectorEntrySet Size: " + vectorEntrySet.size() + " is not: "+ 10,vectorEntrySet.size() == 10);
+  knownSearcher.close();
+  reader.close();
+  dir.close();
 }

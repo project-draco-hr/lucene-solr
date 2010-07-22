@@ -1,6 +1,6 @@
 {
   RAMDirectory indexStore=new RAMDirectory();
-  IndexWriter writer=new IndexWriter(indexStore,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+  RandomIndexWriter writer=new RandomIndexWriter(newRandom(),indexStore,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
   Document doc1=new Document();
   Document doc2=new Document();
   Document doc3=new Document();
@@ -16,23 +16,27 @@
   writer.addDocument(doc3);
   writer.addDocument(doc4);
   writer.addDocument(doc5);
-  writer.optimize();
+  IndexReader reader=writer.getReader();
   writer.close();
-  IndexSearcher searcher=new IndexSearcher(indexStore,true);
+  IndexSearcher searcher=new IndexSearcher(reader);
   MultiPhraseQuery query1=new MultiPhraseQuery();
   MultiPhraseQuery query2=new MultiPhraseQuery();
   query1.add(new Term("body","blueberry"));
   query2.add(new Term("body","strawberry"));
   LinkedList<Term> termsWithPrefix=new LinkedList<Term>();
-  IndexReader ir=IndexReader.open(indexStore,true);
   String prefix="pi";
-  TermEnum te=ir.terms(new Term("body",prefix + "*"));
+  TermsEnum te=MultiFields.getFields(reader).terms("body").iterator();
+  te.seek(new BytesRef(prefix));
   do {
-    if (te.term().text().startsWith(prefix)) {
-      termsWithPrefix.add(te.term());
+    String s=te.term().utf8ToString();
+    if (s.startsWith(prefix)) {
+      termsWithPrefix.add(new Term("body",s));
+    }
+ else {
+      break;
     }
   }
- while (te.next());
+ while (te.next() != null);
   query1.add(termsWithPrefix.toArray(new Term[0]));
   query2.add(termsWithPrefix.toArray(new Term[0]));
   ScoreDoc[] result;
@@ -40,4 +44,7 @@
   assertEquals(2,result.length);
   result=searcher.search(query2,null,1000).scoreDocs;
   assertEquals(0,result.length);
+  searcher.close();
+  reader.close();
+  indexStore.close();
 }

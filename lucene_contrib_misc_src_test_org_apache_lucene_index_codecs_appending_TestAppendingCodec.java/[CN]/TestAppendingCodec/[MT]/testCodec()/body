@@ -1,0 +1,37 @@
+{
+  Directory dir=new AppendingRAMDirectory();
+  IndexWriterConfig cfg=new IndexWriterConfig(Version.LUCENE_40,new MockAnalyzer());
+  cfg.setCodecProvider(new AppendingCodecProvider());
+  ((LogMergePolicy)cfg.getMergePolicy()).setUseCompoundFile(false);
+  ((LogMergePolicy)cfg.getMergePolicy()).setUseCompoundDocStore(false);
+  IndexWriter writer=new IndexWriter(dir,cfg);
+  Document doc=new Document();
+  doc.add(new Field("f",text,Store.YES,Index.ANALYZED,TermVector.WITH_POSITIONS_OFFSETS));
+  writer.addDocument(doc);
+  writer.commit();
+  writer.addDocument(doc);
+  writer.optimize();
+  writer.close();
+  IndexReader reader=IndexReader.open(dir,null,true,1,new AppendingCodecProvider());
+  assertEquals(2,reader.numDocs());
+  doc=reader.document(0);
+  assertEquals(text,doc.get("f"));
+  Fields fields=MultiFields.getFields(reader);
+  Terms terms=fields.terms("f");
+  assertNotNull(terms);
+  TermsEnum te=terms.iterator();
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("quick")));
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("brown")));
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("fox")));
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("jumped")));
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("over")));
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("lazy")));
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("dog")));
+  assertEquals(SeekStatus.FOUND,te.seek(new BytesRef("the")));
+  DocsEnum de=te.docs(null,null);
+  assertTrue(de.advance(0) != DocsEnum.NO_MORE_DOCS);
+  assertEquals(2,de.freq());
+  assertTrue(de.advance(1) != DocsEnum.NO_MORE_DOCS);
+  assertTrue(de.advance(2) == DocsEnum.NO_MORE_DOCS);
+  reader.close();
+}

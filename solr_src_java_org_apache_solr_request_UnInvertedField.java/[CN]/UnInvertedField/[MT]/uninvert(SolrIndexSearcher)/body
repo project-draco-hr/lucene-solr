@@ -7,13 +7,12 @@
   final int[] lastTerm=new int[maxDoc];
   final byte[][] bytes=new byte[maxDoc][];
   maxTermCounts=new int[1024];
-  NumberedTermEnum te=ti.getEnumerator(reader);
+  NumberedTermsEnum te=ti.getEnumerator(reader);
   int threshold=maxDoc / 20 + 2;
-  int[] docs=new int[1000];
-  int[] freqs=new int[1000];
   byte[] tempArr=new byte[12];
+  SolrIndexSearcher.DocsEnumState deState=null;
   for (; ; ) {
-    Term t=te.term();
+    BytesRef t=te.term();
     if (t == null)     break;
     int termNum=te.getTermNumber();
     if (termNum >= maxTermCounts.length) {
@@ -24,24 +23,30 @@
     int df=te.docFreq();
     if (df >= threshold) {
       TopTerm topTerm=new TopTerm();
-      topTerm.term=t;
+      topTerm.term=new BytesRef(t);
       topTerm.termNum=termNum;
       bigTerms.put(topTerm.termNum,topTerm);
-      DocSet set=searcher.getDocSet(new TermQuery(topTerm.term));
+      if (deState == null) {
+        deState=new SolrIndexSearcher.DocsEnumState();
+        deState.termsEnum=te.tenum;
+        deState.reuse=te.docsEnum;
+      }
+      DocSet set=searcher.getDocSet(new TermQuery(new Term(ti.field,topTerm.term)),deState);
+      te.docsEnum=deState.reuse;
       maxTermCounts[termNum]=set.size();
       te.next();
       continue;
     }
     termsInverted++;
-    TermDocs td=te.getTermDocs();
-    td.seek(te);
+    DocsEnum docsEnum=te.getDocsEnum();
+    DocsEnum.BulkReadResult bulkResult=docsEnum.getBulkResult();
     for (; ; ) {
-      int n=td.read(docs,freqs);
+      int n=docsEnum.read();
       if (n <= 0)       break;
       maxTermCounts[termNum]+=n;
       for (int i=0; i < n; i++) {
         termInstances++;
-        int doc=docs[i];
+        int doc=bulkResult.docs.ints[i];
         int delta=termNum - lastTerm[doc] + TNUM_OFFSET;
         lastTerm[doc]=termNum;
         int val=index[doc];

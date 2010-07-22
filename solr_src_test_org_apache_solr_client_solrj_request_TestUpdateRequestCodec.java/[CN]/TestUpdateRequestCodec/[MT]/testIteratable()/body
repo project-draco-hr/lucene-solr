@@ -1,0 +1,40 @@
+{
+  final List<String> values=new ArrayList<String>();
+  values.add("iterItem1");
+  values.add("iterItem2");
+  UpdateRequest updateRequest=new UpdateRequest();
+  updateRequest.deleteByQuery("*:*");
+  SolrInputDocument doc=new SolrInputDocument();
+  doc.addField("id",1);
+  doc.addField("desc","one",2.0f);
+  doc.addField("iter",new Iterable<String>(){
+    public Iterator<String> iterator(){
+      return values.iterator();
+    }
+  }
+);
+  doc.addField("desc","1");
+  updateRequest.add(doc);
+  JavaBinUpdateRequestCodec codec=new JavaBinUpdateRequestCodec();
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  codec.marshal(updateRequest,baos);
+  final List<SolrInputDocument> docs=new ArrayList<SolrInputDocument>();
+  JavaBinUpdateRequestCodec.StreamingDocumentHandler handler=new JavaBinUpdateRequestCodec.StreamingDocumentHandler(){
+    public void document(    SolrInputDocument document,    UpdateRequest req){
+      Assert.assertNotNull(req.getParams());
+      docs.add(document);
+    }
+  }
+;
+  UpdateRequest updateUnmarshalled=codec.unmarshal(new ByteArrayInputStream(baos.toByteArray()),handler);
+  Assert.assertNull(updateUnmarshalled.getDocuments());
+  for (  SolrInputDocument document : docs) {
+    updateUnmarshalled.add(document);
+  }
+  SolrInputDocument outDoc=updateUnmarshalled.getDocuments().get(0);
+  SolrInputField iter=outDoc.getField("iter");
+  Assert.assertNotNull("iter field is null",iter);
+  Object iterVal=iter.getValue();
+  Assert.assertTrue("iterVal is not a Collection",iterVal instanceof Collection);
+  Assert.assertEquals("iterVal contents",values,iterVal);
+}

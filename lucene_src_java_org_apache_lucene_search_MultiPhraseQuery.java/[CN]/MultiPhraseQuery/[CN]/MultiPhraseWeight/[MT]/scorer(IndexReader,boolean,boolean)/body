@@ -1,20 +1,46 @@
 {
   if (termArrays.size() == 0)   return null;
-  DocsAndPositionsEnum[] postings=new DocsAndPositionsEnum[termArrays.size()];
-  for (int i=0; i < postings.length; i++) {
+  final Bits delDocs=MultiFields.getDeletedDocs(reader);
+  PhraseQuery.PostingsAndFreq[] postingsFreqs=new PhraseQuery.PostingsAndFreq[termArrays.size()];
+  for (int i=0; i < postingsFreqs.length; i++) {
     Term[] terms=termArrays.get(i);
     final DocsAndPositionsEnum postingsEnum;
+    int docFreq;
     if (terms.length > 1) {
       postingsEnum=new UnionDocsAndPositionsEnum(reader,terms);
+      docFreq=0;
+      for (int j=0; j < terms.length; j++) {
+        docFreq+=reader.docFreq(terms[i]);
+      }
     }
  else {
-      postingsEnum=reader.termPositionsEnum(MultiFields.getDeletedDocs(reader),terms[0].field(),new BytesRef(terms[0].text()));
+      final BytesRef text=new BytesRef(terms[0].text());
+      postingsEnum=reader.termPositionsEnum(delDocs,terms[0].field(),text);
+      if (postingsEnum == null) {
+        if (MultiFields.getTermDocsEnum(reader,delDocs,terms[0].field(),text) != null) {
+          throw new IllegalStateException("field \"" + terms[0].field() + "\" was indexed with Field.omitTermFreqAndPositions=true; cannot run PhraseQuery (term="+ terms[0].text()+ ")");
+        }
+ else {
+          return null;
+        }
+      }
+      docFreq=reader.docFreq(terms[0].field(),text);
     }
-    if (postingsEnum == null) {
+    postingsFreqs[i]=new PhraseQuery.PostingsAndFreq(postingsEnum,docFreq,positions.get(i).intValue());
+  }
+  if (slop == 0) {
+    Arrays.sort(postingsFreqs);
+  }
+  if (slop == 0) {
+    ExactPhraseScorer s=new ExactPhraseScorer(this,postingsFreqs,similarity,reader.norms(field));
+    if (s.noDocs) {
       return null;
     }
-    postings[i]=postingsEnum;
+ else {
+      return s;
+    }
   }
-  if (slop == 0)   return new ExactPhraseScorer(this,postings,getPositions(),similarity,reader.norms(field));
- else   return new SloppyPhraseScorer(this,postings,getPositions(),similarity,slop,reader.norms(field));
+ else {
+    return new SloppyPhraseScorer(this,postingsFreqs,similarity,slop,reader.norms(field));
+  }
 }

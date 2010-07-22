@@ -5,22 +5,78 @@
   }
   NamedList termVectors=new NamedList();
   rb.rsp.add(TERM_VECTORS,termVectors);
-  boolean termFreq=params.getBool(TermVectorParams.TF,false);
-  boolean positions=params.getBool(TermVectorParams.POSITIONS,false);
-  boolean offsets=params.getBool(TermVectorParams.OFFSETS,false);
-  boolean docFreq=params.getBool(TermVectorParams.DF,false);
-  boolean tfIdf=params.getBool(TermVectorParams.TF_IDF,false);
+  FieldOptions allFields=new FieldOptions();
+  allFields.termFreq=params.getBool(TermVectorParams.TF,false);
+  allFields.positions=params.getBool(TermVectorParams.POSITIONS,false);
+  allFields.offsets=params.getBool(TermVectorParams.OFFSETS,false);
+  allFields.docFreq=params.getBool(TermVectorParams.DF,false);
+  allFields.tfIdf=params.getBool(TermVectorParams.TF_IDF,false);
   boolean all=params.getBool(TermVectorParams.ALL,false);
   if (all == true) {
-    termFreq=true;
-    positions=true;
-    offsets=true;
-    docFreq=true;
-    tfIdf=true;
+    allFields.termFreq=true;
+    allFields.positions=true;
+    allFields.offsets=true;
+    allFields.docFreq=true;
+    allFields.tfIdf=true;
   }
-  String[] fields=params.getParams(TermVectorParams.FIELDS);
-  if (fields == null) {
-    fields=params.getParams(CommonParams.FL);
+  String fldLst=params.get(TermVectorParams.FIELDS);
+  if (fldLst == null) {
+    fldLst=params.get(CommonParams.FL);
+  }
+  IndexSchema schema=rb.req.getSchema();
+  Map<String,FieldOptions> fieldOptions=new HashMap<String,FieldOptions>();
+  NamedList warnings=new NamedList();
+  List<String> noTV=new ArrayList<String>();
+  List<String> noPos=new ArrayList<String>();
+  List<String> noOff=new ArrayList<String>();
+  if (fldLst != null) {
+    String[] fields=SolrPluginUtils.split(fldLst);
+    for (    String field : fields) {
+      SchemaField sf=schema.getFieldOrNull(field);
+      if (sf != null) {
+        if (sf.storeTermVector()) {
+          FieldOptions option=fieldOptions.get(field);
+          if (option == null) {
+            option=new FieldOptions();
+            option.fieldName=field;
+            fieldOptions.put(field,option);
+          }
+          option.termFreq=params.getFieldBool(field,TermVectorParams.TF,allFields.termFreq);
+          option.docFreq=params.getFieldBool(field,TermVectorParams.DF,allFields.docFreq);
+          option.tfIdf=params.getFieldBool(field,TermVectorParams.TF_IDF,allFields.tfIdf);
+          option.positions=params.getFieldBool(field,TermVectorParams.POSITIONS,allFields.positions);
+          if (option.positions == true && sf.storeTermPositions() == false) {
+            noPos.add(field);
+          }
+          option.offsets=params.getFieldBool(field,TermVectorParams.OFFSETS,allFields.offsets);
+          if (option.offsets == true && sf.storeTermOffsets() == false) {
+            noOff.add(field);
+          }
+        }
+ else {
+          noTV.add(field);
+        }
+      }
+ else {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"undefined field: " + field);
+      }
+    }
+  }
+  boolean hasWarnings=false;
+  if (noTV.isEmpty() == false) {
+    warnings.add("noTermVectors",noTV);
+    hasWarnings=true;
+  }
+  if (noPos.isEmpty() == false) {
+    warnings.add("noPositions",noPos);
+    hasWarnings=true;
+  }
+  if (noOff.isEmpty() == false) {
+    warnings.add("noOffsets",noOff);
+    hasWarnings=true;
+  }
+  if (hasWarnings == true) {
+    termVectors.add("warnings",warnings);
   }
   DocListAndSet listAndSet=rb.getResults();
   List<Integer> docIds=getInts(params.getParams(TermVectorParams.DOC_IDS));
@@ -34,19 +90,39 @@
   }
   SolrIndexSearcher searcher=rb.req.getSearcher();
   IndexReader reader=searcher.getReader();
-  TVMapper mapper=new TVMapper(fields,reader,termFreq,positions,offsets,docFreq,tfIdf);
-  IndexSchema schema=rb.req.getSchema();
-  String uniqFieldName=schema.getUniqueKeyField().getName();
+  SchemaField keyField=schema.getUniqueKeyField();
+  String uniqFieldName=null;
+  if (keyField != null) {
+    uniqFieldName=keyField.getName();
+  }
   SetBasedFieldSelector fieldSelector=new SetBasedFieldSelector(Collections.singleton(uniqFieldName),Collections.<String>emptySet());
+  TVMapper mapper=new TVMapper(reader);
+  mapper.fieldOptions=allFields;
   while (iter.hasNext()) {
     Integer docId=iter.next();
     NamedList docNL=new NamedList();
-    termVectors.add("doc-" + docId,docNL);
     mapper.docNL=docNL;
-    Document document=reader.document(docId,fieldSelector);
-    String uniqId=document.get(uniqFieldName);
-    docNL.add("uniqueKey",uniqId);
-    reader.getTermFreqVector(docId,mapper);
+    termVectors.add("doc-" + docId,docNL);
+    if (keyField != null) {
+      Document document=reader.document(docId,fieldSelector);
+      Fieldable uniqId=document.getField(uniqFieldName);
+      String uniqVal=null;
+      if (uniqId != null) {
+        uniqVal=keyField.getType().storedToReadable(uniqId);
+      }
+      if (uniqVal != null) {
+        docNL.add("uniqueKey",uniqVal);
+        termVectors.add("uniqueKeyFieldName",uniqFieldName);
+      }
+    }
+    if (fieldOptions.isEmpty() == false) {
+      for (      Map.Entry<String,FieldOptions> entry : fieldOptions.entrySet()) {
+        mapper.fieldOptions=entry.getValue();
+        reader.getTermFreqVector(docId,entry.getKey(),mapper);
+      }
+    }
+ else {
+      reader.getTermFreqVector(docId,mapper);
+    }
   }
-  termVectors.add("uniqueKeyFieldName",uniqFieldName);
 }

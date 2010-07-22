@@ -1,6 +1,6 @@
 {
   MockRAMDirectory indexStore=new MockRAMDirectory();
-  IndexWriter writer=new IndexWriter(indexStore,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+  RandomIndexWriter writer=new RandomIndexWriter(newRandom(),indexStore,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
   add("blueberry pie",writer);
   add("blueberry strudel",writer);
   add("blueberry pizza",writer);
@@ -8,23 +8,26 @@
   add("bluebird pizza",writer);
   add("bluebird foobar pizza",writer);
   add("piccadilly circus",writer);
-  writer.optimize();
-  writer.close();
-  IndexSearcher searcher=new IndexSearcher(indexStore,true);
+  IndexReader reader=writer.getReader();
+  IndexSearcher searcher=new IndexSearcher(reader);
   MultiPhraseQuery query1=new MultiPhraseQuery();
   MultiPhraseQuery query2=new MultiPhraseQuery();
   query1.add(new Term("body","blueberry"));
   query2.add(new Term("body","strawberry"));
   LinkedList<Term> termsWithPrefix=new LinkedList<Term>();
-  IndexReader ir=IndexReader.open(indexStore,true);
   String prefix="pi";
-  TermEnum te=ir.terms(new Term("body",prefix));
+  TermsEnum te=MultiFields.getFields(reader).terms("body").iterator();
+  te.seek(new BytesRef(prefix));
   do {
-    if (te.term().text().startsWith(prefix)) {
-      termsWithPrefix.add(te.term());
+    String s=te.term().utf8ToString();
+    if (s.startsWith(prefix)) {
+      termsWithPrefix.add(new Term("body",s));
+    }
+ else {
+      break;
     }
   }
- while (te.next());
+ while (te.next() != null);
   query1.add(termsWithPrefix.toArray(new Term[0]));
   assertEquals("body:\"blueberry (piccadilly pie pizza)\"",query1.toString());
   query2.add(termsWithPrefix.toArray(new Term[0]));
@@ -37,14 +40,13 @@
   MultiPhraseQuery query3=new MultiPhraseQuery();
   termsWithPrefix.clear();
   prefix="blue";
-  te=ir.terms(new Term("body",prefix));
+  te.seek(new BytesRef(prefix));
   do {
-    if (te.term().text().startsWith(prefix)) {
-      termsWithPrefix.add(te.term());
+    if (te.term().utf8ToString().startsWith(prefix)) {
+      termsWithPrefix.add(new Term("body",te.term().utf8ToString()));
     }
   }
- while (te.next());
-  ir.close();
+ while (te.next() != null);
   query3.add(termsWithPrefix.toArray(new Term[0]));
   query3.add(new Term("body","pizza"));
   result=searcher.search(query3,null,1000).scoreDocs;
@@ -52,6 +54,7 @@
   assertEquals("body:\"(blueberry bluebird) pizza\"",query3.toString());
   query3.setSlop(1);
   result=searcher.search(query3,null,1000).scoreDocs;
+  searcher.explain(query3,0);
   assertEquals(3,result.length);
   MultiPhraseQuery query4=new MultiPhraseQuery();
   try {
@@ -61,6 +64,8 @@
   }
  catch (  IllegalArgumentException e) {
   }
+  writer.close();
   searcher.close();
+  reader.close();
   indexStore.close();
 }
