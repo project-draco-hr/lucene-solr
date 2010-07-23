@@ -1,45 +1,44 @@
 {
-  Directory dir=new MockRAMDirectory();
-  Codec codec=new PreFlexCodec();
   Random r=newRandom();
-  FieldInfos fieldInfos=new FieldInfos();
+  Directory dir=new MockRAMDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(r,dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setCodecProvider(_TestUtil.alwaysCodec(new PreFlexRWCodec())));
+  final int numField=_TestUtil.nextInt(r,2,5);
+  int uniqueTermCount=0;
+  int tc=0;
   List<Term> fieldTerms=new ArrayList<Term>();
-  SegmentInfo si=makePreFlexSegment(r,"_0",dir,fieldInfos,codec,fieldTerms);
-  int uniqueTermCount=si.docCount;
-  FieldsProducer fields=codec.fieldsProducer(new SegmentReadState(dir,si,fieldInfos,1024,1));
-  assertNotNull(fields);
+  for (int f=0; f < numField; f++) {
+    String field="f" + f;
+    Term protoTerm=new Term(field);
+    final int numTerms=10000 * _TestUtil.getRandomMultiplier();
+    final Set<String> uniqueTerms=new HashSet<String>();
+    for (int i=0; i < numTerms; i++) {
+      String term=getRandomString(r) + "_ " + (tc++);
+      uniqueTerms.add(term);
+      fieldTerms.add(new Term(field,term));
+      Document doc=new Document();
+      doc.add(new Field(field,term,Field.Store.NO,Field.Index.NOT_ANALYZED));
+      w.addDocument(doc);
+    }
+    uniqueTermCount+=uniqueTerms.size();
+  }
+  IndexReader reader=w.getReader();
   if (VERBOSE) {
-    System.out.println("\nTEST: now enum");
-  }
-  FieldsEnum fieldsEnum=fields.iterator();
-  String field;
-  UnicodeUtil.UTF16Result utf16=new UnicodeUtil.UTF16Result();
-  int termCount=0;
-  while ((field=fieldsEnum.next()) != null) {
-    TermsEnum termsEnum=fieldsEnum.terms();
-    BytesRef text;
-    BytesRef lastText=null;
-    while ((text=termsEnum.next()) != null) {
-      if (VERBOSE) {
-        UnicodeUtil.UTF8toUTF16(text.bytes,text.offset,text.length,utf16);
-        System.out.println("got term=" + field + ":"+ UnicodeUtil.toHexString(new String(utf16.result,0,utf16.length)));
-        System.out.println();
-      }
-      if (lastText == null) {
-        lastText=new BytesRef(text);
-      }
- else {
-        assertTrue(lastText.compareTo(text) < 0);
-        lastText.copy(text);
-      }
-      assertEquals(fieldTerms.get(termCount).field(),field);
-      assertEquals(fieldTerms.get(termCount).bytes(),text);
-      termCount++;
-    }
-    if (VERBOSE) {
-      System.out.println("  no more terms for field=" + field);
+    Collections.sort(fieldTerms,termAsUTF16Comparator);
+    System.out.println("\nTEST: UTF16 order");
+    for (    Term t : fieldTerms) {
+      System.out.println("  " + toHexString(t));
     }
   }
-  assertEquals(uniqueTermCount,termCount);
-  fields.close();
+  Collections.sort(fieldTerms);
+  if (VERBOSE) {
+    System.out.println("\nTEST: codepoint order");
+    for (    Term t : fieldTerms) {
+      System.out.println("  " + toHexString(t));
+    }
+  }
+  Term[] fieldTermsArray=fieldTerms.toArray(new Term[fieldTerms.size()]);
+  doTestStraightEnum(fieldTerms,reader,uniqueTermCount);
+  doTestSeekExists(r,fieldTerms,reader);
+  doTestSeekDoesNotExist(r,numField,fieldTerms,fieldTermsArray,reader);
+  reader.close();
 }
