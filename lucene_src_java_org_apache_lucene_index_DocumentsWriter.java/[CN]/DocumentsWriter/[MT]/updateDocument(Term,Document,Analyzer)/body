@@ -1,6 +1,6 @@
 {
-  long seqID=threadPool.executePerThread(this,doc,new DocumentsWriterThreadPool.PerThreadTask<Long>(){
-    @Override public Long process(    final DocumentsWriterPerThread perThread) throws IOException {
+  UpdateResult result=threadPool.executePerThread(this,doc,new DocumentsWriterThreadPool.PerThreadTask<UpdateResult>(){
+    @Override public UpdateResult process(    final DocumentsWriterPerThread perThread) throws IOException {
       long perThreadRAMUsedBeforeAdd=perThread.numBytesUsed;
       perThread.addDocument(doc,analyzer);
       final long sequenceID;
@@ -20,13 +20,20 @@
   finally {
         sequenceIDLock.unlock();
       }
+      UpdateResult result=new UpdateResult(sequenceID);
       if (finishAddDocument(perThread,perThreadRAMUsedBeforeAdd)) {
+        result.flushed=true;
         super.clearThreadBindings();
       }
-      return sequenceID;
+      return result;
     }
   }
 );
-  indexWriter.maybeMerge();
-  return seqID;
+  if (result == null) {
+    return -1;
+  }
+  if (result.flushed) {
+    indexWriter.maybeMerge();
+  }
+  return result.sequenceID;
 }

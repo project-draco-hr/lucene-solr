@@ -1,4 +1,29 @@
 {
   ensureOpen(false);
-  if (doFlush(flushDeletes) && triggerMerge)   maybeMerge();
+  doBeforeFlush();
+  if (flushDeletes) {
+    if (applyDeletes()) {
+      checkpoint();
+    }
+  }
+  boolean maybeMerge=false;
+  boolean success=false;
+  try {
+    maybeMerge=docWriter.flushAllThreads(flushDeletes) && triggerMerge;
+    success=true;
+  }
+  finally {
+    if (!success) {
+synchronized (this) {
+        final Collection<String> files=docWriter.abortedFiles();
+        if (files != null) {
+          deleter.deleteNewFiles(files);
+        }
+      }
+    }
+  }
+  doAfterFlush();
+  if (maybeMerge) {
+    maybeMerge();
+  }
 }

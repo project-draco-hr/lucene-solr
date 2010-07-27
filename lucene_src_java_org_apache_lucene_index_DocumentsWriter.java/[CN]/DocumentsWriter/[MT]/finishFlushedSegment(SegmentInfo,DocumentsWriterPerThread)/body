@@ -1,37 +1,40 @@
 {
-synchronized (indexWriter) {
-    indexWriter.segmentInfos.add(newSegment);
-    indexWriter.checkpoint();
-    SegmentReader reader=indexWriter.readerPool.get(newSegment,false);
-    boolean any=false;
+  SegmentReader reader=indexWriter.readerPool.get(newSegment,false);
+  try {
+    applyDeletes(reader,newSegment.getMinSequenceID(),newSegment.getMaxSequenceID(),perThread.sequenceIDs);
+  }
+  finally {
+    indexWriter.readerPool.release(reader);
+  }
+  if (indexWriter.useCompoundFile(newSegment)) {
+    String compoundFileName=IndexFileNames.segmentFileName(newSegment.name,"",IndexFileNames.COMPOUND_FILE_EXTENSION);
+    message("creating compound file " + compoundFileName);
+    boolean success=false;
     try {
-      any=applyDeletes(reader,newSegment.getMinSequenceID(),newSegment.getMaxSequenceID(),perThread.sequenceIDs);
+      createCompoundFile(compoundFileName,perThread);
+      success=true;
     }
   finally {
-      indexWriter.readerPool.release(reader);
-    }
-    if (any) {
-      indexWriter.checkpoint();
-    }
-    if (indexWriter.mergePolicy.useCompoundFile(indexWriter.segmentInfos,newSegment)) {
-      boolean success=false;
-      try {
-        createCompoundFile(newSegment.name,perThread);
-        success=true;
-      }
-  finally {
-        if (!success) {
-          if (infoStream != null) {
-            message("hit exception " + "reating compound file for newly flushed segment " + newSegment.name);
-          }
-          indexWriter.deleter.deleteFile(IndexFileNames.segmentFileName(newSegment.name,"",IndexFileNames.COMPOUND_FILE_EXTENSION));
+      if (!success) {
+        if (infoStream != null) {
+          message("hit exception " + "reating compound file for newly flushed segment " + newSegment.name);
+        }
+        indexWriter.deleter.deleteFile(IndexFileNames.segmentFileName(newSegment.name,"",IndexFileNames.COMPOUND_FILE_EXTENSION));
+        for (        String file : perThread.flushState.flushedFiles) {
+          indexWriter.deleter.deleteFile(file);
         }
       }
-synchronized (indexWriter) {
-        newSegment.setUseCompoundFile(true);
-        indexWriter.checkpoint();
-        indexWriter.deleter.deleteNewFiles(perThread.closedFiles());
-      }
+    }
+    for (    String file : perThread.flushState.flushedFiles) {
+      indexWriter.deleter.deleteFile(file);
+    }
+    newSegment.setUseCompoundFile(true);
+synchronized (openFiles) {
+      openFiles.remove(compoundFileName);
     }
   }
+synchronized (openFiles) {
+    openFiles.removeAll(perThread.flushState.flushedFiles);
+  }
+  indexWriter.addNewSegment(newSegment);
 }
