@@ -1,0 +1,61 @@
+{
+  final Map<String,TermsEnum> tes=new HashMap<String,TermsEnum>();
+  if (VERBOSE) {
+    System.out.println("TEST: top random seeks");
+  }
+{
+    int num=100 * RANDOM_MULTIPLIER;
+    for (int iter=0; iter < num; iter++) {
+      String field=("f" + r.nextInt(numField)).intern();
+      Term tx=new Term(field,getRandomString(r));
+      int spot=Arrays.binarySearch(fieldTermsArray,tx);
+      if (spot < 0) {
+        if (VERBOSE) {
+          System.out.println("TEST: non-exist seek to " + field + ":"+ UnicodeUtil.toHexString(tx.text()));
+        }
+        TermsEnum te=tes.get(field);
+        if (te == null) {
+          te=MultiFields.getTerms(reader,field).iterator();
+          tes.put(field,te);
+        }
+        if (VERBOSE) {
+          System.out.println("  got enum");
+        }
+        spot=-spot - 1;
+        if (spot == fieldTerms.size() || fieldTerms.get(spot).field() != field) {
+          assertEquals(TermsEnum.SeekStatus.END,te.seek(tx.bytes()));
+        }
+ else {
+          assertEquals(TermsEnum.SeekStatus.NOT_FOUND,te.seek(tx.bytes()));
+          if (VERBOSE) {
+            System.out.println("  got term=" + UnicodeUtil.toHexString(te.term().utf8ToString()));
+            System.out.println("  exp term=" + UnicodeUtil.toHexString(fieldTerms.get(spot).text()));
+          }
+          assertEquals(fieldTerms.get(spot).bytes(),te.term());
+          int ct=_TestUtil.nextInt(r,5,100);
+          for (int i=0; i < ct; i++) {
+            if (VERBOSE) {
+              System.out.println("TEST: now next()");
+            }
+            if (1 + spot + i >= fieldTerms.size()) {
+              break;
+            }
+            Term term=fieldTerms.get(1 + spot + i);
+            if (term.field() != field) {
+              assertNull(te.next());
+              break;
+            }
+ else {
+              BytesRef t=te.next();
+              if (VERBOSE) {
+                System.out.println("  got term=" + (t == null ? null : UnicodeUtil.toHexString(t.utf8ToString())));
+                System.out.println("       exp=" + UnicodeUtil.toHexString(term.text().toString()));
+              }
+              assertEquals(term.bytes(),t);
+            }
+          }
+        }
+      }
+    }
+  }
+}
