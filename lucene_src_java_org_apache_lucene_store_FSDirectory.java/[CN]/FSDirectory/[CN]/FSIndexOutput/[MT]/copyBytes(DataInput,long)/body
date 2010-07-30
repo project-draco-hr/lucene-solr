@@ -1,12 +1,18 @@
 {
-  if (numBytes > BUFFER_SIZE && input instanceof SimpleFSIndexInput) {
-    flush();
-    FileChannel in=((SimpleFSIndexInput)input).file.getChannel();
-    FileChannel out=file.getChannel();
-    copy(in,out,numBytes);
-    super.seek(out.position());
-  }
- else {
+  if (numBytes <= BUFFER_SIZE || !(input instanceof SimpleFSIndexInput)) {
     super.copyBytes(input,numBytes);
+    return;
   }
+  SimpleFSIndexInput fsInput=(SimpleFSIndexInput)input;
+  flush();
+  numBytes-=fsInput.flushBuffer(this,numBytes);
+  FileChannel in=fsInput.file.getChannel();
+  FileChannel out=file.getChannel();
+  long pos=out.position();
+  long writeTo=numBytes + pos;
+  while (pos < writeTo) {
+    pos+=out.transferFrom(in,pos,Math.min(CHANNEL_CHUNK_SIZE,writeTo - pos));
+  }
+  out.position(pos);
+  super.seek(out.position());
 }
