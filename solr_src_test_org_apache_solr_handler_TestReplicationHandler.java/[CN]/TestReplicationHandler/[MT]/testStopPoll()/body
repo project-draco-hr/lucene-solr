@@ -1,16 +1,18 @@
 {
-  for (int i=0; i < 500; i++)   index(masterClient,"id",i,"name","name = " + i);
+  clearIndexWithReplication();
+  nDocs--;
+  for (int i=0; i < nDocs; i++)   index(masterClient,"id",i,"name","name = " + i);
   masterClient.commit();
-  NamedList masterQueryRsp=rQuery(500,"*:*",masterClient);
+  NamedList masterQueryRsp=rQuery(nDocs,"*:*",masterClient);
   SolrDocumentList masterQueryResult=(SolrDocumentList)masterQueryRsp.get("response");
-  assertEquals(500,masterQueryResult.getNumFound());
-  NamedList slaveQueryRsp=rQuery(500,"*:*",slaveClient);
+  assertEquals(nDocs,masterQueryResult.getNumFound());
+  NamedList slaveQueryRsp=rQuery(nDocs,"*:*",slaveClient);
   SolrDocumentList slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
-  assertEquals(500,slaveQueryResult.getNumFound());
+  assertEquals(nDocs,slaveQueryResult.getNumFound());
   String cmp=TestDistributedSearch.compare(masterQueryResult,slaveQueryResult,0,null);
   assertEquals(null,cmp);
-  String masterUrl="http://localhost:" + slaveJetty.getLocalPort() + "/solr/replication?command=disablepoll";
-  URL url=new URL(masterUrl);
+  String slaveURL="http://localhost:" + slaveJetty.getLocalPort() + "/solr/replication?command=disablepoll";
+  URL url=new URL(slaveURL);
   InputStream stream=url.openStream();
   try {
     stream.close();
@@ -19,11 +21,22 @@
   }
   index(masterClient,"id",501,"name","name = " + 501);
   masterClient.commit();
-  masterQueryRsp=rQuery(501,"*:*",masterClient);
+  masterQueryRsp=rQuery(nDocs + 1,"*:*",masterClient);
   masterQueryResult=(SolrDocumentList)masterQueryRsp.get("response");
-  assertEquals(501,masterQueryResult.getNumFound());
+  assertEquals(nDocs + 1,masterQueryResult.getNumFound());
   Thread.sleep(3000);
-  slaveQueryRsp=rQuery(500,"*:*",slaveClient);
+  slaveQueryRsp=rQuery(nDocs,"*:*",slaveClient);
   slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
-  assertEquals(500,slaveQueryResult.getNumFound());
+  assertEquals(nDocs,slaveQueryResult.getNumFound());
+  slaveURL="http://localhost:" + slaveJetty.getLocalPort() + "/solr/replication?command=enablepoll";
+  url=new URL(slaveURL);
+  stream=url.openStream();
+  try {
+    stream.close();
+  }
+ catch (  IOException e) {
+  }
+  slaveQueryRsp=rQuery(nDocs + 1,"*:*",slaveClient);
+  slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
+  assertEquals(nDocs + 1,slaveQueryResult.getNumFound());
 }
