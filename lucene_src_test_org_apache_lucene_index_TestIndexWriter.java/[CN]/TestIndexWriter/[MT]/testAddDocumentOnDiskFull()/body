@@ -7,7 +7,7 @@
       if (VERBOSE)       System.out.println("TEST: cycle: diskFree=" + diskFree);
       MockRAMDirectory dir=new MockRAMDirectory();
       dir.setMaxSizeInBytes(diskFree);
-      IndexWriter writer=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+      IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(random,TEST_VERSION_CURRENT,new MockAnalyzer()));
       MergeScheduler ms=writer.getConfig().getMergeScheduler();
       if (ms instanceof ConcurrentMergeScheduler)       ((ConcurrentMergeScheduler)ms).setSuppressExceptions();
       boolean hitError=false;
@@ -15,6 +15,7 @@
         for (int i=0; i < 200; i++) {
           addDoc(writer);
         }
+        writer.commit();
       }
  catch (      IOException e) {
         if (VERBOSE) {
@@ -40,14 +41,15 @@
             writer.close();
           }
         }
-        _TestUtil.syncConcurrentMerges(ms);
-        assertNoUnreferencedFiles(dir,"after disk full during addDocument");
-        IndexReader.open(dir,true).close();
+        if (dir.listAll().length > 0) {
+          assertNoUnreferencedFiles(dir,"after disk full during addDocument");
+          IndexReader.open(dir,true).close();
+        }
         dir.close();
         diskFree+=500;
       }
  else {
-        _TestUtil.syncConcurrentMerges(writer);
+        writer.close();
         dir.close();
         break;
       }
