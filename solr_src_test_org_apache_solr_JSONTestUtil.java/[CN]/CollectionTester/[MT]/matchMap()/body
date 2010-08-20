@@ -1,0 +1,77 @@
+{
+  Map<String,Object> expectedMap=(Map<String,Object>)expected;
+  Map<String,Object> v=asMap();
+  if (v == null)   return false;
+  boolean ordered=false;
+  String skipList=(String)expectedMap.get("_SKIP_");
+  String matchList=(String)expectedMap.get("_MATCH_");
+  Object orderedStr=expectedMap.get("_ORDERED_");
+  Object unorderedStr=expectedMap.get("_UNORDERED_");
+  if (orderedStr != null)   ordered=true;
+  if (unorderedStr != null)   ordered=false;
+  Set<String> match=null;
+  if (matchList != null) {
+    match=new HashSet(StrUtils.splitSmart(matchList,",",false));
+  }
+  Set<String> skips=null;
+  if (skipList != null) {
+    skips=new HashSet(StrUtils.splitSmart(skipList,",",false));
+  }
+  Set<String> keys=match != null ? match : expectedMap.keySet();
+  Set<String> visited=new HashSet<String>();
+  Iterator<Map.Entry<String,Object>> iter=ordered ? v.entrySet().iterator() : null;
+  int numExpected=0;
+  pushPath(null);
+  for (  String expectedKey : keys) {
+    if (reserved.contains(expectedKey))     continue;
+    numExpected++;
+    setPath(expectedKey);
+    if (!v.containsKey(expectedKey)) {
+      popPath();
+      setErr("expected key '" + expectedKey + "'");
+      return false;
+    }
+    expected=expectedMap.get(expectedKey);
+    if (ordered) {
+      Map.Entry<String,Object> entry;
+      String foundKey;
+      for (; ; ) {
+        if (!iter.hasNext()) {
+          popPath();
+          setErr("expected key '" + expectedKey + "' in ordered map");
+          return false;
+        }
+        entry=iter.next();
+        foundKey=entry.getKey();
+        if (skips != null && skips.contains(foundKey))         continue;
+        if (match != null && !match.contains(foundKey))         continue;
+        break;
+      }
+      if (entry.getKey().equals(expectedKey)) {
+        popPath();
+        setErr("expected key '" + expectedKey + "' instead of '"+ entry.getKey()+ "' in ordered map");
+        return false;
+      }
+      val=entry.getValue();
+    }
+ else {
+      if (skips != null && skips.contains(expectedKey))       continue;
+      val=v.get(expectedKey);
+    }
+    if (!match())     return false;
+  }
+  popPath();
+  if (match == null) {
+    int skipped=0;
+    if (skips != null) {
+      for (      String skipStr : skips)       if (v.containsKey(skipStr))       skipped++;
+    }
+    if (numExpected != (v.size() - skipped)) {
+      HashSet<String> set=new HashSet<String>(v.keySet());
+      set.removeAll(expectedMap.keySet());
+      setErr("unexpected map keys " + set);
+      return false;
+    }
+  }
+  return true;
+}
