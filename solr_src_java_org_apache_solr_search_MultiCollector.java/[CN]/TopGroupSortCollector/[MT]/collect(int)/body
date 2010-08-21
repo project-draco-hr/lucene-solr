@@ -1,0 +1,82 @@
+{
+  matches++;
+  filler.fillValue(doc);
+  SearchGroup group=groupMap.get(mval);
+  if (group == null) {
+    int num=groupMap.size();
+    if (groupMap.size() < nGroups) {
+      SearchGroup sg=new SearchGroup();
+      SortField[] sortGroupFields=groupSort.getSort();
+      sg.sortGroupComparators=new FieldComparator[sortGroupFields.length];
+      sg.sortGroupReversed=new int[sortGroupFields.length];
+      constructComparators(sg.sortGroupComparators,sg.sortGroupReversed,sortGroupFields,1);
+      sg.groupValue=mval.duplicate();
+      sg.comparatorSlot=num++;
+      sg.matches=1;
+      sg.topDoc=docBase + doc;
+      for (      FieldComparator fc : comparators)       fc.copy(sg.comparatorSlot,doc);
+      for (      FieldComparator fc : sg.sortGroupComparators) {
+        fc.copy(0,doc);
+        fc.setBottom(0);
+      }
+      groupMap.put(sg.groupValue,sg);
+      return;
+    }
+    if (orderedGroups == null) {
+      buildSet();
+    }
+    SearchGroup leastSignificantGroup=orderedGroups.last();
+    for (int i=0; ; i++) {
+      final int c=leastSignificantGroup.sortGroupReversed[i] * leastSignificantGroup.sortGroupComparators[i].compareBottom(doc);
+      if (c < 0) {
+        return;
+      }
+ else       if (c > 0) {
+        break;
+      }
+ else       if (i == leastSignificantGroup.sortGroupComparators.length - 1) {
+        return;
+      }
+    }
+    SearchGroup smallest=orderedGroups.pollLast();
+    groupMap.remove(smallest.groupValue);
+    smallest.groupValue.copy(mval);
+    smallest.matches=1;
+    smallest.topDoc=docBase + doc;
+    for (    FieldComparator fc : comparators)     fc.copy(smallest.comparatorSlot,doc);
+    for (    FieldComparator fc : smallest.sortGroupComparators) {
+      fc.copy(0,doc);
+      fc.setBottom(0);
+    }
+    groupMap.put(smallest.groupValue,smallest);
+    orderedGroups.add(smallest);
+    for (    FieldComparator fc : comparators)     fc.setBottom(orderedGroups.last().comparatorSlot);
+    for (    FieldComparator fc : smallest.sortGroupComparators)     fc.setBottom(0);
+    return;
+  }
+  group.matches++;
+  for (int i=0; ; i++) {
+    FieldComparator fc=group.sortGroupComparators[i];
+    final int c=group.sortGroupReversed[i] * fc.compareBottom(doc);
+    if (c < 0) {
+      return;
+    }
+ else     if (c > 0) {
+      for (int j=0; j < group.sortGroupComparators.length; j++) {
+        group.sortGroupComparators[j].copy(0,doc);
+        group.sortGroupComparators[j].setBottom(0);
+      }
+      for (      FieldComparator comparator : comparators)       comparator.copy(spareSlot,doc);
+      break;
+    }
+ else     if (i == group.sortGroupComparators.length - 1) {
+      return;
+    }
+  }
+  if (orderedGroups != null)   orderedGroups.remove(group);
+  group.topDoc=docBase + doc;
+  int tmp=spareSlot;
+  spareSlot=group.comparatorSlot;
+  group.comparatorSlot=tmp;
+  if (orderedGroups != null)   orderedGroups.add(group);
+}

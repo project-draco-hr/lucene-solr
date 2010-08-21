@@ -36,6 +36,62 @@
   SolrIndexSearcher.QueryCommand cmd=rb.getQueryCommand();
   cmd.setTimeAllowed(timeAllowed);
   SolrIndexSearcher.QueryResult result=new SolrIndexSearcher.QueryResult();
+  boolean doGroup=params.getBool(GroupParams.GROUP,false);
+  if (doGroup) {
+    try {
+      cmd.groupCommands=new ArrayList<SolrIndexSearcher.GroupCommand>();
+      String[] fields=params.getParams(GroupParams.GROUP_FIELD);
+      String[] funcs=params.getParams(GroupParams.GROUP_FUNC);
+      String[] queries=params.getParams(GroupParams.GROUP_QUERY);
+      String groupSortStr=params.get(GroupParams.GROUP_SORT);
+      Sort groupSort=groupSortStr != null ? QueryParsing.parseSort(groupSortStr,req.getSchema()) : null;
+      int limitDefault=cmd.getLen();
+      int docsPerGroupDefault=params.getInt(GroupParams.GROUP_LIMIT,1);
+      if (funcs == null) {
+        funcs=fields;
+      }
+ else       if (fields != null) {
+        String[] both=new String[fields.length + funcs.length];
+        System.arraycopy(fields,0,both,0,fields.length);
+        System.arraycopy(funcs,0,both,fields.length,funcs.length);
+        funcs=both;
+      }
+      if (funcs != null) {
+        for (        String groupByStr : funcs) {
+          QParser parser=QParser.getParser(groupByStr,"func",rb.req);
+          Query q=parser.getQuery();
+          SolrIndexSearcher.GroupCommandFunc gc;
+          if (groupSort != null) {
+            SolrIndexSearcher.GroupSortCommand gcSort=new SolrIndexSearcher.GroupSortCommand();
+            gcSort.sort=groupSort;
+            gc=gcSort;
+          }
+ else {
+            gc=new SolrIndexSearcher.GroupCommandFunc();
+          }
+          if (q instanceof FunctionQuery) {
+            gc.groupBy=((FunctionQuery)q).getValueSource();
+          }
+ else {
+            gc.groupBy=new QueryValueSource(q,0.0f);
+          }
+          gc.key=groupByStr;
+          gc.groupLimit=limitDefault;
+          gc.docsPerGroup=docsPerGroupDefault;
+          cmd.groupCommands.add(gc);
+        }
+      }
+      if (cmd.groupCommands.size() == 0)       cmd.groupCommands=null;
+      if (cmd.groupCommands != null) {
+        searcher.search(result,cmd);
+        rsp.add("grouped",result.groupedResults);
+        return;
+      }
+    }
+ catch (    ParseException e) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
+    }
+  }
   searcher.search(result,cmd);
   rb.setResult(result);
   rsp.add("response",rb.getResults().docList);
