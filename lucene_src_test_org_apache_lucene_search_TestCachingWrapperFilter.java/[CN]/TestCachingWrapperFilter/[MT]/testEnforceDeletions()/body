@@ -1,22 +1,11 @@
 {
   Directory dir=newDirectory(rand);
-  RandomIndexWriter writer=new RandomIndexWriter(rand,dir);
-  MergeScheduler ms=writer.w.getMergeScheduler();
-  ConcurrentMergeScheduler cms;
-  if (ms instanceof ConcurrentMergeScheduler) {
-    cms=(ConcurrentMergeScheduler)ms;
-  }
- else {
-    cms=null;
-  }
+  RandomIndexWriter writer=new RandomIndexWriter(rand,dir,newIndexWriterConfig(rand,TEST_VERSION_CURRENT,new MockAnalyzer()).setMergeScheduler(new SerialMergeScheduler()));
   IndexReader reader=writer.w.getReader();
   IndexSearcher searcher=new IndexSearcher(reader);
   Document doc=new Document();
   doc.add(new Field("id","1",Field.Store.YES,Field.Index.NOT_ANALYZED));
   writer.addDocument(doc);
-  if (cms != null) {
-    cms.sync();
-  }
   reader=refreshReader(reader);
   searcher=new IndexSearcher(reader);
   TopDocs docs=searcher.search(new MatchAllDocsQuery(),1);
@@ -29,9 +18,6 @@
   docs=searcher.search(constantScore,1);
   assertEquals("[just filter] Should find a hit...",1,docs.totalHits);
   writer.deleteDocuments(new Term("id","1"));
-  if (cms != null) {
-    cms.sync();
-  }
   reader=refreshReader(reader);
   searcher=new IndexSearcher(reader);
   docs=searcher.search(new MatchAllDocsQuery(),filter,1);
@@ -40,9 +26,6 @@
   assertEquals("[just filter] Should find a hit...",1,docs.totalHits);
   filter=new CachingWrapperFilter(startFilter,CachingWrapperFilter.DeletesMode.RECACHE);
   writer.addDocument(doc);
-  if (cms != null) {
-    cms.sync();
-  }
   reader=refreshReader(reader);
   searcher=new IndexSearcher(reader);
   docs=searcher.search(new MatchAllDocsQuery(),filter,1);
@@ -50,21 +33,15 @@
   constantScore=new ConstantScoreQuery(filter);
   docs=searcher.search(constantScore,1);
   assertEquals("[just filter] Should find a hit...",1,docs.totalHits);
-  if (cms != null) {
-    cms.sync();
-  }
-  IndexReader newReader=refreshReader(reader);
-  assertTrue(reader != newReader);
-  reader=newReader;
+  IndexReader oldReader=reader;
+  reader=refreshReader(reader);
+  assertTrue(reader != oldReader);
   searcher=new IndexSearcher(reader);
   int missCount=filter.missCount;
   docs=searcher.search(constantScore,1);
   assertEquals("[just filter] Should find a hit...",1,docs.totalHits);
   assertEquals(missCount,filter.missCount);
   writer.deleteDocuments(new Term("id","1"));
-  if (cms != null) {
-    cms.sync();
-  }
   reader=refreshReader(reader);
   searcher=new IndexSearcher(reader);
   missCount=filter.missCount;
@@ -75,9 +52,6 @@
   assertEquals("[just filter] Should *not* find a hit...",0,docs.totalHits);
   filter=new CachingWrapperFilter(startFilter,CachingWrapperFilter.DeletesMode.DYNAMIC);
   writer.addDocument(doc);
-  if (cms != null) {
-    cms.sync();
-  }
   reader=refreshReader(reader);
   searcher=new IndexSearcher(reader);
   docs=searcher.search(new MatchAllDocsQuery(),filter,1);
@@ -86,9 +60,6 @@
   docs=searcher.search(constantScore,1);
   assertEquals("[just filter] Should find a hit...",1,docs.totalHits);
   writer.deleteDocuments(new Term("id","1"));
-  if (cms != null) {
-    cms.sync();
-  }
   reader=refreshReader(reader);
   searcher=new IndexSearcher(reader);
   docs=searcher.search(new MatchAllDocsQuery(),filter,1);
@@ -97,6 +68,7 @@
   docs=searcher.search(constantScore,1);
   assertEquals("[just filter] Should *not* find a hit...",0,docs.totalHits);
   assertEquals(missCount,filter.missCount);
+  assertTrue(oldReader != null);
   reader.close();
   writer.close();
   dir.close();
