@@ -1,0 +1,64 @@
+{
+  Random rand=newRandom();
+  for (int iter=0; iter < 10 * RANDOM_MULTIPLIER; iter++) {
+    Directory dir=newDirectory(rand);
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + iter + " dir="+ dir);
+    }
+    IndexOutput out=dir.createOutput("test");
+    byte[] bytes=new byte[_TestUtil.nextInt(rand,1,77777)];
+    final int size=_TestUtil.nextInt(rand,1,1777777);
+    int upto=0;
+    int byteUpto=0;
+    while (upto < size) {
+      bytes[byteUpto++]=value(upto);
+      upto++;
+      if (byteUpto == bytes.length) {
+        out.writeBytes(bytes,0,bytes.length);
+        byteUpto=0;
+      }
+    }
+    out.writeBytes(bytes,0,byteUpto);
+    assertEquals(size,out.getFilePointer());
+    out.close();
+    assertEquals(size,dir.fileLength("test"));
+    final IndexInput in=dir.openInput("test");
+    out=dir.createOutput("test2");
+    upto=0;
+    while (upto < size) {
+      if (rand.nextBoolean()) {
+        out.writeByte(in.readByte());
+        upto++;
+      }
+ else {
+        final int chunk=Math.min(_TestUtil.nextInt(rand,1,bytes.length),size - upto);
+        out.copyBytes(in,chunk);
+        upto+=chunk;
+      }
+    }
+    assertEquals(size,upto);
+    out.close();
+    in.close();
+    IndexInput in2=dir.openInput("test2");
+    upto=0;
+    while (upto < size) {
+      if (rand.nextBoolean()) {
+        final byte v=in2.readByte();
+        assertEquals(value(upto),v);
+        upto++;
+      }
+ else {
+        final int limit=Math.min(_TestUtil.nextInt(rand,1,bytes.length),size - upto);
+        in2.readBytes(bytes,0,limit);
+        for (int byteIdx=0; byteIdx < limit; byteIdx++) {
+          assertEquals(value(upto),bytes[byteIdx]);
+          upto++;
+        }
+      }
+    }
+    in2.close();
+    dir.deleteFile("test");
+    dir.deleteFile("test2");
+    dir.close();
+  }
+}
