@@ -30,13 +30,16 @@
   }
   Map<String,SpellCheckResponse.Suggestion> origVsSuggestion=new HashMap<String,SpellCheckResponse.Suggestion>();
   Map<String,Integer> origVsFreq=new HashMap<String,Integer>();
+  Map<String,Integer> origVsShards=new HashMap<String,Integer>();
   Map<String,HashSet<String>> origVsSuggested=new LinkedHashMap<String,HashSet<String>>();
   Map<String,SuggestWord> suggestedVsWord=new HashMap<String,SuggestWord>();
+  int totalNumberShardResponses=0;
   for (  ShardRequest sreq : rb.finished) {
     for (    ShardResponse srsp : sreq.responses) {
       NamedList nl=(NamedList)srsp.getSolrResponse().getResponse().get("spellcheck");
       LOG.info(srsp.getShard() + " " + nl);
       if (nl != null) {
+        totalNumberShardResponses++;
         SpellCheckResponse spellCheckResp=new SpellCheckResponse(nl);
         for (        SpellCheckResponse.Suggestion suggestion : spellCheckResp.getSuggestions()) {
           origVsSuggestion.put(suggestion.getToken(),suggestion);
@@ -50,6 +53,13 @@
           if (o != null)           origFreq+=o;
           origFreq+=suggestion.getOriginalFrequency();
           origVsFreq.put(suggestion.getToken(),origFreq);
+          Integer origShards=origVsShards.get(suggestion.getToken());
+          if (origShards == null) {
+            origVsShards.put(suggestion.getToken(),1);
+          }
+ else {
+            origVsShards.put(suggestion.getToken(),++origShards);
+          }
           for (int i=0; i < suggestion.getNumFound(); i++) {
             String alternative=suggestion.getAlternatives().get(i);
             suggested.add(alternative);
@@ -71,6 +81,10 @@
   SpellingResult result=new SpellingResult(tokens);
   for (  Map.Entry<String,HashSet<String>> entry : origVsSuggested.entrySet()) {
     String original=entry.getKey();
+    Integer numShards=origVsShards.get(original);
+    if (numShards < totalNumberShardResponses) {
+      continue;
+    }
     HashSet<String> suggested=entry.getValue();
     SuggestWordQueue sugQueue=new SuggestWordQueue(numSug);
     for (    String suggestion : suggested) {
@@ -101,6 +115,6 @@
     }
   }
   NamedList response=new SimpleOrderedMap();
-  response.add("suggestions",toNamedList(result,origQuery,extendedResults,collate));
+  response.add("suggestions",toNamedList(false,result,origQuery,extendedResults,collate));
   rb.rsp.add("spellcheck",response);
 }
