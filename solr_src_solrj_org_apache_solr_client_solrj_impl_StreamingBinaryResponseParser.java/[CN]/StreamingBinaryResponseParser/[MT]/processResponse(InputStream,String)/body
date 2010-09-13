@@ -1,0 +1,33 @@
+{
+  try {
+    JavaBinCodec codec=new JavaBinCodec(){
+      public SolrDocument readSolrDocument(      FastInputStream dis) throws IOException {
+        SolrDocument doc=super.readSolrDocument(dis);
+        callback.streamSolrDocument(doc);
+        return null;
+      }
+      public SolrDocumentList readSolrDocumentList(      FastInputStream dis) throws IOException {
+        SolrDocumentList solrDocs=new SolrDocumentList();
+        List list=(List)readVal(dis);
+        solrDocs.setNumFound((Long)list.get(0));
+        solrDocs.setStart((Long)list.get(1));
+        solrDocs.setMaxScore((Float)list.get(2));
+        callback.streamDocListInfo(solrDocs.getNumFound(),solrDocs.getStart(),solrDocs.getMaxScore());
+        tagByte=dis.readByte();
+        if ((tagByte >>> 5) != (ARR >>> 5)) {
+          throw new RuntimeException("doclist must have an array");
+        }
+        int sz=readSize(dis);
+        for (int i=0; i < sz; i++) {
+          readVal(dis);
+        }
+        return solrDocs;
+      }
+    }
+;
+    return (NamedList<Object>)codec.unmarshal(body);
+  }
+ catch (  IOException e) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"parsing error",e);
+  }
+}

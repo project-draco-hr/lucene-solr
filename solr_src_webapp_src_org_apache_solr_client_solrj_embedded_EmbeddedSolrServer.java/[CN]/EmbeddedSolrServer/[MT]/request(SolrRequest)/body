@@ -36,6 +36,60 @@
     if (rsp.getException() != null) {
       throw new SolrServerException(rsp.getException());
     }
+    if (request.getStreamingResponseCallback() != null) {
+      try {
+        final StreamingResponseCallback callback=request.getStreamingResponseCallback();
+        BinaryResponseWriter.Resolver resolver=new BinaryResponseWriter.Resolver(req,rsp.getReturnFields()){
+          @Override public void writeDocList(          DocList ids,          JavaBinCodec codec) throws IOException {
+            SolrDocumentList docs=new SolrDocumentList();
+            docs.setNumFound(ids.matches());
+            docs.setStart(ids.offset());
+            docs.setMaxScore(ids.maxScore());
+            codec.writeSolrDocumentList(docs);
+            int sz=ids.size();
+            if (searcher == null)             searcher=solrQueryRequest.getSearcher();
+            if (schema == null)             schema=solrQueryRequest.getSchema();
+            DocIterator iterator=ids.iterator();
+            for (int i=0; i < sz; i++) {
+              int id=iterator.nextDoc();
+              Document doc=searcher.doc(id,returnFields);
+              SolrDocument sdoc=getDoc(doc);
+              if (includeScore && ids.hasScores()) {
+                sdoc.addField("score",iterator.score());
+              }
+              callback.streamSolrDocument(sdoc);
+            }
+          }
+        }
+;
+        ByteArrayOutputStream out=new ByteArrayOutputStream();
+        new JavaBinCodec(resolver){
+          @Override public void writeSolrDocument(          SolrDocument doc,          Set<String> fields) throws IOException {
+            callback.streamSolrDocument(doc);
+          }
+          @Override public void writeSolrDocumentList(          SolrDocumentList docs) throws IOException {
+            if (docs.size() > 0) {
+              SolrDocumentList tmp=new SolrDocumentList();
+              tmp.setMaxScore(docs.getMaxScore());
+              tmp.setNumFound(docs.getNumFound());
+              tmp.setStart(docs.getStart());
+              docs=tmp;
+            }
+            callback.streamDocListInfo(docs.getNumFound(),docs.getStart(),docs.getMaxScore());
+            super.writeSolrDocumentList(docs);
+          }
+        }
+.marshal(rsp.getValues(),out);
+        InputStream in=new ByteArrayInputStream(out.toByteArray());
+        return (NamedList<Object>)new JavaBinCodec(resolver).unmarshal(in);
+      }
+ catch (      Exception ex) {
+        throw new RuntimeException(ex);
+      }
+ finally {
+        req.close();
+      }
+    }
     NamedList<Object> normalized=getParsedResponse(req,rsp);
     req.close();
     return normalized;
