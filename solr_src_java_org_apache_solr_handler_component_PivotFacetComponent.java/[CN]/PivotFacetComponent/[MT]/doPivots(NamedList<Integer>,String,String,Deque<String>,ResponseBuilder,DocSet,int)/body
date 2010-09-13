@@ -1,0 +1,33 @@
+{
+  SolrIndexSearcher searcher=rb.req.getSearcher();
+  FieldType ftype=null;
+  String nextField=fnames.poll();
+  List<NamedList<Object>> values=new ArrayList<NamedList<Object>>(superFacets.size());
+  for (  Map.Entry<String,Integer> kv : superFacets) {
+    if (kv.getValue() > minMatch) {
+      SimpleOrderedMap<Object> pivot=new SimpleOrderedMap<Object>();
+      pivot.add("field",field);
+      pivot.add("value",kv.getKey());
+      pivot.add("count",kv.getValue());
+      if (subField == null) {
+        values.add(pivot);
+      }
+ else {
+        String s=kv.getKey();
+        if (ftype == null) {
+          ftype=searcher.getSchema().getField(field).getType();
+        }
+        Query query=new TermQuery(new Term(field,ftype.toInternal(s)));
+        DocSet subset=searcher.getDocSet(query,docs);
+        SimpleFacets sf=getFacetImplementation(rb.req,subset,rb.req.getParams());
+        NamedList<Integer> nl=sf.getTermCounts(subField);
+        if (nl.size() > minMatch) {
+          pivot.add("pivot",doPivots(nl,subField,nextField,fnames,rb,subset,minMatch));
+          values.add(pivot);
+        }
+      }
+    }
+  }
+  fnames.push(nextField);
+  return values;
+}
