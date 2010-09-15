@@ -5,6 +5,7 @@
   int last=cmd.getOffset() + cmd.getLen();
   if (last < 0 || last > maxDoc())   last=maxDoc();
   boolean needScores=(cmd.getFlags() & GET_SCORES) != 0;
+  boolean getDocSet=(cmd.getFlags() & GET_DOCSET) != 0;
   Query query=QueryUtils.makeQueryable(cmd.getQuery());
   final Filter luceneFilter=filter == null ? null : filter.getTopFilter();
   Sort sort=cmd.getSort();
@@ -28,7 +29,16 @@
       gc.collector=collector;
     }
   }
-  search(query,luceneFilter,MultiCollector.wrap(collectors));
+  Collector allCollectors=MultiCollector.wrap(collectors);
+  DocSetCollector setCollector=null;
+  if (getDocSet) {
+    setCollector=new DocSetDelegateCollector(maxDoc() >> 6,maxDoc(),allCollectors);
+    allCollectors=setCollector;
+  }
+  search(query,luceneFilter,allCollectors);
+  if (getDocSet) {
+    qr.docListAndSet.docSet=setCollector.getDocSet();
+  }
   List<Phase2GroupCollector> phase2Collectors=new ArrayList<Phase2GroupCollector>(cmd.groupCommands.size());
   for (  GroupCommand groupCommand : cmd.groupCommands) {
     if (groupCommand instanceof GroupCommandFunc) {
