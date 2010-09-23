@@ -7,26 +7,29 @@
  catch (  InvalidGeoException e) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
   }
-  double[] ur;
-  double[] ll;
-  if (options.measStr == null || options.measStr.equals("hsin")) {
-    ur=DistanceUtils.latLonCornerDegs(point[LAT],point[LONG],options.distance,null,true,options.radius);
-    ll=DistanceUtils.latLonCornerDegs(point[LAT],point[LONG],options.distance,null,false,options.radius);
-  }
- else {
-    ur=DistanceUtils.vectorBoxCorner(point,null,options.distance,true);
-    ll=DistanceUtils.vectorBoxCorner(point,null,options.distance,false);
-  }
+  point[0]=point[0] * DistanceUtils.DEGREES_TO_RADIANS;
+  point[1]=point[1] * DistanceUtils.DEGREES_TO_RADIANS;
+  double[] ur=new double[2];
+  double[] ll=new double[2];
+  double[] tmp=new double[2];
+  double[] north=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,0,tmp,options.radius);
+  ur[LAT]=north[LAT] * DistanceUtils.RADIANS_TO_DEGREES;
+  double[] east=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,DistanceUtils.DEG_90_AS_RADS,tmp,options.radius);
+  ur[LONG]=east[LONG] * DistanceUtils.RADIANS_TO_DEGREES;
+  double[] south=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,DistanceUtils.DEG_180_AS_RADS,tmp,options.radius);
+  ll[LAT]=south[LAT] * DistanceUtils.RADIANS_TO_DEGREES;
+  double[] west=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,DistanceUtils.DEG_270_AS_RADS,tmp,options.radius);
+  ll[LONG]=west[LONG] * DistanceUtils.RADIANS_TO_DEGREES;
   SchemaField subSF;
   Query range;
-  double angDistDegs=DistanceUtils.angularDistance(options.distance,options.radius) * DistanceUtils.RADIANS_TO_DEGREES;
-  if (point[LAT] + angDistDegs > 90.0) {
+  double angDist=DistanceUtils.angularDistance(options.distance,options.radius);
+  if (point[LAT] + angDist > DistanceUtils.DEG_90_AS_RADS) {
     double minLat=Math.min(ll[LAT],ur[LAT]);
     subSF=subField(options.field,LAT);
     range=subSF.getType().getRangeQuery(parser,subSF,String.valueOf(minLat),"90",true,true);
     result.add(range,BooleanClause.Occur.MUST);
   }
- else   if (point[LAT] - angDistDegs < -90.0) {
+ else   if (point[LAT] - angDist < -DistanceUtils.DEG_90_AS_RADS) {
     subSF=subField(options.field,LAT);
     double maxLat=Math.max(ll[LAT],ur[LAT]);
     range=subSF.getType().getRangeQuery(parser,subSF,"-90",String.valueOf(maxLat),true,true);
