@@ -1,14 +1,17 @@
 {
   int state;
   int pos=0;
+  savedStates.grow(seekBytesRef.length + 1);
+  final int[] states=savedStates.ints;
+  states[0]=runAutomaton.getInitialState();
   while (true) {
     curGen++;
     linear=false;
-    state=runAutomaton.getInitialState();
-    for (pos=0; pos < seekBytesRef.length; pos++) {
+    for (state=states[pos]; pos < seekBytesRef.length; pos++) {
       visited[state]=curGen;
       int nextState=runAutomaton.step(state,seekBytesRef.bytes[pos] & 0xff);
       if (nextState == -1)       break;
+      states[pos + 1]=nextState;
       if (!finite && !linear && visited[nextState] == curGen) {
         linear=true;
         infinitePosition=pos;
@@ -19,8 +22,10 @@
       return true;
     }
  else {
-      if (!backtrack(pos))       return false;
- else       if (runAutomaton.run(seekBytesRef.bytes,0,seekBytesRef.length))       return true;
+      if ((pos=backtrack(pos)) < 0)       return false;
+      final int newState=runAutomaton.step(states[pos],seekBytesRef.bytes[pos] & 0xff);
+      if (newState >= 0 && runAutomaton.isAccept(newState))       return true;
+      if (!finite)       pos=0;
     }
   }
 }
