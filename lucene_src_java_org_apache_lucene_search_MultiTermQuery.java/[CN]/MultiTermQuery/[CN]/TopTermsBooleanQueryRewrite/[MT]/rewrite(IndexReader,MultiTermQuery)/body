@@ -2,10 +2,11 @@
   final int maxSize=Math.min(size,BooleanQuery.getMaxClauseCount());
   final PriorityQueue<ScoreTerm> stQueue=new PriorityQueue<ScoreTerm>();
   collectTerms(reader,query,new TermCollector(){
-    public boolean collect(    BytesRef bytes,    float boost){
+    @Override public boolean collect(    TermsEnum termsEnum,    BytesRef bytes,    float boost){
       if (stQueue.size() >= maxSize && boost <= stQueue.peek().boost)       return true;
       st.bytes.copy(bytes);
       st.boost=boost;
+      st.docFreq=termsEnum.docFreq();
       stQueue.offer(st);
       st=(stQueue.size() > maxSize) ? stQueue.poll() : new ScoreTerm();
       setMaxNonCompetitiveBoost((stQueue.size() >= maxSize) ? stQueue.peek().boost : Float.NEGATIVE_INFINITY);
@@ -17,7 +18,7 @@
   final Term placeholderTerm=new Term(query.field);
   final BooleanQuery bq=new BooleanQuery(true);
   for (  final ScoreTerm st : stQueue) {
-    Query tq=getQuery(placeholderTerm.createTerm(st.bytes));
+    Query tq=getQuery(placeholderTerm.createTerm(st.bytes),st.docFreq);
     tq.setBoost(query.getBoost() * st.boost);
     bq.add(tq,BooleanClause.Occur.SHOULD);
   }
