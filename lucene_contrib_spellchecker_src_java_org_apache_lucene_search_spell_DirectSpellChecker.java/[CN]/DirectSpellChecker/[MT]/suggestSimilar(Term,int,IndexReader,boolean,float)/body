@@ -1,0 +1,48 @@
+{
+  String text=term.text();
+  if (minQueryLength > 0 && text.codePointCount(0,text.length()) < minQueryLength)   return new SuggestWord[0];
+  if (lowerCaseTerms)   term=term.createTerm(text.toLowerCase(Locale.ENGLISH));
+  int docfreq=ir.docFreq(term);
+  if (!morePopular && docfreq > 0) {
+    return new SuggestWord[0];
+  }
+  int maxDoc=ir.maxDoc();
+  if (maxQueryFrequency >= 1f && docfreq > maxQueryFrequency) {
+    return new SuggestWord[0];
+  }
+ else   if (docfreq > (int)Math.ceil(maxQueryFrequency * (float)maxDoc)) {
+    return new SuggestWord[0];
+  }
+  if (!morePopular)   docfreq=0;
+  if (thresholdFrequency >= 1f) {
+    docfreq=Math.max(docfreq,(int)thresholdFrequency);
+  }
+ else   if (thresholdFrequency > 0f) {
+    docfreq=Math.max(docfreq,(int)(thresholdFrequency * (float)maxDoc) - 1);
+  }
+  Collection<ScoreTerm> terms=null;
+  int inspections=numSug * maxInspections;
+  terms=suggestSimilar(term,inspections,ir,docfreq,1,accuracy);
+  if (maxEdits > 1 && terms.size() < inspections) {
+    HashSet<ScoreTerm> moreTerms=new HashSet<ScoreTerm>();
+    moreTerms.addAll(terms);
+    moreTerms.addAll(suggestSimilar(term,inspections,ir,docfreq,maxEdits,accuracy));
+    terms=moreTerms;
+  }
+  SuggestWord suggestions[]=new SuggestWord[terms.size()];
+  int index=suggestions.length - 1;
+  for (  ScoreTerm s : terms) {
+    SuggestWord suggestion=new SuggestWord();
+    suggestion.string=s.termAsString != null ? s.termAsString : s.term.utf8ToString();
+    suggestion.score=s.score;
+    suggestion.freq=s.docfreq;
+    suggestions[index--]=suggestion;
+  }
+  Arrays.sort(suggestions,Collections.reverseOrder(comparator));
+  if (numSug < suggestions.length) {
+    SuggestWord trimmed[]=new SuggestWord[numSug];
+    System.arraycopy(suggestions,0,trimmed,0,numSug);
+    suggestions=trimmed;
+  }
+  return suggestions;
+}
