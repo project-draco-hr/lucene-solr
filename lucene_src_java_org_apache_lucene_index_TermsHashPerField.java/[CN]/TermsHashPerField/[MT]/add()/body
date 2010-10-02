@@ -1,2 +1,47 @@
 {
+  int termID;
+  try {
+    termID=bytesHash.add(termBytesRef,termAtt.toBytesRef(termBytesRef));
+  }
+ catch (  MaxBytesLengthExceededException e) {
+    if (docState.maxTermPrefix == null) {
+      final int saved=termBytesRef.length;
+      try {
+        termBytesRef.length=Math.min(30,DocumentsWriter.MAX_TERM_LENGTH_UTF8);
+        docState.maxTermPrefix=termBytesRef.toString();
+      }
+  finally {
+        termBytesRef.length=saved;
+      }
+    }
+    consumer.skippingLongTerm();
+    return;
+  }
+  if (termID >= 0) {
+    bytesHash.byteStart(termID);
+    if (numPostingInt + intPool.intUpto > DocumentsWriter.INT_BLOCK_SIZE) {
+      intPool.nextBuffer();
+    }
+    if (ByteBlockPool.BYTE_BLOCK_SIZE - bytePool.byteUpto < numPostingInt * ByteBlockPool.FIRST_LEVEL_SIZE) {
+      bytePool.nextBuffer();
+    }
+    intUptos=intPool.buffer;
+    intUptoStart=intPool.intUpto;
+    intPool.intUpto+=streamCount;
+    postingsArray.intStarts[termID]=intUptoStart + intPool.intOffset;
+    for (int i=0; i < streamCount; i++) {
+      final int upto=bytePool.newSlice(ByteBlockPool.FIRST_LEVEL_SIZE);
+      intUptos[intUptoStart + i]=upto + bytePool.byteOffset;
+    }
+    postingsArray.byteStarts[termID]=intUptos[intUptoStart];
+    consumer.newTerm(termID);
+  }
+ else {
+    termID=(-termID) - 1;
+    final int intStart=postingsArray.intStarts[termID];
+    intUptos=intPool.buffers[intStart >> DocumentsWriter.INT_BLOCK_SHIFT];
+    intUptoStart=intStart & DocumentsWriter.INT_BLOCK_MASK;
+    consumer.addTerm(termID);
+  }
+  if (doNextCall)   nextPerField.add(postingsArray.textStarts[termID]);
 }
