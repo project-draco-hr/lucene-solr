@@ -3,6 +3,9 @@
   if (!params.getBool(COMPONENT_NAME,false) || rb.stage != ResponseBuilder.STAGE_GET_FIELDS)   return;
   boolean extendedResults=params.getBool(SPELLCHECK_EXTENDED_RESULTS,false);
   boolean collate=params.getBool(SPELLCHECK_COLLATE,false);
+  boolean collationExtendedResults=params.getBool(SPELLCHECK_COLLATE_EXTENDED_RESULTS,false);
+  int maxCollationTries=params.getInt(SPELLCHECK_MAX_COLLATION_TRIES,0);
+  int maxCollations=params.getInt(SPELLCHECK_MAX_COLLATIONS,1);
   String origQuery=params.get(SPELLCHECK_Q);
   if (origQuery == null) {
     origQuery=rb.getQueryString();
@@ -33,6 +36,7 @@
   Map<String,Integer> origVsShards=new HashMap<String,Integer>();
   Map<String,HashSet<String>> origVsSuggested=new LinkedHashMap<String,HashSet<String>>();
   Map<String,SuggestWord> suggestedVsWord=new HashMap<String,SuggestWord>();
+  Map<String,SpellCheckCollation> collations=new HashMap<String,SpellCheckCollation>();
   int totalNumberShardResponses=0;
   for (  ShardRequest sreq : rb.finished) {
     for (    ShardResponse srsp : sreq.responses) {
@@ -72,6 +76,45 @@
             if (suggestion.getAlternativeFrequencies() != null && suggestion.getAlternativeFrequencies().size() > 0) {
               Integer freq=suggestion.getAlternativeFrequencies().get(i);
               if (freq != null)               sug.freq+=freq;
+            }
+          }
+        }
+        NamedList suggestions=(NamedList)nl.get("suggestions");
+        if (suggestions != null) {
+          List<Object> collationList=suggestions.getAll("collation");
+          List<Object> collationRankList=suggestions.getAll("collationInternalRank");
+          int i=0;
+          if (collationList != null) {
+            for (            Object o : collationList) {
+              if (o instanceof String) {
+                SpellCheckCollation coll=new SpellCheckCollation();
+                coll.setCollationQuery((String)o);
+                if (collationRankList != null && collationRankList.size() > 0) {
+                  coll.setInternalRank((Integer)collationRankList.get(i));
+                  i++;
+                }
+                SpellCheckCollation priorColl=collations.get(coll.getCollationQuery());
+                if (priorColl != null) {
+                  coll.setInternalRank(Math.max(coll.getInternalRank(),priorColl.getInternalRank()));
+                }
+                collations.put(coll.getCollationQuery(),coll);
+              }
+ else {
+                NamedList expandedCollation=(NamedList)o;
+                SpellCheckCollation coll=new SpellCheckCollation();
+                coll.setCollationQuery((String)expandedCollation.get("collationQuery"));
+                coll.setHits((Integer)expandedCollation.get("hits"));
+                if (maxCollationTries > 0) {
+                  coll.setInternalRank((Integer)expandedCollation.get("collationInternalRank"));
+                }
+                coll.setMisspellingsAndCorrections((NamedList)expandedCollation.get("misspellingsAndCorrections"));
+                SpellCheckCollation priorColl=collations.get(coll.getCollationQuery());
+                if (priorColl != null) {
+                  coll.setHits(coll.getHits() + priorColl.getHits());
+                  coll.setInternalRank(Math.max(coll.getInternalRank(),priorColl.getInternalRank()));
+                }
+                collations.put(coll.getCollationQuery(),coll);
+              }
             }
           }
         }
@@ -115,6 +158,26 @@
     }
   }
   NamedList response=new SimpleOrderedMap();
-  response.add("suggestions",toNamedList(false,result,origQuery,extendedResults,collate));
+  NamedList suggestions=toNamedList(false,result,origQuery,extendedResults,collate);
+  if (collate) {
+    SpellCheckCollation[] sortedCollations=collations.values().toArray(new SpellCheckCollation[collations.size()]);
+    Arrays.sort(sortedCollations);
+    int i=0;
+    while (i < maxCollations && i < sortedCollations.length) {
+      SpellCheckCollation collation=sortedCollations[i];
+      i++;
+      if (collationExtendedResults) {
+        NamedList extendedResult=new NamedList();
+        extendedResult.add("collationQuery",collation.getCollationQuery());
+        extendedResult.add("hits",collation.getHits());
+        extendedResult.add("misspellingsAndCorrections",collation.getMisspellingsAndCorrections());
+        suggestions.add("collation",extendedResult);
+      }
+ else {
+        suggestions.add("collation",collation.getCollationQuery());
+      }
+    }
+  }
+  response.add("suggestions",suggestions);
   rb.rsp.add("spellcheck",response);
 }
