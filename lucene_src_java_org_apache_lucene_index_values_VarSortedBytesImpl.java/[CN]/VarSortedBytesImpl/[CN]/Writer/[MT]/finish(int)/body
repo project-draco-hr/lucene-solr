@@ -1,0 +1,38 @@
+{
+  final int count=hash.size();
+  if (count == 0)   return;
+  initIndexOut();
+  initDataOut();
+  int[] sortedEntries=hash.sort(comp);
+  long offset=0;
+  long lastOffset=0;
+  final int[] index=new int[count];
+  final long[] offsets=new long[count];
+  for (int i=0; i < count; i++) {
+    final int e=sortedEntries[i];
+    offsets[i]=offset;
+    index[e]=1 + i;
+    final BytesRef bytes=hash.get(e);
+    datOut.writeBytes(bytes.bytes,bytes.offset,bytes.length);
+    lastOffset=offset;
+    offset+=bytes.length;
+  }
+  idxOut.writeLong(offset);
+  final PackedInts.Writer indexWriter=PackedInts.getWriter(idxOut,docCount,PackedInts.bitsRequired(count));
+  final int limit=docCount > docToEntry.length ? docToEntry.length : docCount;
+  for (int i=0; i < limit; i++) {
+    final int e=docToEntry[i];
+    indexWriter.add(e == -1 ? 0 : index[e]);
+  }
+  for (int i=limit; i < docCount; i++) {
+    indexWriter.add(0);
+  }
+  indexWriter.finish();
+  PackedInts.Writer offsetWriter=PackedInts.getWriter(idxOut,count,PackedInts.bitsRequired(lastOffset));
+  for (int i=0; i < count; i++) {
+    offsetWriter.add(offsets[i]);
+  }
+  offsetWriter.finish();
+  super.finish(docCount);
+  bytesUsed.addAndGet((-docToEntry.length) * RamUsageEstimator.NUM_BYTES_INT);
+}

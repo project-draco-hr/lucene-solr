@@ -1,0 +1,58 @@
+{
+  final boolean isNumeric=NUMERICS.contains(value);
+  OpenBitSet deleted=new OpenBitSet(numValues);
+  Document doc=new Document();
+  Fieldable field=random.nextBoolean() ? new ValuesField(value.name()) : newField(value.name(),_TestUtil.randomRealisticUnicodeString(random,10),IDX_VALUES[random.nextInt(IDX_VALUES.length)]);
+  doc.add(field);
+  ValuesAttribute valuesAttribute=ValuesField.values(field);
+  valuesAttribute.setType(value);
+  final LongsRef intsRef=valuesAttribute.ints();
+  final FloatsRef floatsRef=valuesAttribute.floats();
+  final BytesRef bytesRef=valuesAttribute.bytes();
+  final String idBase=value.name() + "_";
+  final byte[] b=new byte[multOfSeven];
+  if (bytesRef != null) {
+    bytesRef.bytes=b;
+    bytesRef.length=b.length;
+    bytesRef.offset=0;
+  }
+  byte upto=0;
+  for (int i=0; i < numValues; i++) {
+    if (isNumeric) {
+switch (value) {
+case PACKED_INTS:
+case PACKED_INTS_FIXED:
+        intsRef.set(i);
+      break;
+case SIMPLE_FLOAT_4BYTE:
+case SIMPLE_FLOAT_8BYTE:
+    floatsRef.set(2.0f * i);
+  break;
+default :
+fail("unexpected value " + value);
+}
+}
+ else {
+for (int j=0; j < b.length; j++) {
+b[j]=upto++;
+}
+}
+doc.removeFields("id");
+doc.add(new Field("id",idBase + i,Store.YES,Index.NOT_ANALYZED_NO_NORMS));
+w.addDocument(doc);
+if (i % 7 == 0) {
+if (withDeletions && random.nextBoolean()) {
+Values val=valueVarList.get(random.nextInt(1 + valueVarList.indexOf(value)));
+final int randInt=val == value ? random.nextInt(1 + i) : random.nextInt(numValues);
+w.deleteDocuments(new Term("id",val.name() + "_" + randInt));
+if (val == value) {
+deleted.set(randInt);
+}
+}
+w.commit();
+}
+}
+w.commit();
+if (withDeletions || random.nextBoolean()) w.optimize();
+return deleted;
+}
