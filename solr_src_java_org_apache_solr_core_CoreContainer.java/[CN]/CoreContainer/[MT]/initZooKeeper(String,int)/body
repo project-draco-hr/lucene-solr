@@ -1,0 +1,56 @@
+{
+  String zookeeperHost;
+  if (zkHost == null) {
+    zookeeperHost=System.getProperty("zkHost");
+  }
+ else {
+    zookeeperHost=zkHost;
+  }
+  String zkRun=System.getProperty("zkRun");
+  if (zkRun == null && zookeeperHost == null)   return;
+  zkServer=new SolrZkServer(zkRun,zookeeperHost,solrHome,hostPort);
+  zkServer.parseConfig();
+  zkServer.start();
+  if (zookeeperHost == null) {
+    zookeeperHost=zkServer.getClientString();
+  }
+  int zkClientConnectTimeout=5000;
+  if (zookeeperHost != null) {
+    try {
+      if (zkRun != null && zkServer.getServers().size() > 1) {
+        zkClientConnectTimeout=24 * 60 * 60* 1000;
+        log.info("Zookeeper client=" + zookeeperHost + "  Waiting for a quorum.");
+      }
+ else {
+        log.info("Zookeeper client=" + zookeeperHost);
+      }
+      zkController=new ZkController(zookeeperHost,zkClientTimeout,zkClientConnectTimeout,host,hostPort,hostContext);
+      String confDir=System.getProperty("bootstrap_confdir");
+      if (confDir != null) {
+        File dir=new File(confDir);
+        if (!dir.isDirectory()) {
+          throw new IllegalArgumentException("bootstrap_confdir must be a directory of configuration files");
+        }
+        String confName=System.getProperty(ZkController.COLLECTION_PARAM_PREFIX + ZkController.CONFIGNAME_PROP,"configuration1");
+        zkController.uploadConfigDir(dir,confName);
+      }
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+catch (    TimeoutException e) {
+      log.error("Could not connect to ZooKeeper",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+catch (    IOException e) {
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+catch (    KeeperException e) {
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  ZkTestServer server=new ZkTestServer(zkDir);
+  try {
+    server.run();
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    SolrZkClient zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    String actualConfigName="firstConfig";
+    zkClient.makePath(ZkController.CONFIGS_ZKNODE + "/" + actualConfigName);
+    ZkNodeProps props=new ZkNodeProps();
+    props.put("configName",actualConfigName);
+    zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/" + COLLECTION_NAME,props.store(),CreateMode.PERSISTENT);
+    if (DEBUG) {
+      zkClient.printLayoutToStdOut();
+    }
+    zkClient.close();
+    ZkController zkController=new ZkController(server.getZkAddress(),TIMEOUT,1000,"localhost","8983","/solr");
+    try {
+      String configName=zkController.readConfigName(COLLECTION_NAME);
+      assertEquals(configName,actualConfigName);
+    }
+  finally {
+      zkController.close();
+    }
+  }
+  finally {
+    server.shutdown();
+  }
+}

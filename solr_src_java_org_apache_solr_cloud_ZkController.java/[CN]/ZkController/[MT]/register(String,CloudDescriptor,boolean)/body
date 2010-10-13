@@ -1,0 +1,34 @@
+{
+  String shardUrl=localHostName + ":" + localHostPort+ "/"+ localHostContext+ "/"+ coreName;
+  String collection=cloudDesc.getCollectionName();
+  String shardsZkPath=ZkStateReader.COLLECTIONS_ZKNODE + "/" + collection+ ZkStateReader.SHARDS_ZKNODE+ "/"+ cloudDesc.getShardId();
+  boolean shardZkNodeAlreadyExists=zkClient.exists(shardsZkPath);
+  if (shardZkNodeAlreadyExists && !forcePropsUpdate) {
+    return;
+  }
+  if (log.isInfoEnabled()) {
+    log.info("Register shard - core:" + coreName + " address:"+ shardUrl);
+  }
+  ZkNodeProps props=new ZkNodeProps();
+  props.put(ZkStateReader.URL_PROP,shardUrl);
+  props.put(ZkStateReader.NODE_NAME,getNodeName());
+  byte[] bytes=props.store();
+  String shardZkNodeName=getNodeName() + "_" + coreName;
+  if (shardZkNodeAlreadyExists && forcePropsUpdate) {
+    zkClient.setData(shardsZkPath + "/" + shardZkNodeName,bytes);
+    zkClient.setData(ZkStateReader.COLLECTIONS_ZKNODE,(byte[])null);
+  }
+ else {
+    addZkShardsNode(cloudDesc.getShardId(),collection);
+    try {
+      zkClient.create(shardsZkPath + "/" + shardZkNodeName,bytes,CreateMode.PERSISTENT);
+      zkClient.setData(ZkStateReader.COLLECTIONS_ZKNODE,(byte[])null);
+    }
+ catch (    KeeperException e) {
+      if (e.code() != KeeperException.Code.NODEEXISTS) {
+        throw e;
+      }
+      return;
+    }
+  }
+}
