@@ -15,7 +15,7 @@
     verifyCandidateWithQuery=false;
   }
   if (queryComponent == null && verifyCandidateWithQuery) {
-    LOG.warn("Could not find an instance of QueryComponent.  Disabling collation verification against the index.");
+    LOG.info("Could not find an instance of QueryComponent.  Disabling collation verification against the index.");
     maxTries=1;
     verifyCandidateWithQuery=false;
   }
@@ -34,15 +34,11 @@
       checkResponse.setQueryString(collationQueryStr);
       checkResponse.components=Arrays.asList(new SearchComponent[]{queryComponent});
       ModifiableSolrParams params=new ModifiableSolrParams(ultimateResponse.req.getParams());
-      params.remove(CommonParams.Q);
-      params.add(CommonParams.Q,collationQueryStr);
+      params.set(CommonParams.Q,collationQueryStr);
       params.remove(CommonParams.START);
-      params.remove(CommonParams.ROWS);
-      params.add(CommonParams.FL,"id");
-      params.add(CommonParams.ROWS,"0");
-      checkResponse.req=new SolrQueryRequestBase(ultimateResponse.req.getCore(),params){
-      }
-;
+      params.set(CommonParams.FL,"id");
+      params.set(CommonParams.ROWS,"0");
+      checkResponse.req=new LocalSolrQueryRequest(ultimateResponse.req.getCore(),params);
       checkResponse.rsp=new SolrQueryResponse();
       try {
         queryComponent.prepare(checkResponse);
@@ -51,6 +47,9 @@
       }
  catch (      Exception e) {
         Log.warn("Exception trying to re-query to check if a spell check possibility would return any hits.",e);
+      }
+ finally {
+        checkResponse.req.close();
       }
     }
     if (hits > 0 || !verifyCandidateWithQuery) {
