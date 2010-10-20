@@ -1,0 +1,47 @@
+{
+  System.setProperty("CLOUD_UPDATE_DELAY","1");
+  ZkNodeProps props2=new ZkNodeProps();
+  props2.put("configName","conf1");
+  SolrZkClient zkClient=new SolrZkClient(zkServer.getZkAddress(),AbstractZkTestCase.TIMEOUT);
+  zkClient.makePath("/collections/testcore",props2.store(),CreateMode.PERSISTENT);
+  zkClient.makePath("/collections/testcore/shards",CreateMode.PERSISTENT);
+  zkClient.close();
+  CoreDescriptor dcore=new CoreDescriptor(container1,"testcore","testcore");
+  dcore.setDataDir(dataDir4.getAbsolutePath());
+  SolrCore core=container1.create(dcore);
+  container1.register(core,false);
+  Thread.sleep(5000);
+  ZkController zkController2=container2.getZkController();
+  String host=zkController2.getHostName();
+  CloudState cloudState2=zkController2.getCloudState();
+  Map<String,Slice> slices=cloudState2.getSlices("testcore");
+  assertNotNull(slices);
+  assertTrue(slices.containsKey(host + ":1661_solr_testcore"));
+  Slice slice=slices.get(host + ":1661_solr_testcore");
+  assertEquals(host + ":1661_solr_testcore",slice.getName());
+  Map<String,ZkNodeProps> shards=slice.getShards();
+  assertEquals(1,shards.size());
+  ZkNodeProps zkProps=shards.get(host + ":1661_solr_testcore");
+  assertNotNull(zkProps);
+  assertEquals(host + ":1661_solr",zkProps.get("node_name"));
+  assertEquals("http://" + host + ":1661/solr/testcore",zkProps.get("url"));
+  Set<String> liveNodes=cloudState2.getLiveNodes();
+  assertNotNull(liveNodes);
+  assertEquals(3,liveNodes.size());
+  container3.shutdown();
+  for (int i=0; i < 10; i++) {
+    if (zkController2.getCloudState().getLiveNodes().size() == 2) {
+      break;
+    }
+    Thread.sleep(50);
+  }
+  assertEquals(2,zkController2.getCloudState().getLiveNodes().size());
+  container2.getZkController().getZkClient().getSolrZooKeeper().getConnection().disconnect();
+  container2.shutdown();
+  container2=init2.initialize();
+  Thread.sleep(2000);
+  if (!container1.getZkController().getCloudState().liveNodesContain(container2.getZkController().getNodeName())) {
+    Thread.sleep(5000);
+  }
+  assertTrue(container1.getZkController().getCloudState().liveNodesContain(container2.getZkController().getNodeName()));
+}

@@ -1,0 +1,64 @@
+{
+  String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  ZkTestServer server=null;
+  SolrZkClient zkClient=null;
+  try {
+    server=new ZkTestServer(zkDir);
+    server.run();
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    zkClient=new SolrZkClient(server.getZkAddress(),AbstractZkTestCase.TIMEOUT);
+    String shardsPath="/collections/collection1/shards";
+    zkClient.makePath(shardsPath);
+    zkClient.makePath("collections/collection1");
+    int zkServerPort=server.getPort();
+    server.shutdown();
+    Thread.sleep(80);
+    try {
+      zkClient.makePath("collections/collection2");
+      TestCase.fail("Server should be down here");
+    }
+ catch (    KeeperException.ConnectionLossException e) {
+    }
+    server=new ZkTestServer(zkDir,zkServerPort);
+    server.run();
+    Thread.sleep(600);
+    try {
+      zkClient.makePath("collections/collection3");
+    }
+ catch (    KeeperException.ConnectionLossException e) {
+      Thread.sleep(5000);
+      zkClient.makePath("collections/collection3");
+    }
+    if (DEBUG) {
+      zkClient.printLayoutToStdOut();
+    }
+    assertNotNull(zkClient.exists("/collections/collection3",null));
+    assertNotNull(zkClient.exists("/collections/collection1",null));
+    long sessionId=zkClient.getSolrZooKeeper().getSessionId();
+    server.expire(sessionId);
+    Thread.sleep(1000);
+    for (int i=0; i < 8; i++) {
+      try {
+        zkClient.makePath("collections/collection4");
+        break;
+      }
+ catch (      KeeperException.SessionExpiredException e) {
+      }
+catch (      KeeperException.ConnectionLossException e) {
+      }
+      Thread.sleep(1000 * i);
+    }
+    if (DEBUG) {
+      zkClient.printLayoutToStdOut();
+    }
+    assertNotNull("Node does not exist, but it should",zkClient.exists("/collections/collection4",null));
+  }
+  finally {
+    if (zkClient != null) {
+      zkClient.close();
+    }
+    if (server != null) {
+      server.shutdown();
+    }
+  }
+}

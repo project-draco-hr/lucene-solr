@@ -20,17 +20,25 @@ synchronized (elevationCache) {
       if (f == null) {
         throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"QueryElevationComponent must specify argument: '" + CONFIG_FILE + "' -- path to elevate.xml");
       }
-      File fC=new File(core.getResourceLoader().getConfigDir(),f);
-      File fD=new File(core.getDataDir(),f);
-      if (fC.exists() == fD.exists()) {
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"QueryElevationComponent missing config file: '" + f + "\n"+ "either: "+ fC.getAbsolutePath()+ " or "+ fD.getAbsolutePath()+ " must exist, but not both.");
-      }
-      if (fC.exists()) {
-        log.info("Loading QueryElevation from: " + fC.getAbsolutePath());
-        Config cfg=new Config(core.getResourceLoader(),f);
-        elevationCache.put(null,loadElevationMap(cfg));
+      boolean exists=false;
+      ZkController zkController=core.getCoreDescriptor().getCoreContainer().getZkController();
+      if (zkController != null) {
+        exists=zkController.configFileExists(zkController.readConfigName(core.getCoreDescriptor().getCloudDescriptor().getCollectionName()),f);
       }
  else {
+        File fC=new File(core.getResourceLoader().getConfigDir(),f);
+        File fD=new File(core.getDataDir(),f);
+        if (fC.exists() == fD.exists()) {
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"QueryElevationComponent missing config file: '" + f + "\n"+ "either: "+ fC.getAbsolutePath()+ " or "+ fD.getAbsolutePath()+ " must exist, but not both.");
+        }
+        if (fC.exists()) {
+          exists=true;
+          log.info("Loading QueryElevation from: " + fC.getAbsolutePath());
+          Config cfg=new Config(core.getResourceLoader(),f);
+          elevationCache.put(null,loadElevationMap(cfg));
+        }
+      }
+      if (!exists) {
         RefCounted<SolrIndexSearcher> searchHolder=null;
         try {
           searchHolder=core.getNewestSearcher(false);

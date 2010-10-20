@@ -1,20 +1,14 @@
 {
-  int count=counter.incrementAndGet();
-  int attempts=0;
-  Exception ex;
-  int startSize=aliveServers.size();
-  while (true) {
-    int size=aliveServers.size();
-    if (size < 1)     throw new SolrServerException("No live SolrServers available to handle this request");
-    ServerWrapper solrServer;
+  Exception ex=null;
+  ServerWrapper[] serverList=aliveServerList;
+  int maxTries=serverList.length;
+  Map<String,ServerWrapper> justFailed=null;
+  for (int attempts=0; attempts < maxTries; attempts++) {
+    int count=counter.incrementAndGet();
+    ServerWrapper wrapper=serverList[count % serverList.length];
+    wrapper.lastUsed=System.currentTimeMillis();
     try {
-      solrServer=aliveServers.get(count % size);
-    }
- catch (    IndexOutOfBoundsException e) {
-      continue;
-    }
-    try {
-      return solrServer.solrServer.request(request);
+      return wrapper.solrServer.request(request);
     }
  catch (    SolrException e) {
       throw e;
@@ -22,7 +16,9 @@
 catch (    SolrServerException e) {
       if (e.getRootCause() instanceof IOException) {
         ex=e;
-        moveAliveToDead(solrServer);
+        moveAliveToDead(wrapper);
+        if (justFailed == null)         justFailed=new HashMap<String,ServerWrapper>();
+        justFailed.put(wrapper.getKey(),wrapper);
       }
  else {
         throw e;
@@ -31,7 +27,34 @@ catch (    SolrServerException e) {
 catch (    Exception e) {
       throw new SolrServerException(e);
     }
-    attempts++;
-    if (attempts >= startSize)     throw new SolrServerException("No live SolrServers available to handle this request",ex);
+  }
+  for (  ServerWrapper wrapper : zombieServers.values()) {
+    if (wrapper.standard == false || justFailed != null && justFailed.containsKey(wrapper.getKey()))     continue;
+    try {
+      NamedList<Object> rsp=wrapper.solrServer.request(request);
+      zombieServers.remove(wrapper.getKey());
+      addToAlive(wrapper);
+      return rsp;
+    }
+ catch (    SolrException e) {
+      throw e;
+    }
+catch (    SolrServerException e) {
+      if (e.getRootCause() instanceof IOException) {
+        ex=e;
+      }
+ else {
+        throw e;
+      }
+    }
+catch (    Exception e) {
+      throw new SolrServerException(e);
+    }
+  }
+  if (ex == null) {
+    throw new SolrServerException("No live SolrServers available to handle this request");
+  }
+ else {
+    throw new SolrServerException("No live SolrServers available to handle this request",ex);
   }
 }

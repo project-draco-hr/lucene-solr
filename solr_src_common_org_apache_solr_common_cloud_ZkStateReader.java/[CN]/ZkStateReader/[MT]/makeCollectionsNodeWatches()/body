@@ -1,0 +1,69 @@
+{
+  log.info("Start watching collections zk node for changes");
+  zkClient.getChildren(ZkStateReader.COLLECTIONS_ZKNODE,new Watcher(){
+    public void process(    WatchedEvent event){
+      try {
+        log.info("Detected a new or removed collection");
+synchronized (getUpdateLock()) {
+          makeShardZkNodeWatches(false);
+          updateCloudState(false);
+        }
+        String path=event.getPath();
+        if (path != null) {
+          zkClient.getChildren(path,this);
+        }
+      }
+ catch (      KeeperException e) {
+        if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+          log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+          return;
+        }
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      IOException e) {
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+  }
+);
+  zkClient.exists(ZkStateReader.COLLECTIONS_ZKNODE,new Watcher(){
+    public void process(    WatchedEvent event){
+      if (event.getType() != EventType.NodeDataChanged) {
+        return;
+      }
+      log.info("Notified of CloudState change");
+      try {
+synchronized (getUpdateLock()) {
+          makeShardZkNodeWatches(false);
+          updateCloudState(false);
+        }
+        zkClient.exists(ZkStateReader.COLLECTIONS_ZKNODE,this);
+      }
+ catch (      KeeperException e) {
+        if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+          log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+          return;
+        }
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      IOException e) {
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+  }
+);
+}

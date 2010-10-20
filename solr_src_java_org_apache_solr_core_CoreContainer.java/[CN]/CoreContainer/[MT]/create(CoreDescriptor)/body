@@ -4,30 +4,78 @@
     idir=new File(solrHome,dcore.getInstanceDir());
   }
   String instanceDir=idir.getPath();
-  SolrResourceLoader solrLoader=new SolrResourceLoader(instanceDir,libLoader,getCoreProps(instanceDir,dcore.getPropertiesName(),dcore.getCoreProperties()));
-  SolrConfig config=new SolrConfig(solrLoader,dcore.getConfigName(),null);
+  SolrResourceLoader solrLoader=null;
+  SolrConfig config=null;
+  String zkConfigName=null;
+  if (zkController == null) {
+    solrLoader=new SolrResourceLoader(instanceDir,libLoader,getCoreProps(instanceDir,dcore.getPropertiesName(),dcore.getCoreProperties()));
+    config=new SolrConfig(solrLoader,dcore.getConfigName(),null);
+  }
+ else {
+    try {
+      String collection=dcore.getCloudDescriptor().getCollectionName();
+      zkController.createCollectionZkNode(dcore.getCloudDescriptor());
+      zkConfigName=zkController.readConfigName(collection);
+      if (zkConfigName == null) {
+        log.error("Could not find config name for collection:" + collection);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"Could not find config name for collection:" + collection);
+      }
+      solrLoader=new ZkSolrResourceLoader(instanceDir,zkConfigName,libLoader,getCoreProps(instanceDir,dcore.getPropertiesName(),dcore.getCoreProperties()),zkController);
+      config=getSolrConfigFromZk(zkConfigName,dcore.getConfigName(),solrLoader);
+    }
+ catch (    KeeperException e) {
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+  }
   IndexSchema schema=null;
   if (indexSchemaCache != null) {
-    File schemaFile=new File(dcore.getSchemaName());
-    if (!schemaFile.isAbsolute()) {
-      schemaFile=new File(solrLoader.getInstanceDir() + "conf" + File.separator+ dcore.getSchemaName());
-    }
-    if (schemaFile.exists()) {
-      String key=schemaFile.getAbsolutePath() + ":" + new SimpleDateFormat("yyyyMMddHHmmss",Locale.US).format(new Date(schemaFile.lastModified()));
-      schema=indexSchemaCache.get(key);
-      if (schema == null) {
-        log.info("creating new schema object for core: " + dcore.name);
-        schema=new IndexSchema(config,dcore.getSchemaName(),null);
-        indexSchemaCache.put(key,schema);
+    if (zkController != null) {
+      File schemaFile=new File(dcore.getSchemaName());
+      if (!schemaFile.isAbsolute()) {
+        schemaFile=new File(solrLoader.getInstanceDir() + "conf" + File.separator+ dcore.getSchemaName());
       }
+      if (schemaFile.exists()) {
+        String key=schemaFile.getAbsolutePath() + ":" + new SimpleDateFormat("yyyyMMddHHmmss",Locale.US).format(new Date(schemaFile.lastModified()));
+        schema=indexSchemaCache.get(key);
+        if (schema == null) {
+          log.info("creating new schema object for core: " + dcore.name);
+          schema=new IndexSchema(config,dcore.getSchemaName(),null);
+          indexSchemaCache.put(key,schema);
+        }
  else {
-        log.info("re-using schema object for core: " + dcore.name);
+          log.info("re-using schema object for core: " + dcore.name);
+        }
       }
+    }
+ else {
     }
   }
   if (schema == null) {
-    schema=new IndexSchema(config,dcore.getSchemaName(),null);
+    if (zkController != null) {
+      try {
+        schema=getSchemaFromZk(zkConfigName,dcore.getSchemaName(),config,solrLoader);
+      }
+ catch (      KeeperException e) {
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+ else {
+      schema=new IndexSchema(config,dcore.getSchemaName(),null);
+    }
   }
-  SolrCore core=new SolrCore(dcore.getName(),null,config,schema,dcore);
+  String dataDir=null;
+  SolrCore core=new SolrCore(dcore.getName(),dataDir,config,schema,dcore);
   return core;
 }

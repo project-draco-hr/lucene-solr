@@ -1,0 +1,44 @@
+{
+  if (zkClient.exists(COLLECTIONS_ZKNODE + "/" + collection+ SHARDS_ZKNODE)) {
+    List<String> shardIds=zkClient.getChildren(COLLECTIONS_ZKNODE + "/" + collection+ SHARDS_ZKNODE,null);
+    CloudState cloudState=getCloudState();
+    Set<String> knownShardIds;
+    Map<String,Slice> slices=cloudState.getSlices(collection);
+    if (slices != null) {
+      knownShardIds=slices.keySet();
+    }
+ else {
+      knownShardIds=new HashSet<String>(0);
+    }
+    for (    final String shardId : shardIds) {
+      if (makeWatchesForReconnect || !knownShardIds.contains(shardId)) {
+        zkClient.getChildren(COLLECTIONS_ZKNODE + "/" + collection+ SHARDS_ZKNODE+ "/"+ shardId,new Watcher(){
+          public void process(          WatchedEvent event){
+            log.info("Detected a shard change under ShardId:" + shardId + " in collection:"+ collection);
+            try {
+              updateCloudState(false);
+            }
+ catch (            KeeperException e) {
+              if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+                log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+                return;
+              }
+              log.error("",e);
+              throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+            }
+catch (            InterruptedException e) {
+              Thread.currentThread().interrupt();
+              log.error("",e);
+              throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+            }
+catch (            IOException e) {
+              log.error("",e);
+              throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+            }
+          }
+        }
+);
+      }
+    }
+  }
+}

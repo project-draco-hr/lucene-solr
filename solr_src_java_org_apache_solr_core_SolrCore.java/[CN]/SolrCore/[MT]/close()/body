@@ -6,6 +6,16 @@
     return;
   }
   log.info(logid + " CLOSING SolrCore " + this);
+  if (closeHooks != null) {
+    for (    CloseHook hook : closeHooks) {
+      try {
+        hook.close(this);
+      }
+ catch (      Throwable e) {
+        SolrException.log(log,e);
+      }
+    }
+  }
   try {
     infoRegistry.clear();
   }
@@ -19,20 +29,18 @@
     SolrException.log(log,e);
   }
   try {
-    closeSearcher();
+    searcherExecutor.shutdown();
+    if (!searcherExecutor.awaitTermination(60,TimeUnit.SECONDS)) {
+      log.error("Timeout waiting for searchExecutor to terminate");
+    }
   }
  catch (  Exception e) {
     SolrException.log(log,e);
   }
   try {
-    searcherExecutor.shutdown();
+    closeSearcher();
   }
  catch (  Exception e) {
     SolrException.log(log,e);
-  }
-  if (closeHooks != null) {
-    for (    CloseHook hook : closeHooks) {
-      hook.close(this);
-    }
   }
 }
