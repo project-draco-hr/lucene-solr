@@ -2,8 +2,7 @@
   DocListAndSet out=new DocListAndSet();
   qr.setDocListAndSet(out);
   DocSet filter=cmd.getFilter() != null ? cmd.getFilter() : getDocSet(cmd.getFilterList());
-  int last=cmd.getOffset() + cmd.getLen();
-  if (last < 0 || last > maxDoc())   last=maxDoc();
+  int maxDoc=maxDoc();
   boolean needScores=(cmd.getFlags() & GET_SCORES) != 0;
   boolean getDocSet=(cmd.getFlags() & GET_DOCSET) != 0;
   boolean getDocList=(cmd.getFlags() & GET_DOCLIST) != 0;
@@ -18,19 +17,23 @@
       Map context=ValueSource.newContext();
       gc.groupBy.createWeight(context,this);
       TopGroupCollector collector;
+      int groupsToCollect=gc.numGroups < 0 ? maxDoc : gc.offset + gc.numGroups;
+      if (groupsToCollect < 0 || groupsToCollect > maxDoc)       groupsToCollect=maxDoc;
       if (gc.groupSort != null && gc.groupSort != sort) {
-        collector=new TopGroupSortCollector(gc.groupBy,context,sort,gc.groupSort,last);
+        collector=new TopGroupSortCollector(gc.groupBy,context,sort,gc.groupSort,groupsToCollect);
       }
  else {
-        collector=new TopGroupCollector(gc.groupBy,context,sort,last);
+        collector=new TopGroupCollector(gc.groupBy,context,sort,groupsToCollect);
       }
       collectors.add(collector);
       gc.context=context;
       gc.collector=collector;
     }
     if (groupCommand instanceof Grouping.CommandQuery) {
+      int docsToCollect=groupCommand.docsPerGroup < 0 ? maxDoc : groupCommand.groupOffset + groupCommand.docsPerGroup;
+      if (docsToCollect < 0 || docsToCollect > maxDoc)       docsToCollect=maxDoc;
       DocSet groupFilt=getDocSet(((Grouping.CommandQuery)groupCommand).query);
-      TopFieldCollector collector=TopFieldCollector.create(groupCommand.groupSort == null ? sort : groupCommand.groupSort,groupCommand.docsPerGroup,false,needScores,needScores,true);
+      TopFieldCollector collector=TopFieldCollector.create(groupCommand.groupSort == null ? sort : groupCommand.groupSort,docsToCollect,false,needScores,needScores,true);
       collectors.add(new FilterCollector(groupFilt,collector));
     }
   }
@@ -50,7 +53,9 @@
     if (groupCommand instanceof Grouping.CommandFunc) {
       Grouping.CommandFunc gc=(Grouping.CommandFunc)groupCommand;
       Sort collectorSort=gc.groupSort == null ? sort : gc.groupSort;
-      Phase2GroupCollector collector=new Phase2GroupCollector((TopGroupCollector)gc.collector,gc.groupBy,gc.context,collectorSort,gc.docsPerGroup,needScores);
+      int docsToCollect=groupCommand.docsPerGroup < 0 ? maxDoc : groupCommand.groupOffset + groupCommand.docsPerGroup;
+      if (docsToCollect < 0 || docsToCollect > maxDoc)       docsToCollect=maxDoc;
+      Phase2GroupCollector collector=new Phase2GroupCollector((TopGroupCollector)gc.collector,gc.groupBy,gc.context,collectorSort,docsToCollect,needScores,groupCommand.offset);
       phase2Collectors.add(collector);
       numPhase2++;
     }
@@ -75,7 +80,9 @@
     groupResult.add("matches",this_matches);
     maxMatches=Math.max(maxMatches,this_matches);
     if (groupCommand instanceof Grouping.CommandQuery) {
-      TopDocs topDocs=((FilterCollector)gcollector).getTopFieldCollector().topDocs(0,groupCommand.docsPerGroup);
+      int docsToCollect=groupCommand.docsPerGroup < 0 ? maxDoc : groupCommand.groupOffset + groupCommand.docsPerGroup;
+      if (docsToCollect < 0 || docsToCollect > maxDoc)       docsToCollect=maxDoc;
+      TopDocs topDocs=((FilterCollector)gcollector).getTopFieldCollector().topDocs(0,docsToCollect);
       int ids[]=new int[topDocs.scoreDocs.length];
       float[] scores=needScores ? new float[topDocs.scoreDocs.length] : null;
       for (int i=0; i < ids.length; i++) {
@@ -84,10 +91,11 @@
       }
       float score=topDocs.getMaxScore();
       maxScore=Math.max(maxScore,score);
-      DocSlice docs=new DocSlice(0,ids.length,ids,scores,topDocs.totalHits,score);
+      DocSlice docs=new DocSlice(groupCommand.groupOffset,Math.max(0,ids.length - groupCommand.groupOffset),ids,scores,topDocs.totalHits,score);
       groupResult.add("doclist",docs);
       if (getDocList) {
-        for (        int id : ids)         idSet.add(id);
+        DocIterator iter=docs.iterator();
+        while (iter.hasNext())         idSet.add(iter.nextDoc());
       }
       continue;
     }
@@ -97,12 +105,19 @@
     if (collector.orderedGroups == null)     collector.buildSet();
     List groupList=new ArrayList();
     groupResult.add("groups",groupList);
+    int skipCount=groupCommand.offset;
     for (    SearchGroup group : collector.orderedGroups) {
+      if (skipCount > 0) {
+        skipCount--;
+        continue;
+      }
       NamedList nl=new SimpleOrderedMap();
       groupList.add(nl);
       nl.add("groupValue",group.groupValue.toObject());
       SearchGroupDocs groupDocs=collector2.groupMap.get(group.groupValue);
-      TopDocs topDocs=groupDocs.collector.topDocs(0,groupCommandFunc.docsPerGroup);
+      int docsToCollect=groupCommand.docsPerGroup < 0 ? maxDoc : groupCommand.groupOffset + groupCommand.docsPerGroup;
+      if (docsToCollect < 0 || docsToCollect > maxDoc)       docsToCollect=maxDoc;
+      TopDocs topDocs=groupDocs.collector.topDocs(0,docsToCollect);
       int ids[]=new int[topDocs.scoreDocs.length];
       float[] scores=needScores ? new float[topDocs.scoreDocs.length] : null;
       for (int i=0; i < ids.length; i++) {
@@ -111,10 +126,11 @@
       }
       float score=topDocs.getMaxScore();
       maxScore=Math.max(maxScore,score);
-      DocSlice docs=new DocSlice(0,ids.length,ids,scores,topDocs.totalHits,score);
+      DocSlice docs=new DocSlice(groupCommand.groupOffset,Math.max(0,ids.length - groupCommand.groupOffset),ids,scores,topDocs.totalHits,score);
       nl.add("doclist",docs);
       if (getDocList) {
-        for (        int id : ids)         idSet.add(id);
+        DocIterator iter=docs.iterator();
+        while (iter.hasNext())         idSet.add(iter.nextDoc());
       }
     }
   }
