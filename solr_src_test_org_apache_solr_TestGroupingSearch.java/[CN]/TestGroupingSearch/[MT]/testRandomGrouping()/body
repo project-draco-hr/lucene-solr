@@ -1,0 +1,41 @@
+{
+  int indexIter=0;
+  int queryIter=1000;
+  while (--indexIter >= 0) {
+    List<FldType> types=new ArrayList<FldType>();
+    types.add(new FldType("id",ONE_ONE,new SVal('A','Z',2,2)));
+    types.add(new FldType("score_f",ONE_ONE,new FVal(1,100)));
+    types.add(new FldType("foo_i",ONE_ONE,new IRange(0,10)));
+    types.add(new FldType("foo_s",ONE_ONE,new SVal('a','z',1,2)));
+    Map<Comparable,Doc> model=indexDocs(types,null,2);
+    System.out.println("############### model=" + model);
+    for (int qiter=0; qiter < queryIter; qiter++) {
+      String groupField=types.get(random.nextInt(types.size())).fname;
+      Map<Comparable,Grp> groups=groupBy(model.values(),groupField);
+      int rows=random.nextInt(11) - 1;
+      int start=random.nextInt(5) == 0 ? random.nextInt(model.size() + 2) : random.nextInt(5);
+      int group_limit=random.nextInt(11) - 1;
+      group_limit=random.nextInt(10) + 1;
+      int group_offset=random.nextInt(10) == 0 ? random.nextInt(model.size() + 2) : random.nextInt(2);
+      String[] stringSortA=new String[1];
+      Comparator<Doc> groupComparator=createSort(h.getCore().getSchema(),types,stringSortA);
+      String groupSortStr=stringSortA[0];
+      for (      Grp grp : groups.values()) {
+        Collections.sort(grp.docs,groupComparator);
+      }
+      Comparator<Doc> sortComparator=random.nextBoolean() ? groupComparator : createSort(h.getCore().getSchema(),types,stringSortA);
+      String sortStr=stringSortA[0];
+      List<Grp> sortedGroups=new ArrayList(groups.values());
+      Collections.sort(sortedGroups,createFirstDocComparator(sortComparator));
+      Object modelResponse=buildGroupedResult(h.getCore().getSchema(),sortedGroups,start,rows,group_offset,group_limit);
+      SolrQueryRequest req=req("group","true","wt","json","indent","true","q","{!func}score_f","group.field",groupField,sortStr == null ? "nosort" : "sort",sortStr == null ? "" : sortStr,(groupSortStr == null || groupSortStr == sortStr) ? "nosort" : "group.sort",groupSortStr == null ? "" : groupSortStr,"rows","" + rows,"start","" + start,"group.offset","" + group_offset,"group.limit","" + group_limit);
+      String strResponse=h.query(req);
+      Object realResponse=ObjectBuilder.fromJSON(strResponse);
+      String err=JSONTestUtil.matchObj("/grouped/" + groupField,realResponse,modelResponse);
+      if (err != null) {
+        log.error("GROUPING MISMATCH: " + err + "\n\tresult="+ strResponse+ "\n\texpected="+ JSONUtil.toJSON(modelResponse)+ "\n\tsorted_model="+ sortedGroups);
+        fail(err);
+      }
+    }
+  }
+}
