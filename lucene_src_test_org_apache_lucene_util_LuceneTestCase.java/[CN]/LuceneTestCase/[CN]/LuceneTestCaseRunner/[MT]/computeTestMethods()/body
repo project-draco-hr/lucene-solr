@@ -4,13 +4,40 @@
   testMethods=getTestClass().getAnnotatedMethods(Test.class);
   for (  Method m : getTestClass().getJavaClass().getMethods()) {
     final Ignore ignored=m.getAnnotation(Ignore.class);
-    if (ignored != null) {
+    if (ignored != null && !m.getName().equals("alwaysIgnoredTestMethod")) {
       System.err.println("NOTE: Ignoring test method '" + m.getName() + "': "+ ignored.value());
     }
     final int mod=m.getModifiers();
     if (m.getName().startsWith("test") && m.getAnnotation(Test.class) == null && !Modifier.isAbstract(mod) && m.getParameterTypes().length == 0 && m.getReturnType() == Void.TYPE) {
       if (Modifier.isStatic(mod))       throw new RuntimeException("Test methods must not be static.");
       testMethods.add(new FrameworkMethod(m));
+    }
+  }
+  if (testMethods.isEmpty()) {
+    throw new RuntimeException("No runnable methods!");
+  }
+  if (TEST_NIGHTLY == false) {
+    if (getTestClass().getJavaClass().isAnnotationPresent(Nightly.class)) {
+      String className=getTestClass().getJavaClass().getSimpleName();
+      System.err.println("NOTE: Ignoring nightly-only test class '" + className + "'");
+      testMethods.clear();
+    }
+ else {
+      for (int i=0; i < testMethods.size(); i++) {
+        final FrameworkMethod m=testMethods.get(i);
+        if (m.getAnnotation(Nightly.class) != null) {
+          System.err.println("NOTE: Ignoring nightly-only test method '" + m.getName() + "'");
+          testMethods.remove(i--);
+        }
+      }
+    }
+    if (testMethods.isEmpty()) {
+      try {
+        testMethods.add(new FrameworkMethod(LuceneTestCase.class.getMethod("alwaysIgnoredTestMethod")));
+      }
+ catch (      Exception e) {
+        throw new RuntimeException(e);
+      }
     }
   }
   return testMethods;
