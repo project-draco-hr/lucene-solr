@@ -1,57 +1,58 @@
 {
   long maxV=1;
-  final int NUM_VALUES=1000;
+  final int NUM_VALUES=777 + random.nextInt(777);
   final long[] values=new long[NUM_VALUES];
   for (int rx=1; rx < 63; rx++, maxV*=2) {
-    for (int b=0; b < 2; b++) {
-      Directory dir=newDirectory();
-      boolean useFixedArrays=b == 0;
-      Writer w=Ints.getWriter(dir,"test",useFixedArrays);
-      for (int i=0; i < NUM_VALUES; i++) {
-        final long v=random.nextLong() % (1 + maxV);
-        values[i]=v;
-        w.add(i,v);
-      }
-      final int additionalDocs=1 + random.nextInt(9);
-      w.finish(NUM_VALUES + additionalDocs);
-      DocValues r=Ints.getValues(dir,"test",useFixedArrays);
-      for (int iter=0; iter < 2; iter++) {
-        Source s=getSource(r);
-        for (int i=0; i < NUM_VALUES; i++) {
-          final long v=s.getInt(i);
-          assertEquals("index " + i + " b: "+ b,values[i],v);
-        }
-      }
-      for (int iter=0; iter < 2; iter++) {
-        ValuesEnum iEnum=r.getEnum();
-        ValuesAttribute attr=iEnum.addAttribute(ValuesAttribute.class);
-        LongsRef ints=attr.ints();
-        for (int i=0; i < NUM_VALUES; i++) {
-          assertEquals(i,iEnum.nextDoc());
-          assertEquals(values[i],ints.get());
-        }
-        for (int i=NUM_VALUES; i < NUM_VALUES + additionalDocs; i++) {
-          assertEquals(i,iEnum.nextDoc());
-          assertEquals("" + i,0,ints.get());
-        }
-        iEnum.close();
-      }
-      for (int iter=0; iter < 2; iter++) {
-        ValuesEnum iEnum=r.getEnum();
-        ValuesAttribute attr=iEnum.addAttribute(ValuesAttribute.class);
-        LongsRef ints=attr.ints();
-        for (int i=0; i < NUM_VALUES; i+=1 + random.nextInt(25)) {
-          assertEquals(i,iEnum.advance(i));
-          assertEquals(values[i],ints.get());
-        }
-        for (int i=NUM_VALUES; i < NUM_VALUES + additionalDocs; i++) {
-          assertEquals(i,iEnum.advance(i));
-          assertEquals("" + i,0,ints.get());
-        }
-        iEnum.close();
-      }
-      r.close();
-      dir.close();
+    Directory dir=newDirectory();
+    Writer w=Ints.getWriter(dir,"test",false);
+    for (int i=0; i < NUM_VALUES; i++) {
+      final long v=random.nextLong() % (1 + maxV);
+      values[i]=v;
+      w.add(i,v);
     }
+    final int additionalDocs=1 + random.nextInt(9);
+    w.finish(NUM_VALUES + additionalDocs);
+    DocValues r=Ints.getValues(dir,"test",false);
+    for (int iter=0; iter < 2; iter++) {
+      Source s=getSource(r);
+      for (int i=0; i < NUM_VALUES; i++) {
+        final long v=s.getInt(i);
+        assertEquals("index " + i,values[i],v);
+      }
+    }
+    for (int iter=0; iter < 2; iter++) {
+      ValuesEnum iEnum=r.getEnum();
+      ValuesAttribute attr=iEnum.addAttribute(ValuesAttribute.class);
+      LongsRef ints=attr.ints();
+      for (int i=0; i < NUM_VALUES; i++) {
+        assertEquals(i,iEnum.nextDoc());
+        assertEquals(values[i],ints.get());
+      }
+      if (iEnum.docID() < NUM_VALUES - 1) {
+        assertEquals(NUM_VALUES - 1,iEnum.advance(NUM_VALUES - 1));
+      }
+      for (int i=NUM_VALUES; i < NUM_VALUES + additionalDocs; i++) {
+        assertEquals(ValuesEnum.NO_MORE_DOCS,iEnum.nextDoc());
+      }
+      iEnum.close();
+    }
+    for (int iter=0; iter < 2; iter++) {
+      ValuesEnum iEnum=r.getEnum();
+      ValuesAttribute attr=iEnum.addAttribute(ValuesAttribute.class);
+      LongsRef ints=attr.ints();
+      for (int i=0; i < NUM_VALUES; i+=1 + random.nextInt(25)) {
+        assertEquals(i,iEnum.advance(i));
+        assertEquals(values[i],ints.get());
+      }
+      if (iEnum.docID() < NUM_VALUES - 1) {
+        assertEquals(NUM_VALUES - 1,iEnum.advance(NUM_VALUES - 1));
+      }
+      for (int i=NUM_VALUES; i < NUM_VALUES + additionalDocs; i++) {
+        assertEquals(ValuesEnum.NO_MORE_DOCS,iEnum.nextDoc());
+      }
+      iEnum.close();
+    }
+    r.close();
+    dir.close();
   }
 }

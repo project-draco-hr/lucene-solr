@@ -15,38 +15,40 @@
     DocValues bytesReader=getDocValues(r,byteIndexValue.name());
     assertNotNull("field " + byteIndexValue.name() + " returned null reader - maybe merged failed",bytesReader);
     Source bytes=getSource(bytesReader);
-    ValuesEnum bytesEnum=bytesReader.getEnum();
-    assertNotNull(bytesEnum);
-    final ValuesAttribute attr=bytesEnum.addAttribute(ValuesAttribute.class);
     byte upto=0;
+    MissingValues missing=bytes.getMissing();
     for (int i=0; i < base; i++) {
-      final BytesRef br=bytes.getBytes(i);
+      BytesRef br=bytes.getBytes(i,new BytesRef());
       String msg=" field: " + byteIndexValue.name() + " at index: "+ i+ " base: "+ base+ " numDocs:"+ r.numDocs();
 switch (byteIndexValue) {
 case BYTES_VAR_STRAIGHT:
 case BYTES_FIXED_STRAIGHT:
-        assertEquals(i,bytesEnum.advance(i));
-      assertNotNull("expected none null - " + msg,br);
-    if (br.length != 0) {
-      assertEquals("expected zero bytes of length " + bytesSize + " - "+ msg,bytesSize,br.length);
-      for (int j=0; j < br.length; j++) {
-        assertEquals("Byte at index " + j + " doesn't match - "+ msg,0,br.bytes[br.offset + j]);
-      }
-    }
-  break;
+        if (missing.bytesValue != null) {
+          assertNotNull("expected none null - " + msg,br);
+          if (br.length != 0) {
+            assertEquals("expected zero bytes of length " + bytesSize + " - "+ msg,bytesSize,br.length);
+            for (int j=0; j < br.length; j++) {
+              assertEquals("Byte at index " + j + " doesn't match - "+ msg,0,br.bytes[br.offset + j]);
+            }
+          }
+        }
+ else {
+          assertNull("expected null - " + msg + " "+ br,br);
+        }
+      break;
 case BYTES_VAR_SORTED:
 case BYTES_FIXED_SORTED:
 case BYTES_VAR_DEREF:
 case BYTES_FIXED_DEREF:
 default :
-assertNotNull("expected none null - " + msg,br);
-if (br.length != 0) {
-bytes.getBytes(i);
+    assertNull("expected null - " + msg + " "+ br,br);
+  ValuesEnum bytesEnum=getValuesEnum(bytesReader);
+final int advancedTo=bytesEnum.advance(0);
+assertTrue(byteIndexValue.name() + " advanced failed base:" + base+ " advancedTo: "+ advancedTo,base <= advancedTo);
 }
-assertEquals("expected empty bytes - " + br.utf8ToString() + msg,0,br.length);
 }
-}
-final BytesRef enumRef=attr.bytes();
+ValuesEnum bytesEnum=getValuesEnum(bytesReader);
+final BytesRef enumRef=bytesEnum.bytes();
 assertEquals(base + numRemainingValues,r.numDocs());
 int v=0;
 for (int i=base; i < r.numDocs(); i++) {
@@ -54,10 +56,14 @@ String msg=" field: " + byteIndexValue.name() + " at index: "+ i+ " base: "+ bas
 while (withDeletions && deleted.get(v++)) {
 upto+=bytesSize;
 }
-BytesRef br=bytes.getBytes(i);
-if (bytesEnum.docID() != i) assertEquals("seek failed for index " + i + " "+ msg,i,bytesEnum.advance(i));
+BytesRef br=bytes.getBytes(i,new BytesRef());
+if (bytesEnum.docID() != i) {
+assertEquals("seek failed for index " + i + " "+ msg,i,bytesEnum.advance(i));
+}
 for (int j=0; j < br.length; j++, upto++) {
 assertEquals("EnumRef Byte at index " + j + " doesn't match - "+ msg,upto,enumRef.bytes[enumRef.offset + j]);
+if (!(br.bytes.length > br.offset + j)) br=bytes.getBytes(i,new BytesRef());
+assertTrue("BytesRef index exceeded [" + msg + "] offset: "+ br.offset+ " length: "+ br.length+ " index: "+ (br.offset + j),br.bytes.length > br.offset + j);
 assertEquals("SourceRef Byte at index " + j + " doesn't match - "+ msg,upto,br.bytes[br.offset + j]);
 }
 }

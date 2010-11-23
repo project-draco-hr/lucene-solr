@@ -1,7 +1,7 @@
 {
   Directory d=newDirectory();
   IndexWriter w=new IndexWriter(d,cfg);
-  final int numValues=350;
+  final int numValues=179 + random.nextInt(151);
   final List<Values> numVariantList=new ArrayList<Values>(NUMERICS);
   Collections.shuffle(numVariantList,random);
   for (  Values val : numVariantList) {
@@ -12,19 +12,19 @@
     final int base=r.numDocs() - numRemainingValues;
 switch (val) {
 case PACKED_INTS:
-case PACKED_INTS_FIXED:
 {
         DocValues intsReader=getDocValues(r,val.name());
         assertNotNull(intsReader);
         Source ints=getSource(intsReader);
-        ValuesEnum intsEnum=intsReader.getEnum();
-        assertNotNull(intsEnum);
-        LongsRef enumRef=intsEnum.addAttribute(ValuesAttribute.class).ints();
+        MissingValues missing=ints.getMissing();
         for (int i=0; i < base; i++) {
-          assertEquals("index " + i,0,ints.getInt(i));
-          assertEquals(val.name() + " base: " + base+ " index: "+ i,i,random.nextBoolean() ? intsEnum.advance(i) : intsEnum.nextDoc());
-          assertEquals(0,enumRef.get());
+          long value=ints.getInt(i);
+          assertEquals("index " + i,missing.longValue,value);
         }
+        ValuesEnum intsEnum=getValuesEnum(intsReader);
+        assertTrue(intsEnum.advance(0) >= base);
+        intsEnum=getValuesEnum(intsReader);
+        LongsRef enumRef=intsEnum.getInt();
         int expected=0;
         for (int i=base; i < r.numDocs(); i++, expected++) {
           while (deleted.get(expected)) {
@@ -42,14 +42,15 @@ case SIMPLE_FLOAT_8BYTE:
     DocValues floatReader=getDocValues(r,val.name());
     assertNotNull(floatReader);
     Source floats=getSource(floatReader);
-    ValuesEnum floatEnum=floatReader.getEnum();
-    assertNotNull(floatEnum);
-    FloatsRef enumRef=floatEnum.addAttribute(ValuesAttribute.class).floats();
+    MissingValues missing=floats.getMissing();
     for (int i=0; i < base; i++) {
-      assertEquals(" floats failed for doc: " + i + " base: "+ base,0.0d,floats.getFloat(i),0.0d);
-      assertEquals(i,random.nextBoolean() ? floatEnum.advance(i) : floatEnum.nextDoc());
-      assertEquals("index " + i,0.0,enumRef.get(),0.0);
+      double value=floats.getFloat(i);
+      assertEquals(" floats failed for doc: " + i + " base: "+ base,missing.doubleValue,value,0.0d);
     }
+    ValuesEnum floatEnum=getValuesEnum(floatReader);
+    assertTrue(floatEnum.advance(0) >= base);
+    floatEnum=getValuesEnum(floatReader);
+    FloatsRef enumRef=floatEnum.getFloat();
     int expected=0;
     for (int i=base; i < r.numDocs(); i++, expected++) {
       while (deleted.get(expected)) {
