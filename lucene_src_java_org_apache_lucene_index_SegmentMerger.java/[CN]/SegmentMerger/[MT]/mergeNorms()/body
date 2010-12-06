@@ -1,26 +1,29 @@
 {
+  int bufferSize=0;
+  for (  IndexReader reader : readers) {
+    bufferSize=Math.max(bufferSize,reader.maxDoc());
+  }
   byte[] normBuffer=null;
   IndexOutput output=null;
   try {
-    int numFieldInfos=fieldInfos.size();
-    for (int i=0; i < numFieldInfos; i++) {
-      FieldInfo fi=fieldInfos.fieldInfo(i);
+    for (int i=0, numFieldInfos=fieldInfos.size(); i < numFieldInfos; i++) {
+      final FieldInfo fi=fieldInfos.fieldInfo(i);
       if (fi.isIndexed && !fi.omitNorms) {
         if (output == null) {
           output=directory.createOutput(IndexFileNames.segmentFileName(segment,"",IndexFileNames.NORMS_EXTENSION));
           output.writeBytes(NORMS_HEADER,NORMS_HEADER.length);
         }
+        if (normBuffer == null) {
+          normBuffer=new byte[bufferSize];
+        }
         for (        IndexReader reader : readers) {
-          int maxDoc=reader.maxDoc();
-          final Bits delDocs=MultiFields.getDeletedDocs(reader);
-          if (normBuffer == null || normBuffer.length < maxDoc) {
-            normBuffer=new byte[maxDoc];
-          }
+          final int maxDoc=reader.maxDoc();
           reader.norms(fi.name,normBuffer,0);
           if (!reader.hasDeletions()) {
             output.writeBytes(normBuffer,maxDoc);
           }
  else {
+            final Bits delDocs=reader.getDeletedDocs();
             for (int k=0; k < maxDoc; k++) {
               if (!delDocs.get(k)) {
                 output.writeByte(normBuffer[k]);

@@ -44,6 +44,9 @@
       String[] funcs=params.getParams(GroupParams.GROUP_FUNC);
       String[] queries=params.getParams(GroupParams.GROUP_QUERY);
       String groupSortStr=params.get(GroupParams.GROUP_SORT);
+      boolean main=params.getBool(GroupParams.GROUP_MAIN,false);
+      String format=params.get(GroupParams.GROUP_FORMAT);
+      Grouping.Format defaultFormat="simple".equals(format) ? Grouping.Format.Simple : Grouping.Format.Grouped;
       Sort groupSort=groupSortStr == null ? cmd.getSort() : QueryParsing.parseSort(groupSortStr,req);
       int limitDefault=cmd.getLen();
       int groupOffsetDefault=params.getInt(GroupParams.GROUP_OFFSET,0);
@@ -75,6 +78,15 @@
           gc.groupOffset=groupOffsetDefault;
           gc.offset=cmd.getOffset();
           gc.sort=cmd.getSort();
+          gc.format=defaultFormat;
+          if (main) {
+            gc.main=true;
+            gc.format=Grouping.Format.Simple;
+            main=false;
+          }
+          if (gc.format == Grouping.Format.Simple) {
+            gc.groupOffset=0;
+          }
           grouping.add(gc);
         }
       }
@@ -89,6 +101,18 @@
           gc.numGroups=limitDefault;
           gc.docsPerGroup=docsPerGroupDefault;
           gc.groupOffset=groupOffsetDefault;
+          gc.offset=cmd.getOffset();
+          gc.numGroups=limitDefault;
+          gc.format=defaultFormat;
+          if (main) {
+            gc.main=true;
+            gc.format=Grouping.Format.Simple;
+            main=false;
+          }
+          if (gc.format == Grouping.Format.Simple) {
+            gc.docsPerGroup=gc.numGroups;
+            gc.groupOffset=gc.offset;
+          }
           grouping.add(gc);
         }
       }
@@ -98,6 +122,10 @@
       grouping.execute();
       rb.setResult(result);
       rsp.add("grouped",result.groupedResults);
+      if (grouping.mainResult != null) {
+        rsp.add("response",grouping.mainResult);
+        rsp.getToLog().add("hits",grouping.mainResult.matches());
+      }
       return;
     }
  catch (    ParseException e) {
