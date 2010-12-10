@@ -138,64 +138,72 @@
       System.out.println("TEST: got new reader=" + r);
     }
     smokeTestReader(r);
-    final IndexSearcher s=new IndexSearcher(r);
-    final long searchStopTime=System.currentTimeMillis() + 500;
-    final Thread[] searchThreads=new Thread[NUM_SEARCH_THREADS];
-    final AtomicInteger totHits=new AtomicInteger();
-    for (int thread=0; thread < NUM_SEARCH_THREADS; thread++) {
-      searchThreads[thread]=new Thread(){
-        @Override public void run(){
-          try {
-            TermsEnum termsEnum=MultiFields.getTerms(s.getIndexReader(),"body").iterator();
-            int seenTermCount=0;
-            int shift;
-            int trigger;
-            if (totTermCount.get() == 0) {
-              shift=0;
-              trigger=1;
-            }
- else {
-              shift=random.nextInt(totTermCount.get() / 10);
-              trigger=totTermCount.get() / 10;
-            }
-            while (System.currentTimeMillis() < searchStopTime) {
-              BytesRef term=termsEnum.next();
-              if (term == null) {
-                totTermCount.set(seenTermCount);
-                seenTermCount=0;
-                trigger=totTermCount.get() / 10;
-                shift=random.nextInt(totTermCount.get() / 10);
-                termsEnum.seek(new BytesRef(""));
-                continue;
-              }
-              seenTermCount++;
-              if (trigger == 0) {
+    if (r.numDocs() > 0) {
+      final IndexSearcher s=new IndexSearcher(r);
+      final long searchStopTime=System.currentTimeMillis() + 500;
+      final Thread[] searchThreads=new Thread[NUM_SEARCH_THREADS];
+      final AtomicInteger totHits=new AtomicInteger();
+      for (int thread=0; thread < NUM_SEARCH_THREADS; thread++) {
+        searchThreads[thread]=new Thread(){
+          @Override public void run(){
+            try {
+              TermsEnum termsEnum=MultiFields.getTerms(s.getIndexReader(),"body").iterator();
+              int seenTermCount=0;
+              int shift;
+              int trigger;
+              if (totTermCount.get() == 0) {
+                shift=0;
                 trigger=1;
               }
-              if ((seenTermCount + shift) % trigger == 0) {
-                totHits.addAndGet(runQuery(s,new TermQuery(new Term("body",term))));
+ else {
+                shift=random.nextInt(totTermCount.get() / 10);
+                trigger=totTermCount.get() / 10;
+              }
+              while (System.currentTimeMillis() < searchStopTime) {
+                BytesRef term=termsEnum.next();
+                if (term == null) {
+                  if (seenTermCount == 0) {
+                    break;
+                  }
+                  totTermCount.set(seenTermCount);
+                  seenTermCount=0;
+                  trigger=totTermCount.get() / 10;
+                  shift=random.nextInt(totTermCount.get() / 10);
+                  termsEnum.seek(new BytesRef(""));
+                  continue;
+                }
+                seenTermCount++;
+                if (trigger == 0) {
+                  trigger=1;
+                }
+                if ((seenTermCount + shift) % trigger == 0) {
+                  totHits.addAndGet(runQuery(s,new TermQuery(new Term("body",term))));
+                }
+              }
+              if (VERBOSE) {
+                System.out.println(Thread.currentThread().getName() + ": search done");
               }
             }
-            if (VERBOSE) {
-              System.out.println(Thread.currentThread().getName() + ": search done");
+ catch (            Throwable t) {
+              failed.set(true);
+              t.printStackTrace(System.out);
+              throw new RuntimeException(t);
             }
           }
- catch (          Throwable t) {
-            failed.set(true);
-            t.printStackTrace(System.out);
-            throw new RuntimeException(t);
-          }
         }
-      }
 ;
-      searchThreads[thread].setDaemon(true);
-      searchThreads[thread].start();
+        searchThreads[thread].setDaemon(true);
+        searchThreads[thread].start();
+      }
+      for (int thread=0; thread < NUM_SEARCH_THREADS; thread++) {
+        searchThreads[thread].join();
+      }
+      if (VERBOSE) {
+        System.out.println("TEST: DONE search: totHits=" + totHits);
+      }
     }
-    for (int thread=0; thread < NUM_SEARCH_THREADS; thread++) {
-      searchThreads[thread].join();
-    }
-    if (VERBOSE) {
-      System.out.println("TEST: DONE search: totHits=" + totHits);
+ else {
+      Thread.sleep(100);
     }
   }
   if (VERBOSE) {
