@@ -1,4 +1,5 @@
 {
+  boolean doFlush=flushControl.waitUpdate(1,delTerm != null ? 1 : 0);
   final DocumentsWriterThreadState state=getThreadState(doc,delTerm);
   final DocState docState=state.docState;
   docState.doc=doc;
@@ -17,10 +18,16 @@
   }
   finally {
     if (!success) {
+      if (doFlush) {
+        flushControl.clearFlushPending();
+      }
+      if (infoStream != null) {
+        message("exception in updateDocument aborting=" + aborting);
+      }
 synchronized (this) {
+        state.isIdle=true;
+        notifyAll();
         if (aborting) {
-          state.isIdle=true;
-          notifyAll();
           abort();
         }
  else {
@@ -32,23 +39,15 @@ synchronized (this) {
           }
   finally {
             if (!success2) {
-              state.isIdle=true;
-              notifyAll();
               abort();
               return false;
             }
           }
-          state.isIdle=true;
-          notifyAll();
-          if (state.doFlushAfter) {
-            state.doFlushAfter=false;
-            flushPending=false;
-            notifyAll();
-          }
-          addDeleteDocID(state.docState.docID);
+          deleteDocID(state.docState.docID);
         }
       }
     }
   }
-  return state.doFlushAfter || timeToFlushDeletes();
+  doFlush|=flushControl.flushByRAMUsage("new document");
+  return doFlush;
 }
