@@ -1,0 +1,100 @@
+{
+  if (CodecProvider.getDefault().getDefaultFieldCodec().equals("SimpleText")) {
+    CodecProvider.getDefault().setDefaultFieldCodec("Standard");
+  }
+  final LineFileDocs docs=new LineFileDocs(false);
+  final int RUN_TIME_SEC=LuceneTestCase.TEST_NIGHTLY ? 300 : 1;
+  final IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMaxBufferedDocs(-1).setRAMBufferSizeMB(64);
+  final File tempDir=_TestUtil.getTempDir("fstlines");
+  final MockDirectoryWrapper dir=new MockDirectoryWrapper(random,FSDirectory.open(tempDir));
+  final IndexWriter writer=new IndexWriter(dir,conf);
+  final long stopTime=System.currentTimeMillis() + RUN_TIME_SEC * 1000;
+  Document doc;
+  int docCount=0;
+  while ((doc=docs.nextDoc()) != null && System.currentTimeMillis() < stopTime) {
+    writer.addDocument(doc);
+    docCount++;
+  }
+  IndexReader r=IndexReader.open(writer);
+  writer.close();
+  final PositiveIntOutputs outputs=PositiveIntOutputs.getSingleton(random.nextBoolean());
+  Builder<Long> builder=new Builder<Long>(FST.INPUT_TYPE.BYTE1,0,0,true,outputs);
+  boolean storeOrd=random.nextBoolean();
+  if (VERBOSE) {
+    if (storeOrd) {
+      System.out.println("FST stores ord");
+    }
+ else {
+      System.out.println("FST stores docFreq");
+    }
+  }
+  Terms terms=MultiFields.getTerms(r,"body");
+  if (terms != null) {
+    final TermsEnum termsEnum=terms.iterator();
+    BytesRef term;
+    int ord=0;
+    while ((term=termsEnum.next()) != null) {
+      if (ord == 0) {
+        try {
+          termsEnum.ord();
+        }
+ catch (        UnsupportedOperationException uoe) {
+          storeOrd=false;
+        }
+      }
+      final int output;
+      if (storeOrd) {
+        output=ord;
+      }
+ else {
+        output=termsEnum.docFreq();
+      }
+      builder.add(term,outputs.get(output));
+      ord++;
+    }
+    final FST<Long> fst=builder.finish();
+    if (VERBOSE) {
+      System.out.println("FST: " + docCount + " docs; "+ ord+ " terms; "+ fst.getNodeCount()+ " nodes; "+ fst.getArcCount()+ " arcs;"+ " "+ fst.sizeInBytes()+ " bytes");
+    }
+    if (ord > 0) {
+      final BytesRefFSTEnum<Long> fstEnum=new BytesRefFSTEnum<Long>(fst);
+      for (int iter=0; iter < 1000 * RANDOM_MULTIPLIER; iter++) {
+        fstEnum.reset();
+        final BytesRef randomTerm=new BytesRef(getRandomString());
+        final TermsEnum.SeekStatus seekResult=termsEnum.seek(randomTerm);
+        final BytesRefFSTEnum.InputOutput fstSeekResult=fstEnum.advance(randomTerm);
+        if (VERBOSE) {
+          System.out.println("TEST: seek " + randomTerm.utf8ToString());
+        }
+        if (seekResult == TermsEnum.SeekStatus.END) {
+          assertNull(fstSeekResult);
+        }
+ else {
+          assertSame(termsEnum,fstEnum,storeOrd);
+          for (int nextIter=0; nextIter < 10; nextIter++) {
+            if (VERBOSE) {
+              System.out.println("TEST: next");
+            }
+            if (termsEnum.next() != null) {
+              if (VERBOSE) {
+                System.out.println("  term=" + termsEnum.term().utf8ToString());
+              }
+              assertNotNull(fstEnum.next());
+              assertSame(termsEnum,fstEnum,storeOrd);
+            }
+ else {
+              BytesRefFSTEnum.InputOutput<Long> nextResult=fstEnum.next();
+              if (nextResult != null) {
+                System.out.println("expected null but got: input=" + nextResult.input.utf8ToString() + " output="+ outputs.outputToString(nextResult.output));
+                fail();
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  r.close();
+  dir.close();
+}
