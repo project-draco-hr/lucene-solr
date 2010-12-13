@@ -19,6 +19,10 @@
         }
         if (!seen) {
           failed=true;
+          if (VERBOSE) {
+            System.out.println("TEST: mock failure: now fail");
+            new Throwable().printStackTrace(System.out);
+          }
           throw new IOException("fail after applyDeletes");
         }
       }
@@ -26,6 +30,10 @@
         StackTraceElement[] trace=new Exception().getStackTrace();
         for (int i=0; i < trace.length; i++) {
           if ("applyDeletes".equals(trace[i].getMethodName())) {
+            if (VERBOSE) {
+              System.out.println("TEST: mock failure: saw applyDeletes");
+              new Throwable().printStackTrace(System.out);
+            }
             sawMaybe=true;
             break;
           }
@@ -40,6 +48,7 @@
   String[] text={"Amsterdam","Venice"};
   MockDirectoryWrapper dir=newDirectory();
   IndexWriter modifier=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(MockTokenizer.WHITESPACE,false)).setMaxBufferedDeleteTerms(2).setReaderPooling(false));
+  modifier.setInfoStream(VERBOSE ? System.out : null);
   LogMergePolicy lmp=(LogMergePolicy)modifier.getConfig().getMergePolicy();
   lmp.setUseCompoundFile(true);
   lmp.setUseCompoundDocStore(true);
@@ -52,16 +61,31 @@
     doc.add(newField("city",text[i],Field.Store.YES,Field.Index.ANALYZED));
     modifier.addDocument(doc);
   }
+  if (VERBOSE) {
+    System.out.println("TEST: now optimize");
+  }
   modifier.optimize();
+  if (VERBOSE) {
+    System.out.println("TEST: now commit");
+  }
   modifier.commit();
   Term term=new Term("city","Amsterdam");
   int hitCount=getHitCount(dir,term);
   assertEquals(1,hitCount);
+  if (VERBOSE) {
+    System.out.println("TEST: delete term=" + term);
+  }
   modifier.deleteDocuments(term);
+  if (VERBOSE) {
+    System.out.println("TEST: add empty doc");
+  }
   Document doc=new Document();
   modifier.addDocument(doc);
   boolean failed=false;
   try {
+    if (VERBOSE) {
+      System.out.println("TEST: now commit for failure");
+    }
     modifier.commit();
   }
  catch (  IOException ioe) {
