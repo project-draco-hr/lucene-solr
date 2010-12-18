@@ -1,0 +1,32 @@
+{
+  boolean shouldFail=false;
+  Thread[] stillRunning=new Thread[Thread.activeCount() + 1];
+  int threadCount=0;
+  int rogueCount=0;
+  if ((threadCount=Thread.enumerate(stillRunning)) > 1) {
+    while (threadCount == stillRunning.length) {
+      stillRunning=new Thread[stillRunning.length * 2];
+      threadCount=Thread.enumerate(stillRunning);
+    }
+    for (int i=0; i < threadCount; i++) {
+      Thread t=stillRunning[i];
+      if (t != Thread.currentThread())       t.setUncaughtExceptionHandler(null);
+      if (t.isAlive() && !rogueThreads.containsKey(t) && t != Thread.currentThread() && !t.getName().equals("TimeLimitedCollector timer thread")) {
+        System.err.println("WARNING: " + context + " left thread running: "+ t);
+        rogueThreads.put(t,true);
+        shouldFail=true;
+        rogueCount++;
+        t.interrupt();
+        try {
+          t.join(THREAD_STOP_GRACE_MSEC);
+        }
+ catch (        InterruptedException e) {
+          e.printStackTrace();
+        }
+      }
+    }
+  }
+  if (shouldFail && !testsFailed) {
+    System.err.println("RESOURCE LEAK: " + context + " left "+ rogueCount+ " thread(s) running");
+  }
+}
