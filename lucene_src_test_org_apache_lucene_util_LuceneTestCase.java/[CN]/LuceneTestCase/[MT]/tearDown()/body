@@ -2,8 +2,20 @@
   assertTrue("ensure your setUp() calls super.setUp()!!!",setup);
   setup=false;
   BooleanQuery.setMaxClauseCount(savedBoolMaxClauseCount);
+  if (!getClass().getName().startsWith("org.apache.solr")) {
+    int rogueThreads=threadCleanup("test method: '" + getName() + "'");
+    if (rogueThreads > 0) {
+      System.err.println("RESOURCE LEAK: test method: '" + getName() + "' left "+ rogueThreads+ " thread(s) running");
+      if (!testsFailed && uncaughtExceptions.isEmpty()) {
+        reportAdditionalFailureInfo();
+      }
+    }
+  }
+  Thread.setDefaultUncaughtExceptionHandler(savedUncaughtExceptionHandler);
   try {
     if (!uncaughtExceptions.isEmpty()) {
+      testsFailed=true;
+      reportAdditionalFailureInfo();
       System.err.println("The following exceptions were thrown by threads:");
       for (      UncaughtExceptionEntry entry : uncaughtExceptions) {
         System.err.println("*** Thread: " + entry.thread.getName() + " ***");
@@ -12,13 +24,8 @@
       fail("Some threads threw uncaught exceptions!");
     }
     assertSaneFieldCaches(getTestLabel());
-    if (ConcurrentMergeScheduler.anyUnhandledExceptions()) {
-      ConcurrentMergeScheduler.clearUnhandledExceptions();
-      fail("ConcurrentMergeScheduler hit unhandled exceptions");
-    }
   }
   finally {
     purgeFieldCache(FieldCache.DEFAULT);
   }
-  Thread.setDefaultUncaughtExceptionHandler(savedUncaughtExceptionHandler);
 }

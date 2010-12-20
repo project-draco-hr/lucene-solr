@@ -5,7 +5,7 @@
   File destDir=new File(TEMP_DIR,"testfilesplitterdest");
   _TestUtil.rmDir(destDir);
   destDir.mkdirs();
-  FSDirectory fsDir=FSDirectory.open(dir);
+  Directory fsDir=newFSDirectory(dir);
   LogMergePolicy mergePolicy=new LogByteSizeMergePolicy();
   mergePolicy.setNoCFSRatio(1);
   IndexWriter iw=new IndexWriter(fsDir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.CREATE).setMergePolicy(mergePolicy));
@@ -24,21 +24,31 @@
     iw.addDocument(doc);
   }
   iw.commit();
-  assertEquals(3,iw.getReader().getSequentialSubReaders().length);
+  IndexReader iwReader=iw.getReader();
+  assertEquals(3,iwReader.getSequentialSubReaders().length);
+  iwReader.close();
   iw.close();
   IndexSplitter is=new IndexSplitter(dir);
   String splitSegName=is.infos.info(1).name;
   is.split(destDir,new String[]{splitSegName});
-  IndexReader r=IndexReader.open(FSDirectory.open(destDir),true);
+  Directory fsDirDest=newFSDirectory(destDir);
+  IndexReader r=IndexReader.open(fsDirDest,true);
   assertEquals(50,r.maxDoc());
+  r.close();
+  fsDirDest.close();
   File destDir2=new File(TEMP_DIR,"testfilesplitterdest2");
   _TestUtil.rmDir(destDir2);
   destDir2.mkdirs();
   IndexSplitter.main(new String[]{dir.getAbsolutePath(),destDir2.getAbsolutePath(),splitSegName});
   assertEquals(3,destDir2.listFiles().length);
-  r=IndexReader.open(FSDirectory.open(destDir2),true);
+  Directory fsDirDest2=newFSDirectory(destDir2);
+  r=IndexReader.open(fsDirDest2,true);
   assertEquals(50,r.maxDoc());
+  r.close();
+  fsDirDest2.close();
   IndexSplitter.main(new String[]{dir.getAbsolutePath(),"-d",splitSegName});
-  r=IndexReader.open(FSDirectory.open(dir),true);
+  r=IndexReader.open(fsDir,true);
   assertEquals(2,r.getSequentialSubReaders().length);
+  r.close();
+  fsDir.close();
 }
