@@ -2,17 +2,17 @@
   config=(IndexWriterConfig)conf.clone();
   directory=d;
   analyzer=conf.getAnalyzer();
-  setMessageID(defaultInfoStream);
+  infoStream=defaultInfoStream;
+  maxFieldLength=conf.getMaxFieldLength();
   termIndexInterval=conf.getTermIndexInterval();
-  writeLockTimeout=conf.getWriteLockTimeout();
-  similarity=conf.getSimilarity();
   mergePolicy=conf.getMergePolicy();
   mergePolicy.setIndexWriter(this);
   mergeScheduler=conf.getMergeScheduler();
   mergedSegmentWarmer=conf.getMergedSegmentWarmer();
   codecs=conf.getCodecProvider();
+  bufferedDeletes=new BufferedDeletes(messageID);
+  bufferedDeletes.setInfoStream(infoStream);
   poolReaders=conf.getReaderPooling();
-  this.readerPool=new IndexReaderPool(this,directory,config);
   OpenMode mode=conf.getOpenMode();
   boolean create;
   if (mode == OpenMode.CREATE) {
@@ -24,12 +24,10 @@
  else {
     create=!IndexReader.indexExists(directory);
   }
-  if (create) {
-    directory.clearLock(WRITE_LOCK_NAME);
-  }
   writeLock=directory.makeLock(WRITE_LOCK_NAME);
-  if (!writeLock.obtain(writeLockTimeout))   throw new LockObtainFailedException("Index locked for write: " + writeLock);
+  if (!writeLock.obtain(conf.getWriteLockTimeout()))   throw new LockObtainFailedException("Index locked for write: " + writeLock);
   boolean success=false;
+  segmentInfos=new SegmentInfos(codecs);
   try {
     if (create) {
       try {
@@ -39,24 +37,30 @@
  catch (      IOException e) {
       }
       changeCount++;
+      segmentInfos.changed();
     }
  else {
       segmentInfos.read(directory,codecs);
       IndexCommit commit=conf.getIndexCommit();
       if (commit != null) {
         if (commit.getDirectory() != directory)         throw new IllegalArgumentException("IndexCommit's directory doesn't match my directory");
-        SegmentInfos oldInfos=new SegmentInfos();
+        SegmentInfos oldInfos=new SegmentInfos(codecs);
         oldInfos.read(directory,commit.getSegmentsFileName(),codecs);
         segmentInfos.replace(oldInfos);
         changeCount++;
+        segmentInfos.changed();
         if (infoStream != null)         message("init: loaded commit \"" + commit.getSegmentsFileName() + "\"");
       }
     }
     setRollbackSegmentInfos(segmentInfos);
-    docWriter=new DocumentsWriter(directory,this,conf);
-    deleter=new IndexFileDeleter(directory,conf.getIndexDeletionPolicy(),segmentInfos,infoStream,docWriter,this.codecs);
-    if (deleter.startingCommitDeleted)     changeCount++;
-    docWriter.setMaxBufferedDeleteTerms(conf.getMaxBufferedDeleteTerms());
+    docWriter=new DocumentsWriter(directory,this,conf.getIndexingChain(),conf.getIndexerThreadPool(),getCurrentFieldInfos(),bufferedDeletes);
+    docWriter.setInfoStream(infoStream);
+    docWriter.setMaxFieldLength(maxFieldLength);
+    deleter=new IndexFileDeleter(directory,conf.getIndexDeletionPolicy(),segmentInfos,infoStream,codecs);
+    if (deleter.startingCommitDeleted) {
+      changeCount++;
+      segmentInfos.changed();
+    }
     docWriter.setRAMBufferSizeMB(conf.getRAMBufferSizeMB());
     docWriter.setMaxBufferedDocs(conf.getMaxBufferedDocs());
     pushMaxBufferedDocs();

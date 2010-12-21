@@ -1,20 +1,34 @@
 {
-  MockRAMDirectory dir=new MockRAMDirectory();
-  IndexWriter writer=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+  MockDirectoryWrapper dir=newDirectory();
+  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMaxBufferedDocs(10));
+  if (VERBOSE) {
+    System.out.println("TEST: config1=" + writer.getConfig());
+  }
   for (int j=0; j < 500; j++) {
     addDocWithIndex(writer,j);
   }
+  final int termIndexInterval=writer.getConfig().getTermIndexInterval();
+  writer.commit();
+  addDocWithIndex(writer,500);
   writer.close();
+  if (VERBOSE) {
+    System.out.println("TEST: start disk usage");
+  }
   long startDiskUsage=0;
   String[] files=dir.listAll();
   for (int i=0; i < files.length; i++) {
     startDiskUsage+=dir.fileLength(files[i]);
+    if (VERBOSE) {
+      System.out.println(files[i] + ": " + dir.fileLength(files[i]));
+    }
   }
   dir.resetMaxUsedSizeInBytes();
-  writer=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND));
+  dir.setTrackDiskUsage(true);
+  writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setTermIndexInterval(termIndexInterval));
+  writer.setInfoStream(VERBOSE ? System.out : null);
   writer.optimize();
   writer.close();
   long maxDiskUsage=dir.getMaxUsedSizeInBytes();
-  assertTrue("optimized used too much temporary space: starting usage was " + startDiskUsage + " bytes; max temp usage was "+ maxDiskUsage+ " but should have been "+ (2 * startDiskUsage)+ " (= 2X starting usage)",maxDiskUsage <= 2 * startDiskUsage);
+  assertTrue("optimize used too much temporary space: starting usage was " + startDiskUsage + " bytes; max temp usage was "+ maxDiskUsage+ " but should have been "+ (4 * startDiskUsage)+ " (= 4X starting usage)",maxDiskUsage <= 4 * startDiskUsage);
   dir.close();
 }

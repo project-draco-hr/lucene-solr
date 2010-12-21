@@ -1,0 +1,26 @@
+{
+  MockDirectoryWrapper dir=newDirectory();
+  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMergeScheduler(new SerialMergeScheduler()).setReaderPooling(true).setMergePolicy(newLogMergePolicy(2)));
+  Document doc=new Document();
+  doc.add(newField("f","doctor who",Field.Store.YES,Field.Index.ANALYZED));
+  w.addDocument(doc);
+  w.commit();
+  w.deleteDocuments(new Term("f","who"));
+  w.addDocument(doc);
+  FailTwiceDuringMerge ftdm=new FailTwiceDuringMerge();
+  ftdm.setDoFail();
+  dir.failOn(ftdm);
+  try {
+    w.commit();
+    fail("fake disk full IOExceptions not hit");
+  }
+ catch (  IOException ioe) {
+    assertTrue(ftdm.didFail1);
+  }
+  _TestUtil.checkIndex(dir);
+  ftdm.clearDoFail();
+  w.addDocument(doc);
+  w.close();
+  _TestUtil.checkIndex(dir);
+  dir.close();
+}

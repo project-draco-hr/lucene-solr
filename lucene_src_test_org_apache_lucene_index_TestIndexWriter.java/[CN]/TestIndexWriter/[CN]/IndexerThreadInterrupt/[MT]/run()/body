@@ -1,44 +1,33 @@
 {
-  RAMDirectory dir=new RAMDirectory();
+  Directory dir=new MockDirectoryWrapper(random,new RAMDirectory());
   IndexWriter w=null;
-  boolean first=true;
   while (!finish) {
     try {
       while (true) {
         if (w != null) {
           w.close();
         }
-        IndexWriterConfig conf=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMaxBufferedDocs(2);
+        IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMaxBufferedDocs(2);
         ((LogMergePolicy)conf.getMergePolicy()).setMergeFactor(2);
         w=new IndexWriter(dir,conf);
-        if (!first && !allowInterrupt) {
-          allowInterrupt=true;
-        }
         Document doc=new Document();
-        doc.add(new Field("field","some text contents",Field.Store.YES,Field.Index.ANALYZED));
+        doc.add(newField("field","some text contents",Field.Store.YES,Field.Index.ANALYZED));
         for (int i=0; i < 100; i++) {
           w.addDocument(doc);
-          w.commit();
+          if (i % 10 == 0) {
+            w.commit();
+          }
         }
         w.close();
         _TestUtil.checkIndex(dir);
         IndexReader.open(dir,true).close();
-        if (first && !allowInterrupt) {
-          allowInterrupt=true;
-          first=false;
-        }
+        allowInterrupt=true;
       }
     }
  catch (    ThreadInterruptedException re) {
       Throwable e=re.getCause();
       assertTrue(e instanceof InterruptedException);
       if (finish) {
-        break;
-      }
-      if (false && interrupted()) {
-        System.out.println("FAILED; InterruptedException hit but thread.interrupted() was true");
-        e.printStackTrace(System.out);
-        failed=true;
         break;
       }
     }
@@ -50,6 +39,13 @@ catch (    Throwable t) {
     }
   }
   if (!failed) {
+    Thread.interrupted();
+    try {
+      w.rollback();
+    }
+ catch (    IOException ioe) {
+      throw new RuntimeException(ioe);
+    }
     try {
       _TestUtil.checkIndex(dir);
     }
@@ -67,5 +63,11 @@ catch (    Throwable t) {
       System.out.println("IndexReader.open FAILED: unexpected exception");
       e.printStackTrace(System.out);
     }
+  }
+  try {
+    dir.close();
+  }
+ catch (  IOException e) {
+    throw new RuntimeException(e);
   }
 }

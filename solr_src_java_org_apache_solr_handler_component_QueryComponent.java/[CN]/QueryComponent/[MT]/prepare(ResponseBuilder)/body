@@ -11,21 +11,26 @@
     fieldFlags|=SolrPluginUtils.setReturnFields(fl,rsp);
   }
   rb.setFieldFlags(fieldFlags);
-  String defType=params.get(QueryParsing.DEFTYPE);
-  defType=defType == null ? QParserPlugin.DEFAULT_QTYPE : defType;
-  if (rb.getQueryString() == null) {
-    rb.setQueryString(params.get(CommonParams.Q));
+  String defType=params.get(QueryParsing.DEFTYPE,QParserPlugin.DEFAULT_QTYPE);
+  String queryString=rb.getQueryString();
+  if (queryString == null) {
+    queryString=params.get(CommonParams.Q);
+    rb.setQueryString(queryString);
   }
   try {
     QParser parser=QParser.getParser(rb.getQueryString(),defType,req);
-    rb.setQuery(parser.getQuery());
+    Query q=parser.getQuery();
+    if (q == null) {
+      q=new BooleanQuery();
+    }
+    rb.setQuery(q);
     rb.setSortSpec(parser.getSort(true));
     rb.setQparser(parser);
     String[] fqs=req.getParams().getParams(CommonParams.FQ);
     if (fqs != null && fqs.length != 0) {
       List<Query> filters=rb.getFilters();
       if (filters == null) {
-        filters=new ArrayList<Query>();
+        filters=new ArrayList<Query>(fqs.length);
         rb.setFilters(filters);
       }
       for (      String fq : fqs) {
@@ -39,17 +44,5 @@
  catch (  ParseException e) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
   }
-  String shards=params.get(ShardParams.SHARDS);
-  if (shards != null) {
-    List<String> lst=StrUtils.splitSmart(shards,",",true);
-    rb.shards=lst.toArray(new String[lst.size()]);
-  }
-  String shards_rows=params.get(ShardParams.SHARDS_ROWS);
-  if (shards_rows != null) {
-    rb.shards_rows=Integer.parseInt(shards_rows);
-  }
-  String shards_start=params.get(ShardParams.SHARDS_START);
-  if (shards_start != null) {
-    rb.shards_start=Integer.parseInt(shards_start);
-  }
+  checkDistributed(rb);
 }

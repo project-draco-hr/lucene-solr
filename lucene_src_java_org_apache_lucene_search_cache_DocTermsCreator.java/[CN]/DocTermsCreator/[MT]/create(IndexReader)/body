@@ -1,0 +1,56 @@
+{
+  String field=StringHelper.intern(this.field);
+  Terms terms=MultiFields.getTerms(reader,field);
+  final boolean fasterButMoreRAM=hasOption(FASTER_BUT_MORE_RAM);
+  final int termCountHardLimit=reader.maxDoc();
+  final PagedBytes bytes=new PagedBytes(15);
+  int startBPV;
+  if (terms != null) {
+    long numUniqueTerms=0;
+    try {
+      numUniqueTerms=terms.getUniqueTermCount();
+    }
+ catch (    UnsupportedOperationException uoe) {
+      numUniqueTerms=-1;
+    }
+    if (numUniqueTerms != -1) {
+      if (numUniqueTerms > termCountHardLimit) {
+        numUniqueTerms=termCountHardLimit;
+      }
+      startBPV=PackedInts.bitsRequired(numUniqueTerms * 4);
+    }
+ else {
+      startBPV=1;
+    }
+  }
+ else {
+    startBPV=1;
+  }
+  final GrowableWriter docToOffset=new GrowableWriter(startBPV,reader.maxDoc(),fasterButMoreRAM);
+  bytes.copyUsingLengthPrefix(new BytesRef());
+  if (terms != null) {
+    int termCount=0;
+    final TermsEnum termsEnum=terms.iterator();
+    final Bits delDocs=MultiFields.getDeletedDocs(reader);
+    DocsEnum docs=null;
+    while (true) {
+      if (termCount++ == termCountHardLimit) {
+        break;
+      }
+      final BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      final long pointer=bytes.copyUsingLengthPrefix(term);
+      docs=termsEnum.docs(delDocs,docs);
+      while (true) {
+        final int docID=docs.nextDoc();
+        if (docID == DocIdSetIterator.NO_MORE_DOCS) {
+          break;
+        }
+        docToOffset.set(docID,pointer);
+      }
+    }
+  }
+  return new DocTermsImpl(bytes.freeze(true),docToOffset.getMutable());
+}

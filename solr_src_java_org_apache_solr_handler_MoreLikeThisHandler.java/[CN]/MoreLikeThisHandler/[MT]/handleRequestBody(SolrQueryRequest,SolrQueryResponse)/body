@@ -1,12 +1,40 @@
 {
   SolrParams params=req.getParams();
+  String fl=params.get(CommonParams.FL);
+  int flags=0;
+  if (fl != null) {
+    flags|=SolrPluginUtils.setReturnFields(fl,rsp);
+  }
+  String defType=params.get(QueryParsing.DEFTYPE,QParserPlugin.DEFAULT_QTYPE);
+  String q=params.get(CommonParams.Q);
+  Query query=null;
+  SortSpec sortSpec=null;
+  List<Query> filters=null;
+  try {
+    if (q != null) {
+      QParser parser=QParser.getParser(q,defType,req);
+      query=parser.getQuery();
+      sortSpec=parser.getSort(true);
+    }
+    String[] fqs=req.getParams().getParams(CommonParams.FQ);
+    if (fqs != null && fqs.length != 0) {
+      filters=new ArrayList<Query>();
+      for (      String fq : fqs) {
+        if (fq != null && fq.trim().length() != 0) {
+          QParser fqp=QParser.getParser(fq,null,req);
+          filters.add(fqp.getQuery());
+        }
+      }
+    }
+  }
+ catch (  ParseException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
+  }
   SolrIndexSearcher searcher=req.getSearcher();
   MoreLikeThisHelper mlt=new MoreLikeThisHelper(params,searcher);
-  List<Query> filters=SolrPluginUtils.parseFilterQueries(req);
   TermStyle termStyle=TermStyle.get(params.get(MoreLikeThisParams.INTERESTING_TERMS));
   List<InterestingTerm> interesting=(termStyle == TermStyle.NONE) ? null : new ArrayList<InterestingTerm>(mlt.mlt.getMaxQueryTerms());
   DocListAndSet mltDocs=null;
-  String q=params.get(CommonParams.Q);
   Reader reader=null;
   try {
     if (q == null || q.trim().length() < 1) {
@@ -21,11 +49,6 @@
         }
       }
     }
-    String fl=params.get(CommonParams.FL);
-    int flags=0;
-    if (fl != null) {
-      flags|=SolrPluginUtils.setReturnFields(fl,rsp);
-    }
     int start=params.getInt(CommonParams.START,0);
     int rows=params.getInt(CommonParams.ROWS,10);
     if (reader != null) {
@@ -34,7 +57,6 @@
  else     if (q != null) {
       boolean includeMatch=params.getBool(MoreLikeThisParams.MATCH_INCLUDE,true);
       int matchOffset=params.getInt(MoreLikeThisParams.MATCH_OFFSET,0);
-      Query query=QueryParsing.parseQuery(q,params.get(CommonParams.DF),params,req.getSchema());
       DocList match=searcher.getDocList(query,null,null,matchOffset,1,flags);
       if (includeMatch) {
         rsp.add("match",match);
@@ -83,22 +105,43 @@
       rsp.add("facet_counts",f.getFacetCounts());
     }
   }
-  try {
-    NamedList<Object> dbg=SolrPluginUtils.doStandardDebug(req,q,mlt.mltquery,mltDocs.docList);
-    if (null != dbg) {
-      if (null != filters) {
-        dbg.add("filter_queries",req.getParams().getParams(CommonParams.FQ));
-        List<String> fqs=new ArrayList<String>(filters.size());
-        for (        Query fq : filters) {
-          fqs.add(QueryParsing.toString(fq,req.getSchema()));
+  boolean dbg=req.getParams().getBool(CommonParams.DEBUG_QUERY,false);
+  boolean dbgQuery=false, dbgResults=false;
+  if (dbg == false) {
+    String[] dbgParams=req.getParams().getParams(CommonParams.DEBUG);
+    if (dbgParams != null) {
+      for (int i=0; i < dbgParams.length; i++) {
+        if (dbgParams[i].equals(CommonParams.QUERY)) {
+          dbgQuery=true;
         }
-        dbg.add("parsed_filter_queries",fqs);
+ else         if (dbgParams[i].equals(CommonParams.RESULTS)) {
+          dbgResults=true;
+        }
       }
-      rsp.add("debug",dbg);
     }
   }
- catch (  Exception e) {
-    SolrException.logOnce(SolrCore.log,"Exception during debug",e);
-    rsp.add("exception_during_debug",SolrException.toStr(e));
+ else {
+    dbgQuery=true;
+    dbgResults=true;
+  }
+  if (dbg == true) {
+    try {
+      NamedList<Object> dbgInfo=SolrPluginUtils.doStandardDebug(req,q,mlt.mltquery,mltDocs.docList,dbgQuery,dbgResults);
+      if (null != dbgInfo) {
+        if (null != filters) {
+          dbgInfo.add("filter_queries",req.getParams().getParams(CommonParams.FQ));
+          List<String> fqs=new ArrayList<String>(filters.size());
+          for (          Query fq : filters) {
+            fqs.add(QueryParsing.toString(fq,req.getSchema()));
+          }
+          dbgInfo.add("parsed_filter_queries",fqs);
+        }
+        rsp.add("debug",dbgInfo);
+      }
+    }
+ catch (    Exception e) {
+      SolrException.logOnce(SolrCore.log,"Exception during debug",e);
+      rsp.add("exception_during_debug",SolrException.toStr(e));
+    }
   }
 }

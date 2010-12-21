@@ -1,0 +1,34 @@
+{
+  Directory[] dirs=new Directory[2];
+  populateDirs(random,dirs,multipleCommits);
+  Directory dir=newDirectory();
+  if (!addToEmptyIndex) {
+    populateDocs(random,dir,multipleCommits);
+    verifyPayloadExists(dir,"p",new BytesRef("p1"),NUM_DOCS);
+    verifyPayloadExists(dir,"p",new BytesRef("p2"),NUM_DOCS);
+  }
+  Map<Directory,DirPayloadProcessor> processors=new HashMap<Directory,DirPayloadProcessor>();
+  for (  Directory d : dirs) {
+    processors.put(d,new PerTermPayloadProcessor());
+  }
+  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(MockTokenizer.WHITESPACE,false)));
+  writer.setPayloadProcessorProvider(new PerDirPayloadProcessor(processors));
+  IndexReader[] readers=new IndexReader[dirs.length];
+  for (int i=0; i < readers.length; i++) {
+    readers[i]=IndexReader.open(dirs[i]);
+  }
+  try {
+    writer.addIndexes(readers);
+  }
+  finally {
+    for (    IndexReader r : readers) {
+      r.close();
+    }
+  }
+  writer.close();
+  verifyPayloadExists(dir,"p",new BytesRef("p1"),numExpectedPayloads);
+  numExpectedPayloads=NUM_DOCS * dirs.length + (addToEmptyIndex ? 0 : NUM_DOCS);
+  verifyPayloadExists(dir,"p",new BytesRef("p2"),numExpectedPayloads);
+  for (  Directory d : dirs)   d.close();
+  dir.close();
+}

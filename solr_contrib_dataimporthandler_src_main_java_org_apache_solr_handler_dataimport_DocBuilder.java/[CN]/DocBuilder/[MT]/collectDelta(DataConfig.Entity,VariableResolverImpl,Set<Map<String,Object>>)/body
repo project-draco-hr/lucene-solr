@@ -10,33 +10,30 @@
       if (stop.get())       return new HashSet();
     }
   }
-  Set<Map<String,Object>> deltaSet=new HashSet<Map<String,Object>>();
+  Map<String,Map<String,Object>> deltaSet=new HashMap<String,Map<String,Object>>();
   LOG.info("Running ModifiedRowKey() for Entity: " + entity.name);
   while (true) {
     Map<String,Object> row=entityProcessor.nextModifiedRowKey();
     if (row == null)     break;
-    deltaSet.add(row);
+    deltaSet.put(row.get(entity.getPk()).toString(),row);
     importStatistics.rowsCount.incrementAndGet();
     if (stop.get())     return new HashSet();
   }
   Set<Map<String,Object>> deletedSet=new HashSet<Map<String,Object>>();
-  Set<Map<String,Object>> deltaRemoveSet=new HashSet<Map<String,Object>>();
   while (true) {
     Map<String,Object> row=entityProcessor.nextDeletedRowKey();
     if (row == null)     break;
-    for (    Map<String,Object> modifiedRow : deltaSet) {
-      if (modifiedRow.get(entity.getPk()).equals(row.get(entity.getPk()))) {
-        deltaRemoveSet.add(modifiedRow);
-      }
-    }
     deletedSet.add(row);
+    String deletedRowPk=row.get(entity.getPk()).toString();
+    if (deltaSet.containsKey(deletedRowPk)) {
+      deltaSet.remove(deletedRowPk);
+    }
     importStatistics.rowsCount.incrementAndGet();
     if (stop.get())     return new HashSet();
   }
-  deltaSet.removeAll(deltaRemoveSet);
   LOG.info("Completed ModifiedRowKey for Entity: " + entity.name + " rows obtained : "+ deltaSet.size());
   LOG.info("Completed DeletedRowKey for Entity: " + entity.name + " rows obtained : "+ deletedSet.size());
-  myModifiedPks.addAll(deltaSet);
+  myModifiedPks.addAll(deltaSet.values());
   Set<Map<String,Object>> parentKeyList=new HashSet<Map<String,Object>>();
   if (entity.parentEntity != null) {
     for (    Map<String,Object> row : myModifiedPks) {
@@ -50,5 +47,5 @@
   }
   LOG.info("Completed parentDeltaQuery for Entity: " + entity.name);
   if (entity.isDocRoot)   deletedRows.addAll(deletedSet);
-  return entity.isDocRoot ? myModifiedPks : new HashSet<Map<String,Object>>(parentKeyList);
+  return entity.parentEntity == null ? myModifiedPks : new HashSet<Map<String,Object>>(parentKeyList);
 }

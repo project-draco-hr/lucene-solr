@@ -15,31 +15,20 @@
   BufferedReader r=new BufferedReader(new InputStreamReader(is));
   String idName=StringHelper.intern(ffs.keyField.getName());
   FieldType idType=ffs.keyField.getType();
-  boolean sorted=true;
   List<String> notFound=new ArrayList<String>();
   int notFoundCount=0;
   int otherErrors=0;
-  int numTimesNext=10;
   char delimiter='=';
-  BytesRef lastVal=new BytesRef("\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF");
   BytesRef internalKey=new BytesRef();
-  BytesRef prevKey=new BytesRef();
-  BytesRef tmp;
   try {
     TermsEnum termsEnum=MultiFields.getTerms(reader,idName).iterator();
     DocsEnum docsEnum=null;
-    BytesRef t=termsEnum.next();
-    if (t == null)     t=lastVal;
-    final Bits delDocs=MultiFields.getDeletedDocs(reader);
     for (String line; (line=r.readLine()) != null; ) {
       int delimIndex=line.indexOf(delimiter);
       if (delimIndex < 0)       continue;
       int endIndex=line.length();
       String key=line.substring(0,delimIndex);
       String val=line.substring(delimIndex + 1,endIndex);
-      tmp=prevKey;
-      prevKey=internalKey;
-      internalKey=tmp;
       idType.readableToIndexed(key,internalKey);
       float fval;
       try {
@@ -51,56 +40,17 @@
         }
         continue;
       }
-      if (sorted) {
-        sorted=internalKey.compareTo(prevKey) >= 0;
-        if (sorted) {
-          int countNext=0;
-          for (; ; ) {
-            int cmp=internalKey.compareTo(t);
-            if (cmp == 0) {
-              docsEnum=termsEnum.docs(delDocs,docsEnum);
-              int doc;
-              while ((doc=docsEnum.nextDoc()) != DocsEnum.NO_MORE_DOCS) {
-                vals[doc]=fval;
-              }
-              break;
-            }
- else             if (cmp < 0) {
-              if (notFoundCount < 10) {
-                notFound.add(key);
-              }
-              notFoundCount++;
-              break;
-            }
- else {
-              if (++countNext > numTimesNext) {
-                termsEnum.seek(internalKey);
-                t=termsEnum.term();
-              }
- else {
-                t=termsEnum.next();
-              }
-              if (t == null)               t=lastVal;
-            }
-          }
+      if (termsEnum.seek(internalKey,false) != TermsEnum.SeekStatus.FOUND) {
+        if (notFoundCount < 10) {
+          notFound.add(key);
         }
+        notFoundCount++;
+        continue;
       }
-      if (!sorted) {
-        TermsEnum.SeekStatus result=termsEnum.seek(internalKey);
-        t=termsEnum.term();
-        if (result == TermsEnum.SeekStatus.FOUND) {
-          docsEnum=termsEnum.docs(delDocs,docsEnum);
-          int doc;
-          while ((doc=docsEnum.nextDoc()) != DocsEnum.NO_MORE_DOCS) {
-            vals[doc]=fval;
-          }
-        }
- else {
-          if (notFoundCount < 10) {
-            notFound.add(key);
-          }
-          notFoundCount++;
-        }
+      docsEnum=termsEnum.docs(null,docsEnum);
+      int doc;
+      while ((doc=docsEnum.nextDoc()) != DocsEnum.NO_MORE_DOCS) {
+        vals[doc]=fval;
       }
     }
   }

@@ -8,14 +8,16 @@
   long gen=0;
   int genLookaheadCount=0;
   IOException exc=null;
-  boolean retry=false;
-  int method=0;
+  int retryCount=0;
+  boolean useFirstMethod=true;
   while (true) {
-    if (0 == method) {
+    if (useFirstMethod) {
       String[] files=null;
       long genA=-1;
       files=directory.listAll();
-      if (files != null)       genA=getCurrentSegmentGeneration(files);
+      if (files != null) {
+        genA=getCurrentSegmentGeneration(files);
+      }
       if (infoStream != null) {
         message("directory listing genA=" + genA);
       }
@@ -75,8 +77,10 @@ catch (        IOException e) {
         throw new IndexNotFoundException("no segments* file found in " + directory + ": files: "+ Arrays.toString(files));
       }
     }
-    if (1 == method || (0 == method && lastGen == gen && retry)) {
-      method=1;
+    if (useFirstMethod && lastGen == gen && retryCount >= 2) {
+      useFirstMethod=false;
+    }
+    if (!useFirstMethod) {
       if (genLookaheadCount < defaultGenLookaheadCount) {
         gen++;
         genLookaheadCount++;
@@ -84,23 +88,21 @@ catch (        IOException e) {
           message("look ahead increment gen to " + gen);
         }
       }
-    }
-    if (lastGen == gen) {
-      if (retry) {
+ else {
         throw exc;
       }
- else {
-        retry=true;
-      }
     }
- else     if (0 == method) {
-      retry=false;
+ else     if (lastGen == gen) {
+      retryCount++;
+    }
+ else {
+      retryCount=0;
     }
     lastGen=gen;
     segmentFileName=IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",gen);
     try {
       Object v=doBody(segmentFileName);
-      if (exc != null && infoStream != null) {
+      if (infoStream != null) {
         message("success on " + segmentFileName);
       }
       return v;
@@ -110,9 +112,9 @@ catch (        IOException e) {
         exc=err;
       }
       if (infoStream != null) {
-        message("primary Exception on '" + segmentFileName + "': "+ err+ "'; will retry: retry="+ retry+ "; gen = "+ gen);
+        message("primary Exception on '" + segmentFileName + "': "+ err+ "'; will retry: retryCount="+ retryCount+ "; gen = "+ gen);
       }
-      if (!retry && gen > 1) {
+      if (gen > 1 && useFirstMethod && retryCount == 1) {
         String prevSegmentFileName=IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",gen - 1);
         final boolean prevExists;
         prevExists=directory.fileExists(prevSegmentFileName);

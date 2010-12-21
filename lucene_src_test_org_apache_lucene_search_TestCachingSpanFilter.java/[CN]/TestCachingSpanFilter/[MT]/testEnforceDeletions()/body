@@ -1,10 +1,10 @@
 {
-  Directory dir=new MockRAMDirectory();
-  IndexWriter writer=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
-  IndexReader reader=writer.getReader();
+  Directory dir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(random,TEST_VERSION_CURRENT,new MockAnalyzer()).setMergeScheduler(new SerialMergeScheduler()).setMergePolicy(newLogMergePolicy(10)));
+  IndexReader reader=IndexReader.open(writer.w);
   IndexSearcher searcher=new IndexSearcher(reader);
   Document doc=new Document();
-  doc.add(new Field("id","1",Field.Store.YES,Field.Index.NOT_ANALYZED));
+  doc.add(newField("id","1",Field.Store.YES,Field.Index.NOT_ANALYZED));
   writer.addDocument(doc);
   reader=refreshReader(reader);
   searcher=new IndexSearcher(reader);
@@ -33,9 +33,9 @@
   constantScore=new ConstantScoreQuery(filter);
   docs=searcher.search(constantScore,1);
   assertEquals("[just filter] Should find a hit...",1,docs.totalHits);
-  IndexReader newReader=refreshReader(reader);
-  assertTrue(reader != newReader);
-  reader=newReader;
+  IndexReader oldReader=reader;
+  reader=refreshReader(reader);
+  assertTrue(reader != oldReader);
   searcher=new IndexSearcher(reader);
   int missCount=filter.missCount;
   docs=searcher.search(constantScore,1);
@@ -48,4 +48,8 @@
   assertEquals("[query + filter] Should *not* find a hit...",0,docs.totalHits);
   docs=searcher.search(constantScore,1);
   assertEquals("[just filter] Should *not* find a hit...",0,docs.totalHits);
+  assertTrue(oldReader != null);
+  writer.close();
+  reader.close();
+  dir.close();
 }

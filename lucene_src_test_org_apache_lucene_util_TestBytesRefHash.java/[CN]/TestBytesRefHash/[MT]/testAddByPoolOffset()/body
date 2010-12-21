@@ -1,0 +1,51 @@
+{
+  BytesRef ref=new BytesRef();
+  BytesRef scratch=new BytesRef();
+  BytesRefHash offsetHash=newHash(pool);
+  for (int j=0; j < 2 * RANDOM_MULTIPLIER; j++) {
+    Set<String> strings=new HashSet<String>();
+    int uniqueCount=0;
+    for (int i=0; i < 797; i++) {
+      String str;
+      do {
+        str=_TestUtil.randomRealisticUnicodeString(random,1000);
+      }
+ while (str.length() == 0);
+      ref.copy(str);
+      int count=hash.size();
+      int key=hash.add(ref);
+      if (key >= 0) {
+        assertTrue(strings.add(str));
+        assertEquals(uniqueCount,key);
+        assertEquals(hash.size(),count + 1);
+        int offsetKey=offsetHash.addByPoolOffset(hash.byteStart(key));
+        assertEquals(uniqueCount,offsetKey);
+        assertEquals(offsetHash.size(),count + 1);
+        uniqueCount++;
+      }
+ else {
+        assertFalse(strings.add(str));
+        assertTrue((-key) - 1 < count);
+        assertEquals(str,hash.get((-key) - 1,scratch).utf8ToString());
+        assertEquals(count,hash.size());
+        int offsetKey=offsetHash.addByPoolOffset(hash.byteStart((-key) - 1));
+        assertTrue((-offsetKey) - 1 < count);
+        assertEquals(str,hash.get((-offsetKey) - 1,scratch).utf8ToString());
+        assertEquals(count,hash.size());
+      }
+    }
+    assertAllIn(strings,hash);
+    for (    String string : strings) {
+      ref.copy(string);
+      int key=hash.add(ref);
+      BytesRef bytesRef=offsetHash.get((-key) - 1,scratch);
+      assertEquals(ref,bytesRef);
+    }
+    hash.clear();
+    assertEquals(0,hash.size());
+    offsetHash.clear();
+    assertEquals(0,offsetHash.size());
+    hash.reinit();
+    offsetHash.reinit();
+  }
+}

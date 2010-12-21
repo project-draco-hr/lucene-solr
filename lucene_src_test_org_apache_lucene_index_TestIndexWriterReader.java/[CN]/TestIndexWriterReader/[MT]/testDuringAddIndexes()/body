@@ -1,13 +1,12 @@
 {
-  Directory dir1=new MockRAMDirectory();
-  final IndexWriter writer=new IndexWriter(dir1,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+  MockDirectoryWrapper dir1=newDirectory();
+  final IndexWriter writer=new IndexWriter(dir1,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMergePolicy(newLogMergePolicy(2)));
   writer.setInfoStream(infoStream);
-  ((LogMergePolicy)writer.getConfig().getMergePolicy()).setMergeFactor(2);
   createIndexNoClose(false,"test",writer);
   writer.commit();
   final Directory[] dirs=new Directory[10];
   for (int i=0; i < 10; i++) {
-    dirs[i]=new MockRAMDirectory(dir1);
+    dirs[i]=new MockDirectoryWrapper(random,new RAMDirectory(dir1));
   }
   IndexReader r=writer.getReader();
   final int NUM_THREAD=5;
@@ -21,6 +20,7 @@
         do {
           try {
             writer.addIndexes(dirs);
+            writer.maybeMerge();
           }
  catch (          Throwable t) {
             excs.add(t);
@@ -58,8 +58,9 @@
   final int count=new IndexSearcher(r).search(q,10).totalHits;
   assertTrue(count >= lastCount);
   assertEquals(0,excs.size());
+  r.close();
+  assertEquals(0,dir1.getOpenDeletedFiles().size());
   writer.close();
   _TestUtil.checkIndex(dir1);
-  r.close();
   dir1.close();
 }

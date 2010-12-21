@@ -1,0 +1,65 @@
+{
+  Version version=Version.valueOf(config.get("writer.version",Version.LUCENE_40.toString()));
+  IndexWriterConfig iwConf=new IndexWriterConfig(version,runData.getAnalyzer());
+  iwConf.setOpenMode(mode);
+  IndexDeletionPolicy indexDeletionPolicy=getIndexDeletionPolicy(config);
+  iwConf.setIndexDeletionPolicy(indexDeletionPolicy);
+  if (commit != null)   iwConf.setIndexCommit(commit);
+  final String mergeScheduler=config.get("merge.scheduler","org.apache.lucene.index.ConcurrentMergeScheduler");
+  if (mergeScheduler.equals(NoMergeScheduler.class.getName())) {
+    iwConf.setMergeScheduler(NoMergeScheduler.INSTANCE);
+  }
+ else {
+    try {
+      iwConf.setMergeScheduler(Class.forName(mergeScheduler).asSubclass(MergeScheduler.class).newInstance());
+    }
+ catch (    Exception e) {
+      throw new RuntimeException("unable to instantiate class '" + mergeScheduler + "' as merge scheduler",e);
+    }
+    if (mergeScheduler.equals("org.apache.lucene.index.ConcurrentMergeScheduler")) {
+      ConcurrentMergeScheduler cms=(ConcurrentMergeScheduler)iwConf.getMergeScheduler();
+      int v=config.get("concurrent.merge.scheduler.max.thread.count",-1);
+      if (v != -1) {
+        cms.setMaxThreadCount(v);
+      }
+      v=config.get("concurrent.merge.scheduler.max.merge.count",-1);
+      if (v != -1) {
+        cms.setMaxMergeCount(v);
+      }
+    }
+  }
+  final String defaultCodec=config.get("default.codec",null);
+  if (defaultCodec != null) {
+    CodecProvider.getDefault().setDefaultFieldCodec(defaultCodec);
+  }
+  final String mergePolicy=config.get("merge.policy","org.apache.lucene.index.LogByteSizeMergePolicy");
+  boolean isCompound=config.get("compound",true);
+  if (mergePolicy.equals(NoMergePolicy.class.getName())) {
+    iwConf.setMergePolicy(isCompound ? NoMergePolicy.COMPOUND_FILES : NoMergePolicy.NO_COMPOUND_FILES);
+  }
+ else {
+    try {
+      iwConf.setMergePolicy(Class.forName(mergePolicy).asSubclass(MergePolicy.class).newInstance());
+    }
+ catch (    Exception e) {
+      throw new RuntimeException("unable to instantiate class '" + mergePolicy + "' as merge policy",e);
+    }
+    if (iwConf.getMergePolicy() instanceof LogMergePolicy) {
+      LogMergePolicy logMergePolicy=(LogMergePolicy)iwConf.getMergePolicy();
+      logMergePolicy.setUseCompoundFile(isCompound);
+      logMergePolicy.setMergeFactor(config.get("merge.factor",OpenIndexTask.DEFAULT_MERGE_PFACTOR));
+    }
+  }
+  iwConf.setMaxFieldLength(config.get("max.field.length",OpenIndexTask.DEFAULT_MAX_FIELD_LENGTH));
+  final double ramBuffer=config.get("ram.flush.mb",OpenIndexTask.DEFAULT_RAM_FLUSH_MB);
+  final int maxBuffered=config.get("max.buffered",OpenIndexTask.DEFAULT_MAX_BUFFERED);
+  if (maxBuffered == IndexWriterConfig.DISABLE_AUTO_FLUSH) {
+    iwConf.setRAMBufferSizeMB(ramBuffer);
+    iwConf.setMaxBufferedDocs(maxBuffered);
+  }
+ else {
+    iwConf.setMaxBufferedDocs(maxBuffered);
+    iwConf.setRAMBufferSizeMB(ramBuffer);
+  }
+  return iwConf;
+}

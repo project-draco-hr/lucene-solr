@@ -1,0 +1,50 @@
+{
+  DocListAndSet out=new DocListAndSet();
+  qr.setDocListAndSet(out);
+  filter=cmd.getFilter() != null ? cmd.getFilter() : searcher.getDocSet(cmd.getFilterList());
+  luceneFilter=filter == null ? null : filter.getTopFilter();
+  maxDoc=searcher.maxDoc();
+  needScores=(cmd.getFlags() & SolrIndexSearcher.GET_SCORES) != 0;
+  getDocSet=(cmd.getFlags() & SolrIndexSearcher.GET_DOCSET) != 0;
+  getDocList=(cmd.getFlags() & SolrIndexSearcher.GET_DOCLIST) != 0;
+  query=QueryUtils.makeQueryable(cmd.getQuery());
+  for (  Command cmd : commands) {
+    cmd.prepare();
+  }
+  List<Collector> collectors=new ArrayList<Collector>(commands.size());
+  for (  Command cmd : commands) {
+    Collector collector=cmd.createCollector();
+    if (collector != null)     collectors.add(collector);
+  }
+  Collector allCollectors=MultiCollector.wrap(collectors.toArray(new Collector[collectors.size()]));
+  DocSetCollector setCollector=null;
+  if (getDocSet) {
+    setCollector=new DocSetDelegateCollector(maxDoc >> 6,maxDoc,allCollectors);
+    allCollectors=setCollector;
+  }
+  searcher.search(query,luceneFilter,allCollectors);
+  if (getDocSet) {
+    qr.setDocSet(setCollector.getDocSet());
+  }
+  collectors.clear();
+  for (  Command cmd : commands) {
+    Collector collector=cmd.createNextCollector();
+    if (collector != null)     collectors.add(collector);
+  }
+  if (collectors.size() > 0) {
+    searcher.search(query,luceneFilter,MultiCollector.wrap(collectors.toArray(new Collector[collectors.size()])));
+  }
+  for (  Command cmd : commands) {
+    cmd.finish();
+  }
+  qr.groupedResults=grouped;
+  if (getDocList) {
+    int sz=idSet.size();
+    int[] ids=new int[sz];
+    int idx=0;
+    for (    int val : idSet) {
+      ids[idx++]=val;
+    }
+    qr.setDocList(new DocSlice(0,sz,ids,null,maxMatches,maxScore));
+  }
+}

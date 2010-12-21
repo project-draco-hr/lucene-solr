@@ -3,13 +3,13 @@
   registerFileStreamResponseWriter();
   registerCloseHook();
   NamedList slave=(NamedList)initArgs.get("slave");
-  boolean enableSlave=slave != null && (null == slave.get("enable") || "true".equals(slave.get("enable")));
+  boolean enableSlave=isEnabled(slave);
   if (enableSlave) {
     tempSnapPuller=snapPuller=new SnapPuller(slave,this,core);
     isSlave=true;
   }
   NamedList master=(NamedList)initArgs.get("master");
-  boolean enableMaster=master != null && (null == master.get("enable") || "true".equals(master.get("enable")));
+  boolean enableMaster=isEnabled(master);
   if (enableMaster) {
     includeConfFiles=(String)master.get(CONF_FILES);
     if (includeConfFiles != null && includeConfFiles.trim().length() > 0) {
@@ -23,11 +23,11 @@
     }
     List backup=master.getAll("backupAfter");
     boolean backupOnCommit=backup.contains("commit");
-    boolean backupOnOptimize=backup.contains("optimize");
+    boolean backupOnOptimize=!backupOnCommit && backup.contains("optimize");
     List replicateAfter=master.getAll(REPLICATE_AFTER);
     replicateOnCommit=replicateAfter.contains("commit");
-    replicateOnOptimize=replicateAfter.contains("optimize");
-    if (replicateOnOptimize && !replicateOnCommit) {
+    replicateOnOptimize=!replicateOnCommit && replicateAfter.contains("optimize");
+    if (replicateOnOptimize) {
       IndexDeletionPolicyWrapper wrapper=core.getDeletionPolicy();
       IndexDeletionPolicy policy=wrapper == null ? null : wrapper.getWrappedDeletionPolicy();
       if (policy instanceof SolrDeletionPolicy) {
@@ -54,7 +54,7 @@
         IndexReader reader=s == null ? null : s.get().getReader();
         if (reader != null && reader.getIndexCommit() != null && reader.getIndexCommit().getGeneration() != 1L) {
           try {
-            if (!replicateOnCommit && replicateOnOptimize) {
+            if (replicateOnOptimize) {
               Collection<IndexCommit> commits=IndexReader.listCommits(reader.directory());
               for (              IndexCommit ic : commits) {
                 if (ic.isOptimized()) {

@@ -1,0 +1,66 @@
+{
+  Rsp rsp=new Rsp();
+  Exception ex=null;
+  List<ServerWrapper> skipped=new ArrayList<ServerWrapper>(req.getNumDeadServersToTry());
+  for (  String serverStr : req.getServers()) {
+    serverStr=normalize(serverStr);
+    ServerWrapper wrapper=zombieServers.get(serverStr);
+    if (wrapper != null) {
+      if (skipped.size() < req.getNumDeadServersToTry())       skipped.add(wrapper);
+      continue;
+    }
+    rsp.server=serverStr;
+    CommonsHttpSolrServer server=makeServer(serverStr);
+    try {
+      rsp.rsp=server.request(req.getRequest());
+      return rsp;
+    }
+ catch (    SolrException e) {
+      throw e;
+    }
+catch (    SolrServerException e) {
+      if (e.getRootCause() instanceof IOException) {
+        ex=e;
+        wrapper=new ServerWrapper(server);
+        wrapper.lastUsed=System.currentTimeMillis();
+        wrapper.standard=false;
+        zombieServers.put(wrapper.getKey(),wrapper);
+        startAliveCheckExecutor();
+      }
+ else {
+        throw e;
+      }
+    }
+catch (    Exception e) {
+      throw new SolrServerException(e);
+    }
+  }
+  for (  ServerWrapper wrapper : skipped) {
+    try {
+      rsp.rsp=wrapper.solrServer.request(req.getRequest());
+      zombieServers.remove(wrapper.getKey());
+      return rsp;
+    }
+ catch (    SolrException e) {
+      zombieServers.remove(wrapper.getKey());
+      throw e;
+    }
+catch (    SolrServerException e) {
+      if (e.getRootCause() instanceof IOException) {
+        ex=e;
+      }
+ else {
+        throw e;
+      }
+    }
+catch (    Exception e) {
+      throw new SolrServerException(e);
+    }
+  }
+  if (ex == null) {
+    throw new SolrServerException("No live SolrServers available to handle this request");
+  }
+ else {
+    throw new SolrServerException("No live SolrServers available to handle this request",ex);
+  }
+}

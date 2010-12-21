@@ -1,0 +1,78 @@
+{
+  String field=StringHelper.intern(this.field);
+  Terms terms=MultiFields.getTerms(reader,field);
+  final boolean fasterButMoreRAM=hasOption(FASTER_BUT_MORE_RAM);
+  final PagedBytes bytes=new PagedBytes(15);
+  int startBytesBPV;
+  int startTermsBPV;
+  int startNumUniqueTerms;
+  int maxDoc=reader.maxDoc();
+  final int termCountHardLimit;
+  if (maxDoc == Integer.MAX_VALUE) {
+    termCountHardLimit=Integer.MAX_VALUE;
+  }
+ else {
+    termCountHardLimit=maxDoc + 1;
+  }
+  if (terms != null) {
+    long numUniqueTerms=0;
+    try {
+      numUniqueTerms=terms.getUniqueTermCount();
+    }
+ catch (    UnsupportedOperationException uoe) {
+      numUniqueTerms=-1;
+    }
+    if (numUniqueTerms != -1) {
+      if (numUniqueTerms > termCountHardLimit) {
+        numUniqueTerms=termCountHardLimit;
+      }
+      startBytesBPV=PackedInts.bitsRequired(numUniqueTerms * 4);
+      startTermsBPV=PackedInts.bitsRequired(numUniqueTerms);
+      startNumUniqueTerms=(int)numUniqueTerms;
+    }
+ else {
+      startBytesBPV=1;
+      startTermsBPV=1;
+      startNumUniqueTerms=1;
+    }
+  }
+ else {
+    startBytesBPV=1;
+    startTermsBPV=1;
+    startNumUniqueTerms=1;
+  }
+  GrowableWriter termOrdToBytesOffset=new GrowableWriter(startBytesBPV,1 + startNumUniqueTerms,fasterButMoreRAM);
+  final GrowableWriter docToTermOrd=new GrowableWriter(startTermsBPV,reader.maxDoc(),fasterButMoreRAM);
+  bytes.copyUsingLengthPrefix(new BytesRef());
+  int termOrd=1;
+  if (terms != null) {
+    final TermsEnum termsEnum=terms.iterator();
+    DocsEnum docs=null;
+    while (true) {
+      final BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      if (termOrd >= termCountHardLimit) {
+        break;
+      }
+      if (termOrd == termOrdToBytesOffset.size()) {
+        termOrdToBytesOffset=termOrdToBytesOffset.resize(ArrayUtil.oversize(1 + termOrd,1));
+      }
+      termOrdToBytesOffset.set(termOrd,bytes.copyUsingLengthPrefix(term));
+      docs=termsEnum.docs(null,docs);
+      while (true) {
+        final int docID=docs.nextDoc();
+        if (docID == DocIdSetIterator.NO_MORE_DOCS) {
+          break;
+        }
+        docToTermOrd.set(docID,termOrd);
+      }
+      termOrd++;
+    }
+    if (termOrdToBytesOffset.size() > termOrd) {
+      termOrdToBytesOffset=termOrdToBytesOffset.resize(termOrd);
+    }
+  }
+  return new DocTermsIndexImpl(bytes.freeze(true),termOrdToBytesOffset.getMutable(),docToTermOrd.getMutable(),termOrd);
+}

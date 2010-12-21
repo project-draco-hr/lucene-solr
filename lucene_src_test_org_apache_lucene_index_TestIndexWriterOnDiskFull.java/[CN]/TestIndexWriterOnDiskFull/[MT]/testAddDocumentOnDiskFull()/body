@@ -1,0 +1,76 @@
+{
+  for (int pass=0; pass < 2; pass++) {
+    if (VERBOSE) {
+      System.out.println("TEST: pass=" + pass);
+    }
+    boolean doAbort=pass == 1;
+    long diskFree=_TestUtil.nextInt(random,100,300);
+    while (true) {
+      if (VERBOSE) {
+        System.out.println("TEST: cycle: diskFree=" + diskFree);
+      }
+      MockDirectoryWrapper dir=new MockDirectoryWrapper(random,new RAMDirectory());
+      dir.setMaxSizeInBytes(diskFree);
+      IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+      writer.setInfoStream(VERBOSE ? System.out : null);
+      MergeScheduler ms=writer.getConfig().getMergeScheduler();
+      if (ms instanceof ConcurrentMergeScheduler) {
+        ((ConcurrentMergeScheduler)ms).setSuppressExceptions();
+      }
+      boolean hitError=false;
+      try {
+        for (int i=0; i < 200; i++) {
+          addDoc(writer);
+        }
+        if (VERBOSE) {
+          System.out.println("TEST: done adding docs; now commit");
+        }
+        writer.commit();
+      }
+ catch (      IOException e) {
+        if (VERBOSE) {
+          System.out.println("TEST: exception on addDoc");
+          e.printStackTrace(System.out);
+        }
+        hitError=true;
+      }
+      if (hitError) {
+        if (doAbort) {
+          if (VERBOSE) {
+            System.out.println("TEST: now rollback");
+          }
+          writer.rollback();
+        }
+ else {
+          try {
+            if (VERBOSE) {
+              System.out.println("TEST: now close");
+            }
+            writer.close();
+          }
+ catch (          IOException e) {
+            if (VERBOSE) {
+              System.out.println("TEST: exception on close; retry w/ no disk space limit");
+              e.printStackTrace(System.out);
+            }
+            dir.setMaxSizeInBytes(0);
+            writer.close();
+          }
+        }
+        if (_TestUtil.anyFilesExceptWriteLock(dir)) {
+          assertNoUnreferencedFiles(dir,"after disk full during addDocument");
+          IndexReader.open(dir,true).close();
+          _TestUtil.checkIndex(dir);
+        }
+        dir.close();
+        diskFree+=_TestUtil.nextInt(random,400,600);
+      }
+ else {
+        dir.setMaxSizeInBytes(0);
+        writer.close();
+        dir.close();
+        break;
+      }
+    }
+  }
+}

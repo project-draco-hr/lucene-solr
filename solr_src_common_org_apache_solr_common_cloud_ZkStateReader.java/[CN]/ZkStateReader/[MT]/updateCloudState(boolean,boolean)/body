@@ -1,0 +1,52 @@
+{
+  if (immediate) {
+    if (!onlyLiveNodes) {
+      log.info("Updating cloud state from ZooKeeper... ");
+    }
+ else {
+      log.info("Updating live nodes from ZooKeeper... ");
+    }
+    CloudState cloudState;
+    cloudState=CloudState.buildCloudState(zkClient,this.cloudState,onlyLiveNodes);
+    this.cloudState=cloudState;
+  }
+ else {
+    if (cloudStateUpdateScheduled) {
+      log.info("Cloud state update for ZooKeeper already scheduled");
+      return;
+    }
+    log.info("Scheduling cloud state update from ZooKeeper...");
+    cloudStateUpdateScheduled=true;
+    updateCloudExecutor.schedule(new Runnable(){
+      public void run(){
+        log.info("Updating cloud state from ZooKeeper...");
+synchronized (getUpdateLock()) {
+          cloudStateUpdateScheduled=false;
+          CloudState cloudState;
+          try {
+            cloudState=CloudState.buildCloudState(zkClient,ZkStateReader.this.cloudState,onlyLiveNodes);
+          }
+ catch (          KeeperException e) {
+            if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+              log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+              return;
+            }
+            log.error("",e);
+            throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+          }
+catch (          InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("",e);
+            throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+          }
+catch (          IOException e) {
+            log.error("",e);
+            throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+          }
+          ZkStateReader.this.cloudState=cloudState;
+        }
+      }
+    }
+,CLOUD_UPDATE_DELAY,TimeUnit.MILLISECONDS);
+  }
+}

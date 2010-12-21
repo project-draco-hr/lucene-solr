@@ -1,37 +1,42 @@
 {
   final double SECONDS=2.0;
-  boolean useCompoundFile=true;
-  Directory dir=new RAMDirectory();
+  Directory dir=newDirectory();
   ExpirationTimeDeletionPolicy policy=new ExpirationTimeDeletionPolicy(dir,SECONDS);
-  IndexWriterConfig conf=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setIndexDeletionPolicy(policy);
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setIndexDeletionPolicy(policy);
   LogMergePolicy lmp=(LogMergePolicy)conf.getMergePolicy();
-  lmp.setUseCompoundFile(useCompoundFile);
+  lmp.setUseCompoundFile(true);
   IndexWriter writer=new IndexWriter(dir,conf);
   writer.close();
+  final int ITER=9;
   long lastDeleteTime=0;
-  for (int i=0; i < 7; i++) {
+  for (int i=0; i < ITER; i++) {
     lastDeleteTime=System.currentTimeMillis();
-    conf=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy);
+    conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy);
     lmp=(LogMergePolicy)conf.getMergePolicy();
-    lmp.setUseCompoundFile(useCompoundFile);
+    lmp.setUseCompoundFile(true);
     writer=new IndexWriter(dir,conf);
     for (int j=0; j < 17; j++) {
       addDoc(writer);
     }
     writer.close();
-    Thread.sleep((int)(1000.0 * (SECONDS / 5.0)));
+    if (i < ITER - 1) {
+      Thread.sleep((int)(1000.0 * (SECONDS / 5.0)));
+    }
   }
   assertTrue("no commits were deleted",policy.numDelete > 0);
   long gen=SegmentInfos.getCurrentSegmentGeneration(dir);
   String fileName=IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",gen);
   dir.deleteFile(IndexFileNames.SEGMENTS_GEN);
+  boolean oneSecondResolution=true;
   while (gen > 0) {
     try {
       IndexReader reader=IndexReader.open(dir,true);
       reader.close();
       fileName=IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",gen);
       long modTime=dir.fileModified(fileName);
-      assertTrue("commit point was older than " + SECONDS + " seconds ("+ (lastDeleteTime - modTime)+ " msec) but did not get deleted",lastDeleteTime - modTime <= (SECONDS * 1000));
+      oneSecondResolution&=(modTime % 1000) == 0;
+      final long leeway=(long)((SECONDS + (oneSecondResolution ? 1.0 : 0.0)) * 1000);
+      assertTrue("commit point was older than " + SECONDS + " seconds ("+ (lastDeleteTime - modTime)+ " msec) but did not get deleted ",lastDeleteTime - modTime <= leeway);
     }
  catch (    IOException e) {
       break;

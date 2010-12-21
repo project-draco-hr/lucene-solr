@@ -1,0 +1,23 @@
+{
+  connect();
+  CloudState cloudState=zkStateReader.getCloudState();
+  String collection=request.getParams().get("collection",defaultCollection);
+  Map<String,Slice> slices=cloudState.getSlices(collection);
+  Set<String> liveNodes=cloudState.getLiveNodes();
+  Map<String,ZkNodeProps> nodes=new HashMap<String,ZkNodeProps>();
+  List<String> urlList=new ArrayList<String>();
+  for (  Slice slice : slices.values()) {
+    for (    ZkNodeProps nodeProps : slice.getShards().values()) {
+      String node=nodeProps.get(ZkStateReader.NODE_NAME);
+      if (!liveNodes.contains(node))       continue;
+      if (nodes.put(node,nodeProps) == null) {
+        String url=nodeProps.get(ZkStateReader.URL_PROP);
+        urlList.add(url);
+      }
+    }
+  }
+  Collections.shuffle(urlList,rand);
+  LBHttpSolrServer.Req req=new LBHttpSolrServer.Req(request,urlList);
+  LBHttpSolrServer.Rsp rsp=lbServer.request(req);
+  return rsp.getResponse();
+}

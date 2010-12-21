@@ -1,0 +1,60 @@
+{
+  if (parser == null) {
+    try {
+      parser=FieldCache.DEFAULT_LONG_PARSER;
+      fillLongValues(vals,reader,field);
+      return;
+    }
+ catch (    NumberFormatException ne) {
+      vals.parserHashCode=null;
+      parser=FieldCache.NUMERIC_UTILS_LONG_PARSER;
+      fillLongValues(vals,reader,field);
+      return;
+    }
+  }
+  setParserAndResetCounts(vals,parser);
+  Terms terms=MultiFields.getTerms(reader,field);
+  int maxDoc=reader.maxDoc();
+  vals.values=null;
+  if (terms != null) {
+    final TermsEnum termsEnum=terms.iterator();
+    OpenBitSet validBits=(hasOption(OPTION_CACHE_BITS)) ? new OpenBitSet(maxDoc) : null;
+    DocsEnum docs=null;
+    try {
+      while (true) {
+        final BytesRef term=termsEnum.next();
+        if (term == null) {
+          break;
+        }
+        final long termval=parser.parseLong(term);
+        docs=termsEnum.docs(null,docs);
+        while (true) {
+          final int docID=docs.nextDoc();
+          if (docID == DocIdSetIterator.NO_MORE_DOCS) {
+            break;
+          }
+          if (vals.values == null) {
+            vals.values=new long[maxDoc];
+          }
+          vals.values[docID]=termval;
+          vals.numDocs++;
+          if (validBits != null) {
+            validBits.set(docID);
+          }
+        }
+        vals.numTerms++;
+      }
+    }
+ catch (    FieldCache.StopFillCacheException stop) {
+    }
+    if (vals.valid == null) {
+      vals.valid=checkMatchAllBits(validBits,vals.numDocs,maxDoc);
+    }
+  }
+  if (vals.values == null) {
+    vals.values=new long[maxDoc];
+  }
+  if (vals.valid == null && vals.numDocs < 1) {
+    vals.valid=new Bits.MatchNoBits(maxDoc);
+  }
+}

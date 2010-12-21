@@ -1,0 +1,29 @@
+{
+  Directory startDir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMaxBufferedDocs(2);
+  ((LogMergePolicy)conf.getMergePolicy()).setMergeFactor(100);
+  IndexWriter w=new IndexWriter(startDir,conf);
+  for (int i=0; i < 27; i++)   addDoc(w);
+  w.close();
+  for (int i=0; i < 200; i++) {
+    if (VERBOSE) {
+      System.out.println("TEST: iter " + i);
+    }
+    MockDirectoryWrapper dir=new MockDirectoryWrapper(random,new RAMDirectory(startDir));
+    conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMergeScheduler(new ConcurrentMergeScheduler());
+    ((ConcurrentMergeScheduler)conf.getMergeScheduler()).setSuppressExceptions();
+    w=new IndexWriter(dir,conf);
+    w.setInfoStream(VERBOSE ? System.out : null);
+    dir.setRandomIOExceptionRate(0.5);
+    try {
+      w.optimize();
+    }
+ catch (    IOException ioe) {
+      if (ioe.getCause() == null)       fail("optimize threw IOException without root cause");
+    }
+    dir.setRandomIOExceptionRate(0);
+    w.close();
+    dir.close();
+  }
+  startDir.close();
+}

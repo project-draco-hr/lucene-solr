@@ -1,23 +1,26 @@
 {
   Analyzer analyzer=new MockAnalyzer();
-  Directory directory=new RAMDirectory();
-  IndexWriter iwriter=new IndexWriter(directory,new IndexWriterConfig(TEST_VERSION_CURRENT,analyzer).setMaxFieldLength(25000));
+  Directory directory=newDirectory();
+  RandomIndexWriter iwriter=new RandomIndexWriter(random,directory);
+  iwriter.w.setInfoStream(VERBOSE ? System.out : null);
   Document doc=new Document();
   String longTerm="longtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongtermlongterm";
   String text="This is the text to be indexed. " + longTerm;
-  doc.add(new Field("fieldname",text,Field.Store.YES,Field.Index.ANALYZED));
+  doc.add(newField("fieldname",text,Field.Store.YES,Field.Index.ANALYZED));
   iwriter.addDocument(doc);
   iwriter.close();
   IndexSearcher isearcher=new IndexSearcher(directory,true);
   assertEquals(1,isearcher.search(new TermQuery(new Term("fieldname",longTerm)),1).totalHits);
   QueryParser parser=new QueryParser(TEST_VERSION_CURRENT,"fieldname",analyzer);
   Query query=parser.parse("text");
-  ScoreDoc[] hits=isearcher.search(query,null,1).scoreDocs;
-  assertEquals(1,hits.length);
-  for (int i=0; i < hits.length; i++) {
-    Document hitDoc=isearcher.doc(hits[i].doc);
+  TopDocs hits=isearcher.search(query,null,1);
+  assertEquals(1,hits.totalHits);
+  for (int i=0; i < hits.scoreDocs.length; i++) {
+    Document hitDoc=isearcher.doc(hits.scoreDocs[i].doc);
     assertEquals(text,hitDoc.get("fieldname"));
   }
+  query=parser.parse("\"to be\"");
+  assertEquals(1,isearcher.search(query,null,1).totalHits);
   isearcher.close();
   directory.close();
 }

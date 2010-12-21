@@ -2,35 +2,23 @@
   ensureOpen();
   try {
     String mergedName=newSegmentName();
-    SegmentMerger merger=new SegmentMerger(directory,termIndexInterval,mergedName,null,codecs,payloadProcessorProvider);
+    SegmentMerger merger=new SegmentMerger(directory,termIndexInterval,mergedName,null,codecs,payloadProcessorProvider,((FieldInfos)docWriter.getFieldInfos().clone()));
     for (    IndexReader reader : readers)     merger.add(reader);
     int docCount=merger.merge();
-    SegmentInfo info=null;
+    SegmentInfo info=new SegmentInfo(mergedName,docCount,directory,false,merger.fieldInfos().hasProx(),merger.getSegmentCodecs(),merger.fieldInfos().hasVectors());
+    setDiagnostics(info,"addIndexes(IndexReader...)");
+    boolean useCompoundFile;
 synchronized (this) {
-      info=new SegmentInfo(mergedName,docCount,directory,false,merger.hasProx(),merger.getCodec());
-      setDiagnostics(info,"addIndexes(IndexReader...)");
+      useCompoundFile=mergePolicy.useCompoundFile(segmentInfos,info);
+    }
+    if (useCompoundFile) {
+      merger.createCompoundFile(mergedName + ".cfs",info);
+      info.setUseCompoundFile(true);
+      deleter.deleteNewFiles(merger.getMergedFiles(info));
+    }
+synchronized (this) {
       segmentInfos.add(info);
       checkpoint();
-    }
-    if (mergePolicy instanceof LogMergePolicy && getLogMergePolicy().getUseCompoundFile()) {
-      List<String> files=null;
-synchronized (this) {
-        if (segmentInfos.contains(info)) {
-          files=info.files();
-          deleter.incRef(files);
-        }
-      }
-      if (files != null) {
-        try {
-          merger.createCompoundFile(mergedName + ".cfs",info);
-synchronized (this) {
-            info.setUseCompoundFile(true);
-          }
-        }
-  finally {
-          deleter.decRef(files);
-        }
-      }
     }
   }
  catch (  OutOfMemoryError oom) {

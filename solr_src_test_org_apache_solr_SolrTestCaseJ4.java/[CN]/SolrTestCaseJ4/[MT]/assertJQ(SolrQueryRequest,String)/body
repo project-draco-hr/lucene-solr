@@ -1,0 +1,43 @@
+{
+  SolrParams params=null;
+  try {
+    params=req.getParams();
+    if (!"json".equals(params.get("wt","xml")) || params.get("indent") == null) {
+      ModifiableSolrParams newParams=new ModifiableSolrParams(params);
+      newParams.set("wt","json");
+      if (params.get("indent") == null)       newParams.set("indent","true");
+      req.setParams(newParams);
+    }
+    String response;
+    boolean failed=true;
+    try {
+      response=h.query(req);
+      failed=false;
+    }
+  finally {
+      if (failed) {
+        log.error("REQUEST FAILED: " + req.getParamString());
+      }
+    }
+    for (    String test : tests) {
+      String testJSON=test.replace('\'','"');
+      try {
+        failed=true;
+        String err=JSONTestUtil.match(response,testJSON);
+        failed=false;
+        if (err != null) {
+          log.error("query failed JSON validation. error=" + err + "\n expected ="+ testJSON+ "\n response = "+ response+ "\n request = "+ req.getParamString());
+          throw new RuntimeException(err);
+        }
+      }
+  finally {
+        if (failed) {
+          log.error("JSON query validation threw an exception." + "\n expected =" + testJSON + "\n response = "+ response+ "\n request = "+ req.getParamString());
+        }
+      }
+    }
+  }
+  finally {
+    if (params != null && params != req.getParams())     req.setParams(params);
+  }
+}

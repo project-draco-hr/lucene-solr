@@ -9,13 +9,23 @@
     }
     persistent=cfg.getBool("solr/@persistent",false);
     libDir=cfg.get("solr/@sharedLib",null);
+    zkHost=cfg.get("solr/@zkHost",null);
     adminPath=cfg.get("solr/cores/@adminPath",null);
     shareSchema=cfg.getBool("solr/cores/@shareSchema",false);
+    int zkClientTimeout=cfg.getInt("solr/cores/@zkClientTimeout",10000);
+    hostPort=System.getProperty("hostPort");
+    if (hostPort == null) {
+      hostPort=cfg.get("solr/cores/@hostPort","8983");
+    }
+    hostContext=cfg.get("solr/cores/@hostContext","solr");
+    host=cfg.get("solr/cores/@host",null);
     if (shareSchema) {
       indexSchemaCache=new ConcurrentHashMap<String,IndexSchema>();
     }
     adminHandler=cfg.get("solr/cores/@adminHandler",null);
     managementPath=cfg.get("solr/cores/@managementPath",null);
+    zkClientTimeout=Integer.parseInt(System.getProperty("zkClientTimeout",Integer.toString(zkClientTimeout)));
+    initZooKeeper(zkHost,zkClientTimeout);
     if (libDir != null) {
       File f=FileUtils.resolvePath(new File(dir),libDir);
       log.info("loading shared library: " + f.getAbsolutePath());
@@ -36,18 +46,8 @@
       SolrConfig.severeErrors.add(e);
       SolrException.logOnce(log,null,e);
     }
-{
-      NodeList nodes=(NodeList)cfg.evaluate("solr/cores/core/@name",XPathConstants.NODESET);
-      Set<String> names=new HashSet<String>();
-      for (int i=0; i < nodes.getLength(); i++) {
-        String name=DOMUtil.getText(nodes.item(i));
-        if (names.contains(name)) {
-          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Multiple cores found with same name: " + name);
-        }
-        names.add(name);
-      }
-    }
     NodeList nodes=(NodeList)cfg.evaluate("solr/cores/core",XPathConstants.NODESET);
+    boolean defaultCoreFound=false;
     for (int i=0; i < nodes.getLength(); i++) {
       Node node=nodes.item(i);
       try {
@@ -60,7 +60,7 @@
         }
         CoreDescriptor p=new CoreDescriptor(this,name,DOMUtil.getAttr(node,"instanceDir",null));
         String opt=DOMUtil.getAttr(node,"config",null);
-        if (solrConfigFilenameOverride != null && name.equals("")) {
+        if (solrConfigFilenameOverride != null) {
           p.setConfigName(solrConfigFilenameOverride);
         }
  else         if (opt != null) {
@@ -69,6 +69,16 @@
         opt=DOMUtil.getAttr(node,"schema",null);
         if (opt != null) {
           p.setSchemaName(opt);
+        }
+        if (zkController != null) {
+          opt=DOMUtil.getAttr(node,"shard",null);
+          if (opt != null && opt.length() > 0) {
+            p.getCloudDescriptor().setShardId(opt);
+          }
+          opt=DOMUtil.getAttr(node,"collection",null);
+          if (opt != null) {
+            p.getCloudDescriptor().setCollectionName(opt);
+          }
         }
         opt=DOMUtil.getAttr(node,"properties",null);
         if (opt != null) {
@@ -95,6 +105,27 @@
       }
  catch (      Exception xany) {
       }
+    }
+  }
+  if (zkController != null) {
+    try {
+synchronized (zkController.getZkStateReader().getUpdateLock()) {
+        zkController.getZkStateReader().makeShardZkNodeWatches(false);
+        zkController.getZkStateReader().updateCloudState(true);
+      }
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+catch (    KeeperException e) {
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+catch (    IOException e) {
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
     }
   }
 }

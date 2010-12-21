@@ -1,0 +1,45 @@
+def processTar(fileName, fOut):
+    global didEnglish
+    t = tarfile.open(fileName, 'r:gz')
+    for ti in t:
+        if (ti.isfile() and ((not didEnglish) or (ti.name.find('/en/') == (-1)))):
+            tup = ti.name.split('/')
+            lang = tup[1]
+            year = int(tup[2][3:5])
+            if (year < 20):
+                year += 2000
+            else:
+                year += 1900
+            month = int(tup[2][6:8])
+            day = int(tup[2][9:11])
+            date = datetime.date(year=year, month=month, day=day)
+            if VERBOSE:
+                print 
+                print ('%s: %s' % (ti.name, date))
+            nextIsTitle = False
+            title = None
+            pending = []
+            for line in t.extractfile(ti).readlines():
+                line = line.strip()
+                if (reChapterOnly.match(line) is not None):
+                    if (title is not None):
+                        write(date, title, pending, fOut)
+                    nextIsTitle = True
+                    continue
+                if nextIsTitle:
+                    if ((not reNumberOnly.match(line)) and (not reTagOnly.match(line))):
+                        title = line
+                        nextIsTitle = False
+                        if VERBOSE:
+                            print ('  title %s' % line)
+                    continue
+                if (line.lower() == '<p>'):
+                    if docPerParagraph:
+                        write(date, title, pending, fOut)
+                    else:
+                        pending.append('PARSEP')
+                elif (not reTagOnly.match(line)):
+                    pending.append(line)
+            if ((title is not None) and (len(pending) > 0)):
+                write(date, title, pending, fOut)
+    didEnglish = True
