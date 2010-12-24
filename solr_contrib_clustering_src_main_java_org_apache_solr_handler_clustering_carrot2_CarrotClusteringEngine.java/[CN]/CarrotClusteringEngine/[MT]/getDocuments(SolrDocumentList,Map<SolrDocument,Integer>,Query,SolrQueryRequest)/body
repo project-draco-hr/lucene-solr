@@ -5,11 +5,6 @@
   String urlField=solrParams.get(CarrotParams.URL_FIELD_NAME,"url");
   String titleField=solrParams.get(CarrotParams.TITLE_FIELD_NAME,"title");
   String snippetField=solrParams.get(CarrotParams.SNIPPET_FIELD_NAME,titleField);
-  if (StringUtils.isBlank(snippetField)) {
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,CarrotParams.SNIPPET_FIELD_NAME + " must not be blank.");
-  }
-  Set<String> fieldsToLoad=Sets.newHashSet(urlField,titleField,snippetField,idFieldName);
-  DocIterator docsIter=docList.iterator();
   boolean produceSummary=solrParams.getBool(CarrotParams.PRODUCE_SUMMARY,false);
   SolrQueryRequest req=null;
   String[] snippetFieldAry=null;
@@ -35,17 +30,16 @@
       produceSummary=false;
     }
   }
-  SolrIndexSearcher searcher=sreq.getSearcher();
-  List<Document> result=new ArrayList<Document>(docList.size());
+  Iterator<SolrDocument> docsIter=solrDocList.iterator();
+  List<Document> result=new ArrayList<Document>(solrDocList.size());
   float[] scores={1.0f};
   int[] docsHolder=new int[1];
   Query theQuery=query;
   while (docsIter.hasNext()) {
-    Integer id=docsIter.next();
-    org.apache.lucene.document.Document doc=searcher.doc(id,fieldsToLoad);
-    String snippet=getValue(doc,snippetField);
-    if (produceSummary == true) {
-      docsHolder[0]=id.intValue();
+    SolrDocument sdoc=docsIter.next();
+    String snippet=getValue(sdoc,snippetField);
+    if (produceSummary && docIds != null) {
+      docsHolder[0]=docIds.get(sdoc).intValue();
       DocList docAsList=new DocSlice(0,1,docsHolder,scores,1,1.0f);
       NamedList highlights=highlighter.doHighlighting(docAsList,theQuery,req,snippetFieldAry);
       if (highlights != null && highlights.size() == 1) {
@@ -56,8 +50,8 @@
         }
       }
     }
-    Document carrotDocument=new Document(getValue(doc,titleField),snippet,doc.get(urlField));
-    carrotDocument.setField("solrId",doc.get(idFieldName));
+    Document carrotDocument=new Document(getValue(sdoc,titleField),snippet,(String)sdoc.getFieldValue(urlField));
+    carrotDocument.setField("solrId",sdoc.getFieldValue(idFieldName));
     result.add(carrotDocument);
   }
   return result;
