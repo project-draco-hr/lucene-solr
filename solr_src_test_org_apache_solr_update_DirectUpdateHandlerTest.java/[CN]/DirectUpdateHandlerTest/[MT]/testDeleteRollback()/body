@@ -1,13 +1,14 @@
 {
   deleteCore();
   initCore("solrconfig.xml","schema12.xml");
-  addSimpleDoc("A");
-  addSimpleDoc("B");
+  assertU(adoc("id","A"));
+  assertU(adoc("id","B"));
   SolrCore core=h.getCore();
   UpdateHandler updater=core.getUpdateHandler();
   assertTrue(updater instanceof DirectUpdateHandler2);
   DirectUpdateHandler2 duh2=(DirectUpdateHandler2)updater;
-  CommitUpdateCommand cmtCmd=new CommitUpdateCommand(false);
+  SolrQueryRequest ureq=req();
+  CommitUpdateCommand cmtCmd=new CommitUpdateCommand(ureq,false);
   cmtCmd.waitSearcher=true;
   assertEquals(2,duh2.addCommands.get());
   assertEquals(2,duh2.addCommandsCumulative.get());
@@ -16,23 +17,26 @@
   assertEquals(0,duh2.addCommands.get());
   assertEquals(2,duh2.addCommandsCumulative.get());
   assertEquals(1,duh2.commitCommands.get());
+  ureq.close();
   Map<String,String> args=new HashMap<String,String>();
   args.put(CommonParams.Q,"id:A OR id:B");
   args.put("indent","true");
   SolrQueryRequest req=new LocalSolrQueryRequest(core,new MapSolrParams(args));
   assertQ("\"A\" and \"B\" should be found.",req,"//*[@numFound='2']","//result/doc[1]/str[@name='id'][.='A']","//result/doc[2]/str[@name='id'][.='B']");
-  deleteSimpleDoc("B");
+  assertU(delI("B"));
   assertQ("\"A\" and \"B\" should be found.",req,"//*[@numFound='2']","//result/doc[1]/str[@name='id'][.='A']","//result/doc[2]/str[@name='id'][.='B']");
-  RollbackUpdateCommand rbkCmd=new RollbackUpdateCommand();
+  ureq=req();
+  RollbackUpdateCommand rbkCmd=new RollbackUpdateCommand(ureq);
   assertEquals(1,duh2.deleteByIdCommands.get());
   assertEquals(1,duh2.deleteByIdCommandsCumulative.get());
   assertEquals(0,duh2.rollbackCommands.get());
   updater.rollback(rbkCmd);
+  ureq.close();
   assertEquals(0,duh2.deleteByIdCommands.get());
   assertEquals(0,duh2.deleteByIdCommandsCumulative.get());
   assertEquals(1,duh2.rollbackCommands.get());
   assertQ("\"B\" should be found.",req,"//*[@numFound='2']","//result/doc[1]/str[@name='id'][.='A']","//result/doc[2]/str[@name='id'][.='B']");
-  addSimpleDoc("ZZZ");
+  assertU(adoc("id","ZZZ"));
   assertU(commit());
   assertQ("\"ZZZ\" must be found.",req("q","id:ZZZ"),"//*[@numFound='1']","//result/doc[1]/str[@name='id'][.='ZZZ']");
 }
