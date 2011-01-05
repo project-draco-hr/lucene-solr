@@ -1,10 +1,30 @@
 {
-  int limit=reader.maxDoc();
-  if (limit == 0) {
-    limit=1;
+  if (sort == null)   throw new NullPointerException();
+  if (executor == null) {
+    int limit=reader.maxDoc();
+    if (limit == 0) {
+      limit=1;
+    }
+    nDocs=Math.min(nDocs,limit);
+    TopFieldCollector collector=TopFieldCollector.create(sort,nDocs,fillFields,fieldSortDoTrackScores,fieldSortDoMaxScore,!weight.scoresDocsOutOfOrder());
+    search(weight,filter,collector);
+    return (TopFieldDocs)collector.topDocs();
   }
-  nDocs=Math.min(nDocs,limit);
-  TopFieldCollector collector=TopFieldCollector.create(sort,nDocs,fillFields,fieldSortDoTrackScores,fieldSortDoMaxScore,!weight.scoresDocsOutOfOrder());
-  search(weight,filter,collector);
-  return (TopFieldDocs)collector.topDocs();
+ else {
+    final FieldDocSortedHitQueue hq=new FieldDocSortedHitQueue(nDocs);
+    final Lock lock=new ReentrantLock();
+    final ExecutionHelper<TopFieldDocs> runner=new ExecutionHelper<TopFieldDocs>(executor);
+    for (int i=0; i < subReaders.length; i++) {
+      runner.submit(new MultiSearcherCallableWithSort(lock,subSearchers[i],weight,filter,nDocs,hq,sort,i,docStarts));
+    }
+    int totalHits=0;
+    float maxScore=Float.NEGATIVE_INFINITY;
+    for (    final TopFieldDocs topFieldDocs : runner) {
+      totalHits+=topFieldDocs.totalHits;
+      maxScore=Math.max(maxScore,topFieldDocs.getMaxScore());
+    }
+    final ScoreDoc[] scoreDocs=new ScoreDoc[hq.size()];
+    for (int i=hq.size() - 1; i >= 0; i--)     scoreDocs[i]=hq.pop();
+    return new TopFieldDocs(totalHits,scoreDocs,hq.getFields(),maxScore);
+  }
 }
