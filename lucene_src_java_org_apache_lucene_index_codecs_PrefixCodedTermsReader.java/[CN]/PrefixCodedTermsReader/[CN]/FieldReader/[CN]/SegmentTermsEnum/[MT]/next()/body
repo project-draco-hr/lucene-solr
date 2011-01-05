@@ -2,13 +2,23 @@
   if (seekPending) {
     seekPending=false;
     in.seek(state.filePointer);
+    indexEnum.seek(bytesReader.term);
+    didIndexNext=false;
   }
-  if (state.ord >= numTerms - 1) {
+  if (!bytesReader.read()) {
+    positioned=false;
     return null;
   }
-  bytesReader.read();
-  state.docFreq=in.readVInt();
-  postingsReader.readTerm(in,fieldInfo,state,fieldIndexReader.isIndexTerm(1 + state.ord,state.docFreq,false));
+  final byte b=in.readByte();
+  isIndexTerm=(b & 0x80) != 0;
+  if ((b & 0x40) == 0) {
+    state.docFreq=b & 0x3F;
+  }
+ else {
+    state.docFreq=(in.readVInt() << 6) | (b & 0x3F);
+  }
+  postingsReader.readTerm(in,fieldInfo,state,isIndexTerm);
   state.ord++;
+  positioned=true;
   return bytesReader.term;
 }
