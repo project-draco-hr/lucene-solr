@@ -1,0 +1,47 @@
+{
+synchronized (modifyCurrentIndexLock) {
+    ensureOpen();
+    final Directory dir=this.spellIndex;
+    final IndexWriter writer=new IndexWriter(dir,new IndexWriterConfig(Version.LUCENE_CURRENT,new WhitespaceAnalyzer(Version.LUCENE_CURRENT)).setRAMBufferSizeMB(ramMB));
+    ((LogMergePolicy)writer.getConfig().getMergePolicy()).setMergeFactor(mergeFactor);
+    IndexSearcher indexSearcher=obtainSearcher();
+    final List<TermsEnum> termsEnums=new ArrayList<TermsEnum>();
+    if (searcher.maxDoc() > 0) {
+      new ReaderUtil.Gather(searcher.getIndexReader()){
+        @Override protected void add(        int base,        IndexReader r) throws IOException {
+          Terms terms=r.terms(F_WORD);
+          if (terms != null)           termsEnums.add(terms.iterator());
+        }
+      }
+.run();
+    }
+    boolean isEmpty=termsEnums.isEmpty();
+    try {
+      Iterator<String> iter=dict.getWordsIterator();
+      BytesRef currentTerm=new BytesRef();
+      terms:       while (iter.hasNext()) {
+        String word=iter.next();
+        int len=word.length();
+        if (len < 3) {
+          continue;
+        }
+        if (!isEmpty) {
+          currentTerm.copy(word);
+          for (          TermsEnum te : termsEnums) {
+            if (te.seek(currentTerm,false) == TermsEnum.SeekStatus.FOUND) {
+              continue terms;
+            }
+          }
+        }
+        Document doc=createDocument(word,getMin(len),getMax(len));
+        writer.addDocument(doc);
+      }
+    }
+  finally {
+      releaseSearcher(indexSearcher);
+    }
+    if (optimize)     writer.optimize();
+    writer.close();
+    swapSearcher(dir);
+  }
+}

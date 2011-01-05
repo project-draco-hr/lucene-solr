@@ -1,0 +1,94 @@
+{
+  final DocState ds=getDocState();
+  final Document doc=reuseFields ? ds.doc : new Document();
+  doc.getFields().clear();
+  Field idField=ds.getField(ID_FIELD,storeVal,Index.NOT_ANALYZED_NO_NORMS,termVecVal);
+  int id;
+  if (r != null) {
+    id=r.nextInt(updateDocIDLimit);
+  }
+ else {
+    id=docData.getID();
+    if (id == -1) {
+      id=numDocsCreated.getAndIncrement();
+    }
+  }
+  idField.setValue(Integer.toString(id));
+  doc.add(idField);
+  String name=docData.getName();
+  if (name == null)   name="";
+  name=cnt < 0 ? name : name + "_" + cnt;
+  Field nameField=ds.getField(NAME_FIELD,storeVal,indexVal,termVecVal);
+  nameField.setValue(name);
+  doc.add(nameField);
+  DateUtil util=dateParsers.get();
+  if (util == null) {
+    util=new DateUtil();
+    dateParsers.set(util);
+  }
+  Date date=null;
+  String dateString=docData.getDate();
+  if (dateString != null) {
+    util.pos.setIndex(0);
+    date=util.parser.parse(dateString,util.pos);
+  }
+ else {
+    dateString="";
+  }
+  Field dateStringField=ds.getField(DATE_FIELD,storeVal,indexVal,termVecVal);
+  dateStringField.setValue(dateString);
+  doc.add(dateStringField);
+  if (date == null) {
+    date=new Date();
+  }
+  NumericField dateField=ds.getNumericField(DATE_MSEC_FIELD);
+  dateField.setLongValue(date.getTime());
+  doc.add(dateField);
+  util.cal.setTime(date);
+  final int sec=util.cal.get(Calendar.HOUR_OF_DAY) * 3600 + util.cal.get(Calendar.MINUTE) * 60 + util.cal.get(Calendar.SECOND);
+  NumericField timeSecField=ds.getNumericField(TIME_SEC_FIELD);
+  timeSecField.setIntValue(sec);
+  doc.add(timeSecField);
+  String title=docData.getTitle();
+  Field titleField=ds.getField(TITLE_FIELD,storeVal,indexVal,termVecVal);
+  titleField.setValue(title == null ? "" : title);
+  doc.add(titleField);
+  String body=docData.getBody();
+  if (body != null && body.length() > 0) {
+    String bdy;
+    if (size <= 0 || size >= body.length()) {
+      bdy=body;
+      docData.setBody("");
+    }
+ else {
+      for (int n=size - 1; n < size + 20 && n < body.length(); n++) {
+        if (Character.isWhitespace(body.charAt(n))) {
+          size=n;
+          break;
+        }
+      }
+      bdy=body.substring(0,size);
+      docData.setBody(body.substring(size));
+    }
+    Field bodyField=ds.getField(BODY_FIELD,bodyStoreVal,bodyIndexVal,termVecVal);
+    bodyField.setValue(bdy);
+    doc.add(bodyField);
+    if (storeBytes) {
+      Field bytesField=ds.getField(BYTES_FIELD,Store.YES,Index.NOT_ANALYZED_NO_NORMS,TermVector.NO);
+      bytesField.setValue(bdy.getBytes("UTF-8"));
+      doc.add(bytesField);
+    }
+  }
+  if (indexProperties) {
+    Properties props=docData.getProps();
+    if (props != null) {
+      for (      final Map.Entry<Object,Object> entry : props.entrySet()) {
+        Field f=ds.getField((String)entry.getKey(),storeVal,indexVal,termVecVal);
+        f.setValue((String)entry.getValue());
+        doc.add(f);
+      }
+      docData.setProps(null);
+    }
+  }
+  return doc;
+}

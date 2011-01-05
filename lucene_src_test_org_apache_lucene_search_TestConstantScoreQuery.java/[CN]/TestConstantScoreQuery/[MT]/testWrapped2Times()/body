@@ -1,0 +1,40 @@
+{
+  Directory directory=null;
+  IndexReader reader=null;
+  IndexSearcher searcher=null;
+  try {
+    directory=newDirectory();
+    RandomIndexWriter writer=new RandomIndexWriter(random,directory);
+    Document doc=new Document();
+    doc.add(newField("field","term",Field.Store.NO,Field.Index.NOT_ANALYZED));
+    writer.addDocument(doc);
+    reader=writer.getReader();
+    writer.close();
+    searcher=new IndexSearcher(reader);
+    searcher.setSimilarity(new DefaultSimilarity(){
+      @Override public float queryNorm(      float sumOfSquaredWeights){
+        return 1.0f;
+      }
+    }
+);
+    final Query csq1=new ConstantScoreQuery(new TermQuery(new Term("field","term")));
+    csq1.setBoost(2.0f);
+    final Query csq2=new ConstantScoreQuery(csq1);
+    csq2.setBoost(5.0f);
+    final BooleanQuery bq=new BooleanQuery();
+    bq.add(csq1,BooleanClause.Occur.SHOULD);
+    bq.add(csq2,BooleanClause.Occur.SHOULD);
+    final Query csqbq=new ConstantScoreQuery(bq);
+    csqbq.setBoost(17.0f);
+    checkHits(searcher,csq1,csq1.getBoost(),ConstantScoreQuery.ConstantScorer.class.getName(),null);
+    checkHits(searcher,csq2,csq2.getBoost(),ConstantScoreQuery.ConstantScorer.class.getName(),ConstantScoreQuery.ConstantScorer.class.getName());
+    final String bucketScorerClass=BooleanScorer.class.getName() + "$BucketScorer";
+    checkHits(searcher,bq,csq1.getBoost() + csq2.getBoost(),bucketScorerClass,null);
+    checkHits(searcher,csqbq,csqbq.getBoost(),ConstantScoreQuery.ConstantScorer.class.getName(),bucketScorerClass);
+  }
+  finally {
+    if (searcher != null)     searcher.close();
+    if (reader != null)     reader.close();
+    if (directory != null)     directory.close();
+  }
+}
