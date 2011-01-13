@@ -1,0 +1,47 @@
+{
+  if (termArrays.size() == 0)   return null;
+  final IndexReader reader=context.reader;
+  final Bits delDocs=reader.getDeletedDocs();
+  PhraseQuery.PostingsAndFreq[] postingsFreqs=new PhraseQuery.PostingsAndFreq[termArrays.size()];
+  for (int pos=0; pos < postingsFreqs.length; pos++) {
+    Term[] terms=termArrays.get(pos);
+    final DocsAndPositionsEnum postingsEnum;
+    int docFreq;
+    if (terms.length > 1) {
+      postingsEnum=new UnionDocsAndPositionsEnum(reader,terms);
+      docFreq=0;
+      for (int termIdx=0; termIdx < terms.length; termIdx++) {
+        docFreq+=reader.docFreq(terms[termIdx]);
+      }
+    }
+ else {
+      final Term term=terms[0];
+      postingsEnum=reader.termPositionsEnum(delDocs,term.field(),term.bytes());
+      if (postingsEnum == null) {
+        if (reader.termDocsEnum(delDocs,term.field(),term.bytes()) != null) {
+          throw new IllegalStateException("field \"" + term.field() + "\" was indexed with Field.omitTermFreqAndPositions=true; cannot run PhraseQuery (term="+ term.text()+ ")");
+        }
+ else {
+          return null;
+        }
+      }
+      docFreq=reader.docFreq(term.field(),term.bytes());
+    }
+    postingsFreqs[pos]=new PhraseQuery.PostingsAndFreq(postingsEnum,docFreq,positions.get(pos).intValue());
+  }
+  if (slop == 0) {
+    ArrayUtil.quickSort(postingsFreqs);
+  }
+  if (slop == 0) {
+    ExactPhraseScorer s=new ExactPhraseScorer(this,postingsFreqs,similarity,reader.norms(field));
+    if (s.noDocs) {
+      return null;
+    }
+ else {
+      return s;
+    }
+  }
+ else {
+    return new SloppyPhraseScorer(this,postingsFreqs,similarity,slop,reader.norms(field));
+  }
+}

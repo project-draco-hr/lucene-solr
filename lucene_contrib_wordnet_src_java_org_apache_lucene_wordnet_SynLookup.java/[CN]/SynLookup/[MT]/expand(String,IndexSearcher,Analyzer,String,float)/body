@@ -1,0 +1,42 @@
+{
+  final Set<String> already=new HashSet<String>();
+  List<String> top=new LinkedList<String>();
+  TokenStream ts=a.tokenStream(field,new StringReader(query));
+  CharTermAttribute termAtt=ts.addAttribute(CharTermAttribute.class);
+  while (ts.incrementToken()) {
+    String word=termAtt.toString();
+    if (already.add(word))     top.add(word);
+  }
+  final BooleanQuery tmp=new BooleanQuery();
+  Iterator<String> it=top.iterator();
+  while (it.hasNext()) {
+    String word=it.next();
+    TermQuery tq=new TermQuery(new Term(field,word));
+    tmp.add(tq,BooleanClause.Occur.SHOULD);
+    syns.search(new TermQuery(new Term(Syns2Index.F_WORD,word)),new Collector(){
+      IndexReader reader;
+      @Override public boolean acceptsDocsOutOfOrder(){
+        return true;
+      }
+      @Override public void collect(      int doc) throws IOException {
+        Document d=reader.document(doc);
+        String[] values=d.getValues(Syns2Index.F_SYN);
+        for (int j=0; j < values.length; j++) {
+          String syn=values[j];
+          if (already.add(syn)) {
+            TermQuery tq=new TermQuery(new Term(field,syn));
+            if (boost > 0)             tq.setBoost(boost);
+            tmp.add(tq,BooleanClause.Occur.SHOULD);
+          }
+        }
+      }
+      @Override public void setNextReader(      AtomicReaderContext context) throws IOException {
+        this.reader=context.reader;
+      }
+      @Override public void setScorer(      Scorer scorer) throws IOException {
+      }
+    }
+);
+  }
+  return tmp;
+}

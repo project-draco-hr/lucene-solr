@@ -1,0 +1,34 @@
+{
+  final IndexReader[] subs=r.getSequentialSubReaders();
+  if (subs == null) {
+    return r.norms(field);
+  }
+ else   if (subs.length == 0 || !r.hasNorms(field)) {
+    return null;
+  }
+ else   if (subs.length == 1) {
+    return norms(subs[0],field);
+  }
+ else {
+    byte norms[]=new byte[r.maxDoc()];
+    final List<IndexReader> leaves=new ArrayList<IndexReader>();
+    ReaderUtil.gatherSubReaders(leaves,r);
+    int end=0;
+    for (    IndexReader leaf : leaves) {
+      Fields fields=leaf.fields();
+      boolean hasField=(fields != null && fields.terms(field) != null);
+      int start=end;
+      byte leafNorms[]=leaf.norms(field);
+      if (leafNorms == null) {
+        if (hasField) {
+          return null;
+        }
+        leafNorms=new byte[leaf.maxDoc()];
+        Arrays.fill(leafNorms,(byte)0);
+      }
+      System.arraycopy(leafNorms,0,norms,start,leafNorms.length);
+      end+=leaf.maxDoc();
+    }
+    return norms;
+  }
+}

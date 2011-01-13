@@ -2,12 +2,13 @@
   if (CodecProvider.getDefault().getDefaultFieldCodec().equals("SimpleText")) {
     CodecProvider.getDefault().setDefaultFieldCodec("Standard");
   }
-  final LineFileDocs docs=new LineFileDocs(false);
+  final LineFileDocs docs=new LineFileDocs(random);
   final int RUN_TIME_SEC=LuceneTestCase.TEST_NIGHTLY ? 100 : 1;
   final IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMaxBufferedDocs(-1).setRAMBufferSizeMB(64);
   final File tempDir=_TestUtil.getTempDir("fstlines");
   final MockDirectoryWrapper dir=new MockDirectoryWrapper(random,FSDirectory.open(tempDir));
   final IndexWriter writer=new IndexWriter(dir,conf);
+  writer.setInfoStream(VERBOSE ? System.out : null);
   final long stopTime=System.currentTimeMillis() + RUN_TIME_SEC * 1000;
   Document doc;
   int docCount=0;
@@ -62,15 +63,14 @@
     if (ord > 0) {
       final BytesRefFSTEnum<Long> fstEnum=new BytesRefFSTEnum<Long>(fst);
       for (int iter=0; iter < 1000 * RANDOM_MULTIPLIER; iter++) {
-        fstEnum.reset();
         final BytesRef randomTerm=new BytesRef(getRandomString());
-        final TermsEnum.SeekStatus seekResult=termsEnum.seek(randomTerm);
-        final BytesRefFSTEnum.InputOutput fstSeekResult=fstEnum.advance(randomTerm);
         if (VERBOSE) {
-          System.out.println("TEST: seek " + randomTerm.utf8ToString());
+          System.out.println("TEST: seek " + randomTerm.utf8ToString() + " "+ randomTerm);
         }
+        final TermsEnum.SeekStatus seekResult=termsEnum.seek(randomTerm);
+        final BytesRefFSTEnum.InputOutput fstSeekResult=fstEnum.seekCeil(randomTerm);
         if (seekResult == TermsEnum.SeekStatus.END) {
-          assertNull(fstSeekResult);
+          assertNull("got " + (fstSeekResult == null ? "null" : fstSeekResult.input.utf8ToString()) + " but expected null",fstSeekResult);
         }
  else {
           assertSame(termsEnum,fstEnum,storeOrd);
@@ -86,6 +86,9 @@
               assertSame(termsEnum,fstEnum,storeOrd);
             }
  else {
+              if (VERBOSE) {
+                System.out.println("  end!");
+              }
               BytesRefFSTEnum.InputOutput<Long> nextResult=fstEnum.next();
               if (nextResult != null) {
                 System.out.println("expected null but got: input=" + nextResult.input.utf8ToString() + " output="+ outputs.outputToString(nextResult.output));
