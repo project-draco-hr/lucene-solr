@@ -1,26 +1,31 @@
 {
-  boolean flushed=threadPool.executePerThread(this,doc,new DocumentsWriterThreadPool.PerThreadTask<Boolean>(){
-    @Override public Boolean process(    final DocumentsWriterPerThread perThread) throws IOException {
-      long perThreadRAMUsedBeforeAdd=perThread.bytesUsed();
-      perThread.addDocument(doc,analyzer);
+  ensureOpen();
+  Collection<String> flushedFiles=null;
+  SegmentInfo newSegment=null;
+  ThreadState perThread=perThreadPool.getAndLock(Thread.currentThread(),this,doc);
+  try {
+    DocumentsWriterPerThread dwpt=perThread.perThread;
+    long perThreadRAMUsedBeforeAdd=dwpt.bytesUsed();
+    dwpt.addDocument(doc,analyzer);
 synchronized (DocumentsWriter.this) {
-        ensureOpen();
-        if (delTerm != null) {
-          deleteTerm(delTerm,true);
-        }
-        perThread.commitDocument();
-        numDocsInRAM.incrementAndGet();
+      if (delTerm != null) {
+        deleteTerm(delTerm);
       }
-      if (finishAddDocument(perThread,perThreadRAMUsedBeforeAdd)) {
-        super.clearThreadBindings();
-        return true;
-      }
-      return false;
+      dwpt.commitDocument();
+      numDocsInRAM.incrementAndGet();
+    }
+    newSegment=finishAddDocument(dwpt,perThreadRAMUsedBeforeAdd);
+    if (newSegment != null) {
+      perThreadPool.clearThreadBindings(perThread);
+      flushedFiles=new HashSet<String>();
+      flushedFiles.addAll(dwpt.flushState.flushedFiles);
     }
   }
-);
-  if (flushed) {
-    indexWriter.maybeMerge();
+  finally {
+    perThread.unlock();
+  }
+  if (newSegment != null) {
+    finishFlushedSegment(newSegment,flushedFiles);
     return true;
   }
   return false;
