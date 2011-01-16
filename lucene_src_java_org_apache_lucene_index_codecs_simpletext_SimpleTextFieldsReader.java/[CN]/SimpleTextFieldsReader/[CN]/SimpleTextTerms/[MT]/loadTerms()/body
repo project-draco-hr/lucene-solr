@@ -1,25 +1,31 @@
 {
   PositiveIntOutputs posIntOutputs=PositiveIntOutputs.getSingleton(false);
-  Builder<PairOutputs.Pair<Long,Long>> b=new Builder<PairOutputs.Pair<Long,Long>>(FST.INPUT_TYPE.BYTE1,0,0,true,new PairOutputs<Long,Long>(posIntOutputs,posIntOutputs));
+  final Builder<PairOutputs.Pair<Long,PairOutputs.Pair<Long,Long>>> b;
+  b=new Builder<PairOutputs.Pair<Long,PairOutputs.Pair<Long,Long>>>(FST.INPUT_TYPE.BYTE1,0,0,true,new PairOutputs<Long,PairOutputs.Pair<Long,Long>>(posIntOutputs,new PairOutputs<Long,Long>(posIntOutputs,posIntOutputs)));
   IndexInput in=(IndexInput)SimpleTextFieldsReader.this.in.clone();
   in.seek(termsStart);
   final BytesRef lastTerm=new BytesRef(10);
   long lastDocsStart=-1;
   int docFreq=0;
+  long totalTermFreq=0;
   while (true) {
     readLine(in,scratch);
     if (scratch.equals(END) || scratch.startsWith(FIELD)) {
       if (lastDocsStart != -1) {
-        b.add(lastTerm,new PairOutputs.Pair<Long,Long>(lastDocsStart,Long.valueOf(docFreq)));
+        b.add(lastTerm,new PairOutputs.Pair<Long,PairOutputs.Pair<Long,Long>>(lastDocsStart,new PairOutputs.Pair<Long,Long>((long)docFreq,posIntOutputs.get(totalTermFreq))));
+        sumTotalTermFreq+=totalTermFreq;
       }
       break;
     }
  else     if (scratch.startsWith(DOC)) {
       docFreq++;
     }
+ else     if (scratch.startsWith(POS)) {
+      totalTermFreq++;
+    }
  else     if (scratch.startsWith(TERM)) {
       if (lastDocsStart != -1) {
-        b.add(lastTerm,new PairOutputs.Pair<Long,Long>(lastDocsStart,Long.valueOf(docFreq)));
+        b.add(lastTerm,new PairOutputs.Pair<Long,PairOutputs.Pair<Long,Long>>(lastDocsStart,new PairOutputs.Pair<Long,Long>((long)docFreq,posIntOutputs.get(totalTermFreq))));
       }
       lastDocsStart=in.getFilePointer();
       final int len=scratch.length - TERM.length;
@@ -29,6 +35,9 @@
       System.arraycopy(scratch.bytes,TERM.length,lastTerm.bytes,0,len);
       lastTerm.length=len;
       docFreq=0;
+      sumTotalTermFreq+=totalTermFreq;
+      totalTermFreq=0;
+      termCount++;
     }
   }
   fst=b.finish();
