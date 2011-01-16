@@ -7,21 +7,26 @@
     long perThreadRAMUsedBeforeAdd=dwpt.bytesUsed();
     dwpt.addDocument(doc,analyzer);
     if (delTerm != null) {
-      deleteTerm(delTerm);
+      dwpt.deleteTerm(delTerm);
     }
     dwpt.commitDocument();
     numDocsInRAM.incrementAndGet();
     newSegment=finishAddDocument(dwpt,perThreadRAMUsedBeforeAdd);
-    if (newSegment != null) {
-      perThreadPool.clearThreadBindings(perThread);
+    if (newSegment != null && dwpt.pendingDeletes.any()) {
+      bufferedDeletes.pushDeletes(dwpt.pendingDeletes,newSegment);
+      dwpt.pendingDeletes=new SegmentDeletes();
     }
   }
   finally {
     perThread.unlock();
   }
   if (newSegment != null) {
+    perThreadPool.clearThreadBindings(perThread);
     finishFlushedSegment(newSegment);
     return true;
+  }
+  if (delTerm != null) {
+    deleteTerm(delTerm,perThread);
   }
   return false;
 }
