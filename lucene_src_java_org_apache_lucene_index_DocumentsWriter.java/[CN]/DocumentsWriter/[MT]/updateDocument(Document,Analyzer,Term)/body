@@ -1,28 +1,31 @@
 {
   ensureOpen();
   SegmentInfo newSegment=null;
+  SegmentDeletes segmentDeletes=null;
   ThreadState perThread=perThreadPool.getAndLock(Thread.currentThread(),this,doc);
   try {
     DocumentsWriterPerThread dwpt=perThread.perThread;
     long perThreadRAMUsedBeforeAdd=dwpt.bytesUsed();
-    dwpt.addDocument(doc,analyzer);
-    if (delTerm != null) {
-      dwpt.deleteTerm(delTerm);
-    }
-    dwpt.commitDocument();
+    dwpt.updateDocument(doc,analyzer,delTerm);
     numDocsInRAM.incrementAndGet();
     newSegment=finishAddDocument(dwpt,perThreadRAMUsedBeforeAdd);
-    if (newSegment != null && dwpt.pendingDeletes.any()) {
-      bufferedDeletes.pushDeletes(dwpt.pendingDeletes,newSegment);
-      dwpt.pendingDeletes=new SegmentDeletes();
+    if (newSegment != null) {
+      fieldInfos.update(dwpt.getFieldInfos());
+      if (dwpt.pendingDeletes.any()) {
+        segmentDeletes=dwpt.pendingDeletes;
+        dwpt.pendingDeletes=new SegmentDeletes();
+      }
     }
   }
   finally {
     perThread.unlock();
   }
+  if (segmentDeletes != null) {
+    pushDeletes(newSegment,segmentDeletes);
+  }
   if (newSegment != null) {
     perThreadPool.clearThreadBindings(perThread);
-    finishFlushedSegment(newSegment);
+    indexWriter.addFlushedSegment(newSegment);
     return true;
   }
   if (delTerm != null) {
