@@ -1,0 +1,66 @@
+{
+  if (indexEnum == null) {
+    throw new IllegalStateException("terms index was not loaded");
+  }
+  if (useCache) {
+    fieldTerm.term=target;
+    final TermState cachedState=termsCache.get(fieldTerm);
+    if (cachedState != null) {
+      seekPending=true;
+      seek(target,cachedState);
+      return SeekStatus.FOUND;
+    }
+  }
+  boolean doSeek=true;
+  if (indexIsCurrent) {
+    final int cmp=termComp.compare(term,target);
+    if (cmp == 0) {
+      return SeekStatus.FOUND;
+    }
+ else     if (cmp < 0) {
+      if (!didIndexNext) {
+        if (indexEnum.next() == -1) {
+          nextIndexTerm=null;
+        }
+ else {
+          nextIndexTerm=indexEnum.term();
+        }
+        didIndexNext=true;
+      }
+      if (nextIndexTerm == null || termComp.compare(target,nextIndexTerm) < 0) {
+        doSeek=false;
+      }
+    }
+  }
+  if (doSeek) {
+    in.seek(indexEnum.seek(target));
+    boolean result=nextBlock();
+    assert result;
+    indexIsCurrent=true;
+    didIndexNext=false;
+    blocksSinceSeek=0;
+    if (doOrd) {
+      state.ord=indexEnum.ord() - 1;
+    }
+    term.copy(indexEnum.term());
+  }
+ else {
+  }
+  seekPending=false;
+  while (_next() != null) {
+    final int cmp=termComp.compare(term,target);
+    if (cmp == 0) {
+      if (useCache) {
+        decodeMetaData();
+        termsCache.put(new FieldAndTerm(fieldTerm),(BlockTermState)state.clone());
+      }
+      return SeekStatus.FOUND;
+    }
+ else     if (cmp > 0) {
+      return SeekStatus.NOT_FOUND;
+    }
+    assert indexIsCurrent;
+  }
+  indexIsCurrent=false;
+  return SeekStatus.END;
+}

@@ -1,0 +1,35 @@
+{
+  final String TEXT="the fox did not jump";
+  final Directory directory=newDirectory();
+  final IndexWriter indexWriter=new IndexWriter(directory,newIndexWriterConfig(TEST_VERSION_CURRENT,new OverlapAnalyzer()));
+  try {
+    final Document document=new Document();
+    document.add(new Field(FIELD,new TokenStreamOverlap(),TermVector.WITH_POSITIONS_OFFSETS));
+    indexWriter.addDocument(document);
+  }
+  finally {
+    indexWriter.close();
+  }
+  final IndexReader indexReader=IndexReader.open(directory,true);
+  try {
+    assertEquals(1,indexReader.numDocs());
+    final IndexSearcher indexSearcher=new IndexSearcher(indexReader);
+    try {
+      final DisjunctionMaxQuery query=new DisjunctionMaxQuery(1);
+      query.add(new SpanTermQuery(new Term(FIELD,"{fox}")));
+      query.add(new SpanTermQuery(new Term(FIELD,"fox")));
+      TopDocs hits=indexSearcher.search(query,1);
+      assertEquals(1,hits.totalHits);
+      final Highlighter highlighter=new Highlighter(new SimpleHTMLFormatter(),new SimpleHTMLEncoder(),new QueryScorer(query));
+      final TokenStream tokenStream=TokenSources.getTokenStream((TermPositionVector)indexReader.getTermFreqVector(0,FIELD),false);
+      assertEquals("<B>the fox</B> did not jump",highlighter.getBestFragment(tokenStream,TEXT));
+    }
+  finally {
+      indexSearcher.close();
+    }
+  }
+  finally {
+    indexReader.close();
+    directory.close();
+  }
+}
