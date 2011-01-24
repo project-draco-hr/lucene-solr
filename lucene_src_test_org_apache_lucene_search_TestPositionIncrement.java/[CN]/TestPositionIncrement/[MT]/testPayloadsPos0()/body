@@ -4,18 +4,19 @@
   Document doc=new Document();
   doc.add(new Field("content",new StringReader("a a b c d e a f g h i j a b k k")));
   writer.addDocument(doc);
-  IndexReader r=new SlowMultiReaderWrapper(writer.getReader());
+  final IndexReader readerFromWriter=writer.getReader();
+  SlowMultiReaderWrapper r=new SlowMultiReaderWrapper(readerFromWriter);
   DocsAndPositionsEnum tp=r.termPositionsEnum(r.getDeletedDocs(),"content",new BytesRef("a"));
   int count=0;
-  assertTrue(tp.nextDoc() != tp.NO_MORE_DOCS);
+  assertTrue(tp.nextDoc() != DocsAndPositionsEnum.NO_MORE_DOCS);
   assertEquals(4,tp.freq());
   int expected=0;
   assertEquals(expected,tp.nextPosition());
   assertEquals(1,tp.nextPosition());
   assertEquals(3,tp.nextPosition());
   assertEquals(6,tp.nextPosition());
-  assertEquals(tp.NO_MORE_DOCS,tp.nextDoc());
-  IndexSearcher is=new IndexSearcher(r);
+  assertEquals(DocsAndPositionsEnum.NO_MORE_DOCS,tp.nextDoc());
+  IndexSearcher is=new IndexSearcher(readerFromWriter);
   SpanTermQuery stq1=new SpanTermQuery(new Term("content","a"));
   SpanTermQuery stq2=new SpanTermQuery(new Term("content","k"));
   SpanQuery[] sqs={stq1,stq2};
@@ -25,7 +26,7 @@
   if (VERBOSE) {
     System.out.println("\ngetPayloadSpans test");
   }
-  Spans pspans=snq.getSpans(is.getIndexReader());
+  Spans pspans=MultiSpansWrapper.wrap(is.getTopReaderContext(),snq);
   while (pspans.next()) {
     if (VERBOSE) {
       System.out.println("doc " + pspans.doc() + ": span "+ pspans.start()+ " to "+ pspans.end());
@@ -39,9 +40,9 @@
       }
     }
   }
-  assertEquals(5,count);
   assertTrue(sawZero);
-  Spans spans=snq.getSpans(is.getIndexReader());
+  assertEquals(5,count);
+  Spans spans=MultiSpansWrapper.wrap(is.getTopReaderContext(),snq);
   count=0;
   sawZero=false;
   while (spans.next()) {
@@ -51,7 +52,7 @@
   assertEquals(4,count);
   assertTrue(sawZero);
   sawZero=false;
-  PayloadSpanUtil psu=new PayloadSpanUtil(is.getIndexReader());
+  PayloadSpanUtil psu=new PayloadSpanUtil(is.getTopReaderContext());
   Collection<byte[]> pls=psu.getPayloadsForQuery(snq);
   count=pls.size();
   for (  byte[] bytes : pls) {
