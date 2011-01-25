@@ -1,0 +1,60 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(MockTokenizer.WHITESPACE,true,usePayload)));
+  int numDocs=499;
+  int max=15678;
+  int term=random.nextInt(max);
+  int[] freqInDoc=new int[numDocs];
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    StringBuilder builder=new StringBuilder();
+    for (int j=0; j < 199; j++) {
+      int nextInt=random.nextInt(max);
+      builder.append(nextInt).append(" ");
+      if (nextInt == term) {
+        freqInDoc[i]++;
+      }
+    }
+    doc.add(newField(fieldName,builder.toString(),Field.Store.YES,Field.Index.ANALYZED));
+    writer.addDocument(doc);
+  }
+  IndexReader reader=writer.getReader();
+  writer.close();
+  for (int i=0; i < 39 * RANDOM_MULTIPLIER; i++) {
+    BytesRef bytes=new BytesRef("" + term);
+    ReaderContext topReaderContext=reader.getTopReaderContext();
+    AtomicReaderContext[] leaves=ReaderUtil.leaves(topReaderContext);
+    for (    AtomicReaderContext context : leaves) {
+      int maxDoc=context.reader.maxDoc();
+      DocsEnum docsAndPosEnum=getDocsEnum(context.reader,bytes,true,null);
+      if (findNext(freqInDoc,context.docBase,context.docBase + maxDoc) == Integer.MAX_VALUE) {
+        assertNull(docsAndPosEnum);
+        continue;
+      }
+      assertNotNull(docsAndPosEnum);
+      docsAndPosEnum.nextDoc();
+      for (int j=0; j < maxDoc; j++) {
+        if (freqInDoc[context.docBase + j] != 0) {
+          assertEquals(j,docsAndPosEnum.docID());
+          assertEquals(docsAndPosEnum.freq(),freqInDoc[context.docBase + j]);
+          if (i % 2 == 0 && random.nextInt(10) == 0) {
+            int next=findNext(freqInDoc,context.docBase + j + 1,context.docBase + maxDoc) - context.docBase;
+            int advancedTo=docsAndPosEnum.advance(next);
+            if (next >= maxDoc) {
+              assertEquals(DocsEnum.NO_MORE_DOCS,advancedTo);
+            }
+ else {
+              assertTrue("advanced to: " + advancedTo + " but should be <= "+ next,next >= advancedTo);
+            }
+          }
+ else {
+            docsAndPosEnum.nextDoc();
+          }
+        }
+      }
+      assertEquals("docBase: " + context.docBase + " maxDoc: "+ maxDoc+ " "+ docsAndPosEnum.getClass(),DocsEnum.NO_MORE_DOCS,docsAndPosEnum.docID());
+    }
+  }
+  reader.close();
+  dir.close();
+}
