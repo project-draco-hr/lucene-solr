@@ -1,28 +1,46 @@
 {
   for (int pass=0; pass < 2; pass++) {
+    if (VERBOSE) {
+      System.out.println("TEST: cycle pass=" + pass);
+    }
     boolean useCompoundFile=(pass % 2) != 0;
     KeepAllDeletionPolicy policy=new KeepAllDeletionPolicy();
     Directory dir=newDirectory();
     policy.dir=dir;
     IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setIndexDeletionPolicy(policy).setMaxBufferedDocs(10).setMergeScheduler(new SerialMergeScheduler());
-    LogMergePolicy lmp=(LogMergePolicy)conf.getMergePolicy();
-    lmp.setUseCompoundFile(useCompoundFile);
-    lmp.setMergeFactor(10);
+    MergePolicy mp=conf.getMergePolicy();
+    if (mp instanceof LogMergePolicy) {
+      ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
+    }
     IndexWriter writer=new IndexWriter(dir,conf);
     for (int i=0; i < 107; i++) {
       addDoc(writer);
     }
     writer.close();
-    conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy);
-    lmp=(LogMergePolicy)conf.getMergePolicy();
-    lmp.setUseCompoundFile(useCompoundFile);
-    writer=new IndexWriter(dir,conf);
-    writer.optimize();
-    writer.close();
-    assertEquals(1,policy.numOnInit);
-    assertEquals(2,policy.numOnCommit);
+    final boolean isOptimized;
+{
+      IndexReader r=IndexReader.open(dir);
+      isOptimized=r.isOptimized();
+      r.close();
+    }
+    if (!isOptimized) {
+      conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy);
+      mp=conf.getMergePolicy();
+      if (mp instanceof LogMergePolicy) {
+        ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
+      }
+      if (VERBOSE) {
+        System.out.println("TEST: open writer for optimize");
+      }
+      writer=new IndexWriter(dir,conf);
+      writer.setInfoStream(VERBOSE ? System.out : null);
+      writer.optimize();
+      writer.close();
+    }
+    assertEquals(isOptimized ? 0 : 1,policy.numOnInit);
+    assertEquals(1 + (isOptimized ? 0 : 1),policy.numOnCommit);
     Collection<IndexCommit> commits=IndexReader.listCommits(dir);
-    assertEquals(2,commits.size());
+    assertEquals(1 + (isOptimized ? 0 : 1),commits.size());
     for (    final IndexCommit commit : commits) {
       IndexReader r=IndexReader.open(commit,null,false);
       r.close();
