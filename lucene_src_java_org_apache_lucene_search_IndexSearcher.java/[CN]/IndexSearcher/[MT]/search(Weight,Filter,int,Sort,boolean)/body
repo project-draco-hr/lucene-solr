@@ -1,21 +1,14 @@
 {
   if (sort == null)   throw new NullPointerException();
   if (executor == null) {
-    int limit=reader.maxDoc();
-    if (limit == 0) {
-      limit=1;
-    }
-    nDocs=Math.min(nDocs,limit);
-    TopFieldCollector collector=TopFieldCollector.create(sort,nDocs,fillFields,fieldSortDoTrackScores,fieldSortDoMaxScore,!weight.scoresDocsOutOfOrder());
-    search(weight,filter,collector);
-    return (TopFieldDocs)collector.topDocs();
+    return search(leafContexts,weight,filter,nDocs,sort,fillFields);
   }
  else {
     final FieldDocSortedHitQueue hq=new FieldDocSortedHitQueue(nDocs);
     final Lock lock=new ReentrantLock();
     final ExecutionHelper<TopFieldDocs> runner=new ExecutionHelper<TopFieldDocs>(executor);
-    for (int i=0; i < subSearchers.length; i++) {
-      runner.submit(new SearcherCallableWithSort(lock,subSearchers[i],weight,filter,nDocs,hq,sort));
+    for (int i=0; i < leafSlices.length; i++) {
+      runner.submit(new SearcherCallableWithSort(lock,this,leafSlices[i],weight,filter,nDocs,hq,sort));
     }
     int totalHits=0;
     float maxScore=Float.NEGATIVE_INFINITY;
