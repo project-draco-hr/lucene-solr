@@ -9,7 +9,29 @@
     infos.version=input.readLong();
     infos.counter=input.readInt();
     for (int i=input.readInt(); i > 0; i--) {
-      infos.add(new SegmentInfo(directory,format,input,codecs));
+      SegmentInfo si=new SegmentInfo(directory,format,input,codecs);
+      if (si.getVersion() == null) {
+        Directory dir=directory;
+        if (si.getDocStoreOffset() != -1) {
+          if (si.getDocStoreIsCompoundFile()) {
+            dir=new CompoundFileReader(dir,IndexFileNames.segmentFileName(si.getDocStoreSegment(),"",IndexFileNames.COMPOUND_FILE_STORE_EXTENSION),1024);
+          }
+        }
+ else         if (si.getUseCompoundFile()) {
+          dir=new CompoundFileReader(dir,IndexFileNames.segmentFileName(si.name,"",IndexFileNames.COMPOUND_FILE_EXTENSION),1024);
+        }
+        try {
+          FieldsReader.checkCodeVersion(dir,si.getDocStoreSegment());
+        }
+  finally {
+          if (dir != directory)           dir.close();
+        }
+        si.setVersion("3.0");
+      }
+ else       if (si.getVersion().equals("2.x")) {
+        throw new IndexFormatTooOldException(si.name,si.getVersion());
+      }
+      infos.add(si);
     }
     infos.userData=input.readStringStringMap();
     finalizeInput(input);

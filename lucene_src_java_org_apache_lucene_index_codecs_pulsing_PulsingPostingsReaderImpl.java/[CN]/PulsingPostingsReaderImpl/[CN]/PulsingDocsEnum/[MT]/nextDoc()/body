@@ -1,13 +1,40 @@
 {
   while (true) {
-    if (nextRead >= state.docFreq) {
-      return NO_MORE_DOCS;
+    if (postings.eof()) {
+      return docID=NO_MORE_DOCS;
+    }
+    final int code=postings.readVInt();
+    if (omitTF) {
+      docID+=code;
     }
  else {
-      doc=state.docs[nextRead++];
-      if (skipDocs == null || !skipDocs.get(doc.docID)) {
-        return doc.docID;
+      docID+=code >>> 1;
+      if ((code & 1) != 0) {
+        freq=1;
       }
+ else {
+        freq=postings.readVInt();
+      }
+      if (storePayloads) {
+        int payloadLength=-1;
+        for (int pos=0; pos < freq; pos++) {
+          final int posCode=postings.readVInt();
+          if ((posCode & 1) != 0) {
+            payloadLength=postings.readVInt();
+          }
+          if (payloadLength != 0) {
+            postings.skipBytes(payloadLength);
+          }
+        }
+      }
+ else {
+        for (int pos=0; pos < freq; pos++) {
+          postings.readVInt();
+        }
+      }
+    }
+    if (skipDocs == null || !skipDocs.get(docID)) {
+      return docID;
     }
   }
 }

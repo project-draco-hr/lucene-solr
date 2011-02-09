@@ -5,16 +5,20 @@
     KeepLastNDeletionPolicy policy=new KeepLastNDeletionPolicy(N);
     Directory dir=newDirectory();
     IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.CREATE).setIndexDeletionPolicy(policy).setMaxBufferedDocs(10);
-    LogMergePolicy lmp=(LogMergePolicy)conf.getMergePolicy();
-    lmp.setUseCompoundFile(useCompoundFile);
+    MergePolicy mp=conf.getMergePolicy();
+    if (mp instanceof LogMergePolicy) {
+      ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
+    }
     IndexWriter writer=new IndexWriter(dir,conf);
     writer.close();
     Term searchTerm=new Term("content","aaa");
     Query query=new TermQuery(searchTerm);
     for (int i=0; i < N + 1; i++) {
       conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy).setMaxBufferedDocs(10);
-      lmp=(LogMergePolicy)conf.getMergePolicy();
-      lmp.setUseCompoundFile(useCompoundFile);
+      mp=conf.getMergePolicy();
+      if (mp instanceof LogMergePolicy) {
+        ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
+      }
       writer=new IndexWriter(dir,conf);
       for (int j=0; j < 17; j++) {
         addDoc(writer);
@@ -22,8 +26,8 @@
       writer.close();
       IndexReader reader=IndexReader.open(dir,policy,false);
       reader.deleteDocument(3);
-      reader.setNorm(5,"content",2.0F);
-      IndexSearcher searcher=new IndexSearcher(reader);
+      reader.setNorm(5,"content",conf.getSimilarityProvider().get("content").encodeNormValue(2.0F));
+      IndexSearcher searcher=newSearcher(reader);
       ScoreDoc[] hits=searcher.search(query,null,1000).scoreDocs;
       assertEquals(16,hits.length);
       reader.close();
@@ -42,7 +46,7 @@
     for (int i=0; i < N + 1; i++) {
       try {
         IndexReader reader=IndexReader.open(dir,true);
-        searcher=new IndexSearcher(reader);
+        searcher=newSearcher(reader);
         hits=searcher.search(query,null,1000).scoreDocs;
         assertEquals(expectedCount,hits.length);
         searcher.close();

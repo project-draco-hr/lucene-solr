@@ -1,0 +1,31 @@
+{
+  Directory ram=newDirectory();
+  Analyzer analyzer=new MockAnalyzer();
+  IndexWriter writer=new IndexWriter(ram,newIndexWriterConfig(TEST_VERSION_CURRENT,analyzer).setMaxBufferedDocs(3).setMergePolicy(newLogMergePolicy(2)));
+  Document d=new Document();
+  Field f1=newField("f1","This field has norms",Field.Store.NO,Field.Index.ANALYZED);
+  d.add(f1);
+  Field f2=newField("f2","This field has NO norms in all docs",Field.Store.NO,Field.Index.ANALYZED);
+  f2.setOmitNorms(true);
+  d.add(f2);
+  for (int i=0; i < 30; i++) {
+    writer.addDocument(d);
+  }
+  d=new Document();
+  f1.setOmitNorms(true);
+  d.add(f1);
+  f2.setOmitNorms(false);
+  d.add(f2);
+  for (int i=0; i < 30; i++) {
+    writer.addDocument(d);
+  }
+  writer.optimize();
+  writer.close();
+  _TestUtil.checkIndex(ram);
+  SegmentReader reader=getOnlySegmentReader(IndexReader.open(ram,false));
+  FieldInfos fi=reader.fieldInfos();
+  assertTrue("OmitNorms field bit should be set.",fi.fieldInfo("f1").omitNorms);
+  assertTrue("OmitNorms field bit should be set.",fi.fieldInfo("f2").omitNorms);
+  reader.close();
+  ram.close();
+}

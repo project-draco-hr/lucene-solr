@@ -4,6 +4,10 @@
   int END_COUNT=144;
   MockDirectoryWrapper startDir=newDirectory();
   IndexWriter writer=new IndexWriter(startDir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+  if (VERBOSE) {
+    System.out.println("TEST: create initial index");
+    writer.setInfoStream(System.out);
+  }
   for (int i=0; i < 157; i++) {
     Document d=new Document();
     d.add(newField("id",Integer.toString(i),Field.Store.YES,Field.Index.NOT_ANALYZED));
@@ -12,6 +16,20 @@
     if (0 == i % 10)     writer.commit();
   }
   writer.close();
+{
+    IndexReader r=IndexReader.open(startDir);
+    IndexSearcher searcher=newSearcher(r);
+    ScoreDoc[] hits=null;
+    try {
+      hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
+    }
+ catch (    IOException e) {
+      e.printStackTrace();
+      fail("exception when init searching: " + e);
+    }
+    searcher.close();
+    r.close();
+  }
   long diskUsage=startDir.getRecomputedActualSizeInBytes();
   long diskFree=diskUsage + 100;
   IOException err=null;
@@ -53,12 +71,13 @@
       }
       dir.setMaxSizeInBytes(thisDiskFree);
       dir.setRandomIOExceptionRate(rate);
+      Similarity sim=new DefaultSimilarity().get("content");
       try {
         if (0 == x) {
           int docId=12;
           for (int i=0; i < 13; i++) {
             reader.deleteDocument(docId);
-            reader.setNorm(docId,"content",(float)2.0);
+            reader.setNorm(docId,"content",sim.encodeNormValue(2.0f));
             docId+=12;
           }
         }
@@ -80,7 +99,6 @@
           fail(testName + " hit IOException after disk space was freed up");
         }
       }
-      TestIndexWriter.assertNoUnreferencedFiles(dir,"reader.close() failed to delete unreferenced files");
       IndexReader newReader=null;
       try {
         newReader=IndexReader.open(dir,false);
@@ -89,7 +107,7 @@
         e.printStackTrace();
         fail(testName + ":exception when creating IndexReader after disk full during close: " + e);
       }
-      IndexSearcher searcher=new IndexSearcher(newReader);
+      IndexSearcher searcher=newSearcher(newReader);
       ScoreDoc[] hits=null;
       try {
         hits=searcher.search(new TermQuery(searchTerm),null,1000).scoreDocs;
