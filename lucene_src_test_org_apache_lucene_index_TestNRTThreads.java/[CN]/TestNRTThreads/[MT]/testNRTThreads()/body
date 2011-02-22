@@ -22,7 +22,9 @@
           sum+=doc.getFields().size();
         }
       }
-      sum+=new IndexSearcher(reader).search(new TermQuery(new Term("body","united")),10).totalHits;
+      IndexSearcher searcher=newSearcher(reader);
+      sum+=searcher.search(new TermQuery(new Term("body","united")),10).totalHits;
+      searcher.close();
       if (VERBOSE) {
         System.out.println("TEST: warm visited " + sum + " fields");
       }
@@ -38,17 +40,13 @@
     ((ConcurrentMergeScheduler)ms).setMaxThreadCount(1);
     ((ConcurrentMergeScheduler)ms).setMaxMergeCount(1);
   }
-  LogMergePolicy lmp=(LogMergePolicy)writer.getConfig().getMergePolicy();
-  if (lmp.getMergeFactor() > 5) {
-    lmp.setMergeFactor(5);
-  }
   final int NUM_INDEX_THREADS=2;
   final int NUM_SEARCH_THREADS=3;
   final int RUN_TIME_SEC=LuceneTestCase.TEST_NIGHTLY ? 300 : 5;
   final AtomicBoolean failed=new AtomicBoolean();
   final AtomicInteger addCount=new AtomicInteger();
   final AtomicInteger delCount=new AtomicInteger();
-  final List<String> delIDs=Collections.synchronizedList(new ArrayList<String>());
+  final Set<String> delIDs=Collections.synchronizedSet(new HashSet<String>());
   final long stopTime=System.currentTimeMillis() + RUN_TIME_SEC * 1000;
   Thread[] threads=new Thread[NUM_INDEX_THREADS];
   for (int thread=0; thread < NUM_INDEX_THREADS; thread++) {
@@ -71,16 +69,19 @@
             }
             if (random.nextBoolean()) {
               if (VERBOSE) {
+                System.out.println(Thread.currentThread().getName() + ": add doc id:" + doc.get("id"));
               }
               writer.addDocument(doc);
             }
  else {
               if (VERBOSE) {
+                System.out.println(Thread.currentThread().getName() + ": update doc id:" + doc.get("id"));
               }
               writer.updateDocument(new Term("id",doc.get("id")),doc);
             }
             if (random.nextInt(5) == 3) {
               if (VERBOSE) {
+                System.out.println(Thread.currentThread().getName() + ": buffer del id:" + doc.get("id"));
               }
               toDeleteIDs.add(doc.get("id"));
             }
@@ -89,6 +90,9 @@
                 System.out.println(Thread.currentThread().getName() + ": apply " + toDeleteIDs.size()+ " deletes");
               }
               for (              String id : toDeleteIDs) {
+                if (VERBOSE) {
+                  System.out.println(Thread.currentThread().getName() + ": del term=id:" + id);
+                }
                 writer.deleteDocuments(new Term("id",id));
               }
               final int count=delCount.addAndGet(toDeleteIDs.size());
@@ -123,7 +127,7 @@
     System.out.println("TEST: DONE start indexing threads [" + (System.currentTimeMillis() - t0) + " ms]");
   }
   Thread.sleep(100);
-  IndexReader r=IndexReader.open(writer);
+  IndexReader r=IndexReader.open(writer,true);
   boolean any=false;
   final AtomicInteger totTermCount=new AtomicInteger(100);
   final ExecutorService es=Executors.newCachedThreadPool(new NamedThreadFactory("NRT search threads"));
@@ -152,7 +156,7 @@
       if (VERBOSE) {
         System.out.println("TEST: now open");
       }
-      r=IndexReader.open(writer);
+      r=IndexReader.open(writer,true);
     }
     if (VERBOSE) {
       System.out.println("TEST: got new reader=" + r);
@@ -248,13 +252,27 @@
     System.out.println("TEST: done join [" + (System.currentTimeMillis() - t0) + " ms]; addCount="+ addCount+ " delCount="+ delCount);
   }
   final IndexReader r2=writer.getReader();
-  final IndexSearcher s=new IndexSearcher(r2);
+  final IndexSearcher s=newSearcher(r2);
+  boolean doFail=false;
   for (  String id : delIDs) {
     final TopDocs hits=s.search(new TermQuery(new Term("id",id)),1);
     if (hits.totalHits != 0) {
-      fail("doc id=" + id + " is supposed to be deleted, but got docID="+ hits.scoreDocs[0].doc);
+      System.out.println("doc id=" + id + " is supposed to be deleted, but got docID="+ hits.scoreDocs[0].doc);
+      doFail=true;
     }
   }
+  final int endID=Integer.parseInt(docs.nextDoc().get("id"));
+  for (int id=0; id < endID; id++) {
+    String stringID="" + id;
+    if (!delIDs.contains(stringID)) {
+      final TopDocs hits=s.search(new TermQuery(new Term("id",stringID)),1);
+      if (hits.totalHits != 1) {
+        System.out.println("doc id=" + stringID + " is not supposed to be deleted, but got hitCount="+ hits.totalHits);
+        doFail=true;
+      }
+    }
+  }
+  assertFalse(doFail);
   assertEquals("index=" + writer.segString() + " addCount="+ addCount+ " delCount="+ delCount,addCount.get() - delCount.get(),r2.numDocs());
   r2.close();
   writer.commit();
@@ -262,6 +280,7 @@
   assertFalse(writer.anyNonBulkMerges);
   writer.close(false);
   _TestUtil.checkIndex(dir);
+  s.close();
   dir.close();
   _TestUtil.rmDir(tempDir);
   docs.close();

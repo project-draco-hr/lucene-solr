@@ -3,4 +3,62 @@
   this.term=term;
   this.automaton=automaton;
   MinimizationOperations.minimize(automaton);
+  if (BasicOperations.isEmpty(automaton)) {
+    factory=new TermsEnumFactory(){
+      @Override protected TermsEnum getTermsEnum(      Terms terms,      AttributeSource atts) throws IOException {
+        return TermsEnum.EMPTY;
+      }
+    }
+;
+  }
+ else   if (BasicOperations.isTotal(automaton)) {
+    factory=new TermsEnumFactory(){
+      @Override protected TermsEnum getTermsEnum(      Terms terms,      AttributeSource atts) throws IOException {
+        return terms.iterator();
+      }
+    }
+;
+  }
+ else {
+    final String singleton;
+    final String commonPrefix;
+    if (automaton.getSingleton() == null) {
+      commonPrefix=SpecialOperations.getCommonPrefix(automaton);
+      if (commonPrefix.length() > 0 && BasicOperations.sameLanguage(automaton,BasicAutomata.makeString(commonPrefix))) {
+        singleton=commonPrefix;
+      }
+ else {
+        singleton=null;
+      }
+    }
+ else {
+      commonPrefix=null;
+      singleton=automaton.getSingleton();
+    }
+    if (singleton != null) {
+      factory=new TermsEnumFactory(){
+        @Override protected TermsEnum getTermsEnum(        Terms terms,        AttributeSource atts) throws IOException {
+          return new SingleTermsEnum(terms.iterator(),term.createTerm(singleton));
+        }
+      }
+;
+    }
+ else     if (BasicOperations.sameLanguage(automaton,BasicOperations.concatenate(BasicAutomata.makeString(commonPrefix),BasicAutomata.makeAnyString()))) {
+      factory=new TermsEnumFactory(){
+        @Override protected TermsEnum getTermsEnum(        Terms terms,        AttributeSource atts) throws IOException {
+          return new PrefixTermsEnum(terms.iterator(),term.createTerm(commonPrefix));
+        }
+      }
+;
+    }
+ else {
+      final AutomatonTermsEnum.CompiledAutomaton compiled=new CompiledAutomaton(automaton,SpecialOperations.isFinite(automaton));
+      factory=new TermsEnumFactory(){
+        @Override protected TermsEnum getTermsEnum(        Terms terms,        AttributeSource atts) throws IOException {
+          return new AutomatonTermsEnum(terms.iterator(),compiled);
+        }
+      }
+;
+    }
+  }
 }

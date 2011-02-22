@@ -1,6 +1,5 @@
 {
-  String usage="Usage:\tjava org.apache.lucene.demo.SearchFiles [-index dir] [-field f] [-repeat n] [-queries file] [-raw] [-paging hitsPerPage]";
-  usage+="\n\tSpecify 'false' for hitsPerPage to use streaming instead of paging search.";
+  String usage="Usage:\tjava org.apache.lucene.demo.SearchFiles [-index dir] [-field f] [-repeat n] [-queries file] [-query string] [-raw] [-paging hitsPerPage]\n\nSee http://lucene.apache.org/java/4_0/demo.html for details.";
   if (args.length > 0 && ("-h".equals(args[0]) || "-help".equals(args[0]))) {
     System.out.println(usage);
     System.exit(0);
@@ -10,7 +9,7 @@
   String queries=null;
   int repeat=0;
   boolean raw=false;
-  boolean paging=true;
+  String queryString=null;
   int hitsPerPage=10;
   for (int i=0; i < args.length; i++) {
     if ("-index".equals(args[i])) {
@@ -25,6 +24,10 @@
       queries=args[i + 1];
       i++;
     }
+ else     if ("-query".equals(args[i])) {
+      queryString=args[i + 1];
+      i++;
+    }
  else     if ("-repeat".equals(args[i])) {
       repeat=Integer.parseInt(args[i + 1]);
       i++;
@@ -33,21 +36,16 @@
       raw=true;
     }
  else     if ("-paging".equals(args[i])) {
-      if (args[i + 1].equals("false")) {
-        paging=false;
-      }
- else {
-        hitsPerPage=Integer.parseInt(args[i + 1]);
-        if (hitsPerPage == 0) {
-          paging=false;
-        }
+      hitsPerPage=Integer.parseInt(args[i + 1]);
+      if (hitsPerPage <= 0) {
+        System.err.println("There must be at least 1 hit per page.");
+        System.exit(1);
       }
       i++;
     }
   }
-  IndexReader reader=IndexReader.open(FSDirectory.open(new File(index)),true);
-  IndexSearcher searcher=new IndexSearcher(reader);
-  Analyzer analyzer=new StandardAnalyzer(Version.LUCENE_CURRENT);
+  IndexSearcher searcher=new IndexSearcher(FSDirectory.open(new File(index)));
+  Analyzer analyzer=new StandardAnalyzer(Version.LUCENE_40);
   BufferedReader in=null;
   if (queries != null) {
     in=new BufferedReader(new InputStreamReader(new FileInputStream(queries),"UTF-8"));
@@ -55,13 +53,19 @@
  else {
     in=new BufferedReader(new InputStreamReader(System.in,"UTF-8"));
   }
-  QueryParser parser=new QueryParser(Version.LUCENE_CURRENT,field,analyzer);
+  QueryParser parser=new QueryParser(Version.LUCENE_40,field,analyzer);
   while (true) {
-    if (queries == null)     System.out.println("Enter query: ");
-    String line=in.readLine();
-    if (line == null || line.length() == -1)     break;
+    if (queries == null && queryString == null) {
+      System.out.println("Enter query: ");
+    }
+    String line=queryString != null ? queryString : in.readLine();
+    if (line == null || line.length() == -1) {
+      break;
+    }
     line=line.trim();
-    if (line.length() == 0)     break;
+    if (line.length() == 0) {
+      break;
+    }
     Query query=parser.parse(line);
     System.out.println("Searching for: " + query.toString(field));
     if (repeat > 0) {
@@ -72,12 +76,10 @@
       Date end=new Date();
       System.out.println("Time: " + (end.getTime() - start.getTime()) + "ms");
     }
-    if (paging) {
-      doPagingSearch(in,searcher,query,hitsPerPage,raw,queries == null);
-    }
- else {
-      doStreamingSearch(searcher,query);
+    doPagingSearch(in,searcher,query,hitsPerPage,raw,queries == null && queryString == null);
+    if (queryString != null) {
+      break;
     }
   }
-  reader.close();
+  searcher.close();
 }

@@ -8,9 +8,12 @@
     segmentInfos.updateGeneration(deleter.getLastSegmentInfos());
     segmentInfos.changed();
     startCommit();
+    final SegmentInfos rollbackSegmentInfos=new SegmentInfos();
+    rollbackSegmentInfos.addAll(segmentInfos);
     boolean success=false;
     try {
       for (int i=0; i < subReaders.length; i++)       subReaders[i].commit();
+      segmentInfos.pruneDeletedSegments();
       directory.sync(segmentInfos.files(directory,false));
       segmentInfos.commit(directory);
       success=true;
@@ -19,6 +22,8 @@
       if (!success) {
         rollbackCommit();
         deleter.refresh();
+        segmentInfos.clear();
+        segmentInfos.addAll(rollbackSegmentInfos);
       }
     }
     deleter.checkpoint(segmentInfos,true);

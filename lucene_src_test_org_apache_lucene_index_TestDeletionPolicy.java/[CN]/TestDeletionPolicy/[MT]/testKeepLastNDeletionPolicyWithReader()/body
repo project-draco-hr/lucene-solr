@@ -4,39 +4,57 @@
     boolean useCompoundFile=(pass % 2) != 0;
     KeepLastNDeletionPolicy policy=new KeepLastNDeletionPolicy(N);
     Directory dir=newDirectory();
-    IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.CREATE).setIndexDeletionPolicy(policy);
-    LogMergePolicy lmp=(LogMergePolicy)conf.getMergePolicy();
-    lmp.setUseCompoundFile(useCompoundFile);
+    IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.CREATE).setIndexDeletionPolicy(policy).setMergePolicy(newInOrderLogMergePolicy());
+    MergePolicy mp=conf.getMergePolicy();
+    if (mp instanceof LogMergePolicy) {
+      ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
+    }
     IndexWriter writer=new IndexWriter(dir,conf);
     writer.close();
     Term searchTerm=new Term("content","aaa");
     Query query=new TermQuery(searchTerm);
     for (int i=0; i < N + 1; i++) {
+      if (VERBOSE) {
+        System.out.println("\nTEST: cycle i=" + i);
+      }
       conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy);
-      lmp=(LogMergePolicy)conf.getMergePolicy();
-      lmp.setUseCompoundFile(useCompoundFile);
+      mp=conf.getMergePolicy();
+      if (mp instanceof LogMergePolicy) {
+        ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
+      }
       writer=new IndexWriter(dir,conf);
       for (int j=0; j < 17; j++) {
         addDoc(writer);
+      }
+      if (VERBOSE) {
+        System.out.println("TEST: close writer");
       }
       writer.close();
       IndexReader reader=IndexReader.open(dir,policy,false);
       reader.deleteDocument(3 * i + 1);
       reader.setNorm(4 * i + 1,"content",conf.getSimilarityProvider().get("content").encodeNormValue(2.0F));
-      IndexSearcher searcher=new IndexSearcher(reader);
+      IndexSearcher searcher=newSearcher(reader);
       ScoreDoc[] hits=searcher.search(query,null,1000).scoreDocs;
       assertEquals(16 * (1 + i),hits.length);
+      if (VERBOSE) {
+        System.out.println("TEST: close reader numOnCommit=" + policy.numOnCommit);
+      }
       reader.close();
       searcher.close();
     }
     conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy);
-    lmp=(LogMergePolicy)conf.getMergePolicy();
-    lmp.setUseCompoundFile(useCompoundFile);
+    mp=conf.getMergePolicy();
+    if (mp instanceof LogMergePolicy) {
+      ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
+    }
+    IndexReader r=IndexReader.open(dir);
+    final boolean wasOptimized=r.isOptimized();
+    r.close();
     writer=new IndexWriter(dir,conf);
     writer.optimize();
     writer.close();
     assertEquals(2 * (N + 1) + 1,policy.numOnInit);
-    assertEquals(2 * (N + 2),policy.numOnCommit);
+    assertEquals(2 * (N + 2) - (wasOptimized ? 1 : 0),policy.numOnCommit);
     IndexSearcher searcher=new IndexSearcher(dir,false);
     ScoreDoc[] hits=searcher.search(query,null,1000).scoreDocs;
     assertEquals(176,hits.length);
@@ -47,7 +65,7 @@
     for (int i=0; i < N + 1; i++) {
       try {
         IndexReader reader=IndexReader.open(dir,true);
-        searcher=new IndexSearcher(reader);
+        searcher=newSearcher(reader);
         hits=searcher.search(query,null,1000).scoreDocs;
         if (i > 1) {
           if (i % 2 == 0) {
