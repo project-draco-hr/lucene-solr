@@ -1,8 +1,6 @@
 {
   ensureOpen();
-  SegmentInfo newSegment=null;
-  BufferedDeletes segmentDeletes=null;
-  BitVector deletedDocs=null;
+  FlushedSegment newSegment=null;
   ThreadState perThread=perThreadPool.getAndLock(Thread.currentThread(),this,doc);
   try {
     DocumentsWriterPerThread dwpt=perThread.perThread;
@@ -10,27 +8,19 @@
     dwpt.updateDocument(doc,analyzer,delTerm);
     numDocsInRAM.incrementAndGet();
     newSegment=finishAddDocument(dwpt,perThreadRAMUsedBeforeAdd);
-    if (newSegment != null) {
-      deletedDocs=dwpt.flushState.deletedDocs;
-      if (dwpt.pendingDeletes.any()) {
-        segmentDeletes=dwpt.pendingDeletes;
-        dwpt.pendingDeletes=new BufferedDeletes(false);
-      }
-    }
   }
   finally {
     perThread.unlock();
   }
-  if (segmentDeletes != null) {
-    pushDeletes(newSegment,segmentDeletes);
+  if (delTerm != null) {
+    deleteTerm(delTerm,perThread);
+  }
+  if (newSegment != null) {
+    finishFlushedSegment(newSegment);
   }
   if (newSegment != null) {
     perThreadPool.clearThreadBindings(perThread);
-    indexWriter.addFlushedSegment(newSegment,deletedDocs);
     return true;
-  }
-  if (delTerm != null) {
-    deleteTerm(delTerm,perThread);
   }
   return false;
 }
