@@ -1,0 +1,54 @@
+{
+  for (int i=0; i < 2; i++) {
+    Set<String> fieldNames=new HashSet<String>();
+    final int numFields=2 + random.nextInt(50);
+    for (int j=0; j < numFields; j++) {
+      fieldNames.add("field_" + j);
+    }
+    Directory base=newDirectory();
+    IndexWriter writer=new IndexWriter(base,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+    Document doc=new Document();
+    for (    String string : fieldNames) {
+      doc.add(newField(string,_TestUtil.randomRealisticUnicodeString(random),Index.toIndex(true,random.nextBoolean(),random.nextBoolean())));
+    }
+    writer.addDocument(doc);
+    writer.commit();
+    FieldNumberBiMap globalFieldMap=writer.segmentInfos.getOrLoadGlobalFieldNumberMap(base);
+    final Set<Entry<String,Integer>> entries=globalFieldMap.entries();
+    assertEquals(entries.size(),fieldNames.size());
+    for (    Entry<String,Integer> entry : entries) {
+      assertTrue(fieldNames.contains(entry.getKey()));
+    }
+    writer.close();
+    int numIndexes=1 + random.nextInt(10);
+    for (int j=0; j < numIndexes; j++) {
+      Directory toAdd=buildRandomIndex(fieldNames.toArray(new String[0]),1 + random.nextInt(50),newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+      IndexWriter w=new IndexWriter(base,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+      if (random.nextBoolean()) {
+        IndexReader open=IndexReader.open(toAdd);
+        w.addIndexes(open);
+        open.close();
+      }
+ else {
+        w.addIndexes(toAdd);
+      }
+      w.close();
+      FieldNumberBiMap map=w.segmentInfos.getOrLoadGlobalFieldNumberMap(toAdd);
+      assertEquals(entries,map.entries());
+      toAdd.close();
+    }
+    IndexWriter w=new IndexWriter(base,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMergePolicy(new LogByteSizeMergePolicy()));
+    w.optimize();
+    w.close();
+    SegmentInfos sis=new SegmentInfos();
+    sis.read(base);
+    SegmentInfo segmentInfo=sis.get(sis.size() - 1);
+    FieldInfos fieldInfos=segmentInfo.getFieldInfos();
+    assertEquals(fieldInfos.size(),entries.size());
+    for (    Entry<String,Integer> entry : entries) {
+      assertEquals(entry.getValue(),Integer.valueOf(fieldInfos.fieldNumber(entry.getKey())));
+      assertEquals(entry.getKey(),fieldInfos.fieldName(entry.getValue()));
+    }
+    base.close();
+  }
+}

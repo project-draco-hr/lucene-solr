@@ -1,0 +1,51 @@
+{
+  int i=random.nextInt(oldNames.length);
+  File oldIndxeDir=_TestUtil.getTempDir(oldNames[i]);
+  Directory dir=null;
+  try {
+    _TestUtil.unzip(getDataFile("index." + oldNames[i] + ".zip"),oldIndxeDir);
+    dir=newFSDirectory(oldIndxeDir);
+    SegmentInfos infos=new SegmentInfos();
+    infos.read(dir);
+    SortedMap<Integer,String> sortedMap=new TreeMap<Integer,String>();
+    FieldNumberBiMap biMap=new FieldNumberBiMap();
+    int maxFieldNum=Integer.MIN_VALUE;
+    for (    SegmentInfo segmentInfo : infos) {
+      for (      FieldInfo fieldInfo : segmentInfo.getFieldInfos()) {
+        int globNumber=biMap.addOrGet(fieldInfo.name,fieldInfo.number);
+        maxFieldNum=Math.max(maxFieldNum,globNumber);
+        sortedMap.put(globNumber,fieldInfo.name);
+      }
+    }
+    Directory base=newDirectory();
+    IndexWriter writer=new IndexWriter(base,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMergePolicy(NoMergePolicy.NO_COMPOUND_FILES));
+    SortedMap<Integer,String> copySortedMap=new TreeMap<Integer,String>(sortedMap);
+    while (!sortedMap.isEmpty()) {
+      Document doc=new Document();
+      int nextField=random.nextInt(maxFieldNum + 1);
+      sortedMap.remove(nextField);
+      String name=copySortedMap.get(nextField);
+      assertNotNull(name);
+      doc.add(newField(name,_TestUtil.randomRealisticUnicodeString(random),Index.toIndex(true,random.nextBoolean(),random.nextBoolean())));
+      writer.addDocument(doc);
+      if (random.nextInt(10) == 0) {
+        writer.commit();
+      }
+    }
+    Set<Entry<String,Integer>> expectedEntries=writer.segmentInfos.getOrLoadGlobalFieldNumberMap(base).entries();
+    writer.addIndexes(dir);
+    writer.close();
+    writer=new IndexWriter(base,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMergePolicy(NoMergePolicy.NO_COMPOUND_FILES));
+    writer.commit();
+    writer.close();
+    SegmentInfos sis=new SegmentInfos();
+    sis.read(base);
+    FieldNumberBiMap actualGlobalMap=sis.getOrLoadGlobalFieldNumberMap(base);
+    assertEquals(expectedEntries,actualGlobalMap.entries());
+    base.close();
+  }
+  finally {
+    if (dir != null)     dir.close();
+    _TestUtil.rmDir(oldIndxeDir);
+  }
+}

@@ -1,0 +1,50 @@
+{
+  int i=random.nextInt(oldNames.length);
+  File oldIndxeDir=_TestUtil.getTempDir(oldNames[i]);
+  Directory dir=null;
+  MergePolicy policy=random.nextBoolean() ? NoMergePolicy.COMPOUND_FILES : NoMergePolicy.NO_COMPOUND_FILES;
+  try {
+    _TestUtil.unzip(getDataFile("index." + oldNames[i] + ".zip"),oldIndxeDir);
+    dir=newFSDirectory(oldIndxeDir);
+    IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMergePolicy(policy));
+    SegmentInfos segmentInfos=writer.segmentInfos;
+    assertTrue(DefaultSegmentInfosWriter.FORMAT_4_0 < segmentInfos.getFormat());
+    assertEquals(0,segmentInfos.getGlobalFieldMapVersion());
+    Collection<String> files=segmentInfos.files(dir,true);
+    for (    String string : files) {
+      assertFalse(string.endsWith(".fnx"));
+    }
+    writer.commit();
+    assertTrue(DefaultSegmentInfosWriter.FORMAT_4_0 < segmentInfos.getFormat());
+    assertEquals(0,segmentInfos.getGlobalFieldMapVersion());
+    files=segmentInfos.files(dir,true);
+    for (    String string : files) {
+      assertFalse(string.endsWith(".fnx"));
+    }
+    Document d=new Document();
+    d.add(new Field("f1","d1 first field",Store.YES,Index.ANALYZED,TermVector.NO));
+    writer.addDocument(d);
+    writer.prepareCommit();
+    assertTrue(DefaultSegmentInfosWriter.FORMAT_4_0 < segmentInfos.getFormat());
+    assertEquals(0,segmentInfos.getLastGlobalFieldMapVersion());
+    assertEquals(1,segmentInfos.getGlobalFieldMapVersion());
+    files=segmentInfos.files(dir,true);
+    for (    String string : files) {
+      assertFalse(string.endsWith(".fnx"));
+    }
+    writer.commit();
+    assertTrue(DefaultSegmentInfosWriter.FORMAT_4_0 < segmentInfos.getFormat());
+    assertEquals(1,segmentInfos.getGlobalFieldMapVersion());
+    assertEquals(1,segmentInfos.getLastGlobalFieldMapVersion());
+    files=segmentInfos.files(dir,true);
+    assertTrue(files.remove("1.fnx"));
+    for (    String string : files) {
+      assertFalse(string.endsWith(".fnx"));
+    }
+    writer.close();
+  }
+  finally {
+    if (dir != null)     dir.close();
+    _TestUtil.rmDir(oldIndxeDir);
+  }
+}
