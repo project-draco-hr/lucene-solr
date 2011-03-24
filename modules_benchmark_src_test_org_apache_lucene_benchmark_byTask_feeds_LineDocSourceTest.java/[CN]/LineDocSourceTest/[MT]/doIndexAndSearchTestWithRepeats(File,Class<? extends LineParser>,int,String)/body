@@ -1,0 +1,30 @@
+{
+  Properties props=new Properties();
+  props.setProperty("docs.file",file.getAbsolutePath());
+  if (lineParserClass != null) {
+    props.setProperty("line.parser",lineParserClass.getName());
+  }
+  props.setProperty("analyzer",MockAnalyzer.class.getName());
+  props.setProperty("content.source",LineDocSource.class.getName());
+  props.setProperty("directory","RAMDirectory");
+  props.setProperty("doc.stored","true");
+  props.setProperty("doc.index.props","true");
+  Config config=new Config(props);
+  PerfRunData runData=new PerfRunData(config);
+  TaskSequence tasks=new TaskSequence(runData,"testBzip2",null,false);
+  tasks.addTask(new CreateIndexTask(runData));
+  for (int i=0; i < numAdds; i++) {
+    tasks.addTask(new AddDocTask(runData));
+  }
+  tasks.addTask(new CloseIndexTask(runData));
+  tasks.doLogic();
+  IndexSearcher searcher=new IndexSearcher(runData.getDirectory(),true);
+  TopDocs td=searcher.search(new TermQuery(new Term("body","body")),10);
+  assertEquals(numAdds,td.totalHits);
+  assertNotNull(td.scoreDocs[0]);
+  if (storedField == null) {
+    storedField=DocMaker.BODY_FIELD;
+  }
+  assertEquals("Wrong field value",storedField,searcher.doc(0).get(storedField));
+  searcher.close();
+}
