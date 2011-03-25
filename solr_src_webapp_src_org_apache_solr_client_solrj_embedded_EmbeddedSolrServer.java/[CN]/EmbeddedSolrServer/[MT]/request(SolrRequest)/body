@@ -42,31 +42,19 @@
       try {
         final StreamingResponseCallback callback=request.getStreamingResponseCallback();
         BinaryResponseWriter.Resolver resolver=new BinaryResponseWriter.Resolver(req,rsp.getReturnFields()){
-          @Override public void writeDocList(          DocList ids,          JavaBinCodec codec) throws IOException {
+          @Override public void writeResults(          ResultContext ctx,          JavaBinCodec codec) throws IOException {
             SolrDocumentList docs=new SolrDocumentList();
-            docs.setNumFound(ids.matches());
-            docs.setStart(ids.offset());
-            docs.setMaxScore(ids.maxScore());
+            docs.setNumFound(ctx.docs.matches());
+            docs.setStart(ctx.docs.offset());
+            docs.setMaxScore(ctx.docs.maxScore());
             codec.writeSolrDocumentList(docs);
-            int sz=ids.size();
-            if (searcher == null)             searcher=solrQueryRequest.getSearcher();
-            if (schema == null)             schema=solrQueryRequest.getSchema();
-            DocIterator iterator=ids.iterator();
-            for (int i=0; i < sz; i++) {
-              int id=iterator.nextDoc();
-              Document doc=searcher.doc(id,returnFields);
-              SolrDocument sdoc=getDoc(doc);
-              if (includeScore && ids.hasScores()) {
-                sdoc.addField("score",iterator.score());
-              }
-              callback.streamSolrDocument(sdoc);
-            }
+            writeResultsBody(ctx,codec);
           }
         }
 ;
         ByteArrayOutputStream out=new ByteArrayOutputStream();
         new JavaBinCodec(resolver){
-          @Override public void writeSolrDocument(          SolrDocument doc,          Set<String> fields) throws IOException {
+          @Override public void writeSolrDocument(          SolrDocument doc) throws IOException {
             callback.streamSolrDocument(doc);
           }
           @Override public void writeSolrDocumentList(          SolrDocumentList docs) throws IOException {
