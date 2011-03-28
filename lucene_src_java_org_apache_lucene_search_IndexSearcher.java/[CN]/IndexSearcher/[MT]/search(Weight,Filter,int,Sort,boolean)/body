@@ -4,11 +4,11 @@
     return search(leafContexts,weight,filter,nDocs,sort,fillFields);
   }
  else {
-    final FieldDocSortedHitQueue hq=new FieldDocSortedHitQueue(nDocs);
+    final TopFieldCollector topCollector=TopFieldCollector.create(sort,nDocs,fillFields,fieldSortDoTrackScores,fieldSortDoMaxScore,false);
     final Lock lock=new ReentrantLock();
     final ExecutionHelper<TopFieldDocs> runner=new ExecutionHelper<TopFieldDocs>(executor);
     for (int i=0; i < leafSlices.length; i++) {
-      runner.submit(new SearcherCallableWithSort(lock,this,leafSlices[i],weight,filter,nDocs,hq,sort));
+      runner.submit(new SearcherCallableWithSort(lock,this,leafSlices[i],weight,filter,nDocs,topCollector,sort));
     }
     int totalHits=0;
     float maxScore=Float.NEGATIVE_INFINITY;
@@ -18,8 +18,7 @@
         maxScore=Math.max(maxScore,topFieldDocs.getMaxScore());
       }
     }
-    final ScoreDoc[] scoreDocs=new ScoreDoc[hq.size()];
-    for (int i=hq.size() - 1; i >= 0; i--)     scoreDocs[i]=hq.pop();
-    return new TopFieldDocs(totalHits,scoreDocs,hq.getFields(),maxScore);
+    final TopFieldDocs topDocs=(TopFieldDocs)topCollector.topDocs();
+    return new TopFieldDocs(totalHits,topDocs.scoreDocs,topDocs.fields,topDocs.getMaxScore());
   }
 }
