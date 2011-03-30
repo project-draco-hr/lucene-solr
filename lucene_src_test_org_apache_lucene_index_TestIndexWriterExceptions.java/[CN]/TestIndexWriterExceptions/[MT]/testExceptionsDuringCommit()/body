@@ -1,21 +1,25 @@
 {
-  MockDirectoryWrapper dir=newDirectory();
-  FailOnlyInCommit failure=new FailOnlyInCommit();
-  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
-  Document doc=new Document();
-  doc.add(newField("field","a field",Field.Store.YES,Field.Index.ANALYZED));
-  w.addDocument(doc);
-  dir.failOn(failure);
-  try {
-    w.close();
-    fail();
+  FailOnlyInCommit[] failures=new FailOnlyInCommit[]{new FailOnlyInCommit(false,FailOnlyInCommit.PREPARE_STAGE),new FailOnlyInCommit(true,FailOnlyInCommit.PREPARE_STAGE),new FailOnlyInCommit(false,FailOnlyInCommit.FINISH_STAGE)};
+  for (  FailOnlyInCommit failure : failures) {
+    MockDirectoryWrapper dir=newDirectory();
+    IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()));
+    Document doc=new Document();
+    doc.add(newField("field","a field",Field.Store.YES,Field.Index.ANALYZED));
+    w.addDocument(doc);
+    dir.failOn(failure);
+    try {
+      w.close();
+      fail();
+    }
+ catch (    IOException ioe) {
+      fail("expected only RuntimeException");
+    }
+catch (    RuntimeException re) {
+    }
+    assertTrue(dir.fileExists("1.fnx"));
+    assertTrue(failure.failOnCommit && failure.failOnDeleteFile);
+    w.rollback();
+    assertFalse(dir.fileExists("1.fnx"));
+    dir.close();
   }
- catch (  IOException ioe) {
-    fail("expected only RuntimeException");
-  }
-catch (  RuntimeException re) {
-  }
-  assertTrue(failure.fail1 && failure.fail2);
-  w.rollback();
-  dir.close();
 }
