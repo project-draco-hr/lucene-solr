@@ -1,0 +1,39 @@
+{
+  final ArrayList<ThreadState> pending=new ArrayList<DocumentsWriterPerThreadPool.ThreadState>();
+  final ArrayList<ThreadState> notPending=new ArrayList<DocumentsWriterPerThreadPool.ThreadState>();
+  findPending(control,pending,notPending);
+  final boolean flushCurrent=state.flushPending;
+  long activeBytes=control.activeBytes();
+  final ThreadState toFlush;
+  if (state.flushPending) {
+    toFlush=state;
+  }
+ else   if (flushOnDocCount() && state.perThread.getNumDocsInRAM() >= indexWriterConfig.getMaxBufferedDocs()) {
+    toFlush=state;
+  }
+ else   if (flushOnRAM() && activeBytes >= (long)(indexWriterConfig.getRAMBufferSizeMB() * 1024. * 1024.)) {
+    toFlush=findLargestNonPendingWriter(control,state);
+    assertFalse(toFlush.flushPending);
+  }
+ else {
+    toFlush=null;
+  }
+  super.onInsert(control,state);
+  if (toFlush != null) {
+    if (flushCurrent) {
+      assertTrue(pending.remove(toFlush));
+    }
+ else {
+      assertTrue(notPending.remove(toFlush));
+    }
+    assertTrue(toFlush.flushPending);
+    hasMarkedPending=true;
+  }
+ else {
+    peakBytesWithoutFlush=Math.max(activeBytes,peakBytesWithoutFlush);
+    peakDocCountWithoutFlush=Math.max(state.perThread.getNumDocsInRAM(),peakDocCountWithoutFlush);
+  }
+  for (  ThreadState threadState : notPending) {
+    assertFalse(threadState.flushPending);
+  }
+}

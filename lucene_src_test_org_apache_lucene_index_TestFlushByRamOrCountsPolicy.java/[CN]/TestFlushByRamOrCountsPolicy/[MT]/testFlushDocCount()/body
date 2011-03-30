@@ -1,0 +1,40 @@
+{
+  int[] numThreads=new int[]{numCPUs + random.nextInt(numCPUs + 1),1};
+  for (int i=0; i < numThreads.length; i++) {
+    final int numDocumentsToIndex=50 + random.nextInt(150);
+    AtomicInteger numDocs=new AtomicInteger(numDocumentsToIndex);
+    Directory dir=newDirectory();
+    MockDefaultFlushPolicy flushPolicy=new MockDefaultFlushPolicy();
+    IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setFlushPolicy(flushPolicy);
+    final int numDWPT=1 + random.nextInt(8);
+    DocumentsWriterPerThreadPool threadPool=new ThreadAffinityDocumentsWriterThreadPool(numDWPT);
+    iwc.setIndexerThreadPool(threadPool);
+    iwc.setMaxBufferedDocs(2 + random.nextInt(50));
+    iwc.setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+    iwc.setMaxBufferedDeleteTerms(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+    IndexWriter writer=new IndexWriter(dir,iwc);
+    assertTrue(flushPolicy.flushOnDocCount());
+    assertFalse(flushPolicy.flushOnDeleteTerms());
+    assertFalse(flushPolicy.flushOnRAM());
+    DocumentsWriter docsWriter=writer.getDocsWriter();
+    assertNotNull(docsWriter);
+    DocumentsWriterFlushControl flushControl=docsWriter.flushControl;
+    assertEquals(" bytes must be 0 after init",0,flushControl.flushBytes());
+    IndexThread[] threads=new IndexThread[numThreads[i]];
+    for (int x=0; x < threads.length; x++) {
+      threads[x]=new IndexThread(numDocs,numThreads[i],writer,lineDocFile,false);
+      threads[x].start();
+    }
+    for (int x=0; x < threads.length; x++) {
+      threads[x].join();
+    }
+    assertEquals(" all flushes must be due numThreads=" + numThreads[i],0,flushControl.flushBytes());
+    assertEquals(numDocumentsToIndex,writer.numDocs());
+    assertEquals(numDocumentsToIndex,writer.maxDoc());
+    assertTrue("peak bytes without flush exceeded watermark",flushPolicy.peakDocCountWithoutFlush <= iwc.getMaxBufferedDocs());
+    assertActiveBytesAfter(flushControl);
+    writer.close();
+    assertEquals(0,flushControl.activeBytes());
+    dir.close();
+  }
+}

@@ -1,0 +1,44 @@
+{
+  final int numDocumentsToIndex=50 + random.nextInt(150);
+  AtomicInteger numDocs=new AtomicInteger(numDocumentsToIndex);
+  Directory dir=newDirectory();
+  MockDefaultFlushPolicy flushPolicy=new MockDefaultFlushPolicy();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setFlushPolicy(flushPolicy);
+  final int numDWPT=1 + random.nextInt(8);
+  DocumentsWriterPerThreadPool threadPool=new ThreadAffinityDocumentsWriterThreadPool(numDWPT);
+  iwc.setIndexerThreadPool(threadPool);
+  iwc.setRAMBufferSizeMB(1 + random.nextInt(10) + random.nextDouble());
+  iwc.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+  iwc.setMaxBufferedDeleteTerms(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+  IndexWriter writer=new IndexWriter(dir,iwc);
+  assertFalse(flushPolicy.flushOnDocCount());
+  assertFalse(flushPolicy.flushOnDeleteTerms());
+  assertTrue(flushPolicy.flushOnRAM());
+  DocumentsWriter docsWriter=writer.getDocsWriter();
+  assertNotNull(docsWriter);
+  DocumentsWriterFlushControl flushControl=docsWriter.flushControl;
+  assertEquals(" bytes must be 0 after init",0,flushControl.flushBytes());
+  IndexThread[] threads=new IndexThread[numThreads];
+  for (int x=0; x < threads.length; x++) {
+    threads[x]=new IndexThread(numDocs,numThreads,writer,lineDocFile,false);
+    threads[x].start();
+  }
+  for (int x=0; x < threads.length; x++) {
+    threads[x].join();
+  }
+  final long maxRAMBytes=(long)(iwc.getRAMBufferSizeMB() * 1024. * 1024.);
+  assertEquals(" all flushes must be due numThreads=" + numThreads,0,flushControl.flushBytes());
+  assertEquals(numDocumentsToIndex,writer.numDocs());
+  assertEquals(numDocumentsToIndex,writer.maxDoc());
+  assertTrue("peak bytes without flush exceeded watermark",flushPolicy.peakBytesWithoutFlush <= maxRAMBytes);
+  assertActiveBytesAfter(flushControl);
+  if (flushPolicy.hasMarkedPending) {
+    assertTrue(maxRAMBytes < flushControl.peakActiveBytes);
+  }
+  if (ensureNotStalled) {
+    assertFalse(docsWriter.healthiness.wasStalled);
+  }
+  writer.close();
+  assertEquals(0,flushControl.activeBytes());
+  dir.close();
+}

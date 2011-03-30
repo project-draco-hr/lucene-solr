@@ -1,0 +1,46 @@
+{
+  int[] numThreads=new int[]{3 + random.nextInt(8),1};
+  final int numDocumentsToIndex=50 + random.nextInt(50);
+  for (int i=0; i < numThreads.length; i++) {
+    AtomicInteger numDocs=new AtomicInteger(numDocumentsToIndex);
+    MockDirectoryWrapper dir=newDirectory();
+    dir.setThrottledIndexOutput(new ThrottledIndexOutput(ThrottledIndexOutput.mBitsToBytes(50 + random.nextInt(10)),5 + random.nextInt(5),null));
+    IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer());
+    iwc.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+    iwc.setMaxBufferedDeleteTerms(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+    FlushPolicy flushPolicy=new FlushByRamOrCountsPolicy();
+    iwc.setFlushPolicy(flushPolicy);
+    DocumentsWriterPerThreadPool threadPool=new ThreadAffinityDocumentsWriterThreadPool(numThreads[i] == 1 ? 1 : 2);
+    iwc.setIndexerThreadPool(threadPool);
+    iwc.setRAMBufferSizeMB(0.25);
+    IndexWriter writer=new IndexWriter(dir,iwc);
+    IndexThread[] threads=new IndexThread[numThreads[i]];
+    for (int x=0; x < threads.length; x++) {
+      threads[x]=new IndexThread(numDocs,numThreads[i],writer,lineDocFile,false);
+      threads[x].start();
+    }
+    for (int x=0; x < threads.length; x++) {
+      threads[x].join();
+    }
+    DocumentsWriter docsWriter=writer.getDocsWriter();
+    assertNotNull(docsWriter);
+    DocumentsWriterFlushControl flushControl=docsWriter.flushControl;
+    assertEquals(" all flushes must be due",0,flushControl.flushBytes());
+    assertEquals(numDocumentsToIndex,writer.numDocs());
+    assertEquals(numDocumentsToIndex,writer.maxDoc());
+    if (flushControl.peakNetBytes > (long)(iwc.getRAMBufferSizeMB() * 1024d * 1024d* 2d)) {
+      assertTrue("should be unhealthy here numThreads: " + numThreads[i],docsWriter.healthiness.wasStalled);
+    }
+    if (numThreads[i] == 1) {
+      assertFalse("single thread must not block numThreads: " + numThreads[i],docsWriter.healthiness.hasBlocked());
+    }
+ else {
+      if (docsWriter.healthiness.wasStalled) {
+        assertTrue(" we should have blocked here numThreads: " + numThreads[i],docsWriter.healthiness.hasBlocked());
+      }
+    }
+    assertActiveBytesAfter(flushControl);
+    writer.close(true);
+    dir.close();
+  }
+}
