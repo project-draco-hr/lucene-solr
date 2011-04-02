@@ -1,5 +1,24 @@
 {
-  this.field=field;
-  this.ti=new TermIndex(field,TrieField.getMainValuePrefix(searcher.getSchema().getFieldType(field)));
-  uninvert(searcher);
+  super(field,searcher.maxDoc() / 20 + 1,DEFAULT_INDEX_INTERVAL_BITS);
+  final String prefix=TrieField.getMainValuePrefix(searcher.getSchema().getFieldType(field));
+  this.searcher=searcher;
+  try {
+    uninvert(searcher.getIndexReader(),prefix == null ? null : new BytesRef(prefix));
+  }
+ catch (  IllegalStateException ise) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,ise.getMessage());
+  }
+  if (tnums != null) {
+    for (    byte[] target : tnums) {
+      if (target != null && target.length > (1 << 24) * .9) {
+        SolrCore.log.warn("Approaching too many values for UnInvertedField faceting on field '" + field + "' : bucket size="+ target.length);
+      }
+    }
+  }
+  if ((maxTermCounts.length - numTermsInField) > 1024) {
+    int[] newMaxTermCounts=new int[numTermsInField];
+    System.arraycopy(maxTermCounts,0,newMaxTermCounts,0,numTermsInField);
+    maxTermCounts=newMaxTermCounts;
+  }
+  SolrCore.log.info("UnInverted multi-valued field " + toString());
 }
