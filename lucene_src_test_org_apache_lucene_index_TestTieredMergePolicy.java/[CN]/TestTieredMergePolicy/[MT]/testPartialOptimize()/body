@@ -1,0 +1,37 @@
+{
+  for (int iter=0; iter < 10 * RANDOM_MULTIPLIER; iter++) {
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + iter);
+    }
+    Directory dir=newDirectory();
+    IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer());
+    conf.setMergeScheduler(new SerialMergeScheduler());
+    TieredMergePolicy tmp=newTieredMergePolicy();
+    conf.setMergePolicy(tmp);
+    conf.setMaxBufferedDocs(2);
+    tmp.setMaxMergeAtOnce(3);
+    tmp.setSegmentsPerTier(6);
+    IndexWriter w=new IndexWriter(dir,conf);
+    w.setInfoStream(VERBOSE ? System.out : null);
+    int maxCount=0;
+    final int numDocs=_TestUtil.nextInt(random,20,100);
+    for (int i=0; i < numDocs; i++) {
+      Document doc=new Document();
+      doc.add(newField("content","aaa " + (i % 4),Field.Store.NO,Field.Index.ANALYZED));
+      w.addDocument(doc);
+      int count=w.getSegmentCount();
+      maxCount=Math.max(count,maxCount);
+      assertTrue("count=" + count + " maxCount="+ maxCount,count >= maxCount - 3);
+    }
+    w.flush(true,true);
+    int segmentCount=w.getSegmentCount();
+    int targetCount=_TestUtil.nextInt(random,1,segmentCount);
+    if (VERBOSE) {
+      System.out.println("TEST: optimize to " + targetCount + " segs (current count="+ segmentCount+ ")");
+    }
+    w.optimize(targetCount);
+    assertEquals(targetCount,w.getSegmentCount());
+    w.close();
+    dir.close();
+  }
+}

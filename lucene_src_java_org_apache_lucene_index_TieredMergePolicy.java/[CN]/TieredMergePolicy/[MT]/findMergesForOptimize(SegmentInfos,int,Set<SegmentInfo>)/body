@@ -1,0 +1,55 @@
+{
+  if (verbose()) {
+    message("findMergesForOptimize maxSegmentCount=" + maxSegmentCount + " infos="+ writer.get().segString(infos)+ " segmentsToOptimize="+ segmentsToOptimize);
+  }
+  SegmentInfos eligible=new SegmentInfos();
+  boolean optimizeMergeRunning=false;
+  final Collection<SegmentInfo> merging=writer.get().getMergingSegments();
+  for (  SegmentInfo info : infos) {
+    if (segmentsToOptimize.contains(info)) {
+      if (!merging.contains(info)) {
+        eligible.add(info);
+      }
+ else {
+        optimizeMergeRunning=true;
+      }
+    }
+  }
+  if (eligible.size() == 0) {
+    return null;
+  }
+  if ((maxSegmentCount > 1 && eligible.size() <= maxSegmentCount) || (maxSegmentCount == 1 && eligible.size() == 1 && isOptimized(eligible.get(0)))) {
+    if (verbose()) {
+      message("already optimized");
+    }
+    return null;
+  }
+  Collections.sort(eligible,segmentByteSizeDescending);
+  if (verbose()) {
+    message("eligible=" + eligible);
+    message("optimizeMergeRunning=" + optimizeMergeRunning);
+  }
+  int end=eligible.size();
+  MergeSpecification spec=null;
+  while (end >= maxMergeAtOnceExplicit + maxSegmentCount - 1) {
+    if (spec == null) {
+      spec=new MergeSpecification();
+    }
+    final OneMerge merge=new OneMerge(eligible.range(end - maxMergeAtOnceExplicit,end));
+    if (verbose()) {
+      message("add merge=" + writer.get().segString(merge.segments));
+    }
+    spec.add(merge);
+    end-=maxMergeAtOnceExplicit;
+  }
+  if (spec == null && !optimizeMergeRunning) {
+    final int numToMerge=end - maxSegmentCount + 1;
+    final OneMerge merge=new OneMerge(eligible.range(end - numToMerge,end));
+    if (verbose()) {
+      message("add final merge=" + merge.segString(writer.get().getDirectory()));
+    }
+    spec=new MergeSpecification();
+    spec.add(merge);
+  }
+  return spec;
+}
