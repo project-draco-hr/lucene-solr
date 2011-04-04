@@ -1,0 +1,69 @@
+{
+  MockDirectoryWrapper dir=newDirectory();
+  final int NUM_TERMS=100 * RANDOM_MULTIPLIER;
+  final Set<BytesRef> terms=new HashSet<BytesRef>();
+  while (terms.size() < NUM_TERMS) {
+    final String s=_TestUtil.randomRealisticUnicodeString(random);
+    if (s.length() > 0) {
+      terms.add(new BytesRef(s));
+    }
+  }
+  final BytesRef[] termsArray=terms.toArray(new BytesRef[terms.size()]);
+  Arrays.sort(termsArray);
+  final int NUM_DOCS=1000 * RANDOM_MULTIPLIER;
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer());
+  if (random.nextInt(10) == 7) {
+    CoreCodecProvider cp=new CoreCodecProvider();
+    cp.register(new StandardCodecWithOrds());
+    cp.setDefaultFieldCodec("StandardOrds");
+    dir.setCodecProvider(cp);
+    conf.setCodecProvider(cp);
+  }
+  final RandomIndexWriter w=new RandomIndexWriter(random,dir,conf);
+  final int[][] idToOrds=new int[NUM_DOCS][];
+  final Set<Integer> ordsForDocSet=new HashSet<Integer>();
+  for (int id=0; id < NUM_DOCS; id++) {
+    Document doc=new Document();
+    NumericField idField=new NumericField("id");
+    doc.add(idField.setIntValue(id));
+    final int termCount=_TestUtil.nextInt(random,0,20 * RANDOM_MULTIPLIER);
+    while (ordsForDocSet.size() < termCount) {
+      ordsForDocSet.add(random.nextInt(termsArray.length));
+    }
+    final int[] ordsForDoc=new int[termCount];
+    int upto=0;
+    if (VERBOSE) {
+      System.out.println("TEST: doc id=" + id);
+    }
+    for (    int ord : ordsForDocSet) {
+      ordsForDoc[upto++]=ord;
+      Field field=newField("field",termsArray[ord].utf8ToString(),Field.Index.NOT_ANALYZED);
+      if (VERBOSE) {
+        System.out.println("  f=" + termsArray[ord].utf8ToString());
+      }
+      doc.add(field);
+    }
+    ordsForDocSet.clear();
+    Arrays.sort(ordsForDoc);
+    idToOrds[id]=ordsForDoc;
+    w.addDocument(doc);
+  }
+  final IndexReader r=w.getReader();
+  w.close();
+  if (VERBOSE) {
+    System.out.println("TEST: reader=" + r);
+  }
+  for (  IndexReader subR : r.getSequentialSubReaders()) {
+    if (VERBOSE) {
+      System.out.println("\nTEST: sub=" + subR);
+    }
+    verify(subR,idToOrds,termsArray,null);
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: top reader");
+  }
+  verify(r,idToOrds,termsArray,null);
+  FieldCache.DEFAULT.purge(r);
+  r.close();
+  dir.close();
+}
