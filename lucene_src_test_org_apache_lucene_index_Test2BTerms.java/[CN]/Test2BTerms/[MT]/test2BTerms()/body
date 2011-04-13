@@ -2,29 +2,49 @@
   if ("PreFlex".equals(CodecProvider.getDefault().getDefaultFieldCodec())) {
     throw new RuntimeException("thist test cannot run with PreFlex codec");
   }
-  long TERM_COUNT=((long)Integer.MAX_VALUE) + 100000000;
-  int TERMS_PER_DOC=1000000;
+  final long TERM_COUNT=((long)Integer.MAX_VALUE) + 100000000;
+  final int TERMS_PER_DOC=_TestUtil.nextInt(random,100000,1000000);
+  List<BytesRef> savedTerms=null;
   Directory dir=newFSDirectory(_TestUtil.getTempDir("2BTerms"));
-  IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer()).setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH).setRAMBufferSizeMB(256.0).setMergeScheduler(new ConcurrentMergeScheduler()).setMergePolicy(newLogMergePolicy(false,10)));
-  MergePolicy mp=w.getConfig().getMergePolicy();
-  if (mp instanceof LogByteSizeMergePolicy) {
-    ((LogByteSizeMergePolicy)mp).setMaxMergeMB(1024 * 1024 * 1024);
+  if (true) {
+    IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH).setRAMBufferSizeMB(256.0).setMergeScheduler(new ConcurrentMergeScheduler()).setMergePolicy(newLogMergePolicy(false,10)));
+    MergePolicy mp=w.getConfig().getMergePolicy();
+    if (mp instanceof LogByteSizeMergePolicy) {
+      ((LogByteSizeMergePolicy)mp).setMaxMergeMB(1024 * 1024 * 1024);
+    }
+    Document doc=new Document();
+    final MyTokenStream ts=new MyTokenStream(random,TERMS_PER_DOC);
+    Field field=new Field("field",ts);
+    field.setOmitTermFreqAndPositions(true);
+    field.setOmitNorms(true);
+    doc.add(field);
+    final int numDocs=(int)(TERM_COUNT / TERMS_PER_DOC);
+    System.out.println("TERMS_PER_DOC=" + TERMS_PER_DOC);
+    System.out.println("numDocs=" + numDocs);
+    for (int i=0; i < numDocs; i++) {
+      final long t0=System.currentTimeMillis();
+      w.addDocument(doc);
+      System.out.println(i + " of " + numDocs+ " "+ (System.currentTimeMillis() - t0)+ " msec");
+    }
+    savedTerms=ts.savedTerms;
+    System.out.println("TEST: optimize");
+    w.optimize();
+    System.out.println("TEST: close writer");
+    w.close();
   }
-  Document doc=new Document();
-  Field field=new Field("field",new MyTokenStream(TERMS_PER_DOC));
-  field.setOmitTermFreqAndPositions(true);
-  field.setOmitNorms(true);
-  doc.add(field);
-  final int numDocs=(int)(TERM_COUNT / TERMS_PER_DOC);
-  for (int i=0; i < numDocs; i++) {
-    final long t0=System.currentTimeMillis();
-    w.addDocument(doc);
-    System.out.println(i + " of " + numDocs+ " "+ (System.currentTimeMillis() - t0)+ " msec");
+  System.out.println("TEST: open reader");
+  final IndexReader r=IndexReader.open(dir);
+  if (savedTerms == null) {
+    savedTerms=findTerms(r);
   }
-  System.out.println("now optimize...");
-  w.optimize();
-  w.close();
-  System.out.println("now CheckIndex...");
+  final int numSavedTerms=savedTerms.size();
+  final List<BytesRef> bigOrdTerms=new ArrayList<BytesRef>(savedTerms.subList(numSavedTerms - 10,numSavedTerms));
+  System.out.println("TEST: test big ord terms...");
+  testSavedTerms(r,bigOrdTerms);
+  System.out.println("TEST: test all saved terms...");
+  testSavedTerms(r,savedTerms);
+  r.close();
+  System.out.println("TEST: now CheckIndex...");
   CheckIndex.Status status=_TestUtil.checkIndex(dir);
   final long tc=status.segmentInfos.get(0).termIndexStatus.termCount;
   assertTrue("count " + tc + " is not > "+ Integer.MAX_VALUE,tc > Integer.MAX_VALUE);
