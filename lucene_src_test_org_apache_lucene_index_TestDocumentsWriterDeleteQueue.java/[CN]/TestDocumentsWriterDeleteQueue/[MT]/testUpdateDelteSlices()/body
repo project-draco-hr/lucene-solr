@@ -1,0 +1,41 @@
+{
+  DocumentsWriterDeleteQueue queue=new DocumentsWriterDeleteQueue(new BufferedDeletes(false));
+  final int size=200 + random.nextInt(500) * RANDOM_MULTIPLIER;
+  Integer[] ids=new Integer[size];
+  for (int i=0; i < ids.length; i++) {
+    ids[i]=random.nextInt();
+  }
+  Term template=new Term("id");
+  DeleteSlice slice1=queue.newSlice();
+  DeleteSlice slice2=queue.newSlice();
+  BufferedDeletes bd1=new BufferedDeletes(false);
+  BufferedDeletes bd2=new BufferedDeletes(false);
+  int last1=0;
+  int last2=0;
+  Set<Term> uniqueValues=new HashSet<Term>();
+  for (int j=0; j < ids.length; j++) {
+    Integer i=ids[j];
+    Term[] term=new Term[]{template.createTerm(i.toString())};
+    uniqueValues.add(term[0]);
+    queue.addDelete(term);
+    if (random.nextInt(20) == 0 || j == ids.length - 1) {
+      queue.updateSlice(slice1);
+      assertTrue(slice1.isTailItem(term));
+      slice1.apply(bd1,j);
+      assertAllBetween(last1,j,bd1,ids);
+      last1=j + 1;
+    }
+    if (random.nextInt(10) == 5 || j == ids.length - 1) {
+      queue.updateSlice(slice2);
+      assertTrue(slice2.isTailItem(term));
+      slice2.apply(bd2,j);
+      assertAllBetween(last2,j,bd2,ids);
+      last2=j + 1;
+    }
+    assertEquals(uniqueValues.size(),queue.numGlobalTermDeletes());
+  }
+  assertEquals(uniqueValues,bd1.terms.keySet());
+  assertEquals(uniqueValues,bd2.terms.keySet());
+  assertEquals(uniqueValues,new HashSet<Term>(Arrays.asList(queue.freezeGlobalBuffer(null).terms)));
+  assertEquals("num deletes must be 0 after freeze",0,queue.numGlobalTermDeletes());
+}

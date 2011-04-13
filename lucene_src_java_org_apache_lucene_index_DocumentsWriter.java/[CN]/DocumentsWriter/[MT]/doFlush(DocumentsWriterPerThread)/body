@@ -2,14 +2,26 @@
   boolean maybeMerge=false;
   while (flushingDWPT != null) {
     maybeMerge=true;
+    boolean success=false;
+    FlushTicket ticket=null;
     try {
+synchronized (ticketQueue) {
+        ticket=new FlushTicket(flushingDWPT.prepareFlush(),true);
+        ticketQueue.add(ticket);
+      }
       final FlushedSegment newSegment=flushingDWPT.flush();
-      finishFlushedSegment(newSegment);
+      success=true;
+      applyFlushTickets(ticket,newSegment);
     }
   finally {
       flushControl.doAfterFlush(flushingDWPT);
       flushingDWPT.checkAndResetHasAborted();
       indexWriter.flushCount.incrementAndGet();
+      if (!success && ticket != null) {
+synchronized (ticketQueue) {
+          ticket.isSegmentFlush=false;
+        }
+      }
     }
     flushingDWPT=flushControl.nextPendingFlush();
   }

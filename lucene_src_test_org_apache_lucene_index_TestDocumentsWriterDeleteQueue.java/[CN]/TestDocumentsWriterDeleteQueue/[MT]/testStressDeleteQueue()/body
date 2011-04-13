@@ -1,0 +1,33 @@
+{
+  DocumentsWriterDeleteQueue queue=new DocumentsWriterDeleteQueue(new BufferedDeletes(false));
+  Set<Term> uniqueValues=new HashSet<Term>();
+  final int size=10000 + random.nextInt(500) * RANDOM_MULTIPLIER;
+  Integer[] ids=new Integer[size];
+  Term template=new Term("id");
+  for (int i=0; i < ids.length; i++) {
+    ids[i]=random.nextInt();
+    uniqueValues.add(template.createTerm(ids[i].toString()));
+  }
+  CountDownLatch latch=new CountDownLatch(1);
+  AtomicInteger index=new AtomicInteger(0);
+  final int numThreads=2 + random.nextInt(5);
+  UpdateThread[] threads=new UpdateThread[numThreads];
+  for (int i=0; i < threads.length; i++) {
+    threads[i]=new UpdateThread(queue,index,ids,latch);
+    threads[i].start();
+  }
+  latch.countDown();
+  for (int i=0; i < threads.length; i++) {
+    threads[i].join();
+  }
+  for (  UpdateThread updateThread : threads) {
+    DeleteSlice slice=updateThread.slice;
+    queue.updateSlice(slice);
+    BufferedDeletes deletes=updateThread.deletes;
+    slice.apply(deletes,BufferedDeletes.MAX_INT);
+    assertEquals(uniqueValues,deletes.terms.keySet());
+  }
+  queue.tryApplyGlobalSlice();
+  assertEquals(uniqueValues,new HashSet<Term>(Arrays.asList(queue.freezeGlobalBuffer(null).terms)));
+  assertEquals("num deletes must be 0 after freeze",0,queue.numGlobalTermDeletes());
+}
