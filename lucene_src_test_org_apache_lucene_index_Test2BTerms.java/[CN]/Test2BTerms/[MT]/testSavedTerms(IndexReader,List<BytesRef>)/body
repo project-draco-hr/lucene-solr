@@ -3,13 +3,28 @@
   IndexSearcher s=new IndexSearcher(r);
   Collections.shuffle(terms);
   TermsEnum termsEnum=MultiFields.getTerms(r,"field").iterator();
+  boolean failed=false;
   for (int iter=0; iter < 10 * terms.size(); iter++) {
     final BytesRef term=terms.get(random.nextInt(terms.size()));
     System.out.println("TEST: search " + term);
     final long t0=System.currentTimeMillis();
-    assertTrue(s.search(new TermQuery(new Term("field",term)),1).totalHits > 0);
+    final int count=s.search(new TermQuery(new Term("field",term)),1).totalHits;
+    if (count <= 0) {
+      System.out.println("  FAILED: count=" + count);
+      failed=true;
+    }
     final long t1=System.currentTimeMillis();
     System.out.println("  took " + (t1 - t0) + " millis");
-    assertEquals(TermsEnum.SeekStatus.FOUND,termsEnum.seek(term));
+    TermsEnum.SeekStatus result=termsEnum.seek(term);
+    if (result != TermsEnum.SeekStatus.FOUND) {
+      if (result == TermsEnum.SeekStatus.END) {
+        System.out.println("  FAILED: got END");
+      }
+ else {
+        System.out.println("  FAILED: wrong term: got " + termsEnum.term());
+      }
+      failed=true;
+    }
   }
+  assertFalse(failed);
 }
