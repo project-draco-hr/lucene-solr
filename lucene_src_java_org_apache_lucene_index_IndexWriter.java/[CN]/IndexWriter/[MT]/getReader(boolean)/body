@@ -5,15 +5,36 @@
     message("flush at getReader");
   }
   poolReaders=true;
-  IndexReader r;
+  final IndexReader r;
+  doBeforeFlush();
+  final boolean anySegmentFlushed;
+synchronized (fullFlushLock) {
+    boolean success=false;
+    try {
+      anySegmentFlushed=docWriter.flushAllThreads();
+      if (!anySegmentFlushed) {
+        flushCount.incrementAndGet();
+      }
+      success=true;
 synchronized (this) {
-    flush(false,applyAllDeletes);
-    r=new DirectoryReader(this,segmentInfos,config.getReaderTermsIndexDivisor(),codecs,applyAllDeletes);
-    if (infoStream != null) {
-      message("return reader version=" + r.getVersion() + " reader="+ r);
+        maybeApplyDeletes(applyAllDeletes);
+        r=new DirectoryReader(this,segmentInfos,config.getReaderTermsIndexDivisor(),codecs,applyAllDeletes);
+        if (infoStream != null) {
+          message("return reader version=" + r.getVersion() + " reader="+ r);
+        }
+      }
+    }
+  finally {
+      if (!success && infoStream != null) {
+        message("hit exception during while NRT reader");
+      }
+      docWriter.finishFullFlush(success);
+      doAfterFlush();
     }
   }
-  maybeMerge();
+  if (anySegmentFlushed) {
+    maybeMerge();
+  }
   if (infoStream != null) {
     message("getReader took " + (System.currentTimeMillis() - tStart) + " msec");
   }
