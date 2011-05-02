@@ -10,16 +10,25 @@
     writer.addDocument(doc);
   }
   writer.commit();
+  for (int i=0; i < 5; i++) {
+    Document doc=new Document();
+    DocValuesField valuesField=new DocValuesField("docId1");
+    valuesField.setFloat(i);
+    doc.add(valuesField);
+    doc.add(new Field("docId1","" + i,Store.NO,Index.ANALYZED));
+    writer.addDocument(doc);
+  }
+  writer.commit();
   writer.optimize(true);
   writer.close(true);
   IndexReader reader=IndexReader.open(dir,null,true,1,provider);
   assertTrue(reader.isOptimized());
   IndexSearcher searcher=new IndexSearcher(reader);
-  QueryParser parser=new QueryParser(TEST_VERSION_CURRENT,"docId",new MockAnalyzer());
+  QueryParser parser=new QueryParser(TEST_VERSION_CURRENT,"docId",new MockAnalyzer(random));
   TopDocs search=searcher.search(parser.parse("0 OR 1 OR 2 OR 3 OR 4"),10);
   assertEquals(5,search.totalHits);
   ScoreDoc[] scoreDocs=search.scoreDocs;
-  DocValues docValues=MultiFields.getDocValues(reader,"docId");
+  DocValues docValues=MultiPerDocValues.getPerDocs(reader).docValues("docId");
   Source source=docValues.getSource();
   for (int i=0; i < scoreDocs.length; i++) {
     assertEquals(i,scoreDocs[i].doc);

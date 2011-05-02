@@ -1,0 +1,41 @@
+{
+  final ModifiableSolrParams params=new ModifiableSolrParams();
+  params.add("reqid",Integer.toString(random.nextInt()));
+  for (int i=0; i < q.length; i+=2) {
+    params.add(q[i].toString(),q[i + 1].toString());
+  }
+  params.add("controlClient","true");
+  final QueryResponse controlRsp=controlClient.query(params);
+  params.remove("controlClient");
+  setDistributedParams(params);
+  QueryResponse rsp=queryServer(params);
+  compareResponses(rsp,controlRsp);
+  if (stress > 0) {
+    log.info("starting stress...");
+    Thread[] threads=new Thread[nThreads];
+    for (int i=0; i < threads.length; i++) {
+      threads[i]=new Thread(){
+        @Override public void run(){
+          for (int j=0; j < stress; j++) {
+            int which=r.nextInt(clients.size());
+            SolrServer client=clients.get(which);
+            try {
+              QueryResponse rsp=client.query(new ModifiableSolrParams(params));
+              if (verifyStress) {
+                compareResponses(rsp,controlRsp);
+              }
+            }
+ catch (            SolrServerException e) {
+              throw new RuntimeException(e);
+            }
+          }
+        }
+      }
+;
+      threads[i].start();
+    }
+    for (    Thread thread : threads) {
+      thread.join();
+    }
+  }
+}

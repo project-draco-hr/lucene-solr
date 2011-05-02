@@ -1,0 +1,57 @@
+{
+  if (verbose()) {
+    message("findMergesToExpungeDeletes infos=" + writer.get().segString(infos) + " expungeDeletesPctAllowed="+ expungeDeletesPctAllowed);
+  }
+  final SegmentInfos eligible=new SegmentInfos();
+  final Collection<SegmentInfo> merging=writer.get().getMergingSegments();
+  for (  SegmentInfo info : infos) {
+    double pctDeletes=100. * ((double)writer.get().numDeletedDocs(info)) / info.docCount;
+    if (pctDeletes > expungeDeletesPctAllowed && !merging.contains(info)) {
+      eligible.add(info);
+    }
+  }
+  if (eligible.size() == 0) {
+    return null;
+  }
+  Collections.sort(eligible,segmentByteSizeDescending);
+  if (verbose()) {
+    message("eligible=" + eligible);
+  }
+  int start=0;
+  MergeSpecification spec=null;
+  while (start < eligible.size()) {
+    long totAfterMergeBytes=0;
+    int upto=start;
+    boolean done=false;
+    while (upto < start + maxMergeAtOnceExplicit) {
+      if (upto == eligible.size()) {
+        done=true;
+        break;
+      }
+      final SegmentInfo info=eligible.get(upto);
+      final long segBytes=size(info);
+      if (totAfterMergeBytes + segBytes > maxMergedSegmentBytes) {
+        break;
+      }
+      totAfterMergeBytes+=segBytes;
+      upto++;
+    }
+    if (upto == start) {
+      start++;
+      continue;
+    }
+    if (spec == null) {
+      spec=new MergeSpecification();
+    }
+    final OneMerge merge=new OneMerge(eligible.range(start,upto));
+    if (verbose()) {
+      message("add merge=" + writer.get().segString(merge.segments));
+    }
+    spec.add(merge);
+    start=upto;
+    if (done) {
+      break;
+    }
+  }
+  return spec;
+}
