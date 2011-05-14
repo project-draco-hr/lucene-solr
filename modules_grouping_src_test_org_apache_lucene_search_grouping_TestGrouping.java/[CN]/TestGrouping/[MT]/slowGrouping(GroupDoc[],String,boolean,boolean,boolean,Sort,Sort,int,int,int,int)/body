@@ -1,0 +1,58 @@
+{
+  final Comparator<GroupDoc> groupSortComp=getComparator(groupSort);
+  Arrays.sort(groupDocs,groupSortComp);
+  final HashMap<BytesRef,List<GroupDoc>> groups=new HashMap<BytesRef,List<GroupDoc>>();
+  final List<BytesRef> sortedGroups=new ArrayList<BytesRef>();
+  final List<Comparable[]> sortedGroupFields=new ArrayList<Comparable[]>();
+  int totalHitCount=0;
+  for (  GroupDoc d : groupDocs) {
+    if (!d.content.equals(searchTerm)) {
+      continue;
+    }
+    totalHitCount++;
+    List<GroupDoc> l=groups.get(d.group);
+    if (l == null) {
+      sortedGroups.add(d.group);
+      if (fillFields) {
+        sortedGroupFields.add(fillFields(d,groupSort));
+      }
+      l=new ArrayList<GroupDoc>();
+      groups.put(d.group,l);
+    }
+    l.add(d);
+  }
+  if (groupOffset >= sortedGroups.size()) {
+    return null;
+  }
+  final int limit=Math.min(groupOffset + topNGroups,groups.size());
+  final Comparator<GroupDoc> docSortComp=getComparator(docSort);
+  final GroupDocs[] result=new GroupDocs[limit - groupOffset];
+  int totalGroupedHitCount=0;
+  for (int idx=groupOffset; idx < limit; idx++) {
+    final BytesRef group=sortedGroups.get(idx);
+    final List<GroupDoc> docs=groups.get(group);
+    totalGroupedHitCount+=docs.size();
+    Collections.sort(docs,docSortComp);
+    final ScoreDoc[] hits;
+    if (docs.size() > docOffset) {
+      final int docIDXLimit=Math.min(docOffset + docsPerGroup,docs.size());
+      hits=new ScoreDoc[docIDXLimit - docOffset];
+      for (int docIDX=docOffset; docIDX < docIDXLimit; docIDX++) {
+        final GroupDoc d=docs.get(docIDX);
+        final FieldDoc fd;
+        if (fillFields) {
+          fd=new FieldDoc(d.id,0.0f,fillFields(d,docSort));
+        }
+ else {
+          fd=new FieldDoc(d.id,0.0f);
+        }
+        hits[docIDX - docOffset]=fd;
+      }
+    }
+ else {
+      hits=new ScoreDoc[0];
+    }
+    result[idx - groupOffset]=new GroupDocs(0.0f,docs.size(),hits,group,fillFields ? sortedGroupFields.get(idx) : null);
+  }
+  return new TopGroups(groupSort.getSort(),docSort.getSort(),totalHitCount,totalGroupedHitCount,result);
+}

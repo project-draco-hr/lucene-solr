@@ -1,0 +1,40 @@
+{
+  if (!isCached()) {
+    throw new IllegalStateException("cannot replay: cache was cleared because too much RAM was required");
+  }
+  if (lastReaderContext != null) {
+    cachedSegs.add(new SegStart(lastReaderContext,base + upto));
+    lastReaderContext=null;
+  }
+  final int uptoSav=upto;
+  final int baseSav=base;
+  try {
+    upto=0;
+    base=0;
+    int chunkUpto=0;
+    other.setScorer(cachedScorer);
+    curDocs=EMPTY_INT_ARRAY;
+    for (    SegStart seg : cachedSegs) {
+      other.setNextReader(seg.readerContext);
+      while (base + upto < seg.end) {
+        if (upto == curDocs.length) {
+          base+=curDocs.length;
+          curDocs=cachedDocs.get(chunkUpto);
+          if (curScores != null) {
+            curScores=cachedScores.get(chunkUpto);
+          }
+          chunkUpto++;
+          upto=0;
+        }
+        if (curScores != null) {
+          score=curScores[upto];
+        }
+        other.collect(curDocs[upto++]);
+      }
+    }
+  }
+  finally {
+    upto=uptoSav;
+    base=baseSav;
+  }
+}
