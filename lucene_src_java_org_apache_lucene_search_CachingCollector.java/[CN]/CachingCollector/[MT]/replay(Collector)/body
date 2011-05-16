@@ -1,0 +1,35 @@
+{
+  if (!isCached()) {
+    throw new IllegalStateException("cannot replay: cache was cleared because too much RAM was required");
+  }
+  if (!other.acceptsDocsOutOfOrder() && this.other.acceptsDocsOutOfOrder()) {
+    throw new IllegalArgumentException("cannot replay: given collector does not support " + "out-of-order collection, while the wrapped collector does. " + "Therefore cached documents may be out-of-order.");
+  }
+  if (lastReaderContext != null) {
+    cachedSegs.add(new SegStart(lastReaderContext,base + upto));
+    lastReaderContext=null;
+  }
+  int curupto=0;
+  int curbase=0;
+  int chunkUpto=0;
+  other.setScorer(cachedScorer);
+  curDocs=EMPTY_INT_ARRAY;
+  for (  SegStart seg : cachedSegs) {
+    other.setNextReader(seg.readerContext);
+    while (curbase + curupto < seg.end) {
+      if (curupto == curDocs.length) {
+        curbase+=curDocs.length;
+        curDocs=cachedDocs.get(chunkUpto);
+        if (cacheScores) {
+          curScores=cachedScores.get(chunkUpto);
+        }
+        chunkUpto++;
+        curupto=0;
+      }
+      if (cacheScores) {
+        cachedScorer.score=curScores[curupto];
+      }
+      other.collect(curDocs[curupto++]);
+    }
+  }
+}
