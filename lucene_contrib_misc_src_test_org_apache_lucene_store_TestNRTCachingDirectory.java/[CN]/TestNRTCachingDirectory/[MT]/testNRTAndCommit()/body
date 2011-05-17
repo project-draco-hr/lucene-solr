@@ -1,0 +1,50 @@
+{
+  Directory dir=newDirectory();
+  NRTCachingDirectory cachedDir=new NRTCachingDirectory(dir,2.0,25.0);
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random));
+  conf.setMergeScheduler(cachedDir.getMergeScheduler());
+  RandomIndexWriter w=new RandomIndexWriter(random,cachedDir,conf);
+  w.w.setInfoStream(VERBOSE ? System.out : null);
+  final LineFileDocs docs=new LineFileDocs(random);
+  final int numDocs=_TestUtil.nextInt(random,100,400);
+  if (VERBOSE) {
+    System.out.println("TEST: numDocs=" + numDocs);
+  }
+  final List<BytesRef> ids=new ArrayList<BytesRef>();
+  IndexReader r=null;
+  for (int docCount=0; docCount < numDocs; docCount++) {
+    final Document doc=docs.nextDoc();
+    ids.add(new BytesRef(doc.get("docid")));
+    w.addDocument(doc);
+    if (random.nextInt(20) == 17) {
+      if (r == null) {
+        r=IndexReader.open(w.w,false);
+      }
+ else {
+        final IndexReader r2=r.reopen();
+        if (r2 != r) {
+          r.close();
+          r=r2;
+        }
+      }
+      assertEquals(1 + docCount,r.numDocs());
+      final IndexSearcher s=new IndexSearcher(r);
+      TopDocs hits=s.search(new TermQuery(new Term("body","the")),10);
+    }
+  }
+  if (r != null) {
+    r.close();
+  }
+  w.close();
+  final String[] cachedFiles=cachedDir.listCachedFiles();
+  for (  String file : cachedFiles) {
+    System.out.println("FAIL: cached file " + file + " remains after sync");
+  }
+  assertEquals(0,cachedFiles.length);
+  r=IndexReader.open(dir);
+  for (  BytesRef id : ids) {
+    assertEquals(1,r.docFreq("docid",id));
+  }
+  r.close();
+  cachedDir.close();
+}
