@@ -77,8 +77,16 @@
       final int groupOffset=_TestUtil.nextInt(random,0,(topNGroups - 1) / 2);
       final int docOffset=_TestUtil.nextInt(random,0,docsPerGroup - 1);
       final boolean doCache=random.nextBoolean();
+      final boolean doAllGroups=random.nextBoolean();
       if (VERBOSE) {
-        System.out.println("TEST: groupSort=" + groupSort + " docSort="+ docSort+ " searchTerm="+ searchTerm+ " topNGroups="+ topNGroups+ " groupOffset="+ groupOffset+ " docOffset="+ docOffset+ " doCache="+ doCache+ " docsPerGroup="+ docsPerGroup);
+        System.out.println("TEST: groupSort=" + groupSort + " docSort="+ docSort+ " searchTerm="+ searchTerm+ " topNGroups="+ topNGroups+ " groupOffset="+ groupOffset+ " docOffset="+ docOffset+ " doCache="+ doCache+ " docsPerGroup="+ docsPerGroup+ " doAllGroups="+ doAllGroups);
+      }
+      final AllGroupsCollector allGroupsCollector;
+      if (doAllGroups) {
+        allGroupsCollector=new AllGroupsCollector("group");
+      }
+ else {
+        allGroupsCollector=null;
       }
       final FirstPassGroupingCollector c1=new FirstPassGroupingCollector("group",groupSort,groupOffset + topNGroups);
       final CachingCollector cCache;
@@ -88,7 +96,17 @@
         if (VERBOSE) {
           System.out.println("TEST: maxCacheMB=" + maxCacheMB);
         }
-        c=cCache=new CachingCollector(c1,true,maxCacheMB);
+        if (doAllGroups) {
+          cCache=new CachingCollector(c1,true,maxCacheMB);
+          c=MultiCollector.wrap(cCache,allGroupsCollector);
+        }
+ else {
+          c=cCache=new CachingCollector(c1,true,maxCacheMB);
+        }
+      }
+ else       if (doAllGroups) {
+        c=MultiCollector.wrap(c1,allGroupsCollector);
+        cCache=null;
       }
  else {
         c=c1;
@@ -122,7 +140,13 @@
  else {
           s.search(new TermQuery(new Term("content",searchTerm)),c2);
         }
-        groupsResult=c2.getTopGroups(docOffset);
+        if (doAllGroups) {
+          TopGroups tempTopGroups=c2.getTopGroups(docOffset);
+          groupsResult=new TopGroups(tempTopGroups,allGroupsCollector.getGroupCount());
+        }
+ else {
+          groupsResult=c2.getTopGroups(docOffset);
+        }
       }
  else {
         groupsResult=null;
@@ -130,7 +154,7 @@
           System.out.println("TEST:   no results");
         }
       }
-      final TopGroups expectedGroups=slowGrouping(groupDocs,searchTerm,fillFields,getScores,getMaxScores,groupSort,docSort,topNGroups,docsPerGroup,groupOffset,docOffset);
+      final TopGroups expectedGroups=slowGrouping(groupDocs,searchTerm,fillFields,getScores,getMaxScores,doAllGroups,groupSort,docSort,topNGroups,docsPerGroup,groupOffset,docOffset);
       try {
         assertEquals(FieldCache.DEFAULT.getInts(r,"id"),expectedGroups,groupsResult);
       }
