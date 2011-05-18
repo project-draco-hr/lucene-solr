@@ -1,9 +1,33 @@
 {
   String result=super.init(config,core);
-  SolrParams initParams=SolrParams.toSolrParams(config);
+  final SolrParams initParams=SolrParams.toSolrParams(config);
   HashMap<String,Object> initAttributes=new HashMap<String,Object>();
   extractCarrotAttributes(initParams,initAttributes);
-  initAttributes.put("PreprocessingPipeline.languageModelFactory",LuceneLanguageModelFactory.class);
+  BasicPreprocessingPipelineDescriptor.attributeBuilder(initAttributes).stemmerFactory(LuceneCarrot2StemmerFactory.class).tokenizerFactory(LuceneCarrot2TokenizerFactory.class).lexicalDataFactory(SolrStopwordsCarrot2LexicalDataFactory.class);
+  initAttributes.put("solrIndexSchema",core.getSchema());
+  DefaultLexicalDataFactoryDescriptor.attributeBuilder(initAttributes).resourceLookup(new ResourceLookup(new IResourceLocator(){
+    @Override public IResource[] getAll(    final String resource){
+      final SolrResourceLoader resourceLoader=core.getResourceLoader();
+      final String carrot2ResourcesDir=resourceLoader.getConfigDir() + initParams.get(CarrotParams.LEXICAL_RESOURCES_DIR,CARROT_RESOURCES_PREFIX);
+      try {
+        log.debug("Looking for " + resource + " in "+ carrot2ResourcesDir);
+        final InputStream resourceStream=resourceLoader.openResource(carrot2ResourcesDir + "/" + resource);
+        log.info(resource + " loaded from " + carrot2ResourcesDir);
+        final IResource foundResource=new IResource(){
+          @Override public InputStream open() throws IOException {
+            return resourceStream;
+          }
+        }
+;
+        return new IResource[]{foundResource};
+      }
+ catch (      RuntimeException e) {
+        log.debug(resource + " not found in " + carrot2ResourcesDir+ ". Using the default "+ resource+ " from Carrot JAR.");
+        return new IResource[]{};
+      }
+    }
+  }
+,new ClassLoaderLocator(core.getResourceLoader().getClassLoader())));
   this.controller.init(initAttributes);
   this.idFieldName=core.getSchema().getUniqueKeyField().getName();
   String carrotAlgorithmClassName=initParams.get(CarrotParams.ALGORITHM);
