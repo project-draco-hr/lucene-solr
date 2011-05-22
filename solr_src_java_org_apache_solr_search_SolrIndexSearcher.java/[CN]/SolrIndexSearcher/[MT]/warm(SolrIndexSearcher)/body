@@ -1,9 +1,31 @@
 {
   boolean logme=log.isInfoEnabled();
   long warmingStartTime=System.currentTimeMillis();
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.add("warming","true");
   for (int i=0; i < cacheList.length; i++) {
     if (logme)     log.info("autowarming " + this + " from "+ old+ "\n\t"+ old.cacheList[i]);
-    this.cacheList[i].warm(this,old.cacheList[i]);
+    SolrQueryRequest req=new LocalSolrQueryRequest(core,params){
+      @Override public SolrIndexSearcher getSearcher(){
+        return SolrIndexSearcher.this;
+      }
+      @Override public void close(){
+      }
+    }
+;
+    SolrQueryResponse rsp=new SolrQueryResponse();
+    SolrRequestInfo.setRequestInfo(new SolrRequestInfo(req,rsp));
+    try {
+      this.cacheList[i].warm(this,old.cacheList[i]);
+    }
+  finally {
+      try {
+        req.close();
+      }
+  finally {
+        SolrRequestInfo.clearRequestInfo();
+      }
+    }
     if (logme)     log.info("autowarming result for " + this + "\n\t"+ this.cacheList[i]);
   }
   warmupTime=System.currentTimeMillis() - warmingStartTime;

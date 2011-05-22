@@ -1,0 +1,34 @@
+{
+  for (  String name : oldOptimizedNames) {
+    if (VERBOSE) {
+      System.out.println("testUpgradeOldOptimizedIndexWithAdditions: index=" + name);
+    }
+    File oldIndxeDir=_TestUtil.getTempDir(name);
+    _TestUtil.unzip(getDataFile("index." + name + ".zip"),oldIndxeDir);
+    Directory dir=newFSDirectory(oldIndxeDir);
+    assertEquals("Original index must be optimized",1,getNumberOfSegments(dir));
+    int id=40;
+    RAMDirectory ramDir=new RAMDirectory();
+    for (int i=0; i < 3; i++) {
+      MergePolicy mp=random.nextBoolean() ? newLogMergePolicy() : newTieredMergePolicy();
+      IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setMergePolicy(mp);
+      IndexWriter w=new IndexWriter(ramDir,iwc);
+      for (int j=0; j < RANDOM_MULTIPLIER * random.nextInt(30); j++) {
+        addDoc(w,id++);
+      }
+      w.close(false);
+    }
+    MergePolicy mp=random.nextBoolean() ? newLogMergePolicy() : newTieredMergePolicy();
+    IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,null).setMergePolicy(mp);
+    IndexWriter w=new IndexWriter(dir,iwc);
+    w.setInfoStream(VERBOSE ? System.out : null);
+    w.addIndexes(ramDir);
+    w.close(false);
+    final int origSegCount=getNumberOfSegments(dir);
+    new IndexUpgrader(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,null),VERBOSE ? System.out : null,false).upgrade();
+    final int segCount=checkAllSegmentsUpgraded(dir);
+    assertEquals("Index must still contain the same number of segments, as only one segment was upgraded and nothing else merged",origSegCount,segCount);
+    dir.close();
+    _TestUtil.rmDir(oldIndxeDir);
+  }
+}

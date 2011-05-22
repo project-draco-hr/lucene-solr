@@ -1,29 +1,24 @@
 {
-  Map<String,Map<String,String>> map=new HashMap<String,Map<String,String>>();
-  Node fieldMappingNode=solrConfig.getNode(FIELD_MAPPING_NODE_PATH,true);
-  if (fieldMappingNode.hasChildNodes()) {
-    NodeList typeNodes=fieldMappingNode.getChildNodes();
-    for (int i=0; i < typeNodes.getLength(); i++) {
-      Node typeNode=typeNodes.item(i);
-      if (typeNode.getNodeType() != Node.TEXT_NODE) {
-        Node typeNameAttribute=typeNode.getAttributes().getNamedItem("name");
-        String typeName=typeNameAttribute.getNodeValue();
-        map.put(typeName,new HashMap<String,String>());
-        if (typeNode.hasChildNodes()) {
-          NodeList featuresNodeList=typeNode.getChildNodes();
-          for (int j=0; j < featuresNodeList.getLength(); j++) {
-            Node mappingNode=featuresNodeList.item(j);
-            if (mappingNode.getNodeType() != Node.TEXT_NODE) {
-              Node fieldNameNode=mappingNode.getAttributes().getNamedItem("field");
-              String mappedFieldName=fieldNameNode.getNodeValue();
-              Node featureNameNode=mappingNode.getAttributes().getNamedItem("feature");
-              String featureName=featureNameNode.getNodeValue();
-              map.get(typeName).put(featureName,mappedFieldName);
-            }
-          }
-        }
+  Map<String,Map<String,MapField>> map=new HashMap<String,Map<String,MapField>>();
+  NamedList fieldMappings=(NamedList)args.get("fieldMappings");
+  for (int i=0; i < fieldMappings.size(); i++) {
+    NamedList type=(NamedList)fieldMappings.get("type",i);
+    String typeName=(String)type.get("name");
+    Map<String,MapField> subMap=new HashMap<String,MapField>();
+    for (int j=0; j < type.size() - 1; j++) {
+      NamedList mapping=(NamedList)type.get("mapping",j + 1);
+      String featureName=(String)mapping.get("feature");
+      String fieldNameFeature=null;
+      String mappedFieldName=(String)mapping.get("field");
+      if (mappedFieldName == null) {
+        fieldNameFeature=(String)mapping.get("fieldNameFeature");
+        mappedFieldName=(String)mapping.get("dynamicField");
       }
+      if (mappedFieldName == null)       throw new RuntimeException("either of field or dynamicField should be defined for feature " + featureName);
+      MapField mapField=new MapField(mappedFieldName,fieldNameFeature);
+      subMap.put(featureName,mapField);
     }
+    map.put(typeName,subMap);
   }
   return map;
 }

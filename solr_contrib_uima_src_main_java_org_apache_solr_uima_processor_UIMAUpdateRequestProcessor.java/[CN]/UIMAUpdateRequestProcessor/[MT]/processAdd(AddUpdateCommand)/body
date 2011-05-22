@@ -1,11 +1,14 @@
 {
+  String text=null;
   try {
     SolrInputDocument solrInputDocument=cmd.getSolrInputDocument();
-    for (    String text : getTextsToAnalyze(solrInputDocument)) {
+    String[] texts=getTextsToAnalyze(solrInputDocument);
+    for (int i=0; i < texts.length; i++) {
+      text=texts[i];
       if (text != null && !"".equals(text)) {
         JCas jcas=processText(text);
         UIMAToSolrMapper uimaToSolrMapper=new UIMAToSolrMapper(solrInputDocument,jcas);
-        Map<String,Map<String,String>> typesAndFeaturesFieldsMap=solrUIMAConfiguration.getTypesFeaturesFieldsMapping();
+        Map<String,Map<String,MapField>> typesAndFeaturesFieldsMap=solrUIMAConfiguration.getTypesFeaturesFieldsMapping();
         for (        String typeFQN : typesAndFeaturesFieldsMap.keySet()) {
           uimaToSolrMapper.map(typeFQN,typesAndFeaturesFieldsMap.get(typeFQN));
         }
@@ -13,7 +16,12 @@
     }
   }
  catch (  UIMAException e) {
-    throw new RuntimeException(e);
+    String logField=solrUIMAConfiguration.getLogField();
+    String optionalFieldInfo=logField == null ? "." : new StringBuilder(". ").append(logField).append("=").append((String)cmd.getSolrInputDocument().getField(logField).getValue()).append(", ").toString();
+    if (solrUIMAConfiguration.isIgnoreErrors())     log.warn(new StringBuilder("skip the text processing due to ").append(e.getLocalizedMessage()).append(optionalFieldInfo).append(" text=\"").append(text.substring(0,100)).append("...\"").toString());
+ else {
+      throw new SolrException(ErrorCode.SERVER_ERROR,new StringBuilder("processing error: ").append(e.getLocalizedMessage()).append(optionalFieldInfo).append(" text=\"").append(text.substring(0,100)).append("...\"").toString(),e);
+    }
   }
   super.processAdd(cmd);
 }

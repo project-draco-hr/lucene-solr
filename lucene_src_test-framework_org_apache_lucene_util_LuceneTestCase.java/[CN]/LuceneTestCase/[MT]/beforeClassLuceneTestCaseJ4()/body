@@ -1,19 +1,45 @@
 {
+  state=State.INITIAL;
   staticSeed="random".equals(TEST_SEED) ? seedRand.nextLong() : TwoLongs.fromString(TEST_SEED).l1;
   random.setSeed(staticSeed);
+  tempDirs.clear();
   stores=Collections.synchronizedMap(new IdentityHashMap<MockDirectoryWrapper,StackTraceElement[]>());
   savedCodecProvider=CodecProvider.getDefault();
-  if ("randomPerField".equals(TEST_CODEC)) {
-    if (random.nextInt(4) == 0) {
-      codec=installTestCodecs("PreFlex",CodecProvider.getDefault());
+  if ("random".equals(TEST_CODECPROVIDER)) {
+    if ("randomPerField".equals(TEST_CODEC)) {
+      if (random.nextInt(4) == 0) {
+        codec=installTestCodecs("PreFlex",CodecProvider.getDefault());
+      }
+ else {
+        CodecProvider.setDefault(new RandomCodecProvider(random));
+        codec=installTestCodecs(TEST_CODEC,CodecProvider.getDefault());
+      }
     }
  else {
-      CodecProvider.setDefault(new RandomCodecProvider(random));
       codec=installTestCodecs(TEST_CODEC,CodecProvider.getDefault());
     }
   }
  else {
-    codec=installTestCodecs(TEST_CODEC,CodecProvider.getDefault());
+    try {
+      Class<? extends CodecProvider> cpClazz=Class.forName(TEST_CODECPROVIDER).asSubclass(CodecProvider.class);
+      CodecProvider cp=cpClazz.newInstance();
+      String codecName;
+      if (TEST_CODEC.startsWith("random")) {
+        Set<String> codecSet=cp.listAll();
+        String availableCodecs[]=codecSet.toArray(new String[codecSet.size()]);
+        codecName=availableCodecs[random.nextInt(availableCodecs.length)];
+      }
+ else {
+        codecName=TEST_CODEC;
+      }
+      codec=cp.lookup(codecName);
+      cp.setDefaultFieldCodec(codecName);
+      CodecProvider.setDefault(cp);
+    }
+ catch (    Exception e) {
+      System.err.println("Could not instantiate CodecProvider: " + TEST_CODECPROVIDER);
+      throw new RuntimeException(e);
+    }
   }
   savedLocale=Locale.getDefault();
   locale=TEST_LOCALE.equals("random") ? randomLocale(random) : localeForName(TEST_LOCALE);

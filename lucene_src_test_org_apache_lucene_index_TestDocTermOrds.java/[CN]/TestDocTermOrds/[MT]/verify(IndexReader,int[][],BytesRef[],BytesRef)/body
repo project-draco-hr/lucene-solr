@@ -1,0 +1,69 @@
+{
+  final DocTermOrds dto=new DocTermOrds(r,"field",prefixRef,Integer.MAX_VALUE,_TestUtil.nextInt(random,2,10));
+  final int[] docIDToID=FieldCache.DEFAULT.getInts(r,"id");
+  if (VERBOSE) {
+    System.out.println("TEST: verify prefix=" + prefixRef.utf8ToString());
+    System.out.println("TEST: all TERMS:");
+    TermsEnum allTE=MultiFields.getTerms(r,"field").iterator();
+    int ord=0;
+    while (allTE.next() != null) {
+      System.out.println("  ord=" + (ord++) + " term="+ allTE.term().utf8ToString());
+    }
+  }
+  final TermsEnum te=dto.getOrdTermsEnum(r);
+  if (te == null) {
+    if (prefixRef == null) {
+      assertNull(r.fields().terms("field"));
+    }
+ else {
+      Terms terms=r.fields().terms("field");
+      if (terms != null) {
+        TermsEnum termsEnum=terms.iterator();
+        TermsEnum.SeekStatus result=termsEnum.seek(prefixRef,false);
+        if (result != TermsEnum.SeekStatus.END) {
+          assertFalse("term=" + termsEnum.term().utf8ToString() + " matches prefix="+ prefixRef.utf8ToString(),termsEnum.term().startsWith(prefixRef));
+        }
+ else {
+        }
+      }
+ else {
+      }
+    }
+    return;
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: TERMS:");
+    te.seek(0);
+    while (true) {
+      System.out.println("  ord=" + te.ord() + " term="+ te.term().utf8ToString());
+      if (te.next() == null) {
+        break;
+      }
+    }
+  }
+  TermOrdsIterator iter=null;
+  final int[] buffer=new int[5];
+  for (int docID=0; docID < r.maxDoc(); docID++) {
+    if (VERBOSE) {
+      System.out.println("TEST: docID=" + docID + " of "+ r.maxDoc()+ " (id="+ docIDToID[docID]+ ")");
+    }
+    iter=dto.lookup(docID,iter);
+    final int[] answers=idToOrds[docIDToID[docID]];
+    int upto=0;
+    while (true) {
+      final int chunk=iter.read(buffer);
+      for (int idx=0; idx < chunk; idx++) {
+        assertEquals(TermsEnum.SeekStatus.FOUND,te.seek((long)buffer[idx]));
+        final BytesRef expected=termsArray[answers[upto++]];
+        if (VERBOSE) {
+          System.out.println("  exp=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString());
+        }
+        assertEquals("expected=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString()+ " ord="+ buffer[idx],expected,te.term());
+      }
+      if (chunk < buffer.length) {
+        assertEquals(answers.length,upto);
+        break;
+      }
+    }
+  }
+}
