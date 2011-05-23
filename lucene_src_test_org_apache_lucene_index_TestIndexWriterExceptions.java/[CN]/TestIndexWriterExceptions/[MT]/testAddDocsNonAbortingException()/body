@@ -1,0 +1,50 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random,dir);
+  final int numDocs1=random.nextInt(25);
+  for (int docCount=0; docCount < numDocs1; docCount++) {
+    Document doc=new Document();
+    doc.add(newField("content","good content",Field.Index.ANALYZED));
+    w.addDocument(doc);
+  }
+  final List<Document> docs=new ArrayList<Document>();
+  for (int docCount=0; docCount < 7; docCount++) {
+    Document doc=new Document();
+    docs.add(doc);
+    doc.add(newField("id",docCount + "",Field.Index.NOT_ANALYZED));
+    doc.add(newField("content","silly content " + docCount,Field.Index.ANALYZED));
+    if (docCount == 4) {
+      Field f=newField("crash","",Field.Index.ANALYZED);
+      doc.add(f);
+      MockTokenizer tokenizer=new MockTokenizer(new StringReader("crash me on the 4th token"),MockTokenizer.WHITESPACE,false);
+      tokenizer.setEnableChecks(false);
+      f.setTokenStream(new CrashingFilter("crash",tokenizer));
+    }
+  }
+  try {
+    w.addDocuments(docs);
+    fail("did not hit expected exception");
+  }
+ catch (  IOException ioe) {
+    assertEquals(CRASH_FAIL_MESSAGE,ioe.getMessage());
+  }
+  final int numDocs2=random.nextInt(25);
+  for (int docCount=0; docCount < numDocs2; docCount++) {
+    Document doc=new Document();
+    doc.add(newField("content","good content",Field.Index.ANALYZED));
+    w.addDocument(doc);
+  }
+  final IndexReader r=w.getReader();
+  w.close();
+  final IndexSearcher s=new IndexSearcher(r);
+  PhraseQuery pq=new PhraseQuery();
+  pq.add(new Term("content","silly"));
+  pq.add(new Term("content","content"));
+  assertEquals(0,s.search(pq,1).totalHits);
+  pq=new PhraseQuery();
+  pq.add(new Term("content","good"));
+  pq.add(new Term("content","content"));
+  assertEquals(numDocs1 + numDocs2,s.search(pq,1).totalHits);
+  r.close();
+  dir.close();
+}
