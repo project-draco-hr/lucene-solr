@@ -1,0 +1,42 @@
+{
+  Collections.shuffle(Arrays.asList(groupDocs),random);
+  final Map<BytesRef,List<GroupDoc>> groupMap=new HashMap<BytesRef,List<GroupDoc>>();
+  final List<BytesRef> groupValues=new ArrayList<BytesRef>();
+  for (  GroupDoc groupDoc : groupDocs) {
+    if (!groupMap.containsKey(groupDoc.group)) {
+      groupValues.add(groupDoc.group);
+      groupMap.put(groupDoc.group,new ArrayList<GroupDoc>());
+    }
+    groupMap.get(groupDoc.group).add(groupDoc);
+  }
+  RandomIndexWriter w=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)));
+  final List<List<Document>> updateDocs=new ArrayList<List<Document>>();
+  for (  BytesRef group : groupValues) {
+    final List<Document> docs=new ArrayList<Document>();
+    for (    GroupDoc groupValue : groupMap.get(group)) {
+      Document doc=new Document();
+      docs.add(doc);
+      if (groupValue.group != null) {
+        doc.add(newField("group",groupValue.group.utf8ToString(),Field.Index.NOT_ANALYZED));
+      }
+      doc.add(newField("sort1",groupValue.sort1.utf8ToString(),Field.Index.NOT_ANALYZED));
+      doc.add(newField("sort2",groupValue.sort2.utf8ToString(),Field.Index.NOT_ANALYZED));
+      doc.add(new NumericField("id").setIntValue(groupValue.id));
+      doc.add(newField("content",groupValue.content,Field.Index.NOT_ANALYZED));
+    }
+    final Field groupEnd=newField("groupend","x",Field.Index.NOT_ANALYZED);
+    groupEnd.setOmitTermFreqAndPositions(true);
+    groupEnd.setOmitNorms(true);
+    docs.get(docs.size() - 1).add(groupEnd);
+    w.addDocuments(docs);
+    if (group != null && random.nextInt(7) == 4) {
+      updateDocs.add(docs);
+    }
+  }
+  for (  List<Document> docs : updateDocs) {
+    w.updateDocuments(new Term("group",docs.get(0).get("group")),docs);
+  }
+  final IndexReader r=w.getReader();
+  w.close();
+  return r;
+}
