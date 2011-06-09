@@ -100,15 +100,17 @@
       final Filter lastDocInBlock=new CachingWrapperFilter(new QueryWrapperFilter(new TermQuery(new Term("groupend","x"))));
       final int[] docIDToID2=FieldCache.DEFAULT.getInts(r2,"id");
       final IndexSearcher s2=new IndexSearcher(r2);
-      final Map<Float,Float> scoreMap=new HashMap<Float,Float>();
+      final Map<String,Map<Float,Float>> scoreMap=new HashMap<String,Map<Float,Float>>();
       for (int contentID=0; contentID < 3; contentID++) {
+        final Map<Float,Float> termScoreMap=new HashMap<Float,Float>();
+        scoreMap.put("real" + contentID,termScoreMap);
         final ScoreDoc[] hits=s2.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
         for (        ScoreDoc hit : hits) {
           final GroupDoc gd=groupDocsByID[docIDToID2[hit.doc]];
           assertTrue(gd.score2 == 0.0);
           gd.score2=hit.score;
           assertEquals(gd.id,docIDToID2[hit.doc]);
-          scoreMap.put(gd.score,gd.score2);
+          termScoreMap.put(gd.score,gd.score2);
         }
       }
       for (int searchIter=0; searchIter < 100; searchIter++) {
@@ -281,11 +283,12 @@
             }
           }
           final SortField[] sortFields=groupSort.getSort();
+          final Map<Float,Float> termScoreMap=scoreMap.get(searchTerm);
           for (int groupSortIDX=0; groupSortIDX < sortFields.length; groupSortIDX++) {
             if (sortFields[groupSortIDX].getType() == SortField.SCORE) {
               for (              GroupDocs groupDocsHits : expectedGroups.groups) {
                 if (groupDocsHits.groupSortValues != null) {
-                  groupDocsHits.groupSortValues[groupSortIDX]=scoreMap.get(groupDocsHits.groupSortValues[groupSortIDX]);
+                  groupDocsHits.groupSortValues[groupSortIDX]=termScoreMap.get(groupDocsHits.groupSortValues[groupSortIDX]);
                   assertNotNull(groupDocsHits.groupSortValues[groupSortIDX]);
                 }
               }
@@ -298,7 +301,7 @@
                 for (                ScoreDoc _hit : groupDocsHits.scoreDocs) {
                   FieldDoc hit=(FieldDoc)_hit;
                   if (hit.fields != null) {
-                    hit.fields[docSortIDX]=scoreMap.get(hit.fields[docSortIDX]);
+                    hit.fields[docSortIDX]=termScoreMap.get(hit.fields[docSortIDX]);
                     assertNotNull(hit.fields[docSortIDX]);
                   }
                 }
