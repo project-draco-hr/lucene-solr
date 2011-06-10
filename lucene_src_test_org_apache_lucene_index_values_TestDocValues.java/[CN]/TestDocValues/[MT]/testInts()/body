@@ -1,0 +1,65 @@
+{
+  long[] maxMin=new long[]{Long.MIN_VALUE,Long.MAX_VALUE,1,Long.MAX_VALUE,0,Long.MAX_VALUE,-1,Long.MAX_VALUE,Long.MIN_VALUE,-1,random.nextInt(),random.nextInt()};
+  for (int j=0; j < maxMin.length; j+=2) {
+    long maxV=1;
+    final int NUM_VALUES=777 + random.nextInt(777);
+    final long[] values=new long[NUM_VALUES];
+    for (int rx=1; rx < 63; rx++, maxV*=2) {
+      Directory dir=newDirectory();
+      final AtomicLong trackBytes=new AtomicLong(0);
+      Writer w=Ints.getWriter(dir,"test",false,trackBytes);
+      values[0]=maxMin[j];
+      w.add(0,values[0]);
+      values[1]=maxMin[j + 1];
+      w.add(1,values[1]);
+      for (int i=2; i < NUM_VALUES; i++) {
+        final long v=random.nextLong() % (1 + maxV);
+        values[i]=v;
+        w.add(i,v);
+      }
+      final int additionalDocs=1 + random.nextInt(9);
+      w.finish(NUM_VALUES + additionalDocs);
+      assertEquals(0,trackBytes.get());
+      IndexDocValues r=Ints.getValues(dir,"test",false);
+      for (int iter=0; iter < 2; iter++) {
+        Source s=getSource(r);
+        for (int i=0; i < NUM_VALUES; i++) {
+          final long v=s.getInt(i);
+          assertEquals("index " + i,values[i],v);
+        }
+      }
+      for (int iter=0; iter < 2; iter++) {
+        ValuesEnum iEnum=getEnum(r);
+        LongsRef ints=iEnum.getInt();
+        for (int i=0; i < NUM_VALUES + additionalDocs; i++) {
+          assertEquals(i,iEnum.nextDoc());
+          if (i < NUM_VALUES) {
+            assertEquals(values[i],ints.get());
+          }
+ else {
+            assertEquals(0,ints.get());
+          }
+        }
+        assertEquals(ValuesEnum.NO_MORE_DOCS,iEnum.nextDoc());
+        iEnum.close();
+      }
+      for (int iter=0; iter < 2; iter++) {
+        ValuesEnum iEnum=getEnum(r);
+        LongsRef ints=iEnum.getInt();
+        for (int i=0; i < NUM_VALUES + additionalDocs; i+=1 + random.nextInt(25)) {
+          assertEquals(i,iEnum.advance(i));
+          if (i < NUM_VALUES) {
+            assertEquals(values[i],ints.get());
+          }
+ else {
+            assertEquals(0,ints.get());
+          }
+        }
+        assertEquals(ValuesEnum.NO_MORE_DOCS,iEnum.advance(NUM_VALUES + additionalDocs));
+        iEnum.close();
+      }
+      r.close();
+      dir.close();
+    }
+  }
+}
