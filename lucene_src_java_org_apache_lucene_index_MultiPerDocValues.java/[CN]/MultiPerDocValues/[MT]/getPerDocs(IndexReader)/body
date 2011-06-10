@@ -1,0 +1,38 @@
+{
+  final IndexReader[] subs=r.getSequentialSubReaders();
+  if (subs == null) {
+    return r.perDocValues();
+  }
+ else   if (subs.length == 0) {
+    return null;
+  }
+ else   if (subs.length == 1) {
+    return getPerDocs(subs[0]);
+  }
+  PerDocValues perDocValues=r.retrievePerDoc();
+  if (perDocValues == null) {
+    final List<PerDocValues> producer=new ArrayList<PerDocValues>();
+    final List<ReaderUtil.Slice> slices=new ArrayList<ReaderUtil.Slice>();
+    new ReaderUtil.Gather(r){
+      @Override protected void add(      int base,      IndexReader r) throws IOException {
+        final PerDocValues f=r.perDocValues();
+        if (f != null) {
+          producer.add(f);
+          slices.add(new ReaderUtil.Slice(base,r.maxDoc(),producer.size() - 1));
+        }
+      }
+    }
+.run();
+    if (producer.size() == 0) {
+      return null;
+    }
+ else     if (producer.size() == 1) {
+      perDocValues=producer.get(0);
+    }
+ else {
+      perDocValues=new MultiPerDocValues(producer.toArray(PerDocValues.EMPTY_ARRAY),slices.toArray(ReaderUtil.Slice.EMPTY_ARRAY));
+    }
+    r.storePerDoc(perDocValues);
+  }
+  return perDocValues;
+}
