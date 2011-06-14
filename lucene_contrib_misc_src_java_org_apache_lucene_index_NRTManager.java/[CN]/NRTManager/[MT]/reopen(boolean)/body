@@ -1,0 +1,23 @@
+{
+  final long newSearcherGen=indexingGen.getAndIncrement();
+  if (applyDeletes && currentSearcher.getIndexReader().isCurrent()) {
+    searchingGen.set(newSearcherGen);
+    noDeletesSearchingGen.set(newSearcherGen);
+synchronized (this) {
+      notifyAll();
+    }
+    return false;
+  }
+ else   if (!applyDeletes && noDeletesCurrentSearcher.getIndexReader().isCurrent()) {
+    noDeletesSearchingGen.set(newSearcherGen);
+synchronized (this) {
+      notifyAll();
+    }
+    return false;
+  }
+  final IndexSearcher startSearcher=noDeletesSearchingGen.get() > searchingGen.get() ? noDeletesCurrentSearcher : currentSearcher;
+  final IndexReader nextReader=startSearcher.getIndexReader().reopen(writer,applyDeletes);
+  warm(nextReader);
+  swapSearcher(new IndexSearcher(nextReader,es),newSearcherGen,applyDeletes);
+  return true;
+}
