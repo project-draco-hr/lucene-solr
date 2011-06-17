@@ -82,7 +82,8 @@
     IndexReader r2=null;
     Directory dir2=null;
     try {
-      final IndexSearcher s=new IndexSearcher(r);
+      final IndexSearcher s=newSearcher(r);
+      final ShardState shards=new ShardState(s);
       for (int contentID=0; contentID < 3; contentID++) {
         final ScoreDoc[] hits=s.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
         for (        ScoreDoc hit : hits) {
@@ -99,7 +100,8 @@
       r2=getDocBlockReader(dir2,groupDocs);
       final Filter lastDocInBlock=new CachingWrapperFilter(new QueryWrapperFilter(new TermQuery(new Term("groupend","x"))));
       final int[] docIDToID2=FieldCache.DEFAULT.getInts(r2,"id");
-      final IndexSearcher s2=new IndexSearcher(r2);
+      final IndexSearcher s2=newSearcher(r2);
+      final ShardState shards2=new ShardState(s2);
       final Map<String,Map<Float,Float>> scoreMap=new HashMap<String,Map<Float,Float>>();
       for (int contentID=0; contentID < 3; contentID++) {
         final Map<Float,Float> termScoreMap=new HashMap<Float,Float>();
@@ -180,7 +182,8 @@
             c=c1;
           }
         }
-        s.search(new TermQuery(new Term("content",searchTerm)),c);
+        final Query q=new TermQuery(new Term("content",searchTerm));
+        s.search(q,c);
         if (doCache && !useWrappingCollector) {
           if (cCache.isCached()) {
             cCache.replay(c1);
@@ -197,6 +200,18 @@
         }
         final Collection<SearchGroup<BytesRef>> topGroups=c1.getTopGroups(groupOffset,fillFields);
         final TopGroups groupsResult;
+        if (VERBOSE) {
+          System.out.println("TEST: topGroups:");
+          if (topGroups == null) {
+            System.out.println("  null");
+          }
+ else {
+            for (            SearchGroup<BytesRef> groupx : topGroups) {
+              System.out.println("    " + groupToString(groupx.groupValue) + " sort="+ Arrays.toString(groupx.sortValues));
+            }
+          }
+        }
+        final TopGroups<BytesRef> topGroupsShards=searchShards(s,shards.subSearchers,q,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
         if (topGroups != null) {
           if (VERBOSE) {
             System.out.println("TEST: topGroups");
@@ -251,7 +266,11 @@
             }
           }
         }
-        assertEquals(docIDToID,expectedGroups,groupsResult,true,getScores);
+        assertEquals(docIDToID,expectedGroups,groupsResult,true,true,true,getScores);
+        assertEquals(docIDToID,expectedGroups,topGroupsShards,true,false,fillFields,getScores);
+        if (topGroupsShards != null) {
+          verifyShards(shards.docStarts,topGroupsShards);
+        }
         final boolean needsScores=getScores || getMaxScores || docSort == null;
         final BlockGroupingCollector c3=new BlockGroupingCollector(groupSort,groupOffset + topNGroups,needsScores,lastDocInBlock);
         final TermAllGroupsCollector allGroupsCollector2;
@@ -274,6 +293,7 @@
  else {
           groupsResult2=tempTopGroups2;
         }
+        final TopGroups<BytesRef> topGroupsBlockShards=searchShards(s2,shards2.subSearchers,q,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
         if (expectedGroups != null) {
           for (          GroupDocs groupDocsHits : expectedGroups.groups) {
             for (            ScoreDoc hit : groupDocsHits.scoreDocs) {
@@ -309,8 +329,11 @@
             }
           }
         }
-        assertEquals(docIDToID2,expectedGroups,groupsResult2,false,getScores);
+        assertEquals(docIDToID2,expectedGroups,groupsResult2,false,true,true,getScores);
+        assertEquals(docIDToID2,expectedGroups,topGroupsBlockShards,false,false,fillFields,getScores);
       }
+      s.close();
+      s2.close();
     }
   finally {
       FieldCache.DEFAULT.purge(r);
