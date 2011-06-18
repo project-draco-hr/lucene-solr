@@ -1,0 +1,45 @@
+{
+  final String fileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.codecId,EXTENSION);
+  final IndexInput in=state.dir.openInput(fileName);
+  final SortedMap<String,TermsReader> fields=new TreeMap<String,TermsReader>();
+  try {
+    while (true) {
+      final int termCount=in.readVInt();
+      if (termCount == 0) {
+        break;
+      }
+      final TermsReader termsReader=new TermsReader(state.fieldInfos,in);
+      fields.put(termsReader.field.name,termsReader);
+    }
+  }
+  finally {
+    in.close();
+  }
+  return new FieldsProducer(){
+    @Override public FieldsEnum iterator(){
+      final Iterator<TermsReader> iter=fields.values().iterator();
+      return new FieldsEnum(){
+        private TermsReader current;
+        @Override public String next(){
+          current=iter.next();
+          return current.field.name;
+        }
+        public TermsEnum terms(){
+          return current.iterator();
+        }
+      }
+;
+    }
+    @Override public Terms terms(    String field){
+      return fields.get(field);
+    }
+    @Override public void loadTermsIndex(    int indexDivisor){
+    }
+    @Override public void close(){
+      for (      TermsReader termsReader : fields.values()) {
+        termsReader.fst=null;
+      }
+    }
+  }
+;
+}
