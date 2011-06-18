@@ -1,10 +1,30 @@
 {
+  if (commands.isEmpty()) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Specify at least on field, function or query to group by.");
+  }
   DocListAndSet out=new DocListAndSet();
   qr.setDocListAndSet(out);
   filter=cmd.getFilter() != null ? cmd.getFilter() : searcher.getDocSet(cmd.getFilterList());
   luceneFilter=filter == null ? null : filter.getTopFilter();
   maxDoc=searcher.maxDoc();
   needScores=(cmd.getFlags() & SolrIndexSearcher.GET_SCORES) != 0;
+  boolean cacheScores=false;
+  if (!needScores && !commands.isEmpty()) {
+    if (commands.get(0).groupSort == null) {
+      cacheScores=true;
+    }
+ else {
+      for (      SortField field : commands.get(0).groupSort.getSort()) {
+        if (field.getType() == SortField.SCORE) {
+          cacheScores=true;
+          break;
+        }
+      }
+    }
+  }
+ else   if (needScores) {
+    cacheScores=needScores;
+  }
   getDocSet=(cmd.getFlags() & SolrIndexSearcher.GET_DOCSET) != 0;
   getDocList=(cmd.getFlags() & SolrIndexSearcher.GET_DOCLIST) != 0;
   query=QueryUtils.makeQueryable(cmd.getQuery());
@@ -13,7 +33,7 @@
   }
   List<Collector> collectors=new ArrayList<Collector>(commands.size());
   for (  Command cmd : commands) {
-    Collector collector=cmd.createCollector();
+    Collector collector=cmd.createFirstPassCollector();
     if (collector != null)     collectors.add(collector);
   }
   Collector allCollectors=MultiCollector.wrap(collectors.toArray(new Collector[collectors.size()]));
@@ -22,17 +42,42 @@
     setCollector=new DocSetDelegateCollector(maxDoc >> 6,maxDoc,allCollectors);
     allCollectors=setCollector;
   }
-  searcher.search(query,luceneFilter,allCollectors);
+  CachingCollector cachedCollector=null;
+  if (cacheSecondPassSearch && allCollectors != null) {
+    int maxDocsToCache=(int)Math.round(maxDoc * (maxDocsPercentageToCache / 100.0d));
+    if (maxDocsToCache > 0) {
+      allCollectors=cachedCollector=CachingCollector.create(allCollectors,cacheScores,maxDocsToCache);
+    }
+  }
+  if (allCollectors != null) {
+    searcher.search(query,luceneFilter,allCollectors);
+  }
   if (getDocSet) {
     qr.setDocSet(setCollector.getDocSet());
   }
   collectors.clear();
   for (  Command cmd : commands) {
-    Collector collector=cmd.createNextCollector();
+    Collector collector=cmd.createSecondPassCollector();
     if (collector != null)     collectors.add(collector);
   }
-  if (collectors.size() > 0) {
-    searcher.search(query,luceneFilter,MultiCollector.wrap(collectors.toArray(new Collector[collectors.size()])));
+  if (!collectors.isEmpty()) {
+    Collector secondPhaseCollectors=MultiCollector.wrap(collectors.toArray(new Collector[collectors.size()]));
+    if (collectors.size() > 0) {
+      if (cachedCollector != null) {
+        if (cachedCollector.isCached()) {
+          cachedCollector.replay(secondPhaseCollectors);
+        }
+ else {
+          signalCacheWarning=true;
+          logger.warn(String.format("The grouping cache is active, but not used because it exceeded the max cache limit of %d percent",maxDocsPercentageToCache));
+          logger.warn("Please increase cache size or disable group caching.");
+          searcher.search(query,luceneFilter,secondPhaseCollectors);
+        }
+      }
+ else {
+        searcher.search(query,luceneFilter,secondPhaseCollectors);
+      }
+    }
   }
   for (  Command cmd : commands) {
     cmd.finish();
