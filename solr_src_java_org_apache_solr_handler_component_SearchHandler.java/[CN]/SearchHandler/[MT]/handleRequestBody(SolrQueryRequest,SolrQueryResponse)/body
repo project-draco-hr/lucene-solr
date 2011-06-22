@@ -9,6 +9,8 @@
     SolrPluginUtils.getDebugInterests(req.getParams().getParams(CommonParams.DEBUG),rb);
   }
   final RTimer timer=rb.isDebug() ? new RTimer() : null;
+  ShardHandler shardHandler1=shardHandlerFactory.getShardHandler();
+  shardHandler1.checkDistributed(rb);
   if (timer == null) {
     for (    SearchComponent c : components) {
       c.prepare(rb);
@@ -44,7 +46,6 @@
     }
   }
  else {
-    HttpCommComponent comm=new HttpCommComponent();
     if (rb.outgoing == null) {
       rb.outgoing=new LinkedList<ShardRequest>();
     }
@@ -75,21 +76,21 @@
             if (rb.requestInfo != null) {
               params.set("NOW",Long.toString(rb.requestInfo.getNOW().getTime()));
             }
-            String shardHandler=req.getParams().get(ShardParams.SHARDS_QT);
-            if (shardHandler == null) {
+            String shardQt=req.getParams().get(ShardParams.SHARDS_QT);
+            if (shardQt == null) {
               params.remove(CommonParams.QT);
             }
  else {
-              params.set(CommonParams.QT,shardHandler);
+              params.set(CommonParams.QT,shardQt);
             }
-            comm.submit(sreq,shard,params);
+            shardHandler1.submit(sreq,shard,params);
           }
         }
         while (rb.outgoing.size() == 0) {
-          ShardResponse srsp=comm.takeCompletedOrError();
+          ShardResponse srsp=shardHandler1.takeCompletedOrError();
           if (srsp == null)           break;
           if (srsp.getException() != null) {
-            comm.cancelAll();
+            shardHandler1.cancelAll();
             if (srsp.getException() instanceof SolrException) {
               throw (SolrException)srsp.getException();
             }
