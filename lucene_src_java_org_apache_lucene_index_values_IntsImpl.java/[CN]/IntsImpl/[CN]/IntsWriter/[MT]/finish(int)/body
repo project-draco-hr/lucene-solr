@@ -1,18 +1,27 @@
 {
+  IndexOutput datOut=null;
+  boolean success=false;
   try {
+    datOut=dir.createOutput(IndexFileNames.segmentFileName(id,"",DATA_EXTENSION));
+    CodecUtil.writeHeader(datOut,CODEC_NAME,VERSION_CURRENT);
     if (!started) {
       minValue=maxValue=0;
     }
-    if ((maxValue - minValue) < (((long)1) << 63) && (maxValue - minValue) >= 0) {
-      writePackedInts(docCount);
+    byte headerType=typeOrd;
+    if (typeOrd == PACKED) {
+      final long delta=maxValue - minValue;
+      if (delta <= (maxValue >= 0 && minValue <= 0 ? Long.MAX_VALUE : Long.MAX_VALUE - 1) && delta >= 0) {
+        writePackedInts(datOut,docCount);
+        return;
+      }
+      headerType=FIXED_64;
     }
- else {
-      writeFixedInts(docCount);
-    }
+    datOut.writeByte(headerType);
+    array.write(datOut,docCount);
+    success=true;
   }
   finally {
-    datOut.close();
-    bytesUsed.addAndGet(-(RamUsageEstimator.NUM_BYTES_LONG * docToValue.length));
-    docToValue=null;
+    IOUtils.closeSafely(!success,datOut);
+    array.clear();
   }
 }
