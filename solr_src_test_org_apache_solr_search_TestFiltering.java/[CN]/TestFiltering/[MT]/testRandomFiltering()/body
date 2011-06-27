@@ -1,0 +1,77 @@
+{
+  int indexIter=5 * RANDOM_MULTIPLIER;
+  int queryIter=250 * RANDOM_MULTIPLIER;
+  Model model=new Model();
+  for (int iiter=0; iiter < indexIter; iiter++) {
+    model.indexSize=random.nextInt(20 * RANDOM_MULTIPLIER) + 1;
+    clearIndex();
+    for (int i=0; i < model.indexSize; i++) {
+      String val=Integer.toString(i);
+      assertU(adoc("id",val,f,val));
+      if (random.nextInt(100) < 20) {
+        assertU(adoc("id",val,f,val));
+      }
+      if (random.nextInt(100) < 10) {
+        assertU(commit());
+      }
+    }
+    assertU(commit());
+    for (int qiter=0; qiter < queryIter; qiter++) {
+      model.clear();
+      List<String> params=new ArrayList<String>();
+      params.add("q");
+      params.add(makeRandomQuery(model,true,false));
+      int nFilters=random.nextInt(5);
+      for (int i=0; i < nFilters; i++) {
+        params.add("fq");
+        params.add(makeRandomQuery(model,false,false));
+      }
+      boolean facet=random.nextBoolean();
+      if (facet) {
+        params.add("facet");
+        params.add("true");
+        params.add("facet.query");
+        params.add("*:*");
+        params.add("facet.query");
+        params.add("{!key=multiSelect ex=t}*:*");
+        String facetQuery=makeRandomQuery(model,false,true);
+        if (facetQuery.startsWith("{!")) {
+          facetQuery="{!key=facetQuery " + facetQuery.substring(2);
+        }
+ else {
+          facetQuery="{!key=facetQuery}" + facetQuery;
+        }
+        params.add("facet.query");
+        params.add(facetQuery);
+      }
+      if (random.nextInt(100) < 10) {
+        params.add("group");
+        params.add("true");
+        params.add("group.main");
+        params.add("true");
+        params.add("group.field");
+        params.add("id");
+        if (random.nextBoolean()) {
+          params.add("group.cache.percent");
+          params.add("100");
+        }
+      }
+      SolrQueryRequest sreq=req(params.toArray(new String[params.size()]));
+      long expected=model.answer.cardinality();
+      long expectedMultiSelect=model.multiSelect.cardinality();
+      long expectedFacetQuery=model.facetQuery.cardinality();
+      if (iiter == -1 && qiter == -1) {
+        System.out.println("request=" + params);
+      }
+      try {
+        assertJQ(sreq,"/response/numFound==" + expected,facet ? "/facet_counts/facet_queries/*:*/==" + expected : null,facet ? "/facet_counts/facet_queries/multiSelect/==" + expectedMultiSelect : null,facet ? "/facet_counts/facet_queries/facetQuery/==" + expectedFacetQuery : null);
+      }
+ catch (      Exception e) {
+        SolrException.log(log,e);
+        String s="FAILURE: iiter=" + iiter + " qiter="+ qiter+ " request="+ params;
+        log.error(s);
+        fail(s);
+      }
+    }
+  }
+}

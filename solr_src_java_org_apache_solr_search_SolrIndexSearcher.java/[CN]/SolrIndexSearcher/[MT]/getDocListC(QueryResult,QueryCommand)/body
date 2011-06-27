@@ -5,18 +5,26 @@
   int maxDocRequested=cmd.getOffset() + cmd.getLen();
   if (maxDocRequested < 0 || maxDocRequested > maxDoc())   maxDocRequested=maxDoc();
   int supersetMaxDoc=maxDocRequested;
-  DocList superset;
-  if (queryResultCache != null && cmd.getFilter() == null) {
-    key=new QueryResultKey(cmd.getQuery(),cmd.getFilterList(),cmd.getSort(),cmd.getFlags());
-    if ((cmd.getFlags() & NO_CHECK_QCACHE) == 0) {
+  DocList superset=null;
+  int flags=cmd.getFlags();
+  Query q=cmd.getQuery();
+  if (q instanceof ExtendedQuery) {
+    ExtendedQuery eq=(ExtendedQuery)q;
+    if (!eq.getCache()) {
+      flags|=(NO_CHECK_QCACHE | NO_SET_QCACHE | NO_CHECK_FILTERCACHE);
+    }
+  }
+  if (queryResultCache != null && cmd.getFilter() == null && (flags & (NO_CHECK_QCACHE | NO_SET_QCACHE)) != ((NO_CHECK_QCACHE | NO_SET_QCACHE))) {
+    key=new QueryResultKey(q,cmd.getFilterList(),cmd.getSort(),flags);
+    if ((flags & NO_CHECK_QCACHE) == 0) {
       superset=queryResultCache.get(key);
       if (superset != null) {
-        if ((cmd.getFlags() & GET_SCORES) == 0 || superset.hasScores()) {
+        if ((flags & GET_SCORES) == 0 || superset.hasScores()) {
           out.docList=superset.subset(cmd.getOffset(),cmd.getLen());
         }
       }
       if (out.docList != null) {
-        if (out.docSet == null && ((cmd.getFlags() & GET_DOCSET) != 0)) {
+        if (out.docSet == null && ((flags & GET_DOCSET) != 0)) {
           if (cmd.getFilterList() == null) {
             out.docSet=getDocSet(cmd.getQuery());
           }
@@ -30,16 +38,21 @@
         return;
       }
     }
-    if (maxDocRequested < queryResultWindowSize) {
-      supersetMaxDoc=queryResultWindowSize;
+    if ((flags & NO_SET_QCACHE) == 0) {
+      if (maxDocRequested < queryResultWindowSize) {
+        supersetMaxDoc=queryResultWindowSize;
+      }
+ else {
+        supersetMaxDoc=((maxDocRequested - 1) / queryResultWindowSize + 1) * queryResultWindowSize;
+        if (supersetMaxDoc < 0)         supersetMaxDoc=maxDocRequested;
+      }
     }
  else {
-      supersetMaxDoc=((maxDocRequested - 1) / queryResultWindowSize + 1) * queryResultWindowSize;
-      if (supersetMaxDoc < 0)       supersetMaxDoc=maxDocRequested;
+      key=null;
     }
   }
   boolean useFilterCache=false;
-  if ((cmd.getFlags() & (GET_SCORES | NO_CHECK_FILTERCACHE)) == 0 && useFilterForSortedQuery && cmd.getSort() != null && filterCache != null) {
+  if ((flags & (GET_SCORES | NO_CHECK_FILTERCACHE)) == 0 && useFilterForSortedQuery && cmd.getSort() != null && filterCache != null) {
     useFilterCache=true;
     SortField[] sfields=cmd.getSort().getSort();
     for (    SortField sf : sfields) {
@@ -60,15 +73,17 @@
   }
  else {
     cmd.setSupersetMaxDoc(supersetMaxDoc);
-    if ((cmd.getFlags() & GET_DOCSET) != 0) {
+    if ((flags & GET_DOCSET) != 0) {
       DocSet qDocSet=getDocListAndSetNC(qr,cmd);
       if (qDocSet != null && filterCache != null && !qr.isPartialResults())       filterCache.put(cmd.getQuery(),qDocSet);
     }
  else {
       getDocListNC(qr,cmd);
     }
-    superset=out.docList;
-    out.docList=superset.subset(cmd.getOffset(),cmd.getLen());
+    if (key != null) {
+      superset=out.docList;
+      out.docList=superset.subset(cmd.getOffset(),cmd.getLen());
+    }
   }
   if (key != null && superset.size() <= queryResultMaxDocsCached && !qr.isPartialResults()) {
     queryResultCache.put(key,superset);
