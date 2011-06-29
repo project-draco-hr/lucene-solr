@@ -1,4 +1,22 @@
 {
+  final IndexOutput datOut=getDataOut();
+  boolean success=false;
+  try {
+    final int size=hash.size();
+    final BytesRef bytesRef=new BytesRef();
+    for (int i=0; i < size; i++) {
+      hash.get(i,bytesRef);
+      writePrefixLength(datOut,bytesRef);
+      datOut.writeBytes(bytesRef.bytes,bytesRef.offset,bytesRef.length);
+    }
+    success=true;
+  }
+  finally {
+    hash.close();
+    IOUtils.closeSafely(!success,datOut);
+  }
+  final IndexOutput idxOut=getIndexOut();
+  success=false;
   try {
     idxOut.writeInt(address - 1);
     final PackedInts.Writer w=PackedInts.getWriter(idxOut,docCount,PackedInts.bitsRequired(address - 1));
@@ -16,10 +34,10 @@
       w.add(0);
     }
     w.finish();
+    success=true;
   }
   finally {
-    hash.close();
-    super.finish(docCount);
+    IOUtils.closeSafely(!success,idxOut);
     bytesUsed.addAndGet(RamUsageEstimator.NUM_BYTES_INT * (-docToAddress.length));
     docToAddress=null;
   }
