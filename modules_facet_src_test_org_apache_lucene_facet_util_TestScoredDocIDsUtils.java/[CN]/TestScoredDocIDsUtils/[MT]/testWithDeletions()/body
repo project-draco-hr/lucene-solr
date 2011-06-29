@@ -1,0 +1,44 @@
+{
+  int N_DOCS=100;
+  DocumentFactory docFactory=new DocumentFactory(N_DOCS){
+    @Override public boolean markedDeleted(    int docNum){
+      return (docNum % 3 == 0 || docNum == numDocs - 1 || docNum == numDocs / 2 || docNum == 1 + numDocs / 2 || docNum == 2 + numDocs / 2);
+    }
+    @Override public boolean haveAlpha(    int docNum){
+      return (docNum % 6 == 1);
+    }
+  }
+;
+  IndexReader reader=createReaderWithNDocs(N_DOCS,docFactory);
+  try {
+    int numErasedDocs=reader.numDeletedDocs();
+    ScoredDocIDs allDocs=ScoredDocIdsUtils.createAllDocsScoredDocIDs(reader);
+    ScoredDocIDsIterator it=allDocs.iterator();
+    int numIteratedDocs=0;
+    while (it.next()) {
+      numIteratedDocs++;
+      int docNum=it.getDocID();
+      assertFalse("Deleted docs must not appear in the allDocsScoredDocIds set",docFactory.markedDeleted(docNum));
+    }
+    assertEquals("Wrong number of (live) documents",allDocs.size(),numIteratedDocs);
+    assertEquals("Wrong number of (live) documents",N_DOCS - numErasedDocs,numIteratedDocs);
+    ScoredDocIdCollector collector=ScoredDocIdCollector.create(reader.maxDoc(),false);
+    Query q=new TermQuery(new Term(DocumentFactory.field,DocumentFactory.alphaTxt));
+    new IndexSearcher(reader).search(q,collector);
+    ScoredDocIDs scoredDocIds=collector.getScoredDocIDs();
+    OpenBitSet resultSet=new OpenBitSetDISI(scoredDocIds.getDocIDs().iterator(),reader.maxDoc());
+    ScoredDocIDs complementSet=ScoredDocIdsUtils.getComplementSet(scoredDocIds,reader);
+    assertEquals("Number of documents in complement set mismatch",reader.numDocs() - scoredDocIds.size(),complementSet.size());
+    ScoredDocIDsIterator compIterator=complementSet.iterator();
+    Bits deleted=MultiFields.getDeletedDocs(reader);
+    while (compIterator.next()) {
+      int docNum=compIterator.getDocID();
+      assertFalse("Complement-Set must not contain deleted documents (doc=" + docNum + ")",deleted != null && deleted.get(docNum));
+      assertFalse("Complement-Set must not contain deleted documents (doc=" + docNum + ")",docFactory.markedDeleted(docNum));
+      assertFalse("Complement-Set must not contain docs from the original set (doc=" + docNum + ")",resultSet.fastGet(docNum));
+    }
+  }
+  finally {
+    reader.close();
+  }
+}

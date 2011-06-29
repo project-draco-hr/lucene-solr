@@ -1,0 +1,45 @@
+{
+  for (  int partitionSize : partitionSizes) {
+    initIndex(partitionSize);
+    CategoryPath path=new CategoryPath("a","b");
+    FacetSearchParams sParams=getFacetedSearchParams(partitionSize);
+    sParams.addFacetRequest(new CountFacetRequest(path,Integer.MAX_VALUE));
+    FacetsCollector fc=new FacetsCollector(sParams,indexReader,taxoReader){
+      @Override protected FacetsAccumulator initFacetsAccumulator(      FacetSearchParams facetSearchParams,      IndexReader indexReader,      TaxonomyReader taxonomyReader){
+        FacetsAccumulator fa=new StandardFacetsAccumulator(facetSearchParams,indexReader,taxonomyReader);
+        fa.setComplementThreshold(FacetsAccumulator.DISABLE_COMPLEMENT);
+        return fa;
+      }
+    }
+;
+    searcher.search(new MatchAllDocsQuery(),fc);
+    long start=System.currentTimeMillis();
+    List<FacetResult> results=fc.getFacetResults();
+    long end=System.currentTimeMillis();
+    if (VERBOSE) {
+      System.out.println("Time: " + (end - start));
+    }
+    assertEquals("Should only be one result as there's only one request",1,results.size());
+    FacetResult res=results.get(0);
+    assertEquals(path + " should only have 4 desendants",4,res.getNumValidDescendants());
+    FacetSearchParams sParams2=getFacetedSearchParams(partitionSize);
+    sParams2.addFacetRequest(new CountFacetRequest(path,Integer.MAX_VALUE));
+    FacetsCollector fc2=new FacetsCollector(sParams2,indexReader,taxoReader){
+      @Override protected FacetsAccumulator initFacetsAccumulator(      FacetSearchParams facetSearchParams,      IndexReader indexReader,      TaxonomyReader taxonomyReader){
+        FacetsAccumulator fa=new StandardFacetsAccumulator(facetSearchParams,indexReader,taxonomyReader);
+        fa.setComplementThreshold(FacetsAccumulator.DISABLE_COMPLEMENT);
+        return fa;
+      }
+    }
+;
+    searcher.search(new MatchAllDocsQuery(),fc2);
+    List<FacetResult> baseResults=fc2.getFacetResults();
+    FacetResult baseRes=baseResults.get(0);
+    String baseResultString=baseRes.toString();
+    baseResultString=baseResultString.substring(baseResultString.indexOf('\n'));
+    String resultString=res.toString();
+    resultString=resultString.substring(resultString.indexOf('\n'));
+    assertTrue("Results for k=MAX_VALUE do not match the regular results for k=1000!!",baseResultString.equals(resultString));
+    closeAll();
+  }
+}

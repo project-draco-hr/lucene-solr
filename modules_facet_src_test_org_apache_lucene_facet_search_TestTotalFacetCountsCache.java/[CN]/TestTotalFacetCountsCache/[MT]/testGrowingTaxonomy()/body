@@ -1,0 +1,26 @@
+{
+  Directory[][] dirs=FacetTestUtils.createIndexTaxonomyDirs(1);
+  IndexTaxonomyWriterPair[] writers=FacetTestUtils.createIndexTaxonomyWriterPair(dirs);
+  DefaultFacetIndexingParams iParams=new DefaultFacetIndexingParams(){
+    @Override protected int fixedPartitionSize(){
+      return 2;
+    }
+  }
+;
+  addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"a","b");
+  writers[0].indexWriter.commit();
+  writers[0].taxWriter.commit();
+  IndexTaxonomyReaderPair[] readers=FacetTestUtils.createIndexTaxonomyReaderPair(dirs);
+  File outputFile=_TestUtil.createTempFile("test","tmp",TEMP_DIR);
+  TFC.store(outputFile,readers[0].indexReader,readers[0].taxReader,iParams,null);
+  for (int i=0; i < 10; i++) {
+    writers[0].taxWriter.addCategory(new CategoryPath("foo",Integer.toString(i)));
+  }
+  writers[0].taxWriter.commit();
+  readers[0].taxReader.refresh();
+  initCache();
+  TFC.load(outputFile,readers[0].indexReader,readers[0].taxReader,iParams);
+  TotalFacetCounts totalCounts=TFC.getTotalCounts(readers[0].indexReader,readers[0].taxReader,iParams,null);
+  assertReadFromDisc(totalCounts,0,"after reading from disk.");
+  outputFile.delete();
+}

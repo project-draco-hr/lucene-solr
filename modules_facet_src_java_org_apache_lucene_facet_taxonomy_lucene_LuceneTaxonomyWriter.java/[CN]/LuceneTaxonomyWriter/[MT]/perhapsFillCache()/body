@@ -1,0 +1,34 @@
+{
+  if (cacheMisses < cacheMissesUntilFill) {
+    return false;
+  }
+  if (alreadyCalledFillCache) {
+    return false;
+  }
+  alreadyCalledFillCache=true;
+  if (reader == null) {
+    reader=openReader();
+  }
+  if (!cache.hasRoom(reader.numDocs())) {
+    return false;
+  }
+  CategoryPath cp=new CategoryPath();
+  Terms terms=MultiFields.getTerms(reader,Consts.FULL);
+  if (terms != null) {
+    TermsEnum termsEnum=terms.iterator();
+    Bits deletedDocs=MultiFields.getDeletedDocs(reader);
+    DocsEnum docsEnum=null;
+    while (termsEnum.next() != null) {
+      BytesRef t=termsEnum.term();
+      docsEnum=termsEnum.docs(deletedDocs,docsEnum);
+      docsEnum.nextDoc();
+      cp.clear();
+      cp.add(t.utf8ToString(),delimiter);
+      cache.put(cp,docsEnum.docID());
+    }
+  }
+  cacheIsComplete=true;
+  reader.close();
+  reader=null;
+  return true;
+}

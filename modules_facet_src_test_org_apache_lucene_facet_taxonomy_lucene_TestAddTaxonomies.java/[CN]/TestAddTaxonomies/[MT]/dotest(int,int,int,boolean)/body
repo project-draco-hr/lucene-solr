@@ -1,0 +1,99 @@
+{
+  Directory dirs[]=new Directory[ntaxonomies];
+  Directory copydirs[]=new Directory[ntaxonomies];
+  for (int i=0; i < ntaxonomies; i++) {
+    dirs[i]=new RAMDirectory();
+    copydirs[i]=new RAMDirectory();
+    LuceneTaxonomyWriter tw=new LuceneTaxonomyWriter(dirs[i]);
+    LuceneTaxonomyWriter copytw=new LuceneTaxonomyWriter(copydirs[i]);
+    for (int j=0; j < ncats; j++) {
+      String cat=Integer.toString(random.nextInt(range));
+      tw.addCategory(new CategoryPath("a",cat));
+      copytw.addCategory(new CategoryPath("a",cat));
+    }
+    tw.close();
+    copytw.close();
+  }
+  LuceneTaxonomyWriter tw=new LuceneTaxonomyWriter(dirs[0]);
+  Directory otherdirs[]=new Directory[ntaxonomies - 1];
+  System.arraycopy(dirs,1,otherdirs,0,ntaxonomies - 1);
+  OrdinalMap[] maps=new OrdinalMap[ntaxonomies - 1];
+  if (ntaxonomies > 1) {
+    for (int i=0; i < ntaxonomies - 1; i++) {
+      if (disk) {
+        maps[i]=new DiskOrdinalMap(new File(System.getProperty("java.io.tmpdir"),"tmpmap" + i));
+      }
+ else {
+        maps[i]=new MemoryOrdinalMap();
+      }
+    }
+  }
+  tw.addTaxonomies(otherdirs,maps);
+  tw.close();
+  for (int i=0; i < ntaxonomies; i++) {
+    TaxonomyReader tr=new LuceneTaxonomyReader(dirs[i]);
+    TaxonomyReader copytr=new LuceneTaxonomyReader(copydirs[i]);
+    if (i == 0) {
+      assertTrue(tr.getSize() >= copytr.getSize());
+    }
+ else {
+      assertEquals(copytr.getSize(),tr.getSize());
+    }
+    for (int j=0; j < copytr.getSize(); j++) {
+      String expected=copytr.getPath(j).toString();
+      String got=tr.getPath(j).toString();
+      assertTrue("Comparing category " + j + " of taxonomy "+ i+ ": expected "+ expected+ ", got "+ got,expected.equals(got));
+    }
+    tr.close();
+    copytr.close();
+  }
+  TaxonomyReader tr=new LuceneTaxonomyReader(dirs[0]);
+  TaxonomyReader copytr=new LuceneTaxonomyReader(copydirs[0]);
+  if (tr.getSize() > copytr.getSize()) {
+    String prev=tr.getPath(copytr.getSize()).toString();
+    for (int j=copytr.getSize() + 1; j < tr.getSize(); j++) {
+      String n=tr.getPath(j).toString();
+      assertTrue(prev.compareTo(n) < 0);
+      prev=n;
+    }
+  }
+  int oldsize=copytr.getSize();
+  tr.close();
+  copytr.close();
+  TaxonomyReader main=new LuceneTaxonomyReader(dirs[0]);
+  for (int i=1; i < ntaxonomies; i++) {
+    TaxonomyReader other=new LuceneTaxonomyReader(dirs[i]);
+    for (int j=0; j < other.getSize(); j++) {
+      int otherord=main.getOrdinal(other.getPath(j));
+      assertTrue(otherord != TaxonomyReader.INVALID_ORDINAL);
+    }
+    tr.close();
+  }
+  TaxonomyReader[] others=new TaxonomyReader[ntaxonomies - 1];
+  for (int i=1; i < ntaxonomies; i++) {
+    others[i - 1]=new LuceneTaxonomyReader(dirs[i]);
+  }
+  for (int j=oldsize; j < main.getSize(); j++) {
+    boolean found=false;
+    CategoryPath path=main.getPath(j);
+    for (int i=1; i < ntaxonomies; i++) {
+      if (others[i - 1].getOrdinal(path) != TaxonomyReader.INVALID_ORDINAL) {
+        found=true;
+        break;
+      }
+    }
+    if (!found) {
+      fail("Found category " + j + " ("+ path+ ") in merged taxonomy not in any of the separate ones");
+    }
+  }
+  for (int i=0; i < ntaxonomies - 1; i++) {
+    int[] map=maps[i].getMap();
+    for (int j=0; j < map.length; j++) {
+      assertEquals(map[j],main.getOrdinal(others[i].getPath(j)));
+    }
+  }
+  for (int i=1; i < ntaxonomies; i++) {
+    others[i - 1].close();
+  }
+  main.close();
+}

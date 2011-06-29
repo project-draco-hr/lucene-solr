@@ -1,0 +1,42 @@
+{
+  int first;
+  int num=indexReader.maxDoc();
+  if (prefetchParentOrdinal == null) {
+    prefetchParentOrdinal=new int[num];
+    if (num > 0) {
+      prefetchParentOrdinal[0]=TaxonomyReader.INVALID_ORDINAL;
+    }
+    first=1;
+  }
+ else {
+    first=prefetchParentOrdinal.length;
+    if (first == num) {
+      return;
+    }
+    int[] newarray=new int[num];
+    System.arraycopy(prefetchParentOrdinal,0,newarray,0,prefetchParentOrdinal.length);
+    prefetchParentOrdinal=newarray;
+  }
+  Bits deletedDocs=MultiFields.getDeletedDocs(indexReader);
+  DocsAndPositionsEnum positions=MultiFields.getTermPositionsEnum(indexReader,deletedDocs,Consts.FIELD_PAYLOADS,new BytesRef(Consts.PAYLOAD_PARENT));
+  if ((positions == null || positions.advance(first) == DocsAndPositionsEnum.NO_MORE_DOCS) && first < num) {
+    throw new CorruptIndexException("Missing parent data for category " + first);
+  }
+  for (int i=first; i < num; i++) {
+    if (positions.docID() == i) {
+      if (positions.freq() == 0) {
+        throw new CorruptIndexException("Missing parent data for category " + i);
+      }
+      prefetchParentOrdinal[i]=positions.nextPosition();
+      if (positions.nextDoc() == DocsAndPositionsEnum.NO_MORE_DOCS) {
+        if (i + 1 < num) {
+          throw new CorruptIndexException("Missing parent data for category " + (i + 1));
+        }
+        break;
+      }
+    }
+ else {
+      throw new CorruptIndexException("Missing parent data for category " + i);
+    }
+  }
+}

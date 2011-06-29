@@ -1,0 +1,32 @@
+{
+  assertTrue("Would like to test this with deletions!",indexReader.hasDeletions());
+  assertTrue("Would like to test this with deletions!",indexReader.numDeletedDocs() > 0);
+  Query q=new TermQuery(new Term(CONTENT_FIELD,"white"));
+  if (VERBOSE) {
+    System.out.println("Query: " + q);
+  }
+  float constScore=17.0f;
+  ScoredDocIdCollector dCollector=ScoredDocIdCollector.create(indexReader.maxDoc(),false);
+  dCollector.setDefaultScore(constScore);
+  searcher.search(q,dCollector);
+  ScoredDocIDs scoredDocIDs=dCollector.getScoredDocIDs();
+  assertEquals("Wrong number of matching documents!",2,scoredDocIDs.size());
+  ScoredDocIDsIterator docItr=scoredDocIDs.iterator();
+  while (docItr.next()) {
+    assertEquals("Wrong score for doc " + docItr.getDocID(),constScore,docItr.getScore(),Double.MIN_VALUE);
+  }
+  List<FacetResult> countRes=findFacets(scoredDocIDs,getFacetedSearchParams());
+  List<FacetResult> scoreRes=findFacets(scoredDocIDs,sumScoreSearchParams());
+  assertEquals("Wrong number of facet count results!",1,countRes.size());
+  assertEquals("Wrong number of facet score results!",1,scoreRes.size());
+  FacetResultNode parentCountRes=countRes.get(0).getFacetResultNode();
+  FacetResultNode parentScoreRes=scoreRes.get(0).getFacetResultNode();
+  assertEquals("Wrong number of top count aggregated categories!",3,parentCountRes.getNumSubResults());
+  assertEquals("Wrong number of top score aggregated categories!",3,parentScoreRes.getNumSubResults());
+  FacetResultNode[] countResNodes=resultNodesAsArray(parentCountRes);
+  FacetResultNode[] scoreResNodes=resultNodesAsArray(parentScoreRes);
+  for (int i=0; i < scoreResNodes.length; i++) {
+    assertEquals("Ordinals differ!",countResNodes[i].getOrdinal(),scoreResNodes[i].getOrdinal());
+    assertEquals("Wrong scores!",constScore * countResNodes[i].getValue(),scoreResNodes[i].getValue(),Double.MIN_VALUE);
+  }
+}

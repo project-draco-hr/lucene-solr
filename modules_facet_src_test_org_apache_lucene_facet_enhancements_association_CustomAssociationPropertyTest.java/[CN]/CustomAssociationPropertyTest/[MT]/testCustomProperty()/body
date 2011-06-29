@@ -1,0 +1,41 @@
+{
+class CustomProperty extends AssociationIntProperty {
+    public CustomProperty(    int value){
+      super(value);
+    }
+    @Override public void merge(    CategoryProperty other){
+      throw new UnsupportedOperationException();
+    }
+  }
+  final int NUM_CATEGORIES=10;
+  EnhancementsIndexingParams iParams=new DefaultEnhancementsIndexingParams(new AssociationEnhancement());
+  Directory iDir=new RAMDirectory();
+  Directory tDir=new RAMDirectory();
+  IndexWriter w=new IndexWriter(iDir,new IndexWriterConfig(TEST_VERSION_CURRENT,new KeywordAnalyzer()));
+  LuceneTaxonomyWriter taxoW=new LuceneTaxonomyWriter(tDir);
+  CategoryContainer cc=new CategoryContainer();
+  EnhancementsDocumentBuilder builder=new EnhancementsDocumentBuilder(taxoW,iParams);
+  for (int i=1; i <= NUM_CATEGORIES; i++) {
+    CategoryAttributeImpl ca=new CategoryAttributeImpl(new CategoryPath(Integer.toString(i)));
+    ca.addProperty(new CustomProperty(i));
+    cc.addCategory(ca);
+  }
+  builder.setCategories(cc);
+  w.addDocument(builder.build(new Document()));
+  taxoW.close();
+  w.close();
+  IndexReader reader=IndexReader.open(iDir);
+  LuceneTaxonomyReader taxo=new LuceneTaxonomyReader(tDir);
+  String field=iParams.getCategoryListParams(new CategoryPath("0")).getTerm().field();
+  AssociationsPayloadIterator api=new AssociationsPayloadIterator(reader,field);
+  api.setNextDoc(0);
+  boolean flag=false;
+  for (int i=1; i <= NUM_CATEGORIES; i++) {
+    int ordinal=taxo.getOrdinal(new CategoryPath(Integer.toString(i)));
+    flag=true;
+    long association=api.getAssociation(ordinal);
+    assertTrue("Association expected for ordinal " + ordinal + " but none was found",association <= Integer.MAX_VALUE);
+    assertEquals("Wrong association value for category '" + i + "'",i,(int)association);
+  }
+  assertTrue("No categories found for doc #0",flag);
+}

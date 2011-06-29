@@ -1,0 +1,27 @@
+{
+  for (  int partitionSize : partitionSizes) {
+    initIndex(partitionSize);
+    Query q=new TermQuery(new Term(CONTENT_FIELD,BETA));
+    ScoredDocIdCollector docCollector=ScoredDocIdCollector.create(searcher.maxDoc(),false);
+    FacetSearchParams expectedSearchParams=searchParamsWithRequests(K,partitionSize);
+    FacetsCollector fc=new FacetsCollector(expectedSearchParams,indexReader,taxoReader);
+    searcher.search(q,MultiCollector.wrap(docCollector,fc));
+    List<FacetResult> expectedResults=fc.getFacetResults();
+    final Sampler sampler=createSampler(docCollector.getScoredDocIDs());
+    FacetSearchParams samplingSearchParams=searchParamsWithRequests(K,partitionSize);
+    for (int n=RETRIES; n > 0; n--) {
+      FacetsCollector samplingFC=samplingCollector(complement,sampler,samplingSearchParams);
+      searcher.search(q,samplingFC);
+      List<FacetResult> sampledResults=samplingFC.getFacetResults();
+      try {
+        assertSameResults(expectedResults,sampledResults);
+        break;
+      }
+ catch (      Exception e) {
+        if (n <= 1) {
+          throw e;
+        }
+      }
+    }
+  }
+}

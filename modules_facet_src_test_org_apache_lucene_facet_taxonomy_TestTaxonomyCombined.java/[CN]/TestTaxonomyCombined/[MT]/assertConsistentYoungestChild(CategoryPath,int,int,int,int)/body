@@ -1,0 +1,46 @@
+{
+  SlowRAMDirectory indexDir=new SlowRAMDirectory(-1,null);
+  TaxonomyWriter tw=new LuceneTaxonomyWriter(indexDir);
+  tw.addCategory(new CategoryPath("a","0"));
+  tw.addCategory(abPath);
+  tw.commit();
+  final TaxonomyReader tr=new LuceneTaxonomyReader(indexDir);
+  for (int i=0; i < 1 << 10; i++) {
+    final CategoryPath cp=new CategoryPath("a","b",Integer.toString(i));
+    tw.addCategory(cp);
+    assertEquals("Ordinal of " + cp + " must be invalid until Taxonomy Reader was refreshed",TaxonomyReader.INVALID_ORDINAL,tr.getOrdinal(cp));
+  }
+  tw.commit();
+  final boolean[] stop=new boolean[]{false};
+  final Throwable[] error=new Throwable[]{null};
+  final int retrieval[]={0};
+  Thread thread=new Thread("Child Arrays Verifier"){
+    @Override public void run(){
+      setPriority(1 + getPriority());
+      try {
+        while (!stop[0]) {
+          int lastOrd=tr.getParentArray().length - 1;
+          assertNotNull("path of last-ord " + lastOrd + " is not found!",tr.getPath(lastOrd));
+          assertChildrenArrays(tr.getChildrenArrays(),retry,retrieval[0]++);
+        }
+      }
+ catch (      Throwable e) {
+        error[0]=e;
+        stop[0]=true;
+      }
+    }
+    private void assertChildrenArrays(    ChildrenArrays ca,    int retry,    int retrieval){
+      final int abYoungChild=ca.getYoungestChildArray()[abOrd];
+      assertTrue("Retry " + retry + ": retrieval: "+ retrieval+ ": wrong youngest child for category "+ abPath+ " (ord="+ abOrd+ ") - must be either "+ abYoungChildBase1+ " or "+ abYoungChildBase2+ " but was: "+ abYoungChild,abYoungChildBase1 == abYoungChild || abYoungChildBase2 == ca.getYoungestChildArray()[abOrd]);
+    }
+  }
+;
+  thread.start();
+  indexDir.setSleepMillis(1);
+  tr.refresh();
+  stop[0]=true;
+  thread.join();
+  assertNull("Unexpcted exception at retry " + retry + " retrieval "+ retrieval[0]+ ": \n"+ stackTraceStr(error[0]),error[0]);
+  tw.close();
+  tr.close();
+}

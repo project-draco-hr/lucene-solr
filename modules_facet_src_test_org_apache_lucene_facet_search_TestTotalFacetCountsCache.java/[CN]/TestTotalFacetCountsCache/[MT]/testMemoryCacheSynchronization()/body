@@ -1,0 +1,28 @@
+{
+  SlowRAMDirectory indexDir=new SlowRAMDirectory(-1,null);
+  SlowRAMDirectory taxoDir=new SlowRAMDirectory(-1,null);
+  IndexWriter w=new IndexWriter(indexDir,new IndexWriterConfig(TEST_VERSION_CURRENT,new WhitespaceAnalyzer(TEST_VERSION_CURRENT)));
+  LuceneTaxonomyWriter tw=new LuceneTaxonomyWriter(taxoDir);
+  DefaultFacetIndexingParams iParams=new DefaultFacetIndexingParams();
+  for (int i=0; i < 1000; i++) {
+    addFacets(iParams,w,tw,"facet",Integer.toString(i));
+  }
+  w.close();
+  tw.close();
+  indexDir.setSleepMillis(1);
+  taxoDir.setSleepMillis(1);
+  IndexReader r=IndexReader.open(indexDir);
+  LuceneTaxonomyReader tr=new LuceneTaxonomyReader(taxoDir);
+  TFCThread tfcCalc1=new TFCThread(r,tr,iParams);
+  TFCThread tfcCalc2=new TFCThread(r,tr,iParams);
+  tfcCalc1.start();
+  Thread.sleep(5);
+  tfcCalc2.start();
+  tfcCalc1.join();
+  tfcCalc2.join();
+  assertRecomputed(tfcCalc1.tfc,0,"thread 1 should recompute");
+  assertRecomputed(tfcCalc2.tfc,0,"thread 2 should recompute");
+  assertTrue("Both results should be the same (as their inputs are the same objects)",tfcCalc1.tfc == tfcCalc2.tfc);
+  r.close();
+  tr.close();
+}
