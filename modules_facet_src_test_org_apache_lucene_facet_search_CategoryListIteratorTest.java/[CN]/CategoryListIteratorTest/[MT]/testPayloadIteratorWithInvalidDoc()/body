@@ -1,8 +1,14 @@
 {
-  Directory dir=new RAMDirectory();
+  Directory dir=newDirectory();
   DataTokenStream dts=new DataTokenStream("1",new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder()))));
   DataTokenStream dts2=new DataTokenStream("2",new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder()))));
-  IndexWriter writer=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new KeywordAnalyzer()));
+  final Analyzer noPayloadsAnalyzer=new Analyzer(){
+    @Override public TokenStream tokenStream(    String fieldName,    Reader reader){
+      return new MockTokenizer(reader,MockTokenizer.KEYWORD,false);
+    }
+  }
+;
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,noPayloadsAnalyzer).setMergePolicy(newLogMergePolicy()));
   for (int i=0; i < data.length; i++) {
     dts.setIdx(i);
     Document doc=new Document();
@@ -23,9 +29,8 @@
       writer.commit();
     }
   }
-  writer.commit();
+  IndexReader reader=writer.getReader();
   writer.close();
-  IndexReader reader=IndexReader.open(dir,true);
   CategoryListIterator cli=new PayloadIntDecodingIterator(reader,new Term("f","1"),dts.encoder.createMatchingDecoder());
   cli.init();
   int totalCats=0;
@@ -50,4 +55,5 @@
   assertEquals("Wrong number of total categories!",4,totalCats);
   assertFalse("Doc #6 (docid=5) should not have a payload!",cli.skipTo(5));
   reader.close();
+  dir.close();
 }
