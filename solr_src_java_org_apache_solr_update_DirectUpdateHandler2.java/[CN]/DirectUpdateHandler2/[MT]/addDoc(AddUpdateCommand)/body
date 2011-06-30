@@ -1,15 +1,18 @@
 {
+  IndexWriter writer=indexWriterProvider.getIndexWriter();
   addCommands.incrementAndGet();
   addCommandsCumulative.incrementAndGet();
   int rc=-1;
   if (idField == null) {
     cmd.overwrite=false;
   }
-  iwAccess.lock();
   try {
-synchronized (this) {
-      openWriter();
-      tracker.addedDocument(cmd.commitWithin);
+    boolean triggered=commitTracker.addedDocument(cmd.commitWithin);
+    if (!triggered) {
+      softCommitTracker.addedDocument(cmd.commitWithin);
+    }
+ else {
+      softCommitTracker.docsSinceCommit++;
     }
     Term updateTerm=null;
     if (cmd.overwrite) {
@@ -39,7 +42,6 @@ synchronized (this) {
     rc=1;
   }
   finally {
-    iwAccess.unlock();
     if (rc != 1) {
       numErrors.incrementAndGet();
       numErrorsCumulative.incrementAndGet();
