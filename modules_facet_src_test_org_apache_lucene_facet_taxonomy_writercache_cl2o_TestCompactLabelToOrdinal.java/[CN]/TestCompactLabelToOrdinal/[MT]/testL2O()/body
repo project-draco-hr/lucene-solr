@@ -1,0 +1,45 @@
+{
+  LabelToOrdinal map=new LabelToOrdinalMap();
+  CompactLabelToOrdinal compact=new CompactLabelToOrdinal(2000000,0.15f,3);
+  final int n=atLeast(10 * 1000);
+  final int numUniqueValues=50 * 1000;
+  String[] uniqueValues=new String[numUniqueValues];
+  byte[] buffer=new byte[50];
+  for (int i=0; i < numUniqueValues; ) {
+    random.nextBytes(buffer);
+    int size=1 + random.nextInt(50);
+    uniqueValues[i]=new String(buffer,0,size);
+    if (uniqueValues[i].indexOf(CompactLabelToOrdinal.TerminatorChar) == -1) {
+      i++;
+    }
+  }
+  TEMP_DIR.mkdirs();
+  File f=new File(TEMP_DIR,"CompactLabelToOrdinalTest.tmp");
+  int flushInterval=10;
+  for (int i=0; i < n * 10; i++) {
+    if (i > 0 && i % flushInterval == 0) {
+      compact.flush(f);
+      compact=CompactLabelToOrdinal.open(f,0.15f,3);
+      assertTrue(f.delete());
+      if (flushInterval < (n / 10)) {
+        flushInterval*=10;
+      }
+    }
+    int index=random.nextInt(numUniqueValues);
+    CategoryPath label=new CategoryPath(uniqueValues[index],'/');
+    int ord1=map.getOrdinal(label);
+    int ord2=compact.getOrdinal(label);
+    assertEquals(ord1,ord2);
+    if (ord1 == LabelToOrdinal.InvalidOrdinal) {
+      ord1=compact.getNextOrdinal();
+      map.addLabel(label,ord1);
+      compact.addLabel(label,ord1);
+    }
+  }
+  for (int i=0; i < numUniqueValues; i++) {
+    CategoryPath label=new CategoryPath(uniqueValues[i],'/');
+    int ord1=map.getOrdinal(label);
+    int ord2=compact.getOrdinal(label);
+    assertEquals(ord1,ord2);
+  }
+}

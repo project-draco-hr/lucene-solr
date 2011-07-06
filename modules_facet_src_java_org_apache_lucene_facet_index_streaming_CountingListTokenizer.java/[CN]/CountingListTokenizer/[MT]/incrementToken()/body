@@ -1,0 +1,32 @@
+{
+  if (input.incrementToken()) {
+    if (this.categoryAttribute != null) {
+      OrdinalProperty ordinalProperty=(OrdinalProperty)this.categoryAttribute.getProperty(OrdinalProperty.class);
+      if (ordinalProperty != null && legalCategory()) {
+        CategoryPath categoryPath=this.categoryAttribute.getCategoryPath();
+        int ordinal=ordinalProperty.getOrdinal();
+        CategoryListPayloadStream payloadStream=getPayloadStream(categoryPath,ordinal);
+        int partitionSize=indexingParams.getPartitionSize();
+        payloadStream.appendIntToStream(ordinal % partitionSize);
+      }
+    }
+    return true;
+  }
+  if (this.payloadStreamIterator == null) {
+    this.handleEndOfInput();
+    this.payloadStreamIterator=this.payloadStreamsByName.entrySet().iterator();
+  }
+  if (this.payloadStreamIterator.hasNext()) {
+    Entry<String,CategoryListPayloadStream> entry=this.payloadStreamIterator.next();
+    String countingListName=entry.getKey();
+    int length=countingListName.length();
+    this.termAttribute.resizeBuffer(length);
+    countingListName.getChars(0,length,termAttribute.buffer(),0);
+    this.termAttribute.setLength(length);
+    CategoryListPayloadStream payloadStream=entry.getValue();
+    payload.setData(payloadStream.convertStreamToByteArray());
+    this.payloadAttribute.setPayload(payload);
+    return true;
+  }
+  return false;
+}

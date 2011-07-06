@@ -1,0 +1,54 @@
+{
+  int partitionSize=facetArrays.getArraysLength();
+  int endOffset=offset + partitionSize;
+  ChildrenArrays childrenArray=taxonomyReader.getChildrenArrays();
+  int[] youngestChild=childrenArray.getYoungestChildArray();
+  int[] olderSibling=childrenArray.getOlderSiblingArray();
+  FacetResultNode reusable=null;
+  int localDepth=0;
+  int depth=facetRequest.getDepth();
+  int[] ordinalStack=new int[2 + Math.min(Short.MAX_VALUE,depth)];
+  int childrenCounter=0;
+  int tosOrdinal;
+  int yc=youngestChild[ordinal];
+  while (yc >= endOffset) {
+    yc=olderSibling[yc];
+  }
+  ordinalStack[++localDepth]=yc;
+  while (localDepth > 0) {
+    tosOrdinal=ordinalStack[localDepth];
+    if (tosOrdinal == TaxonomyReader.INVALID_ORDINAL) {
+      localDepth--;
+      ordinalStack[localDepth]=olderSibling[ordinalStack[localDepth]];
+      continue;
+    }
+    if (tosOrdinal >= offset) {
+      int relativeOrdinal=tosOrdinal % partitionSize;
+      double value=facetRequest.getValueOf(facetArrays,relativeOrdinal);
+      if (value != 0 && !Double.isNaN(value)) {
+        if (reusable == null) {
+          reusable=new MutableFacetResultNode(tosOrdinal,value);
+        }
+ else {
+          ((MutableFacetResultNode)reusable).reset(tosOrdinal,value);
+        }
+        ++childrenCounter;
+        reusable=pq.insertWithOverflow(reusable);
+        if (reusable != null) {
+          parentResultNode.increaseResidue(reusable.getValue());
+        }
+      }
+    }
+    if (localDepth < depth) {
+      yc=youngestChild[tosOrdinal];
+      while (yc >= endOffset) {
+        yc=olderSibling[yc];
+      }
+      ordinalStack[++localDepth]=yc;
+    }
+ else {
+      ordinalStack[++localDepth]=TaxonomyReader.INVALID_ORDINAL;
+    }
+  }
+  return childrenCounter;
+}

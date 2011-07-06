@@ -1,0 +1,31 @@
+{
+  SolrCore core=h.getCore();
+  NewSearcherListener trigger=new NewSearcherListener();
+  DirectUpdateHandler2 updateHandler=(DirectUpdateHandler2)core.getUpdateHandler();
+  CommitTracker tracker=updateHandler.commitTracker;
+  tracker.timeUpperBound=-1;
+  tracker.docsUpperBound=14;
+  core.registerNewSearcherListener(trigger);
+  XmlUpdateRequestHandler handler=new XmlUpdateRequestHandler();
+  handler.init(null);
+  MapSolrParams params=new MapSolrParams(new HashMap<String,String>());
+  SolrQueryResponse rsp=new SolrQueryResponse();
+  SolrQueryRequestBase req=new SolrQueryRequestBase(core,params){
+  }
+;
+  for (int i=0; i < 14; i++) {
+    req.setContentStreams(toContentStreams(adoc("id",Integer.toString(i),"subject","info"),null));
+    handler.handleRequest(req,rsp);
+  }
+  assertQ("shouldn't find any",req("id:1"),"//result[@numFound=0]");
+  assertEquals(0,tracker.getCommitCount());
+  req.setContentStreams(toContentStreams(adoc("id","14","subject","info"),null));
+  handler.handleRequest(req,rsp);
+  assertTrue(trigger.waitForNewSearcher(10000));
+  req.setContentStreams(toContentStreams(adoc("id","15","subject","info"),null));
+  handler.handleRequest(req,rsp);
+  assertQ("should find one",req("id:14"),"//result[@numFound=1]");
+  assertEquals(1,tracker.getCommitCount());
+  assertQ("should not find one",req("id:15"),"//result[@numFound=0]");
+  assertEquals(1,tracker.getCommitCount());
+}

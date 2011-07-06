@@ -1,0 +1,59 @@
+{
+  final Integer _slot=joinQueryID.get(query);
+  if (_slot == null) {
+    if (totalHitCount == 0) {
+      return null;
+    }
+ else {
+      throw new IllegalArgumentException("the Query did not contain the provided BlockJoinQuery");
+    }
+  }
+  final int slot=_slot;
+  if (offset >= queue.size()) {
+    return null;
+  }
+  int totalGroupedHitCount=0;
+  if (sortedGroups == null) {
+    sortQueue();
+  }
+  final FakeScorer fakeScorer=new FakeScorer();
+  final GroupDocs<Integer>[] groups=new GroupDocs[sortedGroups.length - offset];
+  for (int groupIDX=offset; groupIDX < sortedGroups.length; groupIDX++) {
+    final OneGroup og=sortedGroups[groupIDX];
+    final TopDocsCollector collector;
+    if (withinGroupSort == null) {
+      if (!trackScores) {
+        throw new IllegalArgumentException("cannot sort by relevance within group: trackScores=false");
+      }
+      collector=TopScoreDocCollector.create(maxDocsPerGroup,true);
+    }
+ else {
+      collector=TopFieldCollector.create(withinGroupSort,maxDocsPerGroup,fillSortFields,trackScores,trackMaxScore,true);
+    }
+    collector.setScorer(fakeScorer);
+    collector.setNextReader(og.readerContext);
+    final int numChildDocs=og.counts[slot];
+    for (int docIDX=0; docIDX < numChildDocs; docIDX++) {
+      final int doc=og.docs[slot][docIDX];
+      fakeScorer.doc=doc;
+      if (trackScores) {
+        fakeScorer.score=og.scores[slot][docIDX];
+      }
+      collector.collect(doc);
+    }
+    totalGroupedHitCount+=numChildDocs;
+    final Object[] groupSortValues;
+    if (fillSortFields) {
+      groupSortValues=new Object[comparators.length];
+      for (int sortFieldIDX=0; sortFieldIDX < comparators.length; sortFieldIDX++) {
+        groupSortValues[sortFieldIDX]=comparators[sortFieldIDX].value(og.slot);
+      }
+    }
+ else {
+      groupSortValues=null;
+    }
+    final TopDocs topDocs=collector.topDocs(withinGroupOffset,maxDocsPerGroup);
+    groups[groupIDX - offset]=new GroupDocs<Integer>(topDocs.getMaxScore(),og.counts[slot],topDocs.scoreDocs,og.doc,groupSortValues);
+  }
+  return new TopGroups<Integer>(new TopGroups<Integer>(sort.getSort(),withinGroupSort == null ? null : withinGroupSort.getSort(),0,totalGroupedHitCount,groups),totalHitCount);
+}

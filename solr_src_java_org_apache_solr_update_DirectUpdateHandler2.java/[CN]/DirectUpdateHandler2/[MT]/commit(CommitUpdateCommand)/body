@@ -1,4 +1,5 @@
 {
+  IndexWriter writer=indexWriterProvider.getIndexWriter();
   if (cmd.optimize) {
     optimizeCommands.incrementAndGet();
   }
@@ -11,29 +12,40 @@
     waitSearcher=new Future[1];
   }
   boolean error=true;
-  iwCommit.lock();
   try {
     log.info("start " + cmd);
     if (cmd.optimize) {
-      openWriter();
       writer.optimize(cmd.maxOptimizeSegments);
     }
  else     if (cmd.expungeDeletes) {
-      openWriter();
       writer.expungeDeletes();
     }
-    closeWriter();
-    callPostCommitCallbacks();
+    if (!cmd.softCommit) {
+      writer.commit();
+      callPostCommitCallbacks();
+    }
+ else {
+      callPostSoftCommitCallbacks();
+    }
     if (cmd.optimize) {
       callPostOptimizeCallbacks();
     }
-    core.getSearcher(true,false,waitSearcher);
-    tracker.didCommit();
+    if (cmd.softCommit) {
+      core.getSearcher(true,false,waitSearcher,true);
+    }
+ else {
+      core.getSearcher(true,false,waitSearcher);
+    }
+    if (cmd.softCommit) {
+      softCommitTracker.didCommit();
+    }
+ else {
+      commitTracker.didCommit();
+    }
     log.info("end_commit_flush");
     error=false;
   }
   finally {
-    iwCommit.unlock();
     addCommands.set(0);
     deleteByIdCommands.set(0);
     deleteByQueryCommands.set(0);

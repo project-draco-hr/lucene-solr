@@ -1,0 +1,118 @@
+{
+  int rootNode=this.taxonomyReader.getOrdinal(this.facetRequest.getCategoryPath());
+  if (rootNode == TaxonomyReader.INVALID_ORDINAL) {
+    return null;
+  }
+  int K=Math.min(facetRequest.getNumResults(),taxonomyReader.getSize());
+  IntToObjectMap<AACO> AACOsOfOnePartition=new IntToObjectMap<AACO>();
+  int partitionSize=arrays.getArraysLength();
+  int depth=facetRequest.getDepth();
+  if (depth == 0) {
+    IntermediateFacetResultWithHash tempFRWH=new IntermediateFacetResultWithHash(facetRequest,AACOsOfOnePartition);
+    if (isSelfPartition(rootNode,arrays,offset)) {
+      tempFRWH.isRootNodeIncluded=true;
+      tempFRWH.rootNodeValue=this.facetRequest.getValueOf(arrays,rootNode % partitionSize);
+    }
+    return tempFRWH;
+  }
+  if (depth > Short.MAX_VALUE - 3) {
+    depth=Short.MAX_VALUE - 3;
+  }
+  int endOffset=offset + partitionSize;
+  ChildrenArrays childrenArray=taxonomyReader.getChildrenArrays();
+  int[] youngestChild=childrenArray.getYoungestChildArray();
+  int[] olderSibling=childrenArray.getOlderSiblingArray();
+  int totalNumOfDescendantsConsidered=0;
+  PriorityQueue<AggregatedCategory> pq=new AggregatedCategoryHeap(K,this.getSuitableACComparator());
+  AggregatedCategory[] reusables=new AggregatedCategory[2 + K];
+  for (int i=0; i < reusables.length; i++) {
+    reusables[i]=new AggregatedCategory(1,0);
+  }
+  int[] ordinalStack=new int[depth + 2];
+  ordinalStack[0]=rootNode;
+  int localDepth=0;
+  int[][] bestSignlingsStack=new int[depth + 2][];
+  int[] siblingExplored=new int[depth + 2];
+  int[] firstToTheLeftOfPartition=new int[depth + 2];
+  int tosOrdinal;
+  ordinalStack[++localDepth]=youngestChild[rootNode];
+  siblingExplored[localDepth]=Integer.MAX_VALUE;
+  siblingExplored[0]=-1;
+  while (localDepth > 0) {
+    tosOrdinal=ordinalStack[localDepth];
+    if (tosOrdinal == TaxonomyReader.INVALID_ORDINAL) {
+      localDepth--;
+      if (siblingExplored[localDepth] < 0) {
+        ordinalStack[localDepth]=olderSibling[ordinalStack[localDepth]];
+        continue;
+      }
+      siblingExplored[localDepth]--;
+      if (siblingExplored[localDepth] == -1) {
+        ordinalStack[localDepth]=firstToTheLeftOfPartition[localDepth];
+      }
+ else {
+        ordinalStack[localDepth]=bestSignlingsStack[localDepth][siblingExplored[localDepth]];
+      }
+      continue;
+    }
+    if (siblingExplored[localDepth] == Integer.MAX_VALUE) {
+      while (tosOrdinal >= endOffset) {
+        tosOrdinal=olderSibling[tosOrdinal];
+      }
+      double residue=0f;
+      pq.clear();
+      int tosReuslables=reusables.length - 1;
+      while (tosOrdinal >= offset) {
+        double value=facetRequest.getValueOf(arrays,tosOrdinal % partitionSize);
+        if (value != 0) {
+          totalNumOfDescendantsConsidered++;
+          AggregatedCategory ac=reusables[tosReuslables--];
+          ac.ordinal=tosOrdinal;
+          ac.value=value;
+          ac=pq.insertWithOverflow(ac);
+          if (null != ac) {
+            residue+=ac.value;
+            totalNumOfDescendantsConsidered--;
+            totalNumOfDescendantsConsidered+=countOnly(ac.ordinal,youngestChild,olderSibling,arrays,partitionSize,offset,endOffset,localDepth,depth);
+            reusables[++tosReuslables]=ac;
+          }
+        }
+        tosOrdinal=olderSibling[tosOrdinal];
+      }
+      firstToTheLeftOfPartition[localDepth]=tosOrdinal;
+      int aaci=pq.size();
+      int[] ords=new int[aaci];
+      double[] vals=new double[aaci];
+      while (aaci > 0) {
+        AggregatedCategory ac=pq.pop();
+        ords[--aaci]=ac.ordinal;
+        vals[aaci]=ac.value;
+        reusables[++tosReuslables]=ac;
+      }
+      if (ords.length > 0) {
+        AACOsOfOnePartition.put(ordinalStack[localDepth - 1],new AACO(ords,vals,residue));
+        bestSignlingsStack[localDepth]=ords;
+        siblingExplored[localDepth]=ords.length - 1;
+        ordinalStack[localDepth]=ords[ords.length - 1];
+      }
+ else {
+        ordinalStack[localDepth]=tosOrdinal;
+        siblingExplored[localDepth]=-1;
+      }
+      continue;
+    }
+    if (localDepth >= depth) {
+      ordinalStack[++localDepth]=TaxonomyReader.INVALID_ORDINAL;
+      continue;
+    }
+    ordinalStack[++localDepth]=youngestChild[tosOrdinal];
+    siblingExplored[localDepth]=Integer.MAX_VALUE;
+  }
+  IntermediateFacetResultWithHash tempFRWH=new IntermediateFacetResultWithHash(facetRequest,AACOsOfOnePartition);
+  if (isSelfPartition(rootNode,arrays,offset)) {
+    tempFRWH.isRootNodeIncluded=true;
+    tempFRWH.rootNodeValue=this.facetRequest.getValueOf(arrays,rootNode % partitionSize);
+  }
+  tempFRWH.totalNumOfFacetsConsidered=totalNumOfDescendantsConsidered;
+  return tempFRWH;
+}

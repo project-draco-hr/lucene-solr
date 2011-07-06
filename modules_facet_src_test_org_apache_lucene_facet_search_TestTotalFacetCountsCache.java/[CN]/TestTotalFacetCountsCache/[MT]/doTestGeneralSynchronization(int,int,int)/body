@@ -1,0 +1,70 @@
+{
+  TFC.setCacheSize(cacheSize);
+  SlowRAMDirectory slowIndexDir=new SlowRAMDirectory(-1,random);
+  MockDirectoryWrapper indexDir=new MockDirectoryWrapper(random,slowIndexDir);
+  SlowRAMDirectory slowTaxoDir=new SlowRAMDirectory(-1,random);
+  MockDirectoryWrapper taxoDir=new MockDirectoryWrapper(random,slowTaxoDir);
+  MultiCLIndexer.index(indexDir,taxoDir);
+  slowIndexDir.setSleepMillis(sleepMillis);
+  slowTaxoDir.setSleepMillis(sleepMillis);
+  IndexReader slowIndexReader=IndexReader.open(indexDir);
+  TaxonomyReader slowTaxoReader=new LuceneTaxonomyReader(taxoDir);
+class Multi extends Thread {
+    private List<FacetResult> results;
+    private FacetIndexingParams iParams;
+    private IndexReader indexReader;
+    private TaxonomyReader taxoReader;
+    public Multi(    IndexReader indexReader,    TaxonomyReader taxoReader,    FacetIndexingParams iParams){
+      this.indexReader=indexReader;
+      this.taxoReader=taxoReader;
+      this.iParams=iParams;
+    }
+    public ExampleResult getResults(){
+      ExampleResult exampleRes=new ExampleResult();
+      exampleRes.setFacetResults(results);
+      return exampleRes;
+    }
+    @Override public void run(){
+      try {
+        results=MultiCLSearcher.searchWithFacets(indexReader,taxoReader,iParams);
+      }
+ catch (      Exception e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+  Multi[] multis=new Multi[numThreads];
+  for (int i=0; i < numThreads - 1; i++) {
+    multis[i]=new Multi(slowIndexReader,slowTaxoReader,MultiCLIndexer.MULTI_IPARAMS);
+  }
+  multis[numThreads - 1]=new Multi(slowIndexReader,slowTaxoReader,new DefaultFacetIndexingParams());
+  for (  Multi m : multis) {
+    m.start();
+  }
+  ExampleResult[] multiResults=new ExampleResult[numThreads];
+  for (int i=0; i < numThreads; i++) {
+    multis[i].join();
+    multiResults[i]=multis[i].getResults();
+  }
+  for (int i=0; i < numThreads - 1; i++) {
+    ExampleResult eResults=multiResults[i];
+    TestMultiCLExample.assertCorrectMultiResults(eResults);
+  }
+  ExampleResult eResults=multiResults[numThreads - 1];
+  List<FacetResult> results=eResults.getFacetResults();
+  assertEquals(3,results.size());
+  String[] expLabels=new String[]{"5","5/5","6/2"};
+  double[] expValues=new double[]{0.0,0.0,1.0};
+  for (int i=0; i < 3; i++) {
+    FacetResult result=results.get(i);
+    assertNotNull("Result should not be null",result);
+    FacetResultNode resNode=result.getFacetResultNode();
+    assertEquals("Invalid label",expLabels[i],resNode.getLabel().toString());
+    assertEquals("Invalid value",expValues[i],resNode.getValue(),0.0);
+    assertEquals("Invalid number of subresults",0,resNode.getNumSubResults());
+  }
+  slowIndexReader.close();
+  slowTaxoReader.close();
+  indexDir.close();
+  taxoDir.close();
+}
