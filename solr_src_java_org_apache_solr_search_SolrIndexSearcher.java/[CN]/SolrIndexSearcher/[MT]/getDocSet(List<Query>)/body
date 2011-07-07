@@ -1,34 +1,40 @@
 {
-  if (queries == null)   return null;
-  if (queries.size() == 1)   return getDocSet(queries.get(0));
-  DocSet answer=null;
-  boolean[] neg=new boolean[queries.size()];
-  DocSet[] sets=new DocSet[queries.size()];
-  int smallestIndex=-1;
-  int smallestCount=Integer.MAX_VALUE;
-  for (int i=0; i < sets.length; i++) {
-    Query q=queries.get(i);
-    Query posQuery=QueryUtils.getAbs(q);
-    sets[i]=getPositiveDocSet(posQuery);
-    if (q == posQuery) {
-      neg[i]=false;
-      int sz=sets[i].size();
-      if (sz < smallestCount) {
-        smallestCount=sz;
-        smallestIndex=i;
-        answer=sets[i];
+  ProcessedFilter pf=getProcessedFilter(null,queries);
+  if (pf.answer != null)   return pf.answer;
+  DocSetCollector setCollector=new DocSetCollector(maxDoc() >> 6,maxDoc());
+  Collector collector=setCollector;
+  if (pf.postFilter != null) {
+    pf.postFilter.setLastDelegate(collector);
+    collector=pf.postFilter;
+  }
+  final AtomicReaderContext[] leaves=leafContexts;
+  for (int i=0; i < leaves.length; i++) {
+    final AtomicReaderContext leaf=leaves[i];
+    final IndexReader reader=leaf.reader;
+    DocIdSet idSet=null;
+    if (pf.filter != null) {
+      idSet=pf.filter.getDocIdSet(leaf);
+      if (idSet == null)       continue;
+    }
+    DocIdSetIterator idIter=null;
+    if (idSet != null) {
+      idIter=idSet.iterator();
+      if (idIter == null)       continue;
+    }
+    collector.setNextReader(leaf);
+    Bits liveDocs=reader.getLiveDocs();
+    int max=reader.maxDoc();
+    if (idIter == null) {
+      for (int docid=0; docid < max; docid++) {
+        if (liveDocs != null && !liveDocs.get(docid))         continue;
+        collector.collect(docid);
       }
     }
  else {
-      neg[i]=true;
+      for (int docid=-1; (docid=idIter.advance(docid + 1)) < max; ) {
+        collector.collect(docid);
+      }
     }
   }
-  if (answer == null)   answer=getPositiveDocSet(matchAllDocsQuery);
-  for (int i=0; i < sets.length; i++) {
-    if (neg[i])     answer=answer.andNot(sets[i]);
-  }
-  for (int i=0; i < sets.length; i++) {
-    if (!neg[i] && i != smallestIndex)     answer=answer.intersection(sets[i]);
-  }
-  return answer;
+  return setCollector.getDocSet();
 }

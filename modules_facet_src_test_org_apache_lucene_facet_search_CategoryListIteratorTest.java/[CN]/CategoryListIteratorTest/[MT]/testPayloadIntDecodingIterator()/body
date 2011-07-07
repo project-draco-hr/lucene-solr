@@ -1,0 +1,31 @@
+{
+  Directory dir=newDirectory();
+  DataTokenStream dts=new DataTokenStream("1",new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder()))));
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random,MockTokenizer.KEYWORD,false)));
+  for (int i=0; i < data.length; i++) {
+    dts.setIdx(i);
+    Document doc=new Document();
+    doc.add(new Field("f",dts));
+    writer.addDocument(doc);
+  }
+  IndexReader reader=writer.getReader();
+  writer.close();
+  CategoryListIterator cli=new PayloadIntDecodingIterator(reader,new Term("f","1"),dts.encoder.createMatchingDecoder());
+  cli.init();
+  int totalCategories=0;
+  for (int i=0; i < data.length; i++) {
+    Set<Integer> values=new HashSet<Integer>();
+    for (int j=0; j < data[i].length; j++) {
+      values.add(data[i][j]);
+    }
+    cli.skipTo(i);
+    long cat;
+    while ((cat=cli.nextCategory()) < Integer.MAX_VALUE) {
+      assertTrue("expected category not found: " + cat,values.contains((int)cat));
+      totalCategories++;
+    }
+  }
+  assertEquals("Missing categories!",10,totalCategories);
+  reader.close();
+  dir.close();
+}

@@ -12,6 +12,25 @@
     if (infoStream != null)     t.printStackTrace(infoStream);
     return result;
   }
+  String oldest=Integer.toString(Integer.MAX_VALUE), newest=Integer.toString(Integer.MIN_VALUE);
+  String oldSegs=null;
+  boolean foundNonNullVersion=false;
+  Comparator<String> versionComparator=StringHelper.getVersionComparator();
+  for (  SegmentInfo si : sis) {
+    String version=si.getVersion();
+    if (version == null) {
+      oldSegs="pre-3.1";
+    }
+ else {
+      foundNonNullVersion=true;
+      if (versionComparator.compare(version,oldest) < 0) {
+        oldest=version;
+      }
+      if (versionComparator.compare(version,newest) > 0) {
+        newest=version;
+      }
+    }
+  }
   final int numSegments=sis.size();
   final String segmentsFileName=sis.getCurrentSegmentFileName();
   IndexInput input=null;
@@ -46,7 +65,7 @@
     sFormat="FORMAT_HAS_VECTORS [Lucene 3.1]";
   }
  else   if (format == DefaultSegmentInfosWriter.FORMAT_3_1) {
-    sFormat="FORMAT_3_1 [Lucene 3.1]";
+    sFormat="FORMAT_3_1 [Lucene 3.1+]";
   }
  else   if (format == DefaultSegmentInfosWriter.FORMAT_4_0) {
     sFormat="FORMAT_4_0 [Lucene 4.0]";
@@ -73,7 +92,19 @@
  else {
     userDataString="";
   }
-  msg("Segments file=" + segmentsFileName + " numSegments="+ numSegments+ " version="+ sFormat+ userDataString);
+  String versionString=null;
+  if (oldSegs != null) {
+    if (foundNonNullVersion) {
+      versionString="versions=[" + oldSegs + " .. "+ newest+ "]";
+    }
+ else {
+      versionString="version=" + oldSegs;
+    }
+  }
+ else {
+    versionString=oldest.equals(newest) ? ("version=" + oldest) : ("versions=[" + oldest + " .. "+ newest+ "]");
+  }
+  msg("Segments file=" + segmentsFileName + " numSegments="+ numSegments+ " "+ versionString+ " format="+ sFormat+ userDataString);
   if (onlySegments != null) {
     result.partial=true;
     if (infoStream != null)     infoStream.print("\nChecking only these segments:");
@@ -147,11 +178,11 @@
       final int numDocs=reader.numDocs();
       toLoseDocCount=numDocs;
       if (reader.hasDeletions()) {
-        if (reader.deletedDocs.count() != info.getDelCount()) {
-          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs deletedDocs.count()="+ reader.deletedDocs.count());
+        if (reader.liveDocs.count() != info.docCount - info.getDelCount()) {
+          throw new RuntimeException("delete count mismatch: info=" + (info.docCount - info.getDelCount()) + " vs reader="+ reader.liveDocs.count());
         }
-        if (reader.deletedDocs.count() > reader.maxDoc()) {
-          throw new RuntimeException("too many deleted docs: maxDoc()=" + reader.maxDoc() + " vs deletedDocs.count()="+ reader.deletedDocs.count());
+        if ((info.docCount - reader.liveDocs.count()) > reader.maxDoc()) {
+          throw new RuntimeException("too many deleted docs: maxDoc()=" + reader.maxDoc() + " vs del count="+ (info.docCount - reader.liveDocs.count()));
         }
         if (info.docCount - numDocs != info.getDelCount()) {
           throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.docCount - numDocs));

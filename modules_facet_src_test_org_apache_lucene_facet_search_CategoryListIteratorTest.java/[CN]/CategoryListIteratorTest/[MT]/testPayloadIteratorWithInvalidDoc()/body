@@ -1,0 +1,59 @@
+{
+  Directory dir=newDirectory();
+  DataTokenStream dts=new DataTokenStream("1",new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder()))));
+  DataTokenStream dts2=new DataTokenStream("2",new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder()))));
+  final Analyzer noPayloadsAnalyzer=new Analyzer(){
+    @Override public TokenStream tokenStream(    String fieldName,    Reader reader){
+      return new MockTokenizer(reader,MockTokenizer.KEYWORD,false);
+    }
+  }
+;
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,noPayloadsAnalyzer).setMergePolicy(newLogMergePolicy()));
+  for (int i=0; i < data.length; i++) {
+    dts.setIdx(i);
+    Document doc=new Document();
+    if (i == 0 || i == 2) {
+      doc.add(new Field("f",dts));
+    }
+    dts2.setIdx(i);
+    doc.add(new Field("f",dts2));
+    writer.addDocument(doc);
+    writer.commit();
+  }
+  for (int i=0; i < 10; ++i) {
+    Document d=new Document();
+    dts.setIdx(2);
+    d.add(new Field("f",dts2));
+    writer.addDocument(d);
+    if (i % 10 == 0) {
+      writer.commit();
+    }
+  }
+  IndexReader reader=writer.getReader();
+  writer.close();
+  CategoryListIterator cli=new PayloadIntDecodingIterator(reader,new Term("f","1"),dts.encoder.createMatchingDecoder());
+  cli.init();
+  int totalCats=0;
+  for (int i=0; i < data.length; i++) {
+    Set<Integer> values=new HashSet<Integer>();
+    for (int j=0; j < data[i].length; j++) {
+      values.add(data[i][j]);
+    }
+    boolean hasDoc=cli.skipTo(i);
+    if (hasDoc) {
+      assertTrue("Document " + i + " must not have a payload!",i == 0 || i == 2);
+      long cat;
+      while ((cat=cli.nextCategory()) < Integer.MAX_VALUE) {
+        assertTrue("expected category not found: " + cat,values.contains((int)cat));
+        ++totalCats;
+      }
+    }
+ else {
+      assertFalse("Document " + i + " must have a payload!",i == 0 || i == 2);
+    }
+  }
+  assertEquals("Wrong number of total categories!",4,totalCats);
+  assertFalse("Doc #6 (docid=5) should not have a payload!",cli.skipTo(5));
+  reader.close();
+  dir.close();
+}

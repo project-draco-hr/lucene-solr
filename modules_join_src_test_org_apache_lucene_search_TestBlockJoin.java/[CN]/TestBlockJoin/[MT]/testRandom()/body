@@ -1,0 +1,206 @@
+{
+  final Directory dir=newDirectory();
+  final Directory joinDir=newDirectory();
+  final int numParentDocs=_TestUtil.nextInt(random,100 * RANDOM_MULTIPLIER,300 * RANDOM_MULTIPLIER);
+  final String[][] parentFields=getRandomFields(numParentDocs / 2);
+  final String[][] childFields=getRandomFields(numParentDocs);
+  final RandomIndexWriter w=new RandomIndexWriter(random,dir);
+  final RandomIndexWriter joinW=new RandomIndexWriter(random,joinDir);
+  for (int parentDocID=0; parentDocID < numParentDocs; parentDocID++) {
+    Document parentDoc=new Document();
+    Document parentJoinDoc=new Document();
+    Field id=newField("parentID","" + parentDocID,Field.Store.YES,Field.Index.NOT_ANALYZED);
+    parentDoc.add(id);
+    parentJoinDoc.add(id);
+    parentJoinDoc.add(newField("isParent","x",Field.Index.NOT_ANALYZED));
+    for (int field=0; field < parentFields.length; field++) {
+      if (random.nextDouble() < 0.9) {
+        Field f=newField("parent" + field,parentFields[field][random.nextInt(parentFields[field].length)],Field.Index.NOT_ANALYZED);
+        parentDoc.add(f);
+        parentJoinDoc.add(f);
+      }
+    }
+    final List<Document> joinDocs=new ArrayList<Document>();
+    if (VERBOSE) {
+      System.out.println("  " + parentDoc);
+    }
+    final int numChildDocs=_TestUtil.nextInt(random,1,20);
+    for (int childDocID=0; childDocID < numChildDocs; childDocID++) {
+      Document childDoc=_TestUtil.cloneDocument(parentDoc);
+      Document joinChildDoc=new Document();
+      joinDocs.add(joinChildDoc);
+      Field childID=newField("childID","" + childDocID,Field.Store.YES,Field.Index.NOT_ANALYZED);
+      childDoc.add(childID);
+      joinChildDoc.add(childID);
+      for (int childFieldID=0; childFieldID < childFields.length; childFieldID++) {
+        if (random.nextDouble() < 0.9) {
+          Field f=newField("child" + childFieldID,childFields[childFieldID][random.nextInt(childFields[childFieldID].length)],Field.Index.NOT_ANALYZED);
+          childDoc.add(f);
+          joinChildDoc.add(f);
+        }
+      }
+      if (VERBOSE) {
+        System.out.println("    " + joinChildDoc);
+      }
+      w.addDocument(childDoc);
+    }
+    joinDocs.add(parentJoinDoc);
+    joinW.addDocuments(joinDocs);
+  }
+  final IndexReader r=w.getReader();
+  w.close();
+  final IndexReader joinR=joinW.getReader();
+  joinW.close();
+  if (VERBOSE) {
+    System.out.println("TEST: reader=" + r);
+    System.out.println("TEST: joinReader=" + joinR);
+    for (int docIDX=0; docIDX < joinR.maxDoc(); docIDX++) {
+      System.out.println("  docID=" + docIDX + " doc="+ joinR.document(docIDX));
+    }
+  }
+  final IndexSearcher s=new IndexSearcher(r);
+  s.setDefaultFieldSortScoring(true,true);
+  final IndexSearcher joinS=new IndexSearcher(joinR);
+  final Filter parentsFilter=new CachingWrapperFilter(new QueryWrapperFilter(new TermQuery(new Term("isParent","x"))));
+  final int iters=200 * RANDOM_MULTIPLIER;
+  for (int iter=0; iter < iters; iter++) {
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + (1 + iter) + " of "+ iters);
+    }
+    final Query childQuery;
+    if (random.nextInt(3) == 2) {
+      final int childFieldID=random.nextInt(childFields.length);
+      childQuery=new TermQuery(new Term("child" + childFieldID,childFields[childFieldID][random.nextInt(childFields[childFieldID].length)]));
+    }
+ else     if (random.nextInt(3) == 2) {
+      BooleanQuery bq=new BooleanQuery();
+      childQuery=bq;
+      final int numClauses=_TestUtil.nextInt(random,2,4);
+      boolean didMust=false;
+      for (int clauseIDX=0; clauseIDX < numClauses; clauseIDX++) {
+        Query clause;
+        BooleanClause.Occur occur;
+        if (!didMust && random.nextBoolean()) {
+          occur=random.nextBoolean() ? BooleanClause.Occur.MUST : BooleanClause.Occur.MUST_NOT;
+          clause=new TermQuery(randomChildTerm(childFields[0]));
+          didMust=true;
+        }
+ else {
+          occur=BooleanClause.Occur.SHOULD;
+          final int childFieldID=_TestUtil.nextInt(random,1,childFields.length - 1);
+          clause=new TermQuery(new Term("child" + childFieldID,childFields[childFieldID][random.nextInt(childFields[childFieldID].length)]));
+        }
+        bq.add(clause,occur);
+      }
+    }
+ else {
+      BooleanQuery bq=new BooleanQuery();
+      childQuery=bq;
+      bq.add(new TermQuery(randomChildTerm(childFields[0])),BooleanClause.Occur.MUST);
+      final int childFieldID=_TestUtil.nextInt(random,1,childFields.length - 1);
+      bq.add(new TermQuery(new Term("child" + childFieldID,childFields[childFieldID][random.nextInt(childFields[childFieldID].length)])),random.nextBoolean() ? BooleanClause.Occur.MUST : BooleanClause.Occur.MUST_NOT);
+    }
+    final BlockJoinQuery childJoinQuery=new BlockJoinQuery(childQuery,parentsFilter,BlockJoinQuery.ScoreMode.Avg);
+    final Query parentJoinQuery;
+    final Query parentQuery;
+    if (random.nextBoolean()) {
+      parentQuery=childQuery;
+      parentJoinQuery=childJoinQuery;
+    }
+ else {
+      final BooleanQuery bq=new BooleanQuery();
+      parentJoinQuery=bq;
+      final Term parentTerm=randomParentTerm(parentFields[0]);
+      if (random.nextBoolean()) {
+        bq.add(childJoinQuery,BooleanClause.Occur.MUST);
+        bq.add(new TermQuery(parentTerm),BooleanClause.Occur.MUST);
+      }
+ else {
+        bq.add(new TermQuery(parentTerm),BooleanClause.Occur.MUST);
+        bq.add(childJoinQuery,BooleanClause.Occur.MUST);
+      }
+      final BooleanQuery bq2=new BooleanQuery();
+      parentQuery=bq2;
+      if (random.nextBoolean()) {
+        bq2.add(childQuery,BooleanClause.Occur.MUST);
+        bq2.add(new TermQuery(parentTerm),BooleanClause.Occur.MUST);
+      }
+ else {
+        bq2.add(new TermQuery(parentTerm),BooleanClause.Occur.MUST);
+        bq2.add(childQuery,BooleanClause.Occur.MUST);
+      }
+    }
+    final Sort parentSort=getRandomSort("parent",parentFields.length);
+    final Sort childSort=getRandomSort("child",childFields.length);
+    if (VERBOSE) {
+      System.out.println("\nTEST: query=" + parentQuery + " joinQuery="+ parentJoinQuery+ " parentSort="+ parentSort+ " childSort="+ childSort);
+    }
+    final List<SortField> sortFields=new ArrayList<SortField>(Arrays.asList(parentSort.getSort()));
+    sortFields.addAll(Arrays.asList(childSort.getSort()));
+    final Sort parentAndChildSort=new Sort(sortFields.toArray(new SortField[sortFields.size()]));
+    final TopDocs results=s.search(parentQuery,null,r.numDocs(),parentAndChildSort);
+    if (VERBOSE) {
+      System.out.println("\nTEST: normal index gets " + results.totalHits + " hits");
+      final ScoreDoc[] hits=results.scoreDocs;
+      for (int hitIDX=0; hitIDX < hits.length; hitIDX++) {
+        final Document doc=s.doc(hits[hitIDX].doc);
+        System.out.println("  parentID=" + doc.get("parentID") + " childID="+ doc.get("childID")+ " (docID="+ hits[hitIDX].doc+ ")");
+        FieldDoc fd=(FieldDoc)hits[hitIDX];
+        if (fd.fields != null) {
+          System.out.print("    ");
+          for (          Object o : fd.fields) {
+            if (o instanceof BytesRef) {
+              System.out.print(((BytesRef)o).utf8ToString() + " ");
+            }
+ else {
+              System.out.print(o + " ");
+            }
+          }
+          System.out.println();
+        }
+      }
+    }
+    final BlockJoinCollector c=new BlockJoinCollector(parentSort,10,true,true);
+    joinS.search(parentJoinQuery,c);
+    final int hitsPerGroup=_TestUtil.nextInt(random,1,20);
+    final TopGroups<Integer> joinResults=c.getTopGroups(childJoinQuery,childSort,0,hitsPerGroup,0,true);
+    if (VERBOSE) {
+      System.out.println("\nTEST: block join index gets " + (joinResults == null ? 0 : joinResults.groups.length) + " groups; hitsPerGroup="+ hitsPerGroup);
+      if (joinResults != null) {
+        final GroupDocs<Integer>[] groups=joinResults.groups;
+        for (int groupIDX=0; groupIDX < groups.length; groupIDX++) {
+          final GroupDocs<Integer> group=groups[groupIDX];
+          if (group.groupSortValues != null) {
+            System.out.print("  ");
+            for (            Object o : group.groupSortValues) {
+              if (o instanceof BytesRef) {
+                System.out.print(((BytesRef)o).utf8ToString() + " ");
+              }
+ else {
+                System.out.print(o + " ");
+              }
+            }
+            System.out.println();
+          }
+          assertNotNull(group.groupValue);
+          final Document parentDoc=joinS.doc(group.groupValue);
+          System.out.println("  group parentID=" + parentDoc.get("parentID") + " (docID="+ group.groupValue+ ")");
+          for (int hitIDX=0; hitIDX < group.scoreDocs.length; hitIDX++) {
+            final Document doc=joinS.doc(group.scoreDocs[hitIDX].doc);
+            System.out.println("    childID=" + doc.get("childID") + " child0="+ doc.get("child0")+ " (docID="+ group.scoreDocs[hitIDX].doc+ ")");
+          }
+        }
+      }
+    }
+    if (results.totalHits == 0) {
+      assertNull(joinResults);
+    }
+ else {
+      compareHits(r,joinR,results,joinResults);
+    }
+  }
+  r.close();
+  joinR.close();
+  dir.close();
+  joinDir.close();
+}

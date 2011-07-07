@@ -1,0 +1,61 @@
+{
+  long maxV=1;
+  final int NUM_VALUES=333 + random.nextInt(333);
+  final long[] values=new long[NUM_VALUES];
+  for (int rx=1; rx < maxBit; rx++, maxV*=2) {
+    Directory dir=newDirectory();
+    final AtomicLong trackBytes=new AtomicLong(0);
+    Writer w=Ints.getWriter(dir,"test",trackBytes,type,newIOContext(random));
+    for (int i=0; i < NUM_VALUES; i++) {
+      final long v=random.nextLong() % (1 + maxV);
+      values[i]=v;
+      w.add(i,v);
+    }
+    final int additionalDocs=1 + random.nextInt(9);
+    w.finish(NUM_VALUES + additionalDocs);
+    assertEquals(0,trackBytes.get());
+    IndexDocValues r=Ints.getValues(dir,"test",NUM_VALUES + additionalDocs,newIOContext(random));
+    for (int iter=0; iter < 2; iter++) {
+      Source s=getSource(r);
+      assertEquals(type,s.type());
+      for (int i=0; i < NUM_VALUES; i++) {
+        final long v=s.getInt(i);
+        assertEquals("index " + i,values[i],v);
+      }
+    }
+    for (int iter=0; iter < 2; iter++) {
+      ValuesEnum iEnum=getEnum(r);
+      assertEquals(type,iEnum.type());
+      LongsRef ints=iEnum.getInt();
+      for (int i=0; i < NUM_VALUES + additionalDocs; i++) {
+        assertEquals(i,iEnum.nextDoc());
+        if (i < NUM_VALUES) {
+          assertEquals(values[i],ints.get());
+        }
+ else {
+          assertEquals(0,ints.get());
+        }
+      }
+      assertEquals(ValuesEnum.NO_MORE_DOCS,iEnum.nextDoc());
+      iEnum.close();
+    }
+    for (int iter=0; iter < 2; iter++) {
+      ValuesEnum iEnum=getEnum(r);
+      assertEquals(type,iEnum.type());
+      LongsRef ints=iEnum.getInt();
+      for (int i=0; i < NUM_VALUES + additionalDocs; i+=1 + random.nextInt(25)) {
+        assertEquals(i,iEnum.advance(i));
+        if (i < NUM_VALUES) {
+          assertEquals(values[i],ints.get());
+        }
+ else {
+          assertEquals(0,ints.get());
+        }
+      }
+      assertEquals(ValuesEnum.NO_MORE_DOCS,iEnum.advance(NUM_VALUES + additionalDocs));
+      iEnum.close();
+    }
+    r.close();
+    dir.close();
+  }
+}

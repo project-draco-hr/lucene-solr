@@ -1,0 +1,28 @@
+{
+  Map<CategoryPath,Integer> truth=facetCountsTruth();
+  CategoryPath cp=(CategoryPath)truth.keySet().toArray()[0];
+  CountFacetRequest frq=new CountFacetRequest(cp,10);
+  FacetSearchParams sParams=getFacetedSearchParams();
+  sParams.addFacetRequest(frq);
+  if (withCache) {
+    FacetIndexingParams iparams=sParams.getFacetIndexingParams();
+    CategoryListParams clp=new CategoryListParams();
+    CategoryListCache clCache=new CategoryListCache();
+    clCache.loadAndRegister(clp,indexReader,taxoReader,iparams);
+    if (plantWrongData) {
+      messCachedData(clCache,clp);
+    }
+    sParams.setClCache(clCache);
+  }
+  FacetsCollector fc=new FacetsCollector(sParams,indexReader,taxoReader);
+  searcher.search(new MatchAllDocsQuery(),fc);
+  List<FacetResult> res=fc.getFacetResults();
+  try {
+    assertCountsAndCardinality(truth,res);
+    assertFalse("Correct results not expected when wrong data was cached",plantWrongData);
+  }
+ catch (  Throwable e) {
+    assertTrue("Wrong results not expected unless wrong data was cached",withCache);
+    assertTrue("Wrong results not expected unless wrong data was cached",plantWrongData);
+  }
+}

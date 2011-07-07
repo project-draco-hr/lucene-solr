@@ -1,0 +1,43 @@
+{
+  initCache(1);
+  Directory[][] dirs=FacetTestUtils.createIndexTaxonomyDirs(1);
+  IndexTaxonomyWriterPair[] writers=FacetTestUtils.createIndexTaxonomyWriterPair(dirs);
+  DefaultFacetIndexingParams iParams=new DefaultFacetIndexingParams(){
+    @Override protected int fixedPartitionSize(){
+      return partitionSize;
+    }
+  }
+;
+  int[] expectedCounts=new int[]{0,3,1,3,1,1,1,1,1,2,1,1,1,1};
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"a","b");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"c","d");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"a","e");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"a","d");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"c","g");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"c","z");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"b","a");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"1","2");
+  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"b","c");
+  writers[0].commit();
+  writers[0].close();
+  IndexTaxonomyReaderPair[] readers=FacetTestUtils.createIndexTaxonomyReaderPair(dirs);
+  int[] intArray=new int[iParams.getPartitionSize()];
+  TotalFacetCountsCache tfcc=TotalFacetCountsCache.getSingleton();
+  File tmpFile=_TestUtil.createTempFile("test","tmp",TEMP_DIR);
+  tfcc.store(tmpFile,readers[0].indexReader,readers[0].taxReader,iParams,null);
+  tfcc.clear();
+  tfcc.load(tmpFile,readers[0].indexReader,readers[0].taxReader,iParams);
+  TotalFacetCounts totalCounts=tfcc.getTotalCounts(readers[0].indexReader,readers[0].taxReader,iParams,null);
+  int partition=0;
+  for (int i=0; i < expectedCounts.length; i+=partitionSize) {
+    totalCounts.fillTotalCountsForPartition(intArray,partition);
+    int[] partitionExpectedCounts=new int[partitionSize];
+    int nToCopy=Math.min(partitionSize,expectedCounts.length - i);
+    System.arraycopy(expectedCounts,i,partitionExpectedCounts,0,nToCopy);
+    assertTrue("Wrong counts! for partition " + partition + "\nExpected:\n"+ Arrays.toString(partitionExpectedCounts)+ "\nActual:\n"+ Arrays.toString(intArray),Arrays.equals(partitionExpectedCounts,intArray));
+    ++partition;
+  }
+  readers[0].close();
+  IOUtils.closeSafely(false,dirs[0]);
+  tmpFile.delete();
+}

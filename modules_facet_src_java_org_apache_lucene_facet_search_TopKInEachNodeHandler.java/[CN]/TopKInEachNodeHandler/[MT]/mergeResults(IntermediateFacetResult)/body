@@ -1,0 +1,76 @@
+{
+  if (tmpResults.length == 0) {
+    return null;
+  }
+  int i=0;
+  for (; (i < tmpResults.length) && (tmpResults[i] == null); i++) {
+  }
+  if (i == tmpResults.length) {
+    return null;
+  }
+  int K=this.facetRequest.getNumResults();
+  IntermediateFacetResultWithHash tmpToReturn=(IntermediateFacetResultWithHash)tmpResults[i++];
+  for (; i < tmpResults.length; i++) {
+    IntermediateFacetResultWithHash tfr=(IntermediateFacetResultWithHash)tmpResults[i];
+    tmpToReturn.totalNumOfFacetsConsidered+=tfr.totalNumOfFacetsConsidered;
+    if (tfr.isRootNodeIncluded) {
+      tmpToReturn.isRootNodeIncluded=true;
+      tmpToReturn.rootNodeValue=tfr.rootNodeValue;
+    }
+    IntToObjectMap<AACO> tmpToReturnMapToACCOs=tmpToReturn.mapToAACOs;
+    IntToObjectMap<AACO> tfrMapToACCOs=tfr.mapToAACOs;
+    IntIterator tfrIntIterator=tfrMapToACCOs.keyIterator();
+    while (tfrIntIterator.hasNext()) {
+      int tfrkey=tfrIntIterator.next();
+      AACO tmpToReturnAACO=null;
+      if (null == (tmpToReturnAACO=tmpToReturnMapToACCOs.get(tfrkey))) {
+        tmpToReturnMapToACCOs.put(tfrkey,tfrMapToACCOs.get(tfrkey));
+      }
+ else {
+        AACO tfrAACO=tfrMapToACCOs.get(tfrkey);
+        int resLength=tfrAACO.ordinals.length + tmpToReturnAACO.ordinals.length;
+        if (K < resLength) {
+          resLength=K;
+        }
+        int[] resOrds=new int[resLength];
+        double[] resVals=new double[resLength];
+        double resResidue=tmpToReturnAACO.residue + tfrAACO.residue;
+        int indexIntoTmpToReturn=0;
+        int indexIntoTFR=0;
+        ACComparator merger=getSuitableACComparator();
+        for (int indexIntoRes=0; indexIntoRes < resLength; indexIntoRes++) {
+          if (indexIntoTmpToReturn >= tmpToReturnAACO.ordinals.length) {
+            resOrds[indexIntoRes]=tfrAACO.ordinals[indexIntoTFR];
+            resVals[indexIntoRes]=tfrAACO.values[indexIntoTFR];
+            indexIntoTFR++;
+            continue;
+          }
+          if (indexIntoTFR >= tfrAACO.ordinals.length) {
+            resOrds[indexIntoRes]=tmpToReturnAACO.ordinals[indexIntoTmpToReturn];
+            resVals[indexIntoRes]=tmpToReturnAACO.values[indexIntoTmpToReturn];
+            indexIntoTmpToReturn++;
+            continue;
+          }
+          if (merger.leftGoesNow(tmpToReturnAACO.ordinals[indexIntoTmpToReturn],tmpToReturnAACO.values[indexIntoTmpToReturn],tfrAACO.ordinals[indexIntoTFR],tfrAACO.values[indexIntoTFR])) {
+            resOrds[indexIntoRes]=tmpToReturnAACO.ordinals[indexIntoTmpToReturn];
+            resVals[indexIntoRes]=tmpToReturnAACO.values[indexIntoTmpToReturn];
+            indexIntoTmpToReturn++;
+          }
+ else {
+            resOrds[indexIntoRes]=tfrAACO.ordinals[indexIntoTFR];
+            resVals[indexIntoRes]=tfrAACO.values[indexIntoTFR];
+            indexIntoTFR++;
+          }
+        }
+        while (indexIntoTmpToReturn < tmpToReturnAACO.ordinals.length) {
+          resResidue+=tmpToReturnAACO.values[indexIntoTmpToReturn++];
+        }
+        while (indexIntoTFR < tfrAACO.ordinals.length) {
+          resResidue+=tfrAACO.values[indexIntoTFR++];
+        }
+        tmpToReturnMapToACCOs.put(tfrkey,new AACO(resOrds,resVals,resResidue));
+      }
+    }
+  }
+  return tmpToReturn;
+}

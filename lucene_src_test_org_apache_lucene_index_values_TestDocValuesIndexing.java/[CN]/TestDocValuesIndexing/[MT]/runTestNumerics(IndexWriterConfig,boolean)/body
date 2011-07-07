@@ -1,7 +1,7 @@
 {
   Directory d=newDirectory();
   IndexWriter w=new IndexWriter(d,cfg);
-  final int numValues=179 + random.nextInt(151);
+  final int numValues=50 + atLeast(10);
   final List<ValueType> numVariantList=new ArrayList<ValueType>(NUMERICS);
   Collections.shuffle(numVariantList,random);
   for (  ValueType val : numVariantList) {
@@ -10,55 +10,61 @@
     IndexReader r=IndexReader.open(w,true);
     final int numRemainingValues=(int)(numValues - deleted.cardinality());
     final int base=r.numDocs() - numRemainingValues;
+    int mod=numValues;
 switch (val) {
-case INTS:
+case FIXED_INTS_8:
+      mod=128;
+case FIXED_INTS_16:
+case FIXED_INTS_32:
+case FIXED_INTS_64:
+case VAR_INTS:
 {
-        IndexDocValues intsReader=getDocValues(r,val.name());
-        assertNotNull(intsReader);
-        Source ints=getSource(intsReader);
-        for (int i=0; i < base; i++) {
-          long value=ints.getInt(i);
-          assertEquals("index " + i,0,value);
-        }
-        ValuesEnum intsEnum=getValuesEnum(intsReader);
-        assertTrue(intsEnum.advance(base) >= base);
-        intsEnum=getValuesEnum(intsReader);
-        LongsRef enumRef=intsEnum.getInt();
-        int expected=0;
-        for (int i=base; i < r.numDocs(); i++, expected++) {
-          while (deleted.get(expected)) {
-            expected++;
-          }
-          assertEquals("advance failed at index: " + i + " of "+ r.numDocs()+ " docs",i,intsEnum.advance(i));
-          assertEquals(expected,ints.getInt(i));
-          assertEquals(expected,enumRef.get());
-        }
+      IndexDocValues intsReader=getDocValues(r,val.name());
+      assertNotNull(intsReader);
+      Source ints=getSource(intsReader);
+      for (int i=0; i < base; i++) {
+        long value=ints.getInt(i);
+        assertEquals("index " + i,0,value);
       }
-    break;
+      ValuesEnum intsEnum=getValuesEnum(intsReader);
+      assertTrue(intsEnum.advance(base) >= base);
+      intsEnum=getValuesEnum(intsReader);
+      LongsRef enumRef=intsEnum.getInt();
+      int expected=0;
+      for (int i=base; i < r.numDocs(); i++, expected++) {
+        while (deleted.get(expected)) {
+          expected++;
+        }
+        assertEquals("advance failed at index: " + i + " of "+ r.numDocs()+ " docs",i,intsEnum.advance(i));
+        assertEquals(val + " mod: " + mod+ " index: "+ i,expected % mod,ints.getInt(i));
+        assertEquals(expected % mod,enumRef.get());
+      }
+    }
+  break;
 case FLOAT_32:
 case FLOAT_64:
 {
-    IndexDocValues floatReader=getDocValues(r,val.name());
-    assertNotNull(floatReader);
-    Source floats=getSource(floatReader);
-    for (int i=0; i < base; i++) {
-      double value=floats.getFloat(i);
-      assertEquals(val + " failed for doc: " + i+ " base: "+ base,0.0d,value,0.0d);
-    }
-    ValuesEnum floatEnum=getValuesEnum(floatReader);
-    assertTrue(floatEnum.advance(base) >= base);
-    floatEnum=getValuesEnum(floatReader);
-    FloatsRef enumRef=floatEnum.getFloat();
-    int expected=0;
-    for (int i=base; i < r.numDocs(); i++, expected++) {
-      while (deleted.get(expected)) {
-        expected++;
-      }
-      assertEquals("advance failed at index: " + i + " of "+ r.numDocs()+ " docs base:"+ base,i,floatEnum.advance(i));
-      assertEquals(floatEnum.getClass() + " index " + i,2.0 * expected,enumRef.get(),0.00001);
-      assertEquals("index " + i,2.0 * expected,floats.getFloat(i),0.00001);
-    }
+  IndexDocValues floatReader=getDocValues(r,val.name());
+  assertNotNull(floatReader);
+  Source floats=getSource(floatReader);
+  for (int i=0; i < base; i++) {
+    double value=floats.getFloat(i);
+    assertEquals(val + " failed for doc: " + i+ " base: "+ base,0.0d,value,0.0d);
   }
+  ValuesEnum floatEnum=getValuesEnum(floatReader);
+  assertTrue(floatEnum.advance(base) >= base);
+  floatEnum=getValuesEnum(floatReader);
+  FloatsRef enumRef=floatEnum.getFloat();
+  int expected=0;
+  for (int i=base; i < r.numDocs(); i++, expected++) {
+    while (deleted.get(expected)) {
+      expected++;
+    }
+    assertEquals("advance failed at index: " + i + " of "+ r.numDocs()+ " docs base:"+ base,i,floatEnum.advance(i));
+    assertEquals(floatEnum.getClass() + " index " + i,2.0 * expected,enumRef.get(),0.00001);
+    assertEquals("index " + i,2.0 * expected,floats.getFloat(i),0.00001);
+  }
+}
 break;
 default :
 fail("unexpected value " + val);

@@ -1,0 +1,34 @@
+{
+  IndexWriter iw=new IndexWriter(indexDir,new IndexWriterConfig(ExampleUtils.EXAMPLE_VER,SimpleUtils.analyzer));
+  TaxonomyWriter taxo=new LuceneTaxonomyWriter(taxoDir,OpenMode.CREATE);
+  int nDocsAdded=0;
+  int nFacetsAdded=0;
+  for (int docNum=0; docNum < SimpleUtils.docTexts.length; docNum++) {
+    ExampleUtils.log(" ++++ DOC ID: " + docNum);
+    CategoryContainer categoryContainer=new CategoryContainer();
+    for (    CategoryPath path : SimpleUtils.categories[docNum]) {
+      categoryContainer.addCategory(path);
+      ExampleUtils.log("\t ++++ PATH: " + path);
+    }
+    CategoryPath[] associationsPaths=AssociationUtils.categories[docNum];
+    AssociationProperty[] associationProps=AssociationUtils.associations[docNum];
+    for (int i=0; i < associationsPaths.length; i++) {
+      categoryContainer.addCategory(associationsPaths[i],associationProps[i]);
+      ExampleUtils.log("\t $$$$ Association: (" + associationsPaths[i] + ","+ associationProps[i]+ ")");
+    }
+    CategoryDocumentBuilder categoryDocBuilder=new EnhancementsDocumentBuilder(taxo,AssociationUtils.assocIndexingParams);
+    categoryDocBuilder.setCategories(categoryContainer);
+    Document doc=new Document();
+    doc.add(new Field(SimpleUtils.TITLE,SimpleUtils.docTitles[docNum],Store.YES,Index.ANALYZED));
+    doc.add(new Field(SimpleUtils.TEXT,SimpleUtils.docTexts[docNum],Store.NO,Index.ANALYZED));
+    categoryDocBuilder.build(doc);
+    iw.addDocument(doc);
+    nDocsAdded++;
+    nFacetsAdded+=categoryContainer.size();
+  }
+  taxo.commit();
+  iw.commit();
+  taxo.close();
+  iw.close();
+  ExampleUtils.log("Indexed " + nDocsAdded + " documents with overall "+ nFacetsAdded+ " facets.");
+}

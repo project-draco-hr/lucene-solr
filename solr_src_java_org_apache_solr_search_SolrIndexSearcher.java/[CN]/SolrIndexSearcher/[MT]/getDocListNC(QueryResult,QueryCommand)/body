@@ -1,5 +1,4 @@
 {
-  DocSet filter=cmd.getFilter() != null ? cmd.getFilter() : getDocSet(cmd.getFilterList());
   final long timeAllowed=cmd.getTimeAllowed();
   int len=cmd.getSupersetMaxDoc();
   int last=len;
@@ -12,7 +11,8 @@
   float[] scores;
   boolean needScores=(cmd.getFlags() & GET_SCORES) != 0;
   Query query=QueryUtils.makeQueryable(cmd.getQuery());
-  final Filter luceneFilter=filter == null ? null : filter.getTopFilter();
+  ProcessedFilter pf=getProcessedFilter(cmd.getFilter(),cmd.getFilterList());
+  final Filter luceneFilter=pf.filter;
   if (lastDocRequested <= 0) {
     final float[] topscore=new float[]{Float.NEGATIVE_INFINITY};
     final int[] numHits=new int[1];
@@ -54,6 +54,10 @@
     if (timeAllowed > 0) {
       collector=new TimeLimitingCollector(collector,timeAllowed);
     }
+    if (pf.postFilter != null) {
+      pf.postFilter.setLastDelegate(collector);
+      collector=pf.postFilter;
+    }
     try {
       super.search(query,luceneFilter,collector);
     }
@@ -78,6 +82,10 @@
     Collector collector=topCollector;
     if (timeAllowed > 0) {
       collector=new TimeLimitingCollector(collector,timeAllowed);
+    }
+    if (pf.postFilter != null) {
+      pf.postFilter.setLastDelegate(collector);
+      collector=pf.postFilter;
     }
     try {
       super.search(query,luceneFilter,collector);
