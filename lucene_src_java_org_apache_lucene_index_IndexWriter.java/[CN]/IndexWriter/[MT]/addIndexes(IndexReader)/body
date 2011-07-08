@@ -1,10 +1,15 @@
 {
   ensureOpen();
+  int numDocs=0;
   try {
     if (infoStream != null)     message("flush at addIndexes(IndexReader...)");
     flush(false,true);
     String mergedName=newSegmentName();
-    SegmentMerger merger=new SegmentMerger(directory,config.getTermIndexInterval(),mergedName,null,payloadProcessorProvider,globalFieldNumberMap.newFieldInfos(SegmentCodecsBuilder.create(codecs)));
+    for (    IndexReader indexReader : readers) {
+      numDocs+=indexReader.numDocs();
+    }
+    final IOContext context=new IOContext(new MergeInfo(numDocs,-1,true,false));
+    SegmentMerger merger=new SegmentMerger(directory,config.getTermIndexInterval(),mergedName,null,payloadProcessorProvider,globalFieldNumberMap.newFieldInfos(SegmentCodecsBuilder.create(codecs)),context);
     for (    IndexReader reader : readers)     merger.add(reader);
     int docCount=merger.merge();
     final FieldInfos fieldInfos=merger.fieldInfos();
@@ -20,7 +25,7 @@ synchronized (this) {
       useCompoundFile=mergePolicy.useCompoundFile(segmentInfos,info);
     }
     if (useCompoundFile) {
-      merger.createCompoundFile(mergedName + ".cfs",info);
+      merger.createCompoundFile(mergedName + ".cfs",info,context);
       deleter.deleteNewFiles(info.files());
       info.setUseCompoundFile(true);
     }
