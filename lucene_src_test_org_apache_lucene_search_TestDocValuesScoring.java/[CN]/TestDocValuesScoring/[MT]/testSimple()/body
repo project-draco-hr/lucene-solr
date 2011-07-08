@@ -1,0 +1,59 @@
+{
+  assumeFalse("PreFlex codec cannot work with IndexDocValues!","PreFlex".equals(CodecProvider.getDefault().getDefaultFieldCodec()));
+  Directory dir=newDirectory();
+  RandomIndexWriter iw=new RandomIndexWriter(random,dir);
+  Document doc=new Document();
+  Field field=newField("foo","",Field.Store.NO,Field.Index.ANALYZED);
+  doc.add(field);
+  IndexDocValuesField dvField=new IndexDocValuesField("foo_boost");
+  doc.add(dvField);
+  Field field2=newField("bar","",Field.Store.NO,Field.Index.ANALYZED);
+  doc.add(field2);
+  field.setValue("quick brown fox");
+  field2.setValue("quick brown fox");
+  dvField.setFloat(2f);
+  iw.addDocument(doc);
+  field.setValue("jumps over lazy brown dog");
+  field2.setValue("jumps over lazy brown dog");
+  dvField.setFloat(4f);
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher1=newSearcher(ir);
+  IndexSearcher searcher2=newSearcher(ir);
+  searcher2.setSimilarityProvider(new DefaultSimilarityProvider(){
+    final Similarity fooSim=new BoostingSimilarity(super.get("foo"),"foo_boost");
+    public Similarity get(    String field){
+      return "foo".equals(field) ? fooSim : super.get(field);
+    }
+  }
+);
+  TermQuery tq=new TermQuery(new Term("foo","quick"));
+  QueryUtils.check(random,tq,searcher1);
+  QueryUtils.check(random,tq,searcher2);
+  TopDocs noboost=searcher1.search(tq,10);
+  TopDocs boost=searcher2.search(tq,10);
+  assertEquals(1,noboost.totalHits);
+  assertEquals(1,boost.totalHits);
+  assertEquals(boost.scoreDocs[0].score,noboost.scoreDocs[0].score * 2f,SCORE_EPSILON);
+  tq=new TermQuery(new Term("foo","jumps"));
+  QueryUtils.check(random,tq,searcher1);
+  QueryUtils.check(random,tq,searcher2);
+  noboost=searcher1.search(tq,10);
+  boost=searcher2.search(tq,10);
+  assertEquals(1,noboost.totalHits);
+  assertEquals(1,boost.totalHits);
+  assertEquals(boost.scoreDocs[0].score,noboost.scoreDocs[0].score * 4f,SCORE_EPSILON);
+  tq=new TermQuery(new Term("bar","quick"));
+  QueryUtils.check(random,tq,searcher1);
+  QueryUtils.check(random,tq,searcher2);
+  noboost=searcher1.search(tq,10);
+  boost=searcher2.search(tq,10);
+  assertEquals(1,noboost.totalHits);
+  assertEquals(1,boost.totalHits);
+  assertEquals(boost.scoreDocs[0].score,noboost.scoreDocs[0].score,SCORE_EPSILON);
+  searcher1.close();
+  searcher2.close();
+  ir.close();
+  dir.close();
+}
