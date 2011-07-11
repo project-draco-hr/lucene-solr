@@ -1,0 +1,84 @@
+{
+  assertTrue(doc.length() % 2 == 0);
+  final int numInputs=doc.length() / 2;
+  boolean[] keepOrigs=new boolean[numInputs];
+  Arrays.fill(keepOrigs,false);
+  String[] outputs=new String[numInputs + maxOutputLength];
+  OneSyn[] matches=new OneSyn[numInputs];
+  for (  OneSyn syn : syns) {
+    int idx=-1;
+    while (true) {
+      idx=doc.indexOf(syn.in,1 + idx);
+      if (idx == -1) {
+        break;
+      }
+      assertTrue(idx % 2 == 0);
+      final int matchIDX=idx / 2;
+      assertTrue(syn.in.length() % 2 == 1);
+      if (matches[matchIDX] == null) {
+        matches[matchIDX]=syn;
+      }
+ else       if (syn.in.length() > matches[matchIDX].in.length()) {
+        matches[matchIDX]=syn;
+      }
+ else {
+        assertTrue(syn.in.length() < matches[matchIDX].in.length());
+      }
+    }
+  }
+  for (int inputIDX=0; inputIDX < numInputs; inputIDX++) {
+    final OneSyn match=matches[inputIDX];
+    if (match != null) {
+      final int synInLength=(1 + match.in.length()) / 2;
+      for (int nextInputIDX=inputIDX + 1; nextInputIDX < numInputs && nextInputIDX < (inputIDX + synInLength); nextInputIDX++) {
+        matches[nextInputIDX]=null;
+      }
+    }
+  }
+  for (int inputIDX=0; inputIDX < numInputs; inputIDX++) {
+    final OneSyn syn=matches[inputIDX];
+    if (syn == null) {
+      continue;
+    }
+    for (    String synOut : syn.out) {
+      final String[] synOutputs=synOut.split(" ");
+      assertEquals(synOutputs.length,(1 + synOut.length()) / 2);
+      final int matchEnd=inputIDX + synOutputs.length;
+      int synUpto=0;
+      for (int matchIDX=inputIDX; matchIDX < matchEnd; matchIDX++) {
+        if (outputs[matchIDX] == null) {
+          outputs[matchIDX]=synOutputs[synUpto++];
+        }
+ else {
+          outputs[matchIDX]=outputs[matchIDX] + "/" + synOutputs[synUpto++];
+        }
+        if (matchIDX < numInputs) {
+          keepOrigs[matchIDX]|=syn.keepOrig;
+        }
+      }
+    }
+  }
+  StringBuilder sb=new StringBuilder();
+  String[] inputTokens=doc.split(" ");
+  final int limit=inputTokens.length + maxOutputLength;
+  for (int inputIDX=0; inputIDX < limit; inputIDX++) {
+    boolean posHasOutput=false;
+    if (inputIDX >= numInputs && outputs[inputIDX] == null) {
+      break;
+    }
+    if (inputIDX < numInputs && (outputs[inputIDX] == null || keepOrigs[inputIDX])) {
+      sb.append(inputTokens[inputIDX]);
+      posHasOutput=true;
+    }
+    if (outputs[inputIDX] != null) {
+      if (posHasOutput) {
+        sb.append('/');
+      }
+      sb.append(outputs[inputIDX]);
+    }
+    if (inputIDX < limit - 1) {
+      sb.append(' ');
+    }
+  }
+  return sb.toString();
+}
