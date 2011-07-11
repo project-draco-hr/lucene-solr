@@ -1,0 +1,28 @@
+{
+  MockDirectoryWrapper dir=newFSDirectory(_TestUtil.getTempDir("2BPostings"));
+  dir.setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+  dir.setCheckIndexOnClose(false);
+  IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH).setRAMBufferSizeMB(256.0).setMergeScheduler(new ConcurrentMergeScheduler()).setMergePolicy(newLogMergePolicy(false,10)).setOpenMode(IndexWriterConfig.OpenMode.CREATE));
+  MergePolicy mp=w.getConfig().getMergePolicy();
+  if (mp instanceof LogByteSizeMergePolicy) {
+    ((LogByteSizeMergePolicy)mp).setMaxMergeMB(1024 * 1024 * 1024);
+  }
+  Document doc=new Document();
+  Field field=new Field("field",new MyTokenStream());
+  field.setOmitTermFreqAndPositions(true);
+  field.setOmitNorms(true);
+  doc.add(field);
+  final int numDocs=(Integer.MAX_VALUE / 26) + 1;
+  for (int i=0; i < numDocs; i++) {
+    w.addDocument(doc);
+    if (i % 100000 == 0) {
+      System.out.println(i + " of " + numDocs+ "...");
+    }
+  }
+  w.optimize();
+  w.close();
+  CheckIndex ci=new CheckIndex(dir);
+  ci.setInfoStream(System.out);
+  ci.checkIndex();
+  dir.close();
+}
