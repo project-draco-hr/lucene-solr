@@ -14,47 +14,10 @@
       log.info("Schema name=" + name);
     }
     version=schemaConf.getFloat("/schema/@version",1.0f);
-    final IndexSchema schema=this;
-    AbstractPluginLoader<FieldType> fieldLoader=new AbstractPluginLoader<FieldType>("[schema.xml] fieldType",true,true){
-      @Override protected FieldType create(      ResourceLoader loader,      String name,      String className,      Node node) throws Exception {
-        FieldType ft=(FieldType)loader.newInstance(className);
-        ft.setTypeName(name);
-        String expression="./analyzer[@type='query']";
-        Node anode=(Node)xpath.evaluate(expression,node,XPathConstants.NODE);
-        Analyzer queryAnalyzer=readAnalyzer(anode);
-        expression="./analyzer[not(@type)] | ./analyzer[@type='index']";
-        anode=(Node)xpath.evaluate(expression,node,XPathConstants.NODE);
-        Analyzer analyzer=readAnalyzer(anode);
-        expression="./similarity";
-        anode=(Node)xpath.evaluate(expression,node,XPathConstants.NODE);
-        Similarity similarity=readSimilarity(anode);
-        if (queryAnalyzer == null)         queryAnalyzer=analyzer;
-        if (analyzer == null)         analyzer=queryAnalyzer;
-        if (analyzer != null) {
-          ft.setAnalyzer(analyzer);
-          ft.setQueryAnalyzer(queryAnalyzer);
-        }
-        if (similarity != null) {
-          ft.setSimilarity(similarity);
-        }
-        if (ft instanceof SchemaAware) {
-          schemaAware.add((SchemaAware)ft);
-        }
-        return ft;
-      }
-      @Override protected void init(      FieldType plugin,      Node node) throws Exception {
-        Map<String,String> params=DOMUtil.toMapExcept(node.getAttributes(),"name","class");
-        plugin.setArgs(schema,params);
-      }
-      @Override protected FieldType register(      String name,      FieldType plugin) throws Exception {
-        log.trace("fieldtype defined: " + plugin);
-        return fieldTypes.put(name,plugin);
-      }
-    }
-;
+    final FieldTypePluginLoader typeLoader=new FieldTypePluginLoader(this,fieldTypes,schemaAware);
     String expression="/schema/types/fieldtype | /schema/types/fieldType";
     NodeList nodes=(NodeList)xpath.evaluate(expression,document,XPathConstants.NODESET);
-    fieldLoader.load(loader,nodes);
+    typeLoader.load(loader,nodes);
     Map<String,Boolean> explicitRequiredProp=new HashMap<String,Boolean>();
     ArrayList<DynamicField> dFields=new ArrayList<DynamicField>();
     expression="/schema/fields/field | /schema/fields/dynamicField";
@@ -105,7 +68,7 @@
     log.trace("Dynamic Field Ordering:" + dFields);
     dynamicFields=dFields.toArray(new DynamicField[dFields.size()]);
     Node node=(Node)xpath.evaluate("/schema/similarity",document,XPathConstants.NODE);
-    Similarity similarity=readSimilarity(node);
+    Similarity similarity=readSimilarity(loader,node);
     fallbackSimilarity=similarity == null ? new DefaultSimilarity() : similarity;
     node=(Node)xpath.evaluate("/schema/similarityProvider",document,XPathConstants.NODE);
     if (node == null) {

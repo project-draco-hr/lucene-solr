@@ -1,4 +1,5 @@
 {
+  final SolrResourceLoader loader=schema.getResourceLoader();
   if (node == null)   return null;
   NamedNodeMap attrs=node.getAttributes();
   String analyzerName=DOMUtil.getAttr(attrs,"class");
@@ -8,7 +9,7 @@
       try {
         Constructor<? extends Analyzer> cnstr=clazz.getConstructor(Version.class);
         final String matchVersionStr=DOMUtil.getAttr(attrs,LUCENE_MATCH_VERSION_PARAM);
-        final Version luceneMatchVersion=(matchVersionStr == null) ? solrConfig.luceneMatchVersion : Config.parseLuceneVersionString(matchVersionStr);
+        final Version luceneMatchVersion=(matchVersionStr == null) ? schema.getDefaultLuceneMatchVersion() : Config.parseLuceneVersionString(matchVersionStr);
         if (luceneMatchVersion == null) {
           throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Configuration Error: Analyzer '" + clazz.getName() + "' needs a 'luceneMatchVersion' parameter");
         }
@@ -23,23 +24,22 @@
       throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Cannot load analyzer: " + analyzerName,e);
     }
   }
-  XPath xpath=XPathFactory.newInstance().newXPath();
   final ArrayList<CharFilterFactory> charFilters=new ArrayList<CharFilterFactory>();
   AbstractPluginLoader<CharFilterFactory> charFilterLoader=new AbstractPluginLoader<CharFilterFactory>("[schema.xml] analyzer/charFilter",false,false){
     @Override protected void init(    CharFilterFactory plugin,    Node node) throws Exception {
       if (plugin != null) {
         final Map<String,String> params=DOMUtil.toMapExcept(node.getAttributes(),"class");
-        if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))         params.put(LUCENE_MATCH_VERSION_PARAM,solrConfig.luceneMatchVersion.toString());
+        if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))         params.put(LUCENE_MATCH_VERSION_PARAM,schema.getDefaultLuceneMatchVersion().toString());
         plugin.init(params);
         charFilters.add(plugin);
       }
     }
-    @Override protected CharFilterFactory register(    String name,    CharFilterFactory plugin) throws Exception {
+    @Override protected CharFilterFactory register(    String name,    CharFilterFactory plugin){
       return null;
     }
   }
 ;
-  charFilterLoader.load(solrConfig.getResourceLoader(),(NodeList)xpath.evaluate("./charFilter",node,XPathConstants.NODESET));
+  charFilterLoader.load(loader,(NodeList)xpath.evaluate("./charFilter",node,XPathConstants.NODESET));
   final ArrayList<TokenizerFactory> tokenizers=new ArrayList<TokenizerFactory>(1);
   AbstractPluginLoader<TokenizerFactory> tokenizerLoader=new AbstractPluginLoader<TokenizerFactory>("[schema.xml] analyzer/tokenizer",false,false){
     @Override protected void init(    TokenizerFactory plugin,    Node node) throws Exception {
@@ -47,11 +47,11 @@
         throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"The schema defines multiple tokenizers for: " + node);
       }
       final Map<String,String> params=DOMUtil.toMapExcept(node.getAttributes(),"class");
-      if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))       params.put(LUCENE_MATCH_VERSION_PARAM,solrConfig.luceneMatchVersion.toString());
+      if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))       params.put(LUCENE_MATCH_VERSION_PARAM,schema.getDefaultLuceneMatchVersion().toString());
       plugin.init(params);
       tokenizers.add(plugin);
     }
-    @Override protected TokenizerFactory register(    String name,    TokenizerFactory plugin) throws Exception {
+    @Override protected TokenizerFactory register(    String name,    TokenizerFactory plugin){
       return null;
     }
   }
@@ -65,7 +65,7 @@
     @Override protected void init(    TokenFilterFactory plugin,    Node node) throws Exception {
       if (plugin != null) {
         final Map<String,String> params=DOMUtil.toMapExcept(node.getAttributes(),"class");
-        if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))         params.put(LUCENE_MATCH_VERSION_PARAM,solrConfig.luceneMatchVersion.toString());
+        if (!params.containsKey(LUCENE_MATCH_VERSION_PARAM))         params.put(LUCENE_MATCH_VERSION_PARAM,schema.getDefaultLuceneMatchVersion().toString());
         plugin.init(params);
         filters.add(plugin);
       }
