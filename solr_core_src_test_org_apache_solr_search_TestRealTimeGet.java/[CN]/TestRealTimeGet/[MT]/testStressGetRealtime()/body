@@ -1,0 +1,111 @@
+{
+  final int commitPercent=10;
+  final int softCommitPercent=50;
+  final int deletePercent=8;
+  final int deleteByQueryPercent=4;
+  final int ndocs=100;
+  int nWriteThreads=10;
+  final int maxConcurrentCommits=2;
+  final int percentRealtimeQuery=0;
+  final AtomicLong operations=new AtomicLong(5000);
+  int nReadThreads=10;
+  for (int i=0; i < ndocs; i++) {
+    model.put(i,-1L);
+  }
+  committedModel.putAll(model);
+  final AtomicInteger numCommitting=new AtomicInteger();
+  List<Thread> threads=new ArrayList<Thread>();
+  for (int i=0; i < nWriteThreads; i++) {
+    Thread thread=new Thread("WRITER" + i){
+      Random rand=new Random(random.nextInt());
+      @Override public void run(){
+        while (operations.get() > 0) {
+          int oper=rand.nextInt(100);
+          int id=rand.nextInt(ndocs);
+          Long val=model.get(id);
+          long nextVal=Math.abs(val) + 1;
+          boolean before=random.nextBoolean();
+          if (before) {
+            lastId=id;
+          }
+          if (oper < commitPercent) {
+            if (numCommitting.incrementAndGet() <= maxConcurrentCommits) {
+              if (rand.nextInt(100) < softCommitPercent)               assertU(h.commit("softCommit","true"));
+ else               assertU(commit());
+            }
+            committedModel=new HashMap<Integer,Long>(model);
+            numCommitting.decrementAndGet();
+          }
+ else           if (oper < commitPercent + deletePercent) {
+            assertU("<delete><id>" + id + "</id></delete>");
+            model.put(id,-nextVal);
+          }
+ else           if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
+            assertU("<delete><query>id:" + id + "</query></delete>");
+            model.put(id,-nextVal);
+          }
+ else {
+            assertU(adoc("id",Integer.toString(id),field,Long.toString(nextVal)));
+          }
+          if (!before) {
+            lastId=id;
+          }
+        }
+      }
+    }
+;
+    threads.add(thread);
+  }
+  for (int i=0; i < nReadThreads; i++) {
+    Thread thread=new Thread("READER" + i){
+      Random rand=new Random(random.nextInt());
+      @Override public void run(){
+        try {
+          while (operations.decrementAndGet() >= 0) {
+            int oper=rand.nextInt(100);
+            int id=rand.nextInt(100) < 25 ? lastId : rand.nextInt(ndocs);
+            boolean realTime=rand.nextInt(100) < percentRealtimeQuery;
+            long val;
+            if (realTime) {
+              val=model.get(id);
+            }
+ else {
+              val=committedModel.get(id);
+            }
+            SolrQueryRequest sreq;
+            if (realTime) {
+              sreq=req("wt","json","qt","/get","ids",Integer.toString(id));
+            }
+ else {
+              sreq=req("wt","json","q","id:" + Integer.toString(id),"omitHeader","true");
+            }
+            String response=h.query(sreq);
+            Map rsp=(Map)ObjectBuilder.fromJSON(response);
+            List doclist=(List)(((Map)rsp.get("response")).get("docs"));
+            if (doclist.size() == 0) {
+            }
+ else {
+              assertEquals(1,doclist.size());
+              long foundVal=(Long)(((Map)doclist.get(0)).get(field));
+              assertTrue(foundVal >= Math.abs(val));
+            }
+          }
+        }
+ catch (        Throwable e) {
+          ex=e;
+          operations.set(-1L);
+          SolrException.log(log,e);
+        }
+      }
+    }
+;
+    threads.add(thread);
+  }
+  for (  Thread thread : threads) {
+    thread.start();
+  }
+  for (  Thread thread : threads) {
+    thread.join();
+  }
+  assertNull(ex);
+}
