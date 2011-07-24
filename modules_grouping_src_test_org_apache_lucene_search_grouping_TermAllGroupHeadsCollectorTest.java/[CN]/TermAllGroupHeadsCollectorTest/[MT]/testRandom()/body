@@ -1,0 +1,153 @@
+{
+  int numberOfRuns=_TestUtil.nextInt(random,3,6);
+  for (int iter=0; iter < numberOfRuns; iter++) {
+    if (VERBOSE) {
+      System.out.println(String.format("TEST: iter=%d total=%d",iter,numberOfRuns));
+    }
+    final int numDocs=_TestUtil.nextInt(random,100,1000) * RANDOM_MULTIPLIER;
+    final int numGroups=_TestUtil.nextInt(random,1,numDocs);
+    if (VERBOSE) {
+      System.out.println("TEST: numDocs=" + numDocs + " numGroups="+ numGroups);
+    }
+    final List<BytesRef> groups=new ArrayList<BytesRef>();
+    for (int i=0; i < numGroups; i++) {
+      groups.add(new BytesRef(_TestUtil.randomRealisticUnicodeString(random)));
+    }
+    final String[] contentStrings=new String[_TestUtil.nextInt(random,2,20)];
+    if (VERBOSE) {
+      System.out.println("TEST: create fake content");
+    }
+    for (int contentIDX=0; contentIDX < contentStrings.length; contentIDX++) {
+      final StringBuilder sb=new StringBuilder();
+      sb.append("real").append(random.nextInt(3)).append(' ');
+      final int fakeCount=random.nextInt(10);
+      for (int fakeIDX=0; fakeIDX < fakeCount; fakeIDX++) {
+        sb.append("fake ");
+      }
+      contentStrings[contentIDX]=sb.toString();
+      if (VERBOSE) {
+        System.out.println("  content=" + sb.toString());
+      }
+    }
+    Directory dir=newDirectory();
+    RandomIndexWriter w=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)));
+    Document doc=new Document();
+    Document docNoGroup=new Document();
+    Field group=newField("group","",Field.Index.NOT_ANALYZED);
+    doc.add(group);
+    Field sort1=newField("sort1","",Field.Index.NOT_ANALYZED);
+    doc.add(sort1);
+    docNoGroup.add(sort1);
+    Field sort2=newField("sort2","",Field.Index.NOT_ANALYZED);
+    doc.add(sort2);
+    docNoGroup.add(sort2);
+    Field sort3=newField("sort3","",Field.Index.NOT_ANALYZED);
+    doc.add(sort3);
+    docNoGroup.add(sort3);
+    Field content=newField("content","",Field.Index.ANALYZED);
+    doc.add(content);
+    docNoGroup.add(content);
+    NumericField id=new NumericField("id");
+    doc.add(id);
+    docNoGroup.add(id);
+    final GroupDoc[] groupDocs=new GroupDoc[numDocs];
+    for (int i=0; i < numDocs; i++) {
+      final BytesRef groupValue;
+      if (random.nextInt(24) == 17) {
+        groupValue=null;
+      }
+ else {
+        groupValue=groups.get(random.nextInt(groups.size()));
+      }
+      final GroupDoc groupDoc=new GroupDoc(i,groupValue,groups.get(random.nextInt(groups.size())),groups.get(random.nextInt(groups.size())),new BytesRef(String.format("%05d",i)),contentStrings[random.nextInt(contentStrings.length)]);
+      if (VERBOSE) {
+        System.out.println("  doc content=" + groupDoc.content + " id="+ i+ " group="+ (groupDoc.group == null ? "null" : groupDoc.group.utf8ToString())+ " sort1="+ groupDoc.sort1.utf8ToString()+ " sort2="+ groupDoc.sort2.utf8ToString()+ " sort3="+ groupDoc.sort3.utf8ToString());
+      }
+      groupDocs[i]=groupDoc;
+      if (groupDoc.group != null) {
+        group.setValue(groupDoc.group.utf8ToString());
+      }
+      sort1.setValue(groupDoc.sort1.utf8ToString());
+      sort2.setValue(groupDoc.sort2.utf8ToString());
+      sort3.setValue(groupDoc.sort3.utf8ToString());
+      content.setValue(groupDoc.content);
+      id.setIntValue(groupDoc.id);
+      if (groupDoc.group == null) {
+        w.addDocument(docNoGroup);
+      }
+ else {
+        w.addDocument(doc);
+      }
+    }
+    final IndexReader r=w.getReader();
+    w.close();
+    final int[] docIdToFieldId=FieldCache.DEFAULT.getInts(r,"id");
+    final int[] fieldIdToDocID=new int[numDocs];
+    for (int i=0; i < docIdToFieldId.length; i++) {
+      int fieldId=docIdToFieldId[i];
+      fieldIdToDocID[fieldId]=i;
+    }
+    try {
+      final IndexSearcher s=newSearcher(r);
+      for (int contentID=0; contentID < 3; contentID++) {
+        final ScoreDoc[] hits=s.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
+        for (        ScoreDoc hit : hits) {
+          final GroupDoc gd=groupDocs[docIdToFieldId[hit.doc]];
+          assertTrue(gd.score == 0.0);
+          gd.score=hit.score;
+          int docId=gd.id;
+          assertEquals(docId,docIdToFieldId[hit.doc]);
+        }
+      }
+      for (      GroupDoc gd : groupDocs) {
+        assertTrue(gd.score != 0.0);
+      }
+      for (int searchIter=0; searchIter < 100; searchIter++) {
+        if (VERBOSE) {
+          System.out.println("TEST: searchIter=" + searchIter);
+        }
+        final String searchTerm="real" + random.nextInt(3);
+        boolean sortByScoreOnly=random.nextBoolean();
+        Sort sortWithinGroup=getRandomSort(sortByScoreOnly);
+        AbstractAllGroupHeadsCollector allGroupHeadsCollector=TermAllGroupHeadsCollector.create("group",sortWithinGroup);
+        s.search(new TermQuery(new Term("content",searchTerm)),allGroupHeadsCollector);
+        int[] expectedGroupHeads=createExpectedGroupHeads(searchTerm,groupDocs,sortWithinGroup,sortByScoreOnly,fieldIdToDocID);
+        int[] actualGroupHeads=allGroupHeadsCollector.retrieveGroupHeads();
+        for (int i=0; i < actualGroupHeads.length; i++) {
+          actualGroupHeads[i]=docIdToFieldId[actualGroupHeads[i]];
+        }
+        Arrays.sort(expectedGroupHeads);
+        Arrays.sort(actualGroupHeads);
+        if (VERBOSE) {
+          System.out.println("Collector: " + allGroupHeadsCollector.getClass().getSimpleName());
+          System.out.println("Sort within group: " + sortWithinGroup);
+          System.out.println("Num group: " + numGroups);
+          System.out.println("Num doc: " + numDocs);
+          System.out.println("\n=== Expected: \n");
+          for (          int expectedDocId : expectedGroupHeads) {
+            GroupDoc expectedGroupDoc=groupDocs[expectedDocId];
+            String expectedGroup=expectedGroupDoc.group == null ? null : expectedGroupDoc.group.utf8ToString();
+            System.out.println(String.format("Group:%10s score%5f Sort1:%10s Sort2:%10s Sort3:%10s doc:%5d",expectedGroup,expectedGroupDoc.score,expectedGroupDoc.sort1.utf8ToString(),expectedGroupDoc.sort2.utf8ToString(),expectedGroupDoc.sort3.utf8ToString(),expectedDocId));
+          }
+          System.out.println("\n=== Actual: \n");
+          for (          int actualDocId : actualGroupHeads) {
+            GroupDoc actualGroupDoc=groupDocs[actualDocId];
+            String actualGroup=actualGroupDoc.group == null ? null : actualGroupDoc.group.utf8ToString();
+            System.out.println(String.format("Group:%10s score%5f Sort1:%10s Sort2:%10s Sort3:%10s doc:%5d",actualGroup,actualGroupDoc.score,actualGroupDoc.sort1.utf8ToString(),actualGroupDoc.sort2.utf8ToString(),actualGroupDoc.sort3.utf8ToString(),actualDocId));
+          }
+          System.out.println("\n===================================================================================");
+        }
+        assertEquals(expectedGroupHeads.length,actualGroupHeads.length);
+        for (int i=0; i < expectedGroupHeads.length; i++) {
+          assertEquals(expectedGroupHeads[i],actualGroupHeads[i]);
+        }
+      }
+      s.close();
+    }
+  finally {
+      FieldCache.DEFAULT.purge(r);
+    }
+    r.close();
+    dir.close();
+  }
+}
