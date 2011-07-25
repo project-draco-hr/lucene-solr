@@ -9,8 +9,10 @@
   final int percentRealtimeQuery=0;
   final AtomicLong operations=new AtomicLong(10000);
   int nReadThreads=10;
+  final Object[] syncArr=new Object[ndocs];
   for (int i=0; i < ndocs; i++) {
     model.put(i,-1L);
+    syncArr[i]=new Object();
   }
   committedModel.putAll(model);
   final AtomicInteger numCommitting=new AtomicInteger();
@@ -21,13 +23,6 @@
       @Override public void run(){
         while (operations.get() > 0) {
           int oper=rand.nextInt(100);
-          int id=rand.nextInt(ndocs);
-          Long val=model.get(id);
-          long nextVal=Math.abs(val) + 1;
-          boolean before=random.nextBoolean();
-          if (before) {
-            lastId=id;
-          }
           if (oper < commitPercent) {
             if (numCommitting.incrementAndGet() <= maxConcurrentCommits) {
               Map<Integer,Long> newCommittedModel;
@@ -46,17 +41,28 @@ synchronized (TestRealTimeGet.this) {
               }
             }
             numCommitting.decrementAndGet();
+            continue;
           }
- else           if (oper < commitPercent + deletePercent) {
-            assertU("<delete><id>" + id + "</id></delete>");
-            model.put(id,-nextVal);
+          int id=rand.nextInt(ndocs);
+          Object sync=syncArr[id];
+          boolean before=random.nextBoolean();
+          if (before) {
+            lastId=id;
           }
- else           if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
-            assertU("<delete><query>id:" + id + "</query></delete>");
-            model.put(id,-nextVal);
-          }
+synchronized (sync) {
+            Long val=model.get(id);
+            long nextVal=Math.abs(val) + 1;
+            if (oper < commitPercent + deletePercent) {
+              assertU("<delete><id>" + id + "</id></delete>");
+              model.put(id,-nextVal);
+            }
+ else             if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
+              assertU("<delete><query>id:" + id + "</query></delete>");
+              model.put(id,-nextVal);
+            }
  else {
-            assertU(adoc("id",Integer.toString(id),field,Long.toString(nextVal)));
+              assertU(adoc("id",Integer.toString(id),field,Long.toString(nextVal)));
+            }
           }
           if (!before) {
             lastId=id;
@@ -71,27 +77,27 @@ synchronized (TestRealTimeGet.this) {
     Thread thread=new Thread("READER" + i){
       Random rand=new Random(random.nextInt());
       @Override public void run(){
-        while (operations.decrementAndGet() >= 0) {
-          int oper=rand.nextInt(100);
-          int id=rand.nextInt(100) < 25 ? lastId : rand.nextInt(ndocs);
-          boolean realTime=rand.nextInt(100) < percentRealtimeQuery;
-          long val;
-          if (realTime) {
-            val=model.get(id);
-          }
+        try {
+          while (operations.decrementAndGet() >= 0) {
+            int oper=rand.nextInt(100);
+            int id=rand.nextInt(100) < 25 ? lastId : rand.nextInt(ndocs);
+            boolean realTime=rand.nextInt(100) < percentRealtimeQuery;
+            long val;
+            if (realTime) {
+              val=model.get(id);
+            }
  else {
 synchronized (TestRealTimeGet.this) {
-              val=committedModel.get(id);
+                val=committedModel.get(id);
+              }
             }
-          }
-          SolrQueryRequest sreq;
-          if (realTime) {
-            sreq=req("wt","json","qt","/get","ids",Integer.toString(id));
-          }
+            SolrQueryRequest sreq;
+            if (realTime) {
+              sreq=req("wt","json","qt","/get","ids",Integer.toString(id));
+            }
  else {
-            sreq=req("wt","json","q","id:" + Integer.toString(id),"omitHeader","true");
-          }
-          try {
+              sreq=req("wt","json","q","id:" + Integer.toString(id),"omitHeader","true");
+            }
             String response=h.query(sreq);
             Map rsp=(Map)ObjectBuilder.fromJSON(response);
             List doclist=(List)(((Map)rsp.get("response")).get("docs"));
@@ -103,9 +109,11 @@ synchronized (TestRealTimeGet.this) {
               assertTrue(foundVal >= Math.abs(val));
             }
           }
- catch (          Exception e) {
-            fail(e.toString());
-          }
+        }
+ catch (        Throwable e) {
+          operations.set(-1L);
+          SolrException.log(log,e);
+          fail(e.toString());
         }
       }
     }
