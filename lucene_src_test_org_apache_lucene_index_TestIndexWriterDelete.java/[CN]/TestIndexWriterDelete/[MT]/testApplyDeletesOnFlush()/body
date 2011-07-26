@@ -1,0 +1,41 @@
+{
+  Directory dir=newDirectory();
+  final AtomicInteger docsInSegment=new AtomicInteger();
+  final AtomicBoolean closing=new AtomicBoolean();
+  final AtomicBoolean sawAfterFlush=new AtomicBoolean();
+  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setRAMBufferSizeMB(0.5).setMaxBufferedDocs(-1).setMergePolicy(NoMergePolicy.NO_COMPOUND_FILES).setReaderPooling(false)){
+    @Override public void doAfterFlush(){
+      assertTrue("only " + docsInSegment.get() + " in segment",closing.get() || docsInSegment.get() >= 10);
+      docsInSegment.set(0);
+      sawAfterFlush.set(true);
+    }
+  }
+;
+  w.setInfoStream(VERBOSE ? System.out : null);
+  int id=0;
+  while (true) {
+    StringBuilder sb=new StringBuilder();
+    for (int termIDX=0; termIDX < 100; termIDX++) {
+      sb.append(' ').append(_TestUtil.randomRealisticUnicodeString(random));
+    }
+    if (id == 500) {
+      w.deleteDocuments(new Term("id","0"));
+    }
+    Document doc=new Document();
+    doc.add(newField("id","" + id,Field.Index.NOT_ANALYZED));
+    doc.add(newField("body",sb.toString(),Field.Index.ANALYZED));
+    w.updateDocument(new Term("id","" + id),doc);
+    docsInSegment.incrementAndGet();
+    if (dir.fileExists("_0_1.del")) {
+      if (VERBOSE) {
+        System.out.println("TEST: deletes created @ id=" + id);
+      }
+      break;
+    }
+    id++;
+  }
+  closing.set(true);
+  assertTrue(sawAfterFlush.get());
+  w.close();
+  dir.close();
+}
