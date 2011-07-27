@@ -6,6 +6,7 @@
   final int ndocs=100;
   int nWriteThreads=10;
   final int maxConcurrentCommits=2;
+  final boolean tombstones=false;
   final AtomicLong operations=new AtomicLong(10000000);
   int nReadThreads=10;
   initModel(ndocs);
@@ -61,7 +62,7 @@ synchronized (TestRealTimeGet.this) {
             }
             int id=rand.nextInt(ndocs);
             Object sync=syncArr[id];
-            boolean before=random.nextBoolean();
+            boolean before=rand.nextBoolean();
             if (before) {
               lastId=id;
             }
@@ -69,10 +70,22 @@ synchronized (sync) {
               Long val=model.get(id);
               long nextVal=Math.abs(val) + 1;
               if (oper < commitPercent + deletePercent) {
+                if (tombstones) {
+                  Document d=new Document();
+                  d.add(new Field("id","-" + Integer.toString(id),Field.Store.YES,Field.Index.NOT_ANALYZED_NO_NORMS));
+                  d.add(new Field(field,Long.toString(nextVal),Field.Store.YES,Field.Index.NO));
+                  writer.updateDocument(new Term("id","-" + Integer.toString(id)),d);
+                }
                 writer.deleteDocuments(new Term("id",Integer.toString(id)));
                 model.put(id,-nextVal);
               }
  else               if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
+                if (tombstones) {
+                  Document d=new Document();
+                  d.add(new Field("id","-" + Integer.toString(id),Field.Store.YES,Field.Index.NOT_ANALYZED_NO_NORMS));
+                  d.add(new Field(field,Long.toString(nextVal),Field.Store.YES,Field.Index.NO));
+                  writer.updateDocument(new Term("id","-" + Integer.toString(id)),d);
+                }
                 writer.deleteDocuments(new TermQuery(new Term("id",Integer.toString(id))));
                 model.put(id,-nextVal);
               }
@@ -81,6 +94,9 @@ synchronized (sync) {
                 d.add(new Field("id",Integer.toString(id),Field.Store.YES,Field.Index.NOT_ANALYZED_NO_NORMS));
                 d.add(new Field(field,Long.toString(nextVal),Field.Store.YES,Field.Index.NO));
                 writer.updateDocument(new Term("id",Integer.toString(id)),d);
+                if (tombstones) {
+                  writer.deleteDocuments(new Term("id","-" + Integer.toString(id)));
+                }
                 model.put(id,nextVal);
               }
             }
@@ -115,8 +131,18 @@ synchronized (TestRealTimeGet.this) {
             }
             IndexSearcher searcher=new IndexSearcher(r);
             Query q=new TermQuery(new Term("id",Integer.toString(id)));
-            TopDocs results=searcher.search(q,10);
-            if (results.totalHits == 0) {
+            TopDocs results=searcher.search(q,1);
+            if (results.totalHits == 0 && tombstones) {
+              q=new TermQuery(new Term("id","-" + Integer.toString(id)));
+              results=searcher.search(q,1);
+              if (results.totalHits == 0) {
+                if (val == -1L) {
+                  continue;
+                }
+                fail("No documents or tombstones found for id " + id + ", expected at least "+ val);
+              }
+            }
+            if (results.totalHits == 0 && !tombstones) {
             }
  else {
               assertEquals(1,results.totalHits);
