@@ -6,7 +6,7 @@
   final int ndocs=100;
   int nWriteThreads=10;
   final int maxConcurrentCommits=2;
-  final AtomicLong operations=new AtomicLong(100000);
+  final AtomicLong operations=new AtomicLong(10000000);
   int nReadThreads=10;
   initModel(ndocs);
   final AtomicInteger numCommitting=new AtomicInteger();
@@ -26,30 +26,34 @@
               if (numCommitting.incrementAndGet() <= maxConcurrentCommits) {
                 Map<Integer,Long> newCommittedModel;
                 long version;
+                IndexReader oldReader;
 synchronized (TestRealTimeGet.this) {
                   newCommittedModel=new HashMap<Integer,Long>(model);
                   version=snapshotCount++;
+                  oldReader=reader;
+                  oldReader.incRef();
                 }
                 IndexReader newReader;
                 if (rand.nextInt(100) < softCommitPercent) {
-                  newReader=reader.reopen(writer,true);
+                  newReader=oldReader.reopen(writer,true);
                 }
  else {
                   writer.commit();
-                  newReader=reader.reopen();
+                  newReader=oldReader.reopen();
                 }
 synchronized (TestRealTimeGet.this) {
                   if (newReader.getVersion() > reader.getVersion()) {
                     reader.decRef();
                     reader=newReader;
+                    if (version >= committedModelClock) {
+                      committedModel=newCommittedModel;
+                      committedModelClock=version;
+                    }
                   }
- else                   if (newReader != reader) {
+ else                   if (newReader != oldReader) {
                     newReader.decRef();
                   }
-                  if (version >= committedModelClock) {
-                    committedModel=newCommittedModel;
-                    committedModelClock=version;
-                  }
+                  oldReader.decRef();
                 }
               }
               numCommitting.decrementAndGet();
@@ -99,7 +103,6 @@ synchronized (sync) {
       @Override public void run(){
         try {
           while (operations.decrementAndGet() >= 0) {
-            int oper=rand.nextInt(100);
             int id=rand.nextInt(100) < 25 ? lastId : rand.nextInt(ndocs);
             long val;
 synchronized (TestRealTimeGet.this) {
