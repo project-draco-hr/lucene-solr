@@ -7,7 +7,7 @@
     types.add(new FldType("id",ONE_ONE,new SVal('A','Z',4,4)));
     types.add(new FldType("score_f",ONE_ONE,new FVal(1,100)));
     types.add(new FldType("foo_i",ZERO_ONE,new IRange(0,indexSize)));
-    types.add(new FldType(FOO_STRING_FIELD,ZERO_ONE,new SVal('a','z',1,2)));
+    types.add(new FldType(FOO_STRING_FIELD,ONE_ONE,new SVal('a','z',1,2)));
     types.add(new FldType(SMALL_STRING_FIELD,ZERO_ONE,new SVal('a',(char)('c' + indexSize / 10),1,1)));
     types.add(new FldType(SMALL_INT_FIELD,ZERO_ONE,new IRange(0,5 + indexSize / 10)));
     clearIndex();
@@ -78,18 +78,56 @@
       if (groupComparator != sortComparator) {
         for (        Grp grp : groups.values())         grp.setMaxDoc(sortComparator);
       }
-      List<Grp> sortedGroups=new ArrayList(groups.values());
+      List<Grp> sortedGroups=new ArrayList<Grp>(groups.values());
       Collections.sort(sortedGroups,groupComparator == sortComparator ? createFirstDocComparator(sortComparator) : createMaxDocComparator(sortComparator));
       boolean includeNGroups=random.nextBoolean();
       Object modelResponse=buildGroupedResult(h.getCore().getSchema(),sortedGroups,start,rows,group_offset,group_limit,includeNGroups);
+      boolean truncateGroups=random.nextBoolean();
+      Map<String,Integer> facetCounts=new TreeMap<String,Integer>();
+      if (truncateGroups) {
+        for (        Grp grp : sortedGroups) {
+          Doc doc=grp.docs.get(0);
+          if (doc.getValues(FOO_STRING_FIELD) == null) {
+            continue;
+          }
+          String key=doc.getFirstValue(FOO_STRING_FIELD).toString();
+          boolean exists=facetCounts.containsKey(key);
+          int count=exists ? facetCounts.get(key) : 0;
+          facetCounts.put(key,++count);
+        }
+      }
+ else {
+        for (        Doc doc : model.values()) {
+          if (doc.getValues(FOO_STRING_FIELD) == null) {
+            continue;
+          }
+          for (          Comparable field : doc.getValues(FOO_STRING_FIELD)) {
+            String key=field.toString();
+            boolean exists=facetCounts.containsKey(key);
+            int count=exists ? facetCounts.get(key) : 0;
+            facetCounts.put(key,++count);
+          }
+        }
+      }
+      List<Comparable> expectedFacetResponse=new ArrayList<Comparable>();
+      for (      Map.Entry<String,Integer> stringIntegerEntry : facetCounts.entrySet()) {
+        expectedFacetResponse.add(stringIntegerEntry.getKey());
+        expectedFacetResponse.add(stringIntegerEntry.getValue());
+      }
       int randomPercentage=random.nextInt(101);
-      SolrQueryRequest req=req("group","true","wt","json","indent","true","echoParams","all","q","{!func}score_f","group.field",groupField,sortStr == null ? "nosort" : "sort",sortStr == null ? "" : sortStr,(groupSortStr == null || groupSortStr == sortStr) ? "noGroupsort" : "group.sort",groupSortStr == null ? "" : groupSortStr,"rows","" + rows,"start","" + start,"group.offset","" + group_offset,"group.limit","" + group_limit,GroupParams.GROUP_CACHE_PERCENTAGE,Integer.toString(randomPercentage),GroupParams.GROUP_TOTAL_COUNT,includeNGroups ? "true" : "false");
+      SolrQueryRequest req=req("group","true","wt","json","indent","true","echoParams","all","q","{!func}score_f","group.field",groupField,sortStr == null ? "nosort" : "sort",sortStr == null ? "" : sortStr,(groupSortStr == null || groupSortStr == sortStr) ? "noGroupsort" : "group.sort",groupSortStr == null ? "" : groupSortStr,"rows","" + rows,"start","" + start,"group.offset","" + group_offset,"group.limit","" + group_limit,GroupParams.GROUP_CACHE_PERCENTAGE,Integer.toString(randomPercentage),GroupParams.GROUP_TOTAL_COUNT,includeNGroups ? "true" : "false","facet","true","facet.sort","index","facet.limit","-1","facet.field",FOO_STRING_FIELD,GroupParams.GROUP_TRUNCATE,truncateGroups ? "true" : "false","facet.mincount","1","facet.method","fcs");
       String strResponse=h.query(req);
       Object realResponse=ObjectBuilder.fromJSON(strResponse);
       String err=JSONTestUtil.matchObj("/grouped/" + groupField,realResponse,modelResponse);
       if (err != null) {
         log.error("GROUPING MISMATCH: " + err + "\n\trequest="+ req+ "\n\tresult="+ strResponse+ "\n\texpected="+ JSONUtil.toJSON(modelResponse)+ "\n\tsorted_model="+ sortedGroups);
         String rsp=h.query(req);
+        fail(err);
+      }
+      err=JSONTestUtil.matchObj("/facet_counts/facet_fields/" + FOO_STRING_FIELD,realResponse,expectedFacetResponse);
+      if (err != null) {
+        log.error("GROUPING MISMATCH: " + err + "\n\trequest="+ req+ "\n\tresult="+ strResponse+ "\n\texpected="+ JSONUtil.toJSON(expectedFacetResponse));
+        h.query(req);
         fail(err);
       }
     }
