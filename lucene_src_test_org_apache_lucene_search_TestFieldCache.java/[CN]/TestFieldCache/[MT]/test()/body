@@ -76,5 +76,39 @@
     assertTrue("for doc " + i + ": "+ s+ " does not equal: "+ unicodeStrings[i],unicodeStrings[i] == null || unicodeStrings[i].equals(s));
   }
   terms=cache.getTerms(reader,"bogusfield");
+  DocTermOrds termOrds=cache.getDocTermOrds(reader,"theRandomUnicodeMultiValuedField");
+  TermsEnum termsEnum=termOrds.getOrdTermsEnum(reader);
+  assertSame("Second request to cache return same DocTermOrds",termOrds,cache.getDocTermOrds(reader,"theRandomUnicodeMultiValuedField"));
+  DocTermOrds.TermOrdsIterator reuse=null;
+  for (int i=0; i < NUM_DOCS; i++) {
+    reuse=termOrds.lookup(i,reuse);
+    final int[] buffer=new int[5];
+    List<BytesRef> values=new ArrayList<BytesRef>(new LinkedHashSet<BytesRef>(Arrays.asList(multiValued[i])));
+    for (; ; ) {
+      int chunk=reuse.read(buffer);
+      if (chunk == 0) {
+        for (int ord=0; ord < values.size(); ord++) {
+          BytesRef term=values.get(ord);
+          assertNull(String.format("Document[%d] misses field must be null. Has value %s for ord %d",i,term,ord),term);
+        }
+        break;
+      }
+      for (int idx=0; idx < chunk; idx++) {
+        int key=buffer[idx];
+        termsEnum.seekExact((long)key);
+        String actual=termsEnum.term().utf8ToString();
+        String expected=values.get(idx).utf8ToString();
+        if (!expected.equals(actual)) {
+          reuse=termOrds.lookup(i,reuse);
+          reuse.read(buffer);
+        }
+        assertTrue(String.format("Expected value %s for doc %d and ord %d, but was %s",expected,i,idx,actual),expected.equals(actual));
+      }
+      if (chunk < buffer.length) {
+        break;
+      }
+    }
+  }
+  termOrds=cache.getDocTermOrds(reader,"bogusfield");
   FieldCache.DEFAULT.purge(reader);
 }
