@@ -4,35 +4,14 @@
     comparators[compIDX].setScorer(this.scorer);
   }
   Arrays.fill(joinScorers,null);
-  scorer.visitScorers(new Scorer.ScorerVisitor<Query,Query,Scorer>(){
-    private void enroll(    BlockJoinQuery query,    BlockJoinQuery.BlockJoinScorer scorer){
-      final Integer slot=joinQueryID.get(query);
-      if (slot == null) {
-        joinQueryID.put(query,joinScorers.length);
-        final BlockJoinQuery.BlockJoinScorer[] newArray=new BlockJoinQuery.BlockJoinScorer[1 + joinScorers.length];
-        System.arraycopy(joinScorers,0,newArray,0,joinScorers.length);
-        joinScorers=newArray;
-        joinScorers[joinScorers.length - 1]=scorer;
-      }
- else {
-        joinScorers[slot]=scorer;
-      }
+  Queue<Scorer> queue=new LinkedList<Scorer>();
+  queue.add(scorer);
+  while ((scorer=queue.poll()) != null) {
+    if (scorer instanceof BlockJoinQuery.BlockJoinScorer) {
+      enroll((BlockJoinQuery)scorer.getWeight().getQuery(),(BlockJoinQuery.BlockJoinScorer)scorer);
     }
-    @Override public void visitOptional(    Query parent,    Query child,    Scorer scorer){
-      if (child instanceof BlockJoinQuery) {
-        enroll((BlockJoinQuery)child,(BlockJoinQuery.BlockJoinScorer)scorer);
-      }
-    }
-    @Override public void visitRequired(    Query parent,    Query child,    Scorer scorer){
-      if (child instanceof BlockJoinQuery) {
-        enroll((BlockJoinQuery)child,(BlockJoinQuery.BlockJoinScorer)scorer);
-      }
-    }
-    @Override public void visitProhibited(    Query parent,    Query child,    Scorer scorer){
-      if (child instanceof BlockJoinQuery) {
-        enroll((BlockJoinQuery)child,(BlockJoinQuery.BlockJoinScorer)scorer);
-      }
+    for (    ChildScorer sub : scorer.getChildren()) {
+      queue.add(sub.child);
     }
   }
-);
 }
