@@ -1,0 +1,31 @@
+{
+  final File workDir=new File(TEMP_DIR,this.getClass().getName());
+  if (workDir.exists()) {
+    FileUtils.deleteDirectory(workDir);
+  }
+  assertTrue("Failed to mkdirs workDir",workDir.mkdirs());
+  final CoreContainer cores=h.getCoreContainer();
+  cores.setPersistent(false);
+  final CoreAdminHandler admin=new CoreAdminHandler(cores);
+  String instDir=null;
+{
+    SolrCore template=null;
+    try {
+      template=cores.getCore("collection1");
+      instDir=template.getCoreDescriptor().getInstanceDir();
+    }
+  finally {
+      if (null != template)       template.close();
+    }
+  }
+  final File instDirFile=new File(instDir);
+  assertTrue("instDir doesn't exist: " + instDir,instDirFile.exists());
+  final File instPropFile=new File(workDir,"instProp");
+  FileUtils.copyDirectory(instDirFile,instPropFile);
+  SolrQueryResponse resp=new SolrQueryResponse();
+  admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.INSTANCE_DIR,instPropFile.getAbsolutePath(),CoreAdminParams.NAME,"props",CoreAdminParams.PROPERTY_PREFIX + "hoss","man",CoreAdminParams.PROPERTY_PREFIX + "foo","baz"),resp);
+  assertNull("Exception on create",resp.getException());
+  final File xml=new File(workDir,"persist-solr.xml");
+  cores.persistFile(xml);
+  assertXmlFile(xml,"/solr/cores/core[@name='props']/property[@name='hoss' and @value='man']","/solr/cores/core[@name='props']/property[@name='foo' and @value='baz']");
+}
