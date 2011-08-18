@@ -6,6 +6,7 @@
   SolrCore[] sourceCores=null;
   RefCounted<SolrIndexSearcher>[] searchers=null;
   IndexReader[] readersToBeClosed=null;
+  Directory[] dirsToBeReleased=null;
   if (core != null) {
     try {
       String[] dirNames=params.getParams(CoreAdminParams.INDEX_DIR);
@@ -22,9 +23,12 @@
       }
  else {
         readersToBeClosed=new IndexReader[dirNames.length];
+        dirsToBeReleased=new Directory[dirNames.length];
         DirectoryFactory dirFactory=core.getDirectoryFactory();
         for (int i=0; i < dirNames.length; i++) {
-          readersToBeClosed[i]=IndexReader.open(dirFactory.open(dirNames[i]),true);
+          Directory dir=dirFactory.get(dirNames[i],core.getSolrConfig().mainIndexConfig.lockType);
+          dirsToBeReleased[i]=dir;
+          readersToBeClosed[i]=IndexReader.open(dir,true);
         }
       }
       IndexReader[] readers=null;
@@ -57,6 +61,12 @@
         }
       }
       if (readersToBeClosed != null)       IOUtils.closeSafely(true,readersToBeClosed);
+      if (dirsToBeReleased != null) {
+        for (        Directory dir : dirsToBeReleased) {
+          DirectoryFactory dirFactory=core.getDirectoryFactory();
+          dirFactory.release(dir);
+        }
+      }
       if (wrappedReq != null)       wrappedReq.close();
       core.close();
     }
