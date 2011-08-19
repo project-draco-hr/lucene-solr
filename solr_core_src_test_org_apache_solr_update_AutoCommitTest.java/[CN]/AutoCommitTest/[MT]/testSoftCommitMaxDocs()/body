@@ -1,15 +1,18 @@
 {
   SolrCore core=h.getCore();
-  NewSearcherListener trigger=new NewSearcherListener();
+  NewSearcherListener trigger=new NewSearcherListener(TriggerOn.Hard);
+  core.registerNewSearcherListener(trigger);
   DirectUpdateHandler2 updateHandler=(DirectUpdateHandler2)core.getUpdateHandler();
+  updateHandler.registerCommitCallback(trigger);
   CommitTracker tracker=updateHandler.commitTracker;
   tracker.setTimeUpperBound(-1);
   tracker.setDocsUpperBound(8);
-  NewSearcherListener softTrigger=new NewSearcherListener();
+  NewSearcherListener softTrigger=new NewSearcherListener(TriggerOn.Soft);
+  updateHandler.registerSoftCommitCallback(softTrigger);
+  core.registerNewSearcherListener(softTrigger);
   CommitTracker softTracker=updateHandler.softCommitTracker;
   softTracker.setTimeUpperBound(-1);
   softTracker.setDocsUpperBound(4);
-  core.registerNewSearcherListener(softTrigger);
   XmlUpdateRequestHandler handler=new XmlUpdateRequestHandler();
   handler.init(null);
   MapSolrParams params=new MapSolrParams(new HashMap<String,String>());
@@ -26,7 +29,7 @@
   req.setContentStreams(toContentStreams(adoc("id","4","subject","info"),null));
   handler.handleRequest(req,rsp);
   assertTrue(softTrigger.waitForNewSearcher(10000));
-  core.registerNewSearcherListener(trigger);
+  softTrigger.reset();
   assertQ("should find 5",req("*:*"),"//result[@numFound=5]");
   assertEquals(1,softTracker.getCommitCount());
   assertEquals(0,tracker.getCommitCount());
@@ -41,6 +44,8 @@
     handler.handleRequest(req,rsp);
   }
   req.close();
+  assertTrue(softTrigger.waitForNewSearcher(10000));
+  softTrigger.reset();
   assertTrue(trigger.waitForNewSearcher(10000));
   assertQ("should find 10",req("*:*"),"//result[@numFound=10]");
   assertEquals(2,softTracker.getCommitCount());
