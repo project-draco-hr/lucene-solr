@@ -1,0 +1,131 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random,dir);
+  final int numTerms=atLeast(1000);
+  final Set<String> terms=new HashSet<String>();
+  final Collection<String> pendingTerms=new ArrayList<String>();
+  final Map<BytesRef,Integer> termToID=new HashMap<BytesRef,Integer>();
+  int id=0;
+  while (terms.size() != numTerms) {
+    final String s=randomString();
+    if (!terms.contains(s)) {
+      terms.add(s);
+      pendingTerms.add(s);
+      if (random.nextInt(20) == 7) {
+        addDoc(w,pendingTerms,termToID,id++);
+      }
+    }
+  }
+  addDoc(w,pendingTerms,termToID,id++);
+  final BytesRef[] termsArray=new BytesRef[terms.size()];
+  final Set<BytesRef> termsSet=new HashSet<BytesRef>();
+{
+    int upto=0;
+    for (    String s : terms) {
+      final BytesRef b=new BytesRef(s);
+      termsArray[upto++]=b;
+      termsSet.add(b);
+    }
+    Arrays.sort(termsArray);
+  }
+  if (VERBOSE) {
+    System.out.println("\nTEST: indexed terms (unicode order):");
+    for (    BytesRef t : termsArray) {
+      System.out.println("  " + t.utf8ToString() + " -> id:"+ termToID.get(t));
+    }
+  }
+  final IndexReader r=w.getReader();
+  w.close();
+  final int[] docIDToID=FieldCache.DEFAULT.getInts(r,"id");
+  for (int iter=0; iter < 10 * RANDOM_MULTIPLIER; iter++) {
+    final Set<String> acceptTerms=new HashSet<String>();
+    final TreeSet<BytesRef> sortedAcceptTerms=new TreeSet<BytesRef>();
+    final double keepPct=random.nextDouble();
+    Automaton a;
+    if (iter == 0) {
+      if (VERBOSE) {
+        System.out.println("\nTEST: empty automaton");
+      }
+      a=BasicAutomata.makeEmpty();
+    }
+ else {
+      if (VERBOSE) {
+        System.out.println("\nTEST: keepPct=" + keepPct);
+      }
+      for (      String s : terms) {
+        final String s2;
+        if (random.nextDouble() <= keepPct) {
+          s2=s;
+        }
+ else {
+          s2=randomString();
+        }
+        acceptTerms.add(s2);
+        sortedAcceptTerms.add(new BytesRef(s2));
+      }
+      a=DaciukMihovAutomatonBuilder.build(sortedAcceptTerms);
+    }
+    final CompiledAutomaton c=new CompiledAutomaton(a,true,false);
+    final BytesRef[] acceptTermsArray=new BytesRef[acceptTerms.size()];
+    final Set<BytesRef> acceptTermsSet=new HashSet<BytesRef>();
+    int upto=0;
+    for (    String s : acceptTerms) {
+      final BytesRef b=new BytesRef(s);
+      acceptTermsArray[upto++]=b;
+      acceptTermsSet.add(b);
+      assertTrue(accepts(c,b));
+    }
+    Arrays.sort(acceptTermsArray);
+    if (VERBOSE) {
+      System.out.println("\nTEST: accept terms (unicode order):");
+      for (      BytesRef t : acceptTermsArray) {
+        System.out.println("  " + t.utf8ToString() + (termsSet.contains(t) ? " (exists)" : ""));
+      }
+      System.out.println(a.toDot());
+    }
+    for (int iter2=0; iter2 < 100; iter2++) {
+      final BytesRef startTerm=acceptTermsArray.length == 0 || random.nextBoolean() ? null : acceptTermsArray[random.nextInt(acceptTermsArray.length)];
+      final TermsEnum te=MultiFields.getTerms(r,"f").intersect(c,startTerm);
+      if (VERBOSE) {
+        System.out.println("\nTEST: iter2=" + iter2 + " startTerm="+ (startTerm == null ? "<null>" : startTerm.utf8ToString()));
+      }
+      int loc;
+      if (startTerm == null) {
+        loc=0;
+      }
+ else {
+        loc=Arrays.binarySearch(termsArray,new BytesRef(startTerm));
+        if (loc < 0) {
+          loc=-(loc + 1);
+        }
+ else {
+          loc++;
+        }
+      }
+      while (loc < termsArray.length && !acceptTermsSet.contains(termsArray[loc])) {
+        loc++;
+      }
+      DocsEnum docsEnum=null;
+      while (loc < termsArray.length) {
+        final BytesRef expected=termsArray[loc];
+        final BytesRef actual=te.next();
+        if (VERBOSE) {
+          System.out.println("TEST:   next() expected=" + expected.utf8ToString() + " actual="+ actual.utf8ToString());
+        }
+        assertEquals(expected,actual);
+        assertEquals(1,te.docFreq());
+        docsEnum=te.docs(null,docsEnum);
+        final int docID=docsEnum.nextDoc();
+        assertTrue(docID != DocsEnum.NO_MORE_DOCS);
+        assertEquals(docIDToID[docID],termToID.get(expected).intValue());
+        do {
+          loc++;
+        }
+ while (loc < termsArray.length && !acceptTermsSet.contains(termsArray[loc]));
+      }
+      assertNull(te.next());
+    }
+  }
+  r.close();
+  dir.close();
+}

@@ -1,0 +1,123 @@
+{
+  Directory dir=newDirectory();
+  for (int cycle=0; cycle < 2; cycle++) {
+    if (VERBOSE) {
+      System.out.println("TEST: cycle=" + cycle);
+    }
+    RandomIndexWriter w=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setOpenMode(IndexWriterConfig.OpenMode.CREATE));
+    Document doc=new Document();
+    Field idField=newField("id","",Field.Index.NOT_ANALYZED);
+    doc.add(idField);
+    final int NUM_IDS=(int)(1000 * RANDOM_MULTIPLIER * (1.0 + random.nextDouble()));
+    if (VERBOSE) {
+      System.out.println("TEST: NUM_IDS=" + NUM_IDS);
+    }
+    final Set<String> allIDs=new HashSet<String>();
+    for (int id=0; id < NUM_IDS; id++) {
+      String idString;
+      if (cycle == 0) {
+        idString=String.format("%07d",id);
+      }
+ else {
+        while (true) {
+          final String s=Long.toString(random.nextLong());
+          if (!allIDs.contains(s)) {
+            idString=s;
+            break;
+          }
+        }
+      }
+      allIDs.add(idString);
+      idField.setValue(idString);
+      w.addDocument(doc);
+    }
+    final IndexReader r=w.getReader();
+    final IndexSearcher s=new IndexSearcher(r);
+    w.close();
+    final List<String> allIDsList=new ArrayList<String>(allIDs);
+    final List<String> sortedAllIDsList=new ArrayList<String>(allIDsList);
+    Collections.sort(sortedAllIDsList);
+    Set<String> outOfBounds=new HashSet<String>();
+    for (int idx=0; idx < NUM_IDS / 10; idx++) {
+      String idString;
+      if (cycle == 0) {
+        idString=String.format("%07d",(NUM_IDS + idx));
+      }
+ else {
+        while (true) {
+          idString=Long.toString(random.nextLong());
+          if (!allIDs.contains(idString)) {
+            break;
+          }
+        }
+      }
+      outOfBounds.add(idString);
+      allIDsList.add(idString);
+    }
+    for (int iter=0; iter < 2 * NUM_IDS; iter++) {
+      final String id=allIDsList.get(random.nextInt(allIDsList.size()));
+      final boolean exists=!outOfBounds.contains(id);
+      if (VERBOSE) {
+        System.out.println("TEST: TermQuery " + (exists ? "" : "non-exist ") + " id="+ id);
+      }
+      assertEquals((exists ? "" : "non-exist ") + "id=" + id,exists ? 1 : 0,s.search(new TermQuery(new Term("id",id)),1).totalHits);
+    }
+    final TermsEnum termsEnum=MultiFields.getTerms(r,"id").iterator();
+    for (int iter=0; iter < 2 * NUM_IDS; iter++) {
+      final String id;
+      final String nextID;
+      final boolean exists;
+      if (random.nextBoolean()) {
+        id=allIDsList.get(random.nextInt(allIDsList.size()));
+        exists=!outOfBounds.contains(id);
+        nextID=null;
+        if (VERBOSE) {
+          System.out.println("TEST: exactOnly " + (exists ? "" : "non-exist ") + "id="+ id);
+        }
+      }
+ else {
+        exists=false;
+        final int idv=random.nextInt(NUM_IDS - 1);
+        if (cycle == 0) {
+          id=String.format("%07da",idv);
+          nextID=String.format("%07d",idv + 1);
+        }
+ else {
+          id=sortedAllIDsList.get(idv) + "a";
+          nextID=sortedAllIDsList.get(idv + 1);
+        }
+        if (VERBOSE) {
+          System.out.println("TEST: not exactOnly id=" + id + " nextID="+ nextID);
+        }
+      }
+      final boolean useCache=random.nextBoolean();
+      if (VERBOSE) {
+        System.out.println("  useCache=" + useCache);
+      }
+      final TermsEnum.SeekStatus status;
+      if (nextID == null) {
+        if (termsEnum.seekExact(new BytesRef(id),useCache)) {
+          status=TermsEnum.SeekStatus.FOUND;
+        }
+ else {
+          status=TermsEnum.SeekStatus.NOT_FOUND;
+        }
+      }
+ else {
+        status=termsEnum.seekCeil(new BytesRef(id),useCache);
+      }
+      if (nextID != null) {
+        assertEquals(TermsEnum.SeekStatus.NOT_FOUND,status);
+        assertEquals("expected=" + nextID + " actual="+ termsEnum.term().utf8ToString(),new BytesRef(nextID),termsEnum.term());
+      }
+ else       if (!exists) {
+        assertTrue(status == TermsEnum.SeekStatus.NOT_FOUND || status == TermsEnum.SeekStatus.END);
+      }
+ else {
+        assertEquals(TermsEnum.SeekStatus.FOUND,status);
+      }
+    }
+    r.close();
+  }
+  dir.close();
+}
