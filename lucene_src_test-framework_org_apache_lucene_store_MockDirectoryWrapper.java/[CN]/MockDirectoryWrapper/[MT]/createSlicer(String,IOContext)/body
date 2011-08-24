@@ -1,0 +1,33 @@
+{
+  maybeYield();
+  if (!delegate.fileExists(name))   throw new FileNotFoundException(name);
+  if (openFilesForWrite.contains(name) && !name.startsWith("segments")) {
+    throw fillOpenTrace(new IOException("MockDirectoryWrapper: file \"" + name + "\" is still open for writing"),name,false);
+  }
+  final IndexInputSlicer delegateHandle=delegate.createSlicer(name,context);
+  final IndexInputSlicer handle=new IndexInputSlicer(){
+    private boolean isClosed;
+    @Override public void close() throws IOException {
+      if (!isClosed) {
+        delegateHandle.close();
+        MockDirectoryWrapper.this.removeOpenFile(this,name);
+        isClosed=true;
+      }
+    }
+    @Override public IndexInput openSlice(    long offset,    long length) throws IOException {
+      maybeYield();
+      IndexInput ii=new MockIndexInputWrapper(MockDirectoryWrapper.this,name,delegateHandle.openSlice(offset,length));
+      addFileHandle(ii,name,Handle.Input);
+      return ii;
+    }
+    @Override public IndexInput openFullSlice() throws IOException {
+      maybeYield();
+      IndexInput ii=new MockIndexInputWrapper(MockDirectoryWrapper.this,name,delegateHandle.openFullSlice());
+      addFileHandle(ii,name,Handle.Input);
+      return ii;
+    }
+  }
+;
+  addFileHandle(handle,name,Handle.Slice);
+  return handle;
+}
