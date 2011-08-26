@@ -1,33 +1,36 @@
 {
-  if (!testsFailed) {
-    assertTrue("ensure your setUp() calls super.setUp()!!!",state == State.RANTEST || state == State.SETUP);
-  }
+  State oldState=state;
   state=State.TEARDOWN;
-  BooleanQuery.setMaxClauseCount(savedBoolMaxClauseCount);
-  if ("perMethod".equals(TEST_CLEAN_THREADS)) {
-    int rogueThreads=threadCleanup("test method: '" + getName() + "'");
-    if (rogueThreads > 0) {
-      System.err.println("RESOURCE LEAK: test method: '" + getName() + "' left "+ rogueThreads+ " thread(s) running");
-      if (!testsFailed && uncaughtExceptions.isEmpty()) {
-        reportAdditionalFailureInfo();
-      }
+  Throwable problem=null;
+  try {
+    if (!testsFailed) {
+      assertTrue("ensure your setUp() calls super.setUp()!!!",oldState == State.RANTEST || oldState == State.SETUP);
     }
   }
+ catch (  Throwable t) {
+    if (problem == null)     problem=t;
+  }
+  if (problem != null) {
+    BooleanQuery.setMaxClauseCount(savedBoolMaxClauseCount);
+  }
+  checkRogueThreadsAfter();
   Thread.setDefaultUncaughtExceptionHandler(savedUncaughtExceptionHandler);
   try {
-    if (!uncaughtExceptions.isEmpty()) {
-      testsFailed=true;
-      reportAdditionalFailureInfo();
-      System.err.println("The following exceptions were thrown by threads:");
-      for (      UncaughtExceptionEntry entry : uncaughtExceptions) {
-        System.err.println("*** Thread: " + entry.thread.getName() + " ***");
-        entry.exception.printStackTrace(System.err);
-      }
-      fail("Some threads threw uncaught exceptions!");
-    }
+    checkUncaughtExceptionsAfter();
+  }
+ catch (  Throwable t) {
+    if (problem == null)     problem=t;
+  }
+  try {
     assertSaneFieldCaches(getTestLabel());
   }
-  finally {
-    purgeFieldCache(FieldCache.DEFAULT);
+ catch (  Throwable t) {
+    if (problem == null)     problem=t;
+  }
+  purgeFieldCache(FieldCache.DEFAULT);
+  if (problem != null) {
+    testsFailed=true;
+    reportAdditionalFailureInfo();
+    throw new RuntimeException(problem);
   }
 }

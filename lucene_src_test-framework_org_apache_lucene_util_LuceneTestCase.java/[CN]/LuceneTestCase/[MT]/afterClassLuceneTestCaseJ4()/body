@@ -1,67 +1,52 @@
 {
-  if (!testsFailed) {
-    assertTrue("ensure your setUp() calls super.setUp() and your tearDown() calls super.tearDown()!!!",state == State.INITIAL || state == State.TEARDOWN);
-  }
+  State oldState=state;
   state=State.INITIAL;
+  Throwable problem=null;
+  try {
+    if (!testsFailed) {
+      assertTrue("ensure your setUp() calls super.setUp() and your tearDown() calls super.tearDown()!!!",oldState == State.INITIAL || oldState == State.TEARDOWN);
+    }
+  }
+ catch (  Throwable t) {
+    if (problem == null)     problem=t;
+  }
   if (!"false".equals(TEST_CLEAN_THREADS)) {
     int rogueThreads=threadCleanup("test class");
     if (rogueThreads > 0) {
       System.err.println("RESOURCE LEAK: test class left " + rogueThreads + " thread(s) running");
     }
   }
-  String codecDescription;
-  CodecProvider cp=CodecProvider.getDefault();
-  if ("randomPerField".equals(TEST_CODEC) && cp instanceof RandomCodecProvider) {
-    codecDescription=cp.toString();
-  }
- else {
-    codecDescription=codec.toString();
-  }
-  if ("random".equals(TEST_CODECPROVIDER) && CodecProvider.getDefault() == savedCodecProvider)   removeTestCodecs(codec,CodecProvider.getDefault());
-  CodecProvider.setDefault(savedCodecProvider);
+  String codecDescription=uninstallCodecsAfterClass();
   Locale.setDefault(savedLocale);
   TimeZone.setDefault(savedTimeZone);
   System.clearProperty("solr.solr.home");
   System.clearProperty("solr.data.dir");
-  if (!testsFailed)   for (  MockDirectoryWrapper d : stores.keySet()) {
-    if (d.isOpen()) {
-      StackTraceElement elements[]=stores.get(d);
-      StackTraceElement element=null;
-      for (int i=2; i < elements.length; i++) {
-        StackTraceElement ste=elements[i];
-        if (ste.getClassName().indexOf("LuceneTestCase") == -1) {
-          element=ste;
-          break;
-        }
-      }
-      fail("directory of test was not closed, opened from: " + element);
+  try {
+    if (!testsFailed) {
+      checkResourcesAfterClass();
     }
+  }
+ catch (  Throwable t) {
+    if (problem == null)     problem=t;
   }
   stores=null;
-  if (VERBOSE || testsFailed)   System.err.println("NOTE: test params are: codec=" + codecDescription + ", locale="+ locale+ ", timezone="+ (timeZone == null ? "(null)" : timeZone.getID()));
-  if (VERBOSE || testsFailed) {
-    System.err.println("NOTE: all tests run in this JVM:");
-    System.err.println(Arrays.toString(testClassesRun.toArray()));
-    System.err.println("NOTE: " + System.getProperty("os.name") + " "+ System.getProperty("os.version")+ " "+ System.getProperty("os.arch")+ "/"+ System.getProperty("java.vendor")+ " "+ System.getProperty("java.version")+ " "+ (Constants.JRE_IS_64BIT ? "(64-bit)" : "(32-bit)")+ "/"+ "cpus="+ Runtime.getRuntime().availableProcessors()+ ","+ "threads="+ Thread.activeCount()+ ","+ "free="+ Runtime.getRuntime().freeMemory()+ ","+ "total="+ Runtime.getRuntime().totalMemory());
-  }
-  if (!testsFailed) {
-    for (    Entry<File,StackTraceElement[]> entry : tempDirs.entrySet()) {
-      try {
-        _TestUtil.rmDir(entry.getKey());
-      }
- catch (      IOException e) {
-        e.printStackTrace();
-        System.err.println("path " + entry.getKey() + " allocated from");
-        StackTraceElement[] elements=entry.getValue();
-        for (int i=2; i < elements.length; i++) {
-          StackTraceElement ste=elements[i];
-          if (ste.getClassName().indexOf("org.apache.lucene") == -1)           break;
-          System.err.println("\t" + ste);
-        }
-        fail("could not remove temp dir: " + entry.getKey());
-      }
+  try {
+    if (!testsFailed) {
+      clearTempDirectoriesAfterClass();
     }
+  }
+ catch (  Throwable t) {
+    if (problem == null)     problem=t;
+  }
+  if (problem != null) {
+    reportPartialFailureInfo();
+  }
+  if (VERBOSE || testsFailed || problem != null) {
+    printDebuggingInformation(codecDescription);
   }
   random.setSeed(0L);
   random.initialized=false;
+  if (problem != null) {
+    throw new RuntimeException(problem);
+  }
 }
