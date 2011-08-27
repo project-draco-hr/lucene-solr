@@ -1,4 +1,22 @@
 {
-  Document doc=reader.document(docId,new MapFieldSelector(fieldName));
-  return doc.getFields(fieldName);
+  final List<Field> fields=new ArrayList<Field>();
+  reader.document(docId,new StoredFieldVisitor(){
+    @Override public boolean stringField(    FieldInfo fieldInfo,    IndexInput in,    int numUTF8Bytes) throws IOException {
+      if (fieldInfo.name.equals(fieldName)) {
+        final byte[] b=new byte[numUTF8Bytes];
+        in.readBytes(b,0,b.length);
+        FieldType ft=new FieldType(TextField.TYPE_STORED);
+        ft.setStoreTermVectors(fieldInfo.storeTermVector);
+        ft.setStoreTermVectorOffsets(fieldInfo.storeOffsetWithTermVector);
+        ft.setStoreTermVectorPositions(fieldInfo.storePositionWithTermVector);
+        fields.add(new Field(fieldInfo.name,ft,new String(b,"UTF-8")));
+      }
+ else {
+        in.seek(in.getFilePointer() + numUTF8Bytes);
+      }
+      return false;
+    }
+  }
+);
+  return fields.toArray(new Field[fields.size()]);
 }

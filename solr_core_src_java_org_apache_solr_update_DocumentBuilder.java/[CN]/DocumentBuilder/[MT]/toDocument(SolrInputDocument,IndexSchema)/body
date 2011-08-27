@@ -1,6 +1,6 @@
 {
   Document out=new Document();
-  out.setBoost(doc.getDocumentBoost());
+  final float docBoost=doc.getDocumentBoost();
   for (  SolrInputField field : doc) {
     String name=field.getName();
     SchemaField sfield=schema.getFieldOrNull(name);
@@ -18,12 +18,12 @@
         hasField=true;
         if (sfield != null) {
           used=true;
-          addField(out,sfield,v,boost);
+          addField(out,sfield,v,docBoost * boost);
         }
         List<CopyField> copyFields=schema.getCopyFieldsList(name);
         for (        CopyField cf : copyFields) {
           SchemaField destinationField=cf.getDestination();
-          if (!destinationField.multiValued() && out.getFieldable(destinationField.getName()) != null) {
+          if (!destinationField.multiValued() && out.getField(destinationField.getName()) != null) {
             throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: " + getID(doc,schema) + "multiple values encountered for non multiValued copy field "+ destinationField.getName()+ ": "+ v);
           }
           used=true;
@@ -31,14 +31,14 @@
           if (val instanceof String && cf.getMaxChars() > 0) {
             val=cf.getLimitedValue((String)val);
           }
-          Fieldable[] fields=destinationField.createFields(val,boost);
+          IndexableField[] fields=destinationField.createFields(val,docBoost * boost);
           if (fields != null) {
-            for (            Fieldable f : fields) {
+            for (            IndexableField f : fields) {
               if (f != null)               out.add(f);
             }
           }
         }
-        boost=1.0f;
+        boost=docBoost;
       }
     }
  catch (    Exception ex) {
@@ -49,7 +49,7 @@
     }
   }
   for (  SchemaField field : schema.getRequiredFields()) {
-    if (out.getFieldable(field.getName()) == null) {
+    if (out.getField(field.getName()) == null) {
       if (field.getDefaultValue() != null) {
         addField(out,field,field.getDefaultValue(),1.0f);
       }

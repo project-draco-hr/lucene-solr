@@ -1,13 +1,9 @@
 {
   consumer.startDocument();
   fieldsWriter.startDocument();
-  final Document doc=docState.doc;
   fieldCount=0;
   final int thisFieldGen=fieldGen++;
-  final List<Fieldable> docFields=doc.getFields();
-  final int numDocFields=docFields.size();
-  for (int i=0; i < numDocFields; i++) {
-    Fieldable field=docFields.get(i);
+  for (  IndexableField field : docState.doc) {
     final String fieldName=field.name();
     final int hashPos=fieldName.hashCode() & hashMask;
     DocFieldProcessorPerField fp=fieldHash[hashPos];
@@ -15,15 +11,17 @@
       fp=fp.next;
     }
     if (fp == null) {
-      FieldInfo fi=fieldInfos.addOrUpdate(fieldName,field.isIndexed(),field.isTermVectorStored(),field.isStorePositionWithTermVector(),field.isStoreOffsetWithTermVector(),field.getOmitNorms(),false,field.getIndexOptions(),field.docValuesType());
+      FieldInfo fi=fieldInfos.addOrUpdate(fieldName,field.indexed(),field.storeTermVectors(),field.storeTermVectorPositions(),field.storeTermVectorOffsets(),field.omitNorms(),false,field.indexOptions(),field.docValuesType());
       fp=new DocFieldProcessorPerField(this,fi);
       fp.next=fieldHash[hashPos];
       fieldHash[hashPos]=fp;
       totalFieldCount++;
-      if (totalFieldCount >= fieldHash.length / 2)       rehash();
+      if (totalFieldCount >= fieldHash.length / 2) {
+        rehash();
+      }
     }
  else {
-      fieldInfos.addOrUpdate(fp.fieldInfo.name,field.isIndexed(),field.isTermVectorStored(),field.isStorePositionWithTermVector(),field.isStoreOffsetWithTermVector(),field.getOmitNorms(),false,field.getIndexOptions(),field.docValuesType());
+      fieldInfos.addOrUpdate(fp.fieldInfo.name,field.indexed(),field.storeTermVectors(),field.storeTermVectorPositions(),field.storeTermVectorOffsets(),field.omitNorms(),false,field.indexOptions(),field.docValuesType());
     }
     if (thisFieldGen != fp.lastGen) {
       fp.fieldCount=0;
@@ -37,12 +35,12 @@
       fp.lastGen=thisFieldGen;
     }
     fp.addField(field);
-    if (field.isStored()) {
+    if (field.stored()) {
       fieldsWriter.addField(field,fp.fieldInfo);
     }
-    if (field.hasDocValues()) {
-      final DocValuesConsumer docValuesConsumer=docValuesConsumer(docState,fp.fieldInfo);
-      docValuesConsumer.add(docState.docID,field.getDocValues());
+    final PerDocFieldValues docValues=field.docValues();
+    if (docValues != null) {
+      docValuesConsumer(docState,fp.fieldInfo).add(docState.docID,docValues);
     }
   }
   ArrayUtil.quickSort(fields,0,fieldCount,fieldsComp);
