@@ -1,5 +1,6 @@
 {
   AddUpdateCommand addCmd=null;
+  SolrParams params=req.getParams();
   while (true) {
     int event=parser.next();
 switch (event) {
@@ -11,6 +12,7 @@ case XMLStreamConstants.START_ELEMENT:
 if (currTag.equals(XmlUpdateRequestHandler.ADD)) {
   XmlUpdateRequestHandler.log.trace("SolrCore.update(add)");
   addCmd=new AddUpdateCommand(req);
+  addCmd.commitWithin=params.getInt(UpdateParams.COMMIT_WITHIN,-1);
   for (int i=0; i < parser.getAttributeCount(); i++) {
     String attrName=parser.getAttributeLocalName(i);
     String attrVal=parser.getAttributeValue(i);
@@ -26,10 +28,15 @@ if (currTag.equals(XmlUpdateRequestHandler.ADD)) {
   }
 }
  else if ("doc".equals(currTag)) {
-  XmlUpdateRequestHandler.log.trace("adding doc...");
-  addCmd.clear();
-  addCmd.solrDoc=readDoc(parser);
-  processor.processAdd(addCmd);
+  if (addCmd != null) {
+    XmlUpdateRequestHandler.log.trace("adding doc...");
+    addCmd.clear();
+    addCmd.solrDoc=readDoc(parser);
+    processor.processAdd(addCmd);
+  }
+ else {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unexpected <doc> tag without an <add> tag surrounding it.");
+  }
 }
  else if (XmlUpdateRequestHandler.COMMIT.equals(currTag) || XmlUpdateRequestHandler.OPTIMIZE.equals(currTag)) {
   XmlUpdateRequestHandler.log.trace("parsing " + currTag);
