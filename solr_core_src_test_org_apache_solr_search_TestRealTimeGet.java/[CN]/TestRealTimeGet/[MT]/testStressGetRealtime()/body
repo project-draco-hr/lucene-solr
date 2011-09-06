@@ -1,14 +1,16 @@
 {
-  final int commitPercent=10;
-  final int softCommitPercent=50;
-  final int deletePercent=8;
-  final int deleteByQueryPercent=4;
-  final int ndocs=100;
-  int nWriteThreads=10;
+  clearIndex();
+  assertU(commit());
+  final int commitPercent=5 + random.nextInt(20);
+  final int softCommitPercent=30 + random.nextInt(60);
+  final int deletePercent=4 + random.nextInt(25);
+  final int deleteByQueryPercent=0;
+  final int ndocs=5 + (random.nextBoolean() ? random.nextInt(25) : random.nextInt(200));
+  int nWriteThreads=5 + random.nextInt(25);
   final int maxConcurrentCommits=nWriteThreads;
-  final int percentRealtimeQuery=0;
-  final AtomicLong operations=new AtomicLong(atLeast(10000));
-  int nReadThreads=10;
+  final int percentRealtimeQuery=60;
+  final AtomicLong operations=new AtomicLong(50000);
+  int nReadThreads=5 + random.nextInt(25);
   initModel(ndocs);
   final AtomicInteger numCommitting=new AtomicInteger();
   List<Thread> threads=new ArrayList<Thread>();
@@ -16,53 +18,89 @@
     Thread thread=new Thread("WRITER" + i){
       Random rand=new Random(random.nextInt());
       @Override public void run(){
-        while (operations.get() > 0) {
-          int oper=rand.nextInt(100);
-          if (oper < commitPercent) {
-            if (numCommitting.incrementAndGet() <= maxConcurrentCommits) {
-              Map<Integer,Long> newCommittedModel;
-              long version;
+        try {
+          while (operations.get() > 0) {
+            int oper=rand.nextInt(100);
+            if (oper < commitPercent) {
+              if (numCommitting.incrementAndGet() <= maxConcurrentCommits) {
+                Map<Integer,Long> newCommittedModel;
+                long version;
 synchronized (TestRealTimeGet.this) {
-                newCommittedModel=new HashMap<Integer,Long>(model);
-                version=snapshotCount++;
+                  newCommittedModel=new HashMap<Integer,Long>(model);
+                  version=snapshotCount++;
+                }
+                if (rand.nextInt(100) < softCommitPercent) {
+                  verbose("softCommit start");
+                  assertU(h.commit("softCommit","true"));
+                  verbose("softCommit end");
+                }
+ else {
+                  verbose("commit start");
+                  assertU(commit());
+                  verbose("commit end");
+                }
+synchronized (TestRealTimeGet.this) {
+                  if (version >= committedModelClock) {
+                    if (VERBOSE) {
+                      verbose("installing new committedModel version=" + committedModelClock);
+                    }
+                    committedModel=newCommittedModel;
+                    committedModelClock=version;
+                  }
+                }
               }
-              if (rand.nextInt(100) < softCommitPercent)               assertU(h.commit("softCommit","true"));
- else               assertU(commit());
-synchronized (TestRealTimeGet.this) {
-                if (version >= committedModelClock) {
-                  committedModel=newCommittedModel;
-                  committedModelClock=version;
+              numCommitting.decrementAndGet();
+              continue;
+            }
+            int id=rand.nextInt(ndocs);
+            Object sync=syncArr[id];
+            boolean before=rand.nextBoolean();
+            if (before) {
+              lastId=id;
+            }
+synchronized (sync) {
+              Long val=model.get(id);
+              long nextVal=Math.abs(val) + 1;
+              if (oper < commitPercent + deletePercent) {
+                if (VERBOSE) {
+                  verbose("deleting id",id,"val=",nextVal);
+                }
+                assertU("<delete><id>" + id + "</id></delete>");
+                model.put(id,-nextVal);
+                if (VERBOSE) {
+                  verbose("deleting id",id,"val=",nextVal,"DONE");
+                }
+              }
+ else               if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
+                if (VERBOSE) {
+                  verbose("deleteByQuery id ",id,"val=",nextVal);
+                }
+                assertU("<delete><query>id:" + id + "</query></delete>");
+                model.put(id,-nextVal);
+                if (VERBOSE) {
+                  verbose("deleteByQuery id",id,"val=",nextVal,"DONE");
+                }
+              }
+ else {
+                if (VERBOSE) {
+                  verbose("adding id",id,"val=",nextVal);
+                }
+                assertU(adoc("id",Integer.toString(id),field,Long.toString(nextVal)));
+                model.put(id,nextVal);
+                if (VERBOSE) {
+                  verbose("adding id",id,"val=",nextVal,"DONE");
                 }
               }
             }
-            numCommitting.decrementAndGet();
-            continue;
-          }
-          int id=rand.nextInt(ndocs);
-          Object sync=syncArr[id];
-          boolean before=rand.nextBoolean();
-          if (before) {
-            lastId=id;
-          }
-synchronized (sync) {
-            Long val=model.get(id);
-            long nextVal=Math.abs(val) + 1;
-            if (oper < commitPercent + deletePercent) {
-              assertU("<delete><id>" + id + "</id></delete>");
-              model.put(id,-nextVal);
-            }
- else             if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
-              assertU("<delete><query>id:" + id + "</query></delete>");
-              model.put(id,-nextVal);
-            }
- else {
-              assertU(adoc("id",Integer.toString(id),field,Long.toString(nextVal)));
-              model.put(id,nextVal);
+            if (!before) {
+              lastId=id;
             }
           }
-          if (!before) {
-            lastId=id;
-          }
+        }
+ catch (        Throwable e) {
+          operations.set(-1L);
+          SolrException.log(log,e);
+          fail(e.getMessage());
         }
       }
     }
@@ -75,7 +113,6 @@ synchronized (sync) {
       @Override public void run(){
         try {
           while (operations.decrementAndGet() >= 0) {
-            int oper=rand.nextInt(100);
             int id=rand.nextInt(100) < 25 ? lastId : rand.nextInt(ndocs);
             boolean realTime=rand.nextInt(100) < percentRealtimeQuery;
             long val;
@@ -86,6 +123,9 @@ synchronized (sync) {
 synchronized (TestRealTimeGet.this) {
                 val=committedModel.get(id);
               }
+            }
+            if (VERBOSE) {
+              verbose("querying id",id);
             }
             SolrQueryRequest sreq;
             if (realTime) {
@@ -102,14 +142,17 @@ synchronized (TestRealTimeGet.this) {
  else {
               assertEquals(1,doclist.size());
               long foundVal=(Long)(((Map)doclist.get(0)).get(field));
-              assertTrue(foundVal >= Math.abs(val));
+              if (foundVal < Math.abs(val)) {
+                verbose("ERROR, id=",id,"foundVal=",foundVal,"model val=",val);
+                assertTrue(foundVal >= Math.abs(val));
+              }
             }
           }
         }
  catch (        Throwable e) {
           operations.set(-1L);
           SolrException.log(log,e);
-          fail(e.toString());
+          fail(e.getMessage());
         }
       }
     }

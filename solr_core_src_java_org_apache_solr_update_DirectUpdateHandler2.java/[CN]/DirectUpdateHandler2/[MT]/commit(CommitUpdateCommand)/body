@@ -13,6 +13,9 @@
   }
   boolean error=true;
   try {
+    if (!cmd.softCommit) {
+      commitLock.lock();
+    }
     log.info("start " + cmd);
     if (cmd.optimize) {
       writer.optimize(cmd.maxOptimizeSegments);
@@ -21,6 +24,9 @@
       writer.expungeDeletes();
     }
     if (!cmd.softCommit) {
+synchronized (this) {
+        ulog.preCommit(cmd);
+      }
       writer.commit();
       numDocsPending.set(0);
       callPostCommitCallbacks();
@@ -31,13 +37,20 @@
     if (cmd.optimize) {
       callPostOptimizeCallbacks();
     }
+    if (cmd.softCommit) {
 synchronized (this) {
-      if (cmd.softCommit) {
+        ulog.preSoftCommit(cmd);
         core.getSearcher(true,false,waitSearcher,true);
+        ulog.postSoftCommit(cmd);
       }
+    }
  else {
+synchronized (this) {
+        ulog.preSoftCommit(cmd);
         core.getSearcher(true,false,waitSearcher);
+        ulog.postSoftCommit(cmd);
       }
+      ulog.postCommit(cmd);
     }
     if (cmd.softCommit) {
       softCommitTracker.didCommit();
@@ -49,6 +62,9 @@ synchronized (this) {
     error=false;
   }
   finally {
+    if (!cmd.softCommit) {
+      commitLock.unlock();
+    }
     addCommands.set(0);
     deleteByIdCommands.set(0);
     deleteByQueryCommands.set(0);
