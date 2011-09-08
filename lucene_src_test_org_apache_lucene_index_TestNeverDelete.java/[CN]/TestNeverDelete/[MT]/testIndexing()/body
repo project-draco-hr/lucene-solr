@@ -1,0 +1,61 @@
+{
+  final File tmpDir=_TestUtil.getTempDir("TestNeverDelete");
+  final MockDirectoryWrapper d=newFSDirectory(tmpDir);
+  d.setNoDeleteOpenFile(false);
+  final RandomIndexWriter w=new RandomIndexWriter(random,d,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setIndexDeletionPolicy(NoDeletionPolicy.INSTANCE));
+  w.w.getConfig().setMaxBufferedDocs(_TestUtil.nextInt(random,5,30));
+  w.w.setInfoStream(VERBOSE ? System.out : null);
+  w.commit();
+  Thread[] indexThreads=new Thread[random.nextInt(4)];
+  final long stopTime=System.currentTimeMillis() + atLeast(1000);
+  for (int x=0; x < indexThreads.length; x++) {
+    indexThreads[x]=new Thread(){
+      @Override public void run(){
+        try {
+          int docCount=0;
+          while (System.currentTimeMillis() < stopTime) {
+            final Document doc=new Document();
+            doc.add(newField("dc","" + docCount,StringField.TYPE_STORED));
+            doc.add(newField("field","here is some text",TextField.TYPE_STORED));
+            w.addDocument(doc);
+            if (docCount % 13 == 0) {
+              w.commit();
+            }
+            docCount++;
+          }
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    indexThreads[x].setName("Thread " + x);
+    indexThreads[x].start();
+  }
+  final Set<String> allFiles=new HashSet<String>();
+  IndexReader r=IndexReader.open(d);
+  while (System.currentTimeMillis() < stopTime) {
+    final IndexCommit ic=r.getIndexCommit();
+    if (VERBOSE) {
+      System.out.println("TEST: check files: " + ic.getFileNames());
+    }
+    allFiles.addAll(ic.getFileNames());
+    for (    String fileName : allFiles) {
+      assertTrue("file " + fileName + " does not exist",d.fileExists(fileName));
+    }
+    IndexReader r2=r.reopen();
+    if (r2 != r) {
+      r.close();
+      r=r2;
+    }
+    Thread.sleep(1);
+  }
+  r.close();
+  for (  Thread t : indexThreads) {
+    t.join();
+  }
+  w.close();
+  d.close();
+  _TestUtil.rmDir(tmpDir);
+}
