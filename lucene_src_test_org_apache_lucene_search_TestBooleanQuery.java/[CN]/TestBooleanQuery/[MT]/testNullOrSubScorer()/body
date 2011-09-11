@@ -6,6 +6,16 @@
   w.addDocument(doc);
   IndexReader r=w.getReader();
   IndexSearcher s=newSearcher(r);
+  final SimilarityProvider delegate=s.getSimilarityProvider();
+  s.setSimilarityProvider(new DefaultSimilarityProvider(){
+    @Override public float queryNorm(    float sumOfSquaredWeights){
+      return delegate.queryNorm(sumOfSquaredWeights);
+    }
+    @Override public Similarity get(    String field){
+      return delegate.get(field);
+    }
+  }
+);
   BooleanQuery q=new BooleanQuery();
   q.add(new TermQuery(new Term("field","a")),BooleanClause.Occur.SHOULD);
   float score=s.search(q,10).getMaxScore();
@@ -13,7 +23,7 @@
   subQuery.setBoost(0);
   q.add(subQuery,BooleanClause.Occur.SHOULD);
   float score2=s.search(q,10).getMaxScore();
-  assertEquals(score * .5,score2,1e-6);
+  assertEquals(score * .5F,score2,1e-6);
   BooleanQuery qq=(BooleanQuery)q.clone();
   PhraseQuery phrase=new PhraseQuery();
   phrase.add(new Term("field","not_in_index"));
@@ -21,12 +31,12 @@
   phrase.setBoost(0);
   qq.add(phrase,BooleanClause.Occur.SHOULD);
   score2=s.search(qq,10).getMaxScore();
-  assertEquals(score * (1.0 / 3),score2,1e-6);
+  assertEquals(score * (1 / 3F),score2,1e-6);
   subQuery=new TermQuery(new Term("field","b"));
   subQuery.setBoost(0);
   q.add(subQuery,BooleanClause.Occur.MUST);
   score2=s.search(q,10).getMaxScore();
-  assertEquals(score * (2.0 / 3),score2,1e-6);
+  assertEquals(score * (2 / 3F),score2,1e-6);
   PhraseQuery pq=new PhraseQuery();
   q.add(pq,BooleanClause.Occur.SHOULD);
   assertEquals(1,s.search(q,10).totalHits);
