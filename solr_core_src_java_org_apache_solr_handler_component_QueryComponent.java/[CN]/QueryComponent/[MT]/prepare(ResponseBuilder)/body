@@ -47,4 +47,39 @@
  catch (  ParseException e) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
   }
+  boolean grouping=params.getBool(GroupParams.GROUP,false);
+  if (!grouping) {
+    return;
+  }
+  SolrIndexSearcher.QueryCommand cmd=rb.getQueryCommand();
+  SolrIndexSearcher searcher=rb.req.getSearcher();
+  GroupingSpecification groupingSpec=new GroupingSpecification();
+  rb.setGroupingSpec(groupingSpec);
+  Sort groupSort=searcher.weightSort(cmd.getSort());
+  String groupSortStr=params.get(GroupParams.GROUP_SORT);
+  if (groupSort == null) {
+    groupSort=new Sort();
+  }
+  Sort sortWithinGroup=groupSortStr == null ? groupSort : searcher.weightSort(QueryParsing.parseSort(groupSortStr,req));
+  groupingSpec.setSortWithinGroup(sortWithinGroup);
+  groupingSpec.setGroupSort(groupSort);
+  String formatStr=params.get(GroupParams.GROUP_FORMAT,Grouping.Format.grouped.name());
+  Grouping.Format responseFormat;
+  try {
+    responseFormat=Grouping.Format.valueOf(formatStr);
+  }
+ catch (  IllegalArgumentException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,String.format("Illegal %s parameter",GroupParams.GROUP_FORMAT));
+  }
+  groupingSpec.setResponseFormat(responseFormat);
+  groupingSpec.setFields(params.getParams(GroupParams.GROUP_FIELD));
+  groupingSpec.setQueries(params.getParams(GroupParams.GROUP_QUERY));
+  groupingSpec.setFunctions(params.getParams(GroupParams.GROUP_FUNC));
+  groupingSpec.setGroupOffset(params.getInt(GroupParams.GROUP_OFFSET,0));
+  groupingSpec.setGroupLimit(params.getInt(GroupParams.GROUP_LIMIT,1));
+  groupingSpec.setOffset(rb.getSortSpec().getOffset());
+  groupingSpec.setLimit(rb.getSortSpec().getCount());
+  groupingSpec.setIncludeGroupCount(params.getBool(GroupParams.GROUP_TOTAL_COUNT,false));
+  groupingSpec.setMain(params.getBool(GroupParams.GROUP_MAIN,false));
+  groupingSpec.setNeedScore((cmd.getFlags() & SolrIndexSearcher.GET_SCORES) != 0);
 }
