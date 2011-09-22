@@ -1,28 +1,31 @@
 {
   int end=initPhrasePositions();
+  if (end == Integer.MIN_VALUE) {
+    return 0.0f;
+  }
   float freq=0.0f;
-  boolean done=(end < 0);
-  while (!done) {
-    PhrasePositions pp=pq.pop();
-    int start=pp.position;
-    int next=pq.top().position;
-    boolean tpsDiffer=true;
-    for (int pos=start; pos <= next || !tpsDiffer; pos=pp.position) {
-      if (pos <= next && tpsDiffer)       start=pos;
-      if (!pp.nextPosition()) {
-        done=true;
-        break;
+  PhrasePositions pp=pq.pop();
+  int matchLength=end - pp.position;
+  int next=pq.size() > 0 ? pq.top().position : pp.position;
+  while (pp.nextPosition() && (end=advanceRepeats(pp,end)) != Integer.MIN_VALUE) {
+    if (pp.position > next) {
+      if (matchLength <= slop) {
+        freq+=docScorer.computeSlopFactor(matchLength);
       }
-      PhrasePositions pp2=null;
-      tpsDiffer=!pp.repeats || (pp2=termPositionsConflict(pp)) == null;
-      if (pp2 != null && pp2 != pp) {
-        pp=flip(pp,pp2);
+      pq.add(pp);
+      pp=pq.pop();
+      next=pq.size() > 0 ? pq.top().position : pp.position;
+      matchLength=end - pp.position;
+    }
+ else {
+      int matchLength2=end - pp.position;
+      if (matchLength2 < matchLength) {
+        matchLength=matchLength2;
       }
     }
-    int matchLength=end - start;
-    if (matchLength <= slop)     freq+=docScorer.computeSlopFactor(matchLength);
-    if (pp.position > end)     end=pp.position;
-    pq.add(pp);
+  }
+  if (matchLength <= slop) {
+    freq+=docScorer.computeSlopFactor(matchLength);
   }
   return freq;
 }
