@@ -1,2 +1,51 @@
 {
+  fieldState.reset();
+  final boolean doInvert=consumer.start(fields,count);
+  for (int i=0; i < count; i++) {
+    final IndexableField field=fields[i];
+    if (field.fieldType().indexed() && doInvert) {
+      if (i > 0)       fieldState.position+=docState.analyzer == null ? 0 : docState.analyzer.getPositionIncrementGap(fieldInfo.name);
+      final TokenStream stream=field.tokenStream(docState.analyzer);
+      stream.reset();
+      try {
+        boolean hasMoreTokens=stream.incrementToken();
+        fieldState.attributeSource=stream;
+        OffsetAttribute offsetAttribute=fieldState.attributeSource.addAttribute(OffsetAttribute.class);
+        PositionIncrementAttribute posIncrAttribute=fieldState.attributeSource.addAttribute(PositionIncrementAttribute.class);
+        consumer.start(field);
+        for (; ; ) {
+          if (!hasMoreTokens)           break;
+          final int posIncr=posIncrAttribute.getPositionIncrement();
+          fieldState.position+=posIncr;
+          if (fieldState.position > 0) {
+            fieldState.position--;
+          }
+          if (posIncr == 0)           fieldState.numOverlap++;
+          boolean success=false;
+          try {
+            consumer.add();
+            success=true;
+          }
+  finally {
+            if (!success) {
+              docState.docWriter.setAborting();
+            }
+          }
+          fieldState.length++;
+          fieldState.position++;
+          hasMoreTokens=stream.incrementToken();
+        }
+        stream.end();
+        fieldState.offset+=offsetAttribute.endOffset();
+      }
+  finally {
+        stream.close();
+      }
+      fieldState.offset+=docState.analyzer == null ? 0 : docState.analyzer.getOffsetGap(field);
+      fieldState.boost*=field.boost();
+    }
+    fields[i]=null;
+  }
+  consumer.finish();
+  endConsumer.finish();
 }
