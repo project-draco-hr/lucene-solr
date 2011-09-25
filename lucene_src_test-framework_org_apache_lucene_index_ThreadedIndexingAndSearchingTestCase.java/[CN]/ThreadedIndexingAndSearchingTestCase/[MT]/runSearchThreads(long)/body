@@ -1,0 +1,85 @@
+{
+  final int numThreads=_TestUtil.nextInt(random,1,5);
+  final Thread[] searchThreads=new Thread[numThreads];
+  final AtomicInteger totHits=new AtomicInteger();
+  final AtomicInteger totTermCount=new AtomicInteger(100);
+  for (int thread=0; thread < searchThreads.length; thread++) {
+    searchThreads[thread]=new Thread(){
+      @Override public void run(){
+        while (System.currentTimeMillis() < stopTimeMS) {
+          try {
+            final IndexSearcher s=getCurrentSearcher();
+            try {
+              if (s.getIndexReader().numDocs() > 0) {
+                smokeTestSearcher(s);
+                Fields fields=MultiFields.getFields(s.getIndexReader());
+                if (fields == null) {
+                  continue;
+                }
+                Terms terms=fields.terms("body");
+                if (terms == null) {
+                  continue;
+                }
+                TermsEnum termsEnum=terms.iterator();
+                int seenTermCount=0;
+                int shift;
+                int trigger;
+                if (totTermCount.get() < 10) {
+                  shift=0;
+                  trigger=1;
+                }
+ else {
+                  trigger=totTermCount.get() / 10;
+                  shift=random.nextInt(trigger);
+                }
+                BytesRef term=termsEnum.next();
+                if (term == null) {
+                  if (seenTermCount == 0) {
+                    break;
+                  }
+                  totTermCount.set(seenTermCount);
+                  seenTermCount=0;
+                  if (totTermCount.get() < 10) {
+                    shift=0;
+                    trigger=1;
+                  }
+ else {
+                    trigger=totTermCount.get() / 10;
+                    shift=random.nextInt(trigger);
+                  }
+                  termsEnum.seekCeil(new BytesRef(""));
+                  continue;
+                }
+                seenTermCount++;
+                if (trigger == 0) {
+                  trigger=1;
+                }
+                if ((seenTermCount + shift) % trigger == 0) {
+                  totHits.addAndGet(runQuery(s,new TermQuery(new Term("body",term))));
+                }
+              }
+            }
+  finally {
+              releaseSearcher(s);
+            }
+          }
+ catch (          Throwable t) {
+            System.out.println(Thread.currentThread().getName() + ": hit exc");
+            failed.set(true);
+            t.printStackTrace(System.out);
+            throw new RuntimeException(t);
+          }
+        }
+      }
+    }
+;
+    searchThreads[thread].setDaemon(true);
+    searchThreads[thread].start();
+  }
+  for (int thread=0; thread < searchThreads.length; thread++) {
+    searchThreads[thread].join();
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: DONE search: totHits=" + totHits);
+  }
+}
