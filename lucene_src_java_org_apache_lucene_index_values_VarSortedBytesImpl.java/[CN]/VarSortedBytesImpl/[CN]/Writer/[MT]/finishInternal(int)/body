@@ -1,0 +1,26 @@
+{
+  final int count=hash.size();
+  final IndexOutput datOut=getOrCreateDataOut();
+  long offset=0;
+  long lastOffset=0;
+  final int[] index=new int[count + 1];
+  final long[] offsets=new long[count];
+  final int[] sortedEntries=hash.sort(comp);
+  for (int i=0; i < count; i++) {
+    final int e=sortedEntries[i];
+    offsets[i]=offset;
+    index[e + 1]=1 + i;
+    final BytesRef bytes=hash.get(e,new BytesRef());
+    datOut.writeBytes(bytes.bytes,bytes.offset,bytes.length);
+    lastOffset=offset;
+    offset+=bytes.length;
+  }
+  final IndexOutput idxOut=getOrCreateIndexOut();
+  idxOut.writeLong(offset);
+  writeIndex(idxOut,docCount,count,index,docToEntry);
+  PackedInts.Writer offsetWriter=PackedInts.getWriter(idxOut,count,PackedInts.bitsRequired(lastOffset));
+  for (int i=0; i < count; i++) {
+    offsetWriter.add(offsets[i]);
+  }
+  offsetWriter.finish();
+}
