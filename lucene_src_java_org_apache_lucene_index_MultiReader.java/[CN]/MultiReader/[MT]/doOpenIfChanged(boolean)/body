@@ -1,20 +1,29 @@
 {
   ensureOpen();
-  boolean reopened=false;
+  boolean changed=false;
   IndexReader[] newSubReaders=new IndexReader[subReaders.length];
   boolean success=false;
   try {
     for (int i=0; i < subReaders.length; i++) {
-      if (doClone)       newSubReaders[i]=(IndexReader)subReaders[i].clone();
- else       newSubReaders[i]=subReaders[i].reopen();
-      if (newSubReaders[i] != subReaders[i]) {
-        reopened=true;
+      if (doClone) {
+        newSubReaders[i]=(IndexReader)subReaders[i].clone();
+        changed=true;
+      }
+ else {
+        final IndexReader newSubReader=IndexReader.openIfChanged(subReaders[i]);
+        if (newSubReader != null) {
+          newSubReaders[i]=newSubReader;
+          changed=true;
+        }
+ else {
+          newSubReaders[i]=subReaders[i];
+        }
       }
     }
     success=true;
   }
   finally {
-    if (!success && reopened) {
+    if (!success && changed) {
       for (int i=0; i < newSubReaders.length; i++) {
         if (newSubReaders[i] != subReaders[i]) {
           try {
@@ -26,7 +35,7 @@
       }
     }
   }
-  if (reopened) {
+  if (changed) {
     boolean[] newDecrefOnClose=new boolean[subReaders.length];
     for (int i=0; i < subReaders.length; i++) {
       if (newSubReaders[i] == subReaders[i]) {
@@ -39,6 +48,6 @@
     return mr;
   }
  else {
-    return this;
+    return null;
   }
 }
