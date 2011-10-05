@@ -1,0 +1,65 @@
+{
+  String docLang=null;
+  HashSet<String> docLangs=new HashSet<String>();
+  String fallbackLang=getFallbackLang(doc,fallbackFields,fallbackValue);
+  if (langField == null || !doc.containsKey(langField) || (doc.containsKey(langField) && overwrite)) {
+    String allText=concatFields(doc,inputFields);
+    List<DetectedLanguage> languagelist=detectLanguage(allText);
+    docLang=resolveLanguage(languagelist,fallbackLang);
+    docLangs.add(docLang);
+    log.debug("Detected main document language from fields " + inputFields + ": "+ docLang);
+    if (doc.containsKey(langField) && overwrite) {
+      log.debug("Overwritten old value " + doc.getFieldValue(langField));
+    }
+    if (langField != null && langField.length() != 0) {
+      doc.setField(langField,docLang);
+    }
+  }
+ else {
+    docLang=resolveLanguage((String)doc.getFieldValue(langField),fallbackLang);
+    docLangs.add(docLang);
+    log.debug("Field " + langField + " already contained value "+ docLang+ ", not overwriting.");
+  }
+  if (enableMapping) {
+    for (    String fieldName : allMapFieldsSet) {
+      if (doc.containsKey(fieldName)) {
+        String fieldLang;
+        if (mapIndividual && mapIndividualFieldsSet.contains(fieldName)) {
+          String text=(String)doc.getFieldValue(fieldName);
+          List<DetectedLanguage> languagelist=detectLanguage(text);
+          fieldLang=resolveLanguage(languagelist,docLang);
+          docLangs.add(fieldLang);
+          log.debug("Mapping field " + fieldName + " using individually detected language "+ fieldLang);
+        }
+ else {
+          fieldLang=docLang;
+          log.debug("Mapping field " + fieldName + " using document global language "+ fieldLang);
+        }
+        String mappedOutputField=getMappedField(fieldName,fieldLang);
+        if (enforceSchema && schema.getFieldOrNull(fieldName) == null) {
+          log.warn("Unsuccessful field name mapping to {}, field does not exist, skipping mapping.",mappedOutputField,fieldName);
+          mappedOutputField=fieldName;
+        }
+        if (mappedOutputField != null) {
+          log.debug("Mapping field {} to {}",doc.getFieldValue(docIdField),fieldLang);
+          SolrInputField inField=doc.getField(fieldName);
+          doc.setField(mappedOutputField,inField.getValue(),inField.getBoost());
+          if (!mapKeepOrig) {
+            log.debug("Removing old field {}",fieldName);
+            doc.removeField(fieldName);
+          }
+        }
+ else {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid output field mapping for " + fieldName + " field and language: "+ fieldLang);
+        }
+      }
+ else {
+        log.warn("Document {} does not contain input field {}. Skipping this field.",doc.getFieldValue(docIdField),fieldName);
+      }
+    }
+  }
+  if (langsField != null && langsField.length() != 0) {
+    doc.setField(langsField,docLangs.toArray());
+  }
+  return doc;
+}
