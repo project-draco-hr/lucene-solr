@@ -79,8 +79,8 @@
     final IndexReader r=w.getReader();
     w.close();
     final int[] docIDToID=FieldCache.DEFAULT.getInts(r,"id");
-    IndexReader r2=null;
-    Directory dir2=null;
+    IndexReader rBlocks=null;
+    Directory dirBlocks=null;
     try {
       final IndexSearcher s=newSearcher(r);
       final ShardState shards=new ShardState(s);
@@ -96,28 +96,28 @@
       for (      GroupDoc gd : groupDocs) {
         assertTrue(gd.score != 0.0);
       }
-      dir2=newDirectory();
-      r2=getDocBlockReader(dir2,groupDocs);
+      dirBlocks=newDirectory();
+      rBlocks=getDocBlockReader(dirBlocks,groupDocs);
       final Filter lastDocInBlock=new CachingWrapperFilter(new QueryWrapperFilter(new TermQuery(new Term("groupend","x"))));
-      final int[] docIDToID2=FieldCache.DEFAULT.getInts(r2,"id");
-      final IndexSearcher s2=newSearcher(r2);
-      final ShardState shards2=new ShardState(s2);
+      final int[] docIDToIDBlocks=FieldCache.DEFAULT.getInts(rBlocks,"id");
+      final IndexSearcher sBlocks=newSearcher(rBlocks);
+      final ShardState shardsBlocks=new ShardState(sBlocks);
       final Map<String,Map<Float,Float>> scoreMap=new HashMap<String,Map<Float,Float>>();
       for (int contentID=0; contentID < 3; contentID++) {
         final Map<Float,Float> termScoreMap=new HashMap<Float,Float>();
         scoreMap.put("real" + contentID,termScoreMap);
-        final ScoreDoc[] hits=s2.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
+        final ScoreDoc[] hits=sBlocks.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
         for (        ScoreDoc hit : hits) {
-          final GroupDoc gd=groupDocsByID[docIDToID2[hit.doc]];
+          final GroupDoc gd=groupDocsByID[docIDToIDBlocks[hit.doc]];
           assertTrue(gd.score2 == 0.0);
           gd.score2=hit.score;
-          assertEquals(gd.id,docIDToID2[hit.doc]);
+          assertEquals(gd.id,docIDToIDBlocks[hit.doc]);
           termScoreMap.put(gd.score,gd.score2);
         }
       }
       for (int searchIter=0; searchIter < 100; searchIter++) {
         if (VERBOSE) {
-          System.out.println("TEST: searchIter=" + searchIter);
+          System.out.println("\nTEST: searchIter=" + searchIter);
         }
         final String searchTerm="real" + random.nextInt(3);
         final boolean fillFields=random.nextBoolean();
@@ -142,7 +142,7 @@
         final boolean doCache=random.nextBoolean();
         final boolean doAllGroups=random.nextBoolean();
         if (VERBOSE) {
-          System.out.println("TEST: groupSort=" + groupSort + " docSort="+ docSort+ " searchTerm="+ searchTerm+ " topNGroups="+ topNGroups+ " groupOffset="+ groupOffset+ " docOffset="+ docOffset+ " doCache="+ doCache+ " docsPerGroup="+ docsPerGroup+ " doAllGroups="+ doAllGroups+ " getScores="+ getScores+ " getMaxScores="+ getMaxScores);
+          System.out.println("TEST: groupSort=" + groupSort + " docSort="+ docSort+ " searchTerm="+ searchTerm+ " dF="+ r.docFreq("content",new BytesRef(searchTerm))+ " dFBlock="+ rBlocks.docFreq("content",new BytesRef(searchTerm))+ " topNGroups="+ topNGroups+ " groupOffset="+ groupOffset+ " docOffset="+ docOffset+ " doCache="+ doCache+ " docsPerGroup="+ docsPerGroup+ " doAllGroups="+ doAllGroups+ " getScores="+ getScores+ " getMaxScores="+ getMaxScores);
         }
         final TermAllGroupsCollector allGroupsCollector;
         if (doAllGroups) {
@@ -182,8 +182,8 @@
             c=c1;
           }
         }
-        final Query q=new TermQuery(new Term("content",searchTerm));
-        s.search(q,c);
+        final Query query=new TermQuery(new Term("content",searchTerm));
+        s.search(query,c);
         if (doCache && !useWrappingCollector) {
           if (cCache.isCached()) {
             cCache.replay(c1);
@@ -192,33 +192,27 @@
             }
           }
  else {
-            s.search(new TermQuery(new Term("content",searchTerm)),c1);
+            s.search(query,c1);
             if (doAllGroups) {
-              s.search(new TermQuery(new Term("content",searchTerm)),allGroupsCollector);
+              s.search(query,allGroupsCollector);
             }
           }
         }
         final Collection<SearchGroup<BytesRef>> topGroups=c1.getTopGroups(groupOffset,fillFields);
-        final TopGroups groupsResult;
         if (VERBOSE) {
-          System.out.println("TEST: topGroups:");
+          System.out.println("TEST: first pass topGroups");
           if (topGroups == null) {
             System.out.println("  null");
           }
  else {
-            for (            SearchGroup<BytesRef> groupx : topGroups) {
-              System.out.println("    " + groupToString(groupx.groupValue) + " sort="+ Arrays.toString(groupx.sortValues));
+            for (            SearchGroup<BytesRef> searchGroup : topGroups) {
+              System.out.println("  " + (searchGroup.groupValue == null ? "null" : searchGroup.groupValue) + ": "+ Arrays.deepToString(searchGroup.sortValues));
             }
           }
         }
-        final TopGroups<BytesRef> topGroupsShards=searchShards(s,shards.subSearchers,q,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
+        final TopGroups<BytesRef> topGroupsShards=searchShards(s,shards.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
+        final TopGroups<BytesRef> groupsResult;
         if (topGroups != null) {
-          if (VERBOSE) {
-            System.out.println("TEST: topGroups");
-            for (            SearchGroup<BytesRef> searchGroup : topGroups) {
-              System.out.println("  " + (searchGroup.groupValue == null ? "null" : searchGroup.groupValue.utf8ToString()) + ": "+ Arrays.deepToString(searchGroup.sortValues));
-            }
-          }
           final TermSecondPassGroupingCollector c2=new TermSecondPassGroupingCollector("group",topGroups,groupSort,docSort,docOffset + docsPerGroup,getScores,getMaxScores,fillFields);
           if (doCache) {
             if (cCache.isCached()) {
@@ -231,11 +225,11 @@
               if (VERBOSE) {
                 System.out.println("TEST: cache was too large");
               }
-              s.search(new TermQuery(new Term("content",searchTerm)),c2);
+              s.search(query,c2);
             }
           }
  else {
-            s.search(new TermQuery(new Term("content",searchTerm)),c2);
+            s.search(query,c2);
           }
           if (doAllGroups) {
             TopGroups<BytesRef> tempTopGroups=c2.getTopGroups(docOffset);
@@ -257,11 +251,28 @@
             System.out.println("TEST: no expected groups");
           }
  else {
-            System.out.println("TEST: expected groups");
+            System.out.println("TEST: expected groups totalGroupedHitCount=" + expectedGroups.totalGroupedHitCount);
             for (            GroupDocs<BytesRef> gd : expectedGroups.groups) {
-              System.out.println("  group=" + (gd.groupValue == null ? "null" : gd.groupValue.utf8ToString()));
+              System.out.println("  group=" + (gd.groupValue == null ? "null" : gd.groupValue) + " totalHits="+ gd.totalHits);
               for (              ScoreDoc sd : gd.scoreDocs) {
                 System.out.println("    id=" + sd.doc + " score="+ sd.score);
+              }
+            }
+          }
+          if (groupsResult == null) {
+            System.out.println("TEST: no matched groups");
+          }
+ else {
+            System.out.println("TEST: matched groups totalGroupedHitCount=" + groupsResult.totalGroupedHitCount);
+            for (            GroupDocs<BytesRef> gd : groupsResult.groups) {
+              System.out.println("  group=" + (gd.groupValue == null ? "null" : gd.groupValue) + " totalHits="+ gd.totalHits);
+              for (              ScoreDoc sd : gd.scoreDocs) {
+                System.out.println("    id=" + docIDToID[sd.doc] + " score="+ sd.score);
+              }
+            }
+            if (searchIter == 14) {
+              for (int docIDX=0; docIDX < s.maxDoc(); docIDX++) {
+                System.out.println("ID=" + docIDToID[docIDX] + " explain="+ s.explain(query,docIDX));
               }
             }
           }
@@ -283,17 +294,36 @@
           allGroupsCollector2=null;
           c4=c3;
         }
-        s2.search(new TermQuery(new Term("content",searchTerm)),c4);
-        @SuppressWarnings("unchecked") final TopGroups<BytesRef> tempTopGroups2=c3.getTopGroups(docSort,groupOffset,docOffset,docOffset + docsPerGroup,fillFields);
-        final TopGroups groupsResult2;
-        if (doAllGroups && tempTopGroups2 != null) {
-          assertEquals((int)tempTopGroups2.totalGroupCount,allGroupsCollector2.getGroupCount());
-          groupsResult2=new TopGroups<BytesRef>(tempTopGroups2,allGroupsCollector2.getGroupCount());
+        sBlocks.search(query,c4);
+        @SuppressWarnings("unchecked") final TopGroups<BytesRef> tempTopGroupsBlocks=c3.getTopGroups(docSort,groupOffset,docOffset,docOffset + docsPerGroup,fillFields);
+        final TopGroups<BytesRef> groupsResultBlocks;
+        if (doAllGroups && tempTopGroupsBlocks != null) {
+          assertEquals((int)tempTopGroupsBlocks.totalGroupCount,allGroupsCollector2.getGroupCount());
+          groupsResultBlocks=new TopGroups<BytesRef>(tempTopGroupsBlocks,allGroupsCollector2.getGroupCount());
         }
  else {
-          groupsResult2=tempTopGroups2;
+          groupsResultBlocks=tempTopGroupsBlocks;
         }
-        final TopGroups<BytesRef> topGroupsBlockShards=searchShards(s2,shards2.subSearchers,q,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
+        if (VERBOSE) {
+          if (groupsResultBlocks == null) {
+            System.out.println("TEST: no block groups");
+          }
+ else {
+            System.out.println("TEST: block groups totalGroupedHitCount=" + groupsResultBlocks.totalGroupedHitCount);
+            boolean first=true;
+            for (            GroupDocs<BytesRef> gd : groupsResultBlocks.groups) {
+              System.out.println("  group=" + (gd.groupValue == null ? "null" : gd.groupValue.utf8ToString()) + " totalHits="+ gd.totalHits);
+              for (              ScoreDoc sd : gd.scoreDocs) {
+                System.out.println("    id=" + docIDToIDBlocks[sd.doc] + " score="+ sd.score);
+                if (first) {
+                  System.out.println("explain: " + sBlocks.explain(query,sd.doc));
+                  first=false;
+                }
+              }
+            }
+          }
+        }
+        final TopGroups<BytesRef> topGroupsBlockShards=searchShards(sBlocks,shardsBlocks.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
         if (expectedGroups != null) {
           for (          GroupDocs groupDocsHits : expectedGroups.groups) {
             for (            ScoreDoc hit : groupDocsHits.scoreDocs) {
@@ -329,21 +359,21 @@
             }
           }
         }
-        assertEquals(docIDToID2,expectedGroups,groupsResult2,false,true,true,getScores);
-        assertEquals(docIDToID2,expectedGroups,topGroupsBlockShards,false,false,fillFields,getScores);
+        assertEquals(docIDToIDBlocks,expectedGroups,groupsResultBlocks,false,true,true,getScores);
+        assertEquals(docIDToIDBlocks,expectedGroups,topGroupsBlockShards,false,false,fillFields,getScores);
       }
       s.close();
-      s2.close();
+      sBlocks.close();
     }
   finally {
       FieldCache.DEFAULT.purge(r);
-      if (r2 != null) {
-        FieldCache.DEFAULT.purge(r2);
+      if (rBlocks != null) {
+        FieldCache.DEFAULT.purge(rBlocks);
       }
     }
     r.close();
     dir.close();
-    r2.close();
-    dir2.close();
+    rBlocks.close();
+    dirBlocks.close();
   }
 }
