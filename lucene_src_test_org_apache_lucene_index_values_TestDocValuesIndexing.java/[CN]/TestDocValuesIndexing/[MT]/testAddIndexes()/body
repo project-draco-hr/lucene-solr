@@ -4,7 +4,6 @@
   Collections.shuffle(values,random);
   ValueType first=values.get(0);
   ValueType second=values.get(1);
-  String msg="[first=" + first.name() + ", second="+ second.name()+ "]";
   Directory d_1=newDirectory();
   IndexWriter w_1=new IndexWriter(d_1,writerConfig(random.nextBoolean()));
   indexValues(w_1,valuesPerIndex,first,values,false,7);
@@ -32,32 +31,60 @@
   _TestUtil.checkIndex(target,w.getConfig().getCodecProvider());
   assertEquals(valuesPerIndex * 2,w.maxDoc());
   IndexReader merged=IndexReader.open(w,true);
-  ValuesEnum vE_1=getValuesEnum(getDocValues(r_1,first.name()));
-  ValuesEnum vE_2=getValuesEnum(getDocValues(r_2,second.name()));
-  ValuesEnum vE_1_merged=getValuesEnum(getDocValues(merged,first.name()));
-  ValuesEnum vE_2_merged=getValuesEnum(getDocValues(merged,second.name()));
-switch (second) {
+  Source source_1=getSource(getDocValues(r_1,first.name()));
+  Source source_2=getSource(getDocValues(r_2,second.name()));
+  Source source_1_merged=getSource(getDocValues(merged,first.name()));
+  Source source_2_merged=getSource(getDocValues(merged,second.name()));
+  for (int i=0; i < r_1.maxDoc(); i++) {
+switch (first) {
+case BYTES_FIXED_DEREF:
 case BYTES_FIXED_STRAIGHT:
+case BYTES_VAR_DEREF:
 case BYTES_VAR_STRAIGHT:
-case FLOAT_32:
-case FLOAT_64:
-case VAR_INTS:
+case BYTES_FIXED_SORTED:
+case BYTES_VAR_SORTED:
+      assertEquals(source_1.getBytes(i,new BytesRef()),source_1_merged.getBytes(i,new BytesRef()));
+    break;
 case FIXED_INTS_16:
 case FIXED_INTS_32:
 case FIXED_INTS_64:
 case FIXED_INTS_8:
-    assertEquals(msg,valuesPerIndex - 1,vE_2_merged.advance(valuesPerIndex - 1));
+case VAR_INTS:
+  assertEquals(source_1.getInt(i),source_1_merged.getInt(i));
+break;
+case FLOAT_32:
+case FLOAT_64:
+assertEquals(source_1.getFloat(i),source_1_merged.getFloat(i),0.0d);
+break;
+default :
+fail("unkonwn " + first);
 }
-for (int i=0; i < valuesPerIndex; i++) {
-  assertEquals(msg,i,vE_1.nextDoc());
-  assertEquals(msg,i,vE_1_merged.nextDoc());
-  assertEquals(msg,i,vE_2.nextDoc());
-  assertEquals(msg,i + valuesPerIndex,vE_2_merged.nextDoc());
 }
-assertEquals(msg,ValuesEnum.NO_MORE_DOCS,vE_1.nextDoc());
-assertEquals(msg,ValuesEnum.NO_MORE_DOCS,vE_2.nextDoc());
-assertEquals(msg,ValuesEnum.NO_MORE_DOCS,vE_1_merged.advance(valuesPerIndex * 2));
-assertEquals(msg,ValuesEnum.NO_MORE_DOCS,vE_2_merged.nextDoc());
+for (int i=r_1.maxDoc(); i < merged.maxDoc(); i++) {
+switch (second) {
+case BYTES_FIXED_DEREF:
+case BYTES_FIXED_STRAIGHT:
+case BYTES_VAR_DEREF:
+case BYTES_VAR_STRAIGHT:
+case BYTES_FIXED_SORTED:
+case BYTES_VAR_SORTED:
+assertEquals(source_2.getBytes(i - r_1.maxDoc(),new BytesRef()),source_2_merged.getBytes(i,new BytesRef()));
+break;
+case FIXED_INTS_16:
+case FIXED_INTS_32:
+case FIXED_INTS_64:
+case FIXED_INTS_8:
+case VAR_INTS:
+assertEquals(source_2.getInt(i - r_1.maxDoc()),source_2_merged.getInt(i));
+break;
+case FLOAT_32:
+case FLOAT_64:
+assertEquals(source_2.getFloat(i - r_1.maxDoc()),source_2_merged.getFloat(i),0.0d);
+break;
+default :
+fail("unkonwn " + first);
+}
+}
 r_1.close();
 r_2.close();
 merged.close();
