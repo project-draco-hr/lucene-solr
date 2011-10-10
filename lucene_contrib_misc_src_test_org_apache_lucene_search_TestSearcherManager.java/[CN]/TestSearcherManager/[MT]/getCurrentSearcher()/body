@@ -1,6 +1,32 @@
 {
   if (random.nextInt(10) == 7) {
-    mgr.maybeReopen();
+    if (mgr.maybeReopen()) {
+      lifetimeMGR.prune(pruner);
+    }
   }
-  return mgr.acquire();
+  IndexSearcher s=null;
+synchronized (pastSearchers) {
+    while (pastSearchers.size() != 0 && random.nextDouble() < 0.25) {
+      final Long token=pastSearchers.get(random.nextInt(pastSearchers.size()));
+      s=lifetimeMGR.acquire(token);
+      if (s == null) {
+        pastSearchers.remove(token);
+      }
+ else {
+        break;
+      }
+    }
+  }
+  if (s == null) {
+    s=mgr.acquire();
+    if (s.getIndexReader().numDocs() != 0) {
+      Long token=lifetimeMGR.record(s);
+synchronized (pastSearchers) {
+        if (!pastSearchers.contains(token)) {
+          pastSearchers.add(token);
+        }
+      }
+    }
+  }
+  return s;
 }
