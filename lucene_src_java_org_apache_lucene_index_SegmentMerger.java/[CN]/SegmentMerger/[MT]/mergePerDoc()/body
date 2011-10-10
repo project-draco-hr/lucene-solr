@@ -1,31 +1,16 @@
 {
-  final List<PerDocValues> perDocProducers=new ArrayList<PerDocValues>();
-  final List<ReaderUtil.Slice> perDocSlices=new ArrayList<ReaderUtil.Slice>();
-  int docBase=0;
-  for (  MergeState.IndexReaderAndLiveDocs r : readers) {
-    final int maxDoc=r.reader.maxDoc();
-    final PerDocValues producer=r.reader.perDocValues();
-    if (producer != null) {
-      perDocSlices.add(new ReaderUtil.Slice(docBase,maxDoc,perDocProducers.size()));
-      perDocProducers.add(producer);
-    }
-    docBase+=maxDoc;
+  final PerDocConsumer docsConsumer=codec.docsConsumer(new PerDocWriteState(segmentWriteState));
+  boolean success=false;
+  try {
+    docsConsumer.merge(mergeState);
+    success=true;
   }
-  if (!perDocSlices.isEmpty()) {
-    final PerDocConsumer docsConsumer=codec.docsConsumer(new PerDocWriteState(segmentWriteState));
-    boolean success=false;
-    try {
-      final MultiPerDocValues multiPerDocValues=new MultiPerDocValues(perDocProducers.toArray(PerDocValues.EMPTY_ARRAY),perDocSlices.toArray(ReaderUtil.Slice.EMPTY_ARRAY));
-      docsConsumer.merge(mergeState,multiPerDocValues);
-      success=true;
-    }
   finally {
-      if (success) {
-        IOUtils.close(docsConsumer);
-      }
+    if (success) {
+      IOUtils.close(docsConsumer);
+    }
  else {
-        IOUtils.closeWhileHandlingException(docsConsumer);
-      }
+      IOUtils.closeWhileHandlingException(docsConsumer);
     }
   }
 }
