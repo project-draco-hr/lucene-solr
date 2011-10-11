@@ -1,16 +1,31 @@
 {
+  boolean useRandomSampler=random.nextBoolean();
   for (  int partitionSize : partitionSizes) {
-    initIndex(partitionSize);
-    Query q=new TermQuery(new Term(CONTENT_FIELD,BETA));
-    ScoredDocIdCollector docCollector=ScoredDocIdCollector.create(searcher.maxDoc(),false);
-    FacetSearchParams expectedSearchParams=searchParamsWithRequests(K,partitionSize);
-    FacetsCollector fc=new FacetsCollector(expectedSearchParams,indexReader,taxoReader);
-    searcher.search(q,MultiCollector.wrap(docCollector,fc));
-    List<FacetResult> expectedResults=fc.getFacetResults();
-    final Sampler sampler=createSampler(docCollector.getScoredDocIDs());
-    FacetSearchParams samplingSearchParams=searchParamsWithRequests(K,partitionSize);
-    assertSampling(expectedResults,q,sampler,samplingSearchParams,false);
-    assertSampling(expectedResults,q,sampler,samplingSearchParams,true);
-    closeAll();
+    try {
+      initIndex(partitionSize);
+      Query q=new TermQuery(new Term(CONTENT_FIELD,BETA));
+      ScoredDocIdCollector docCollector=ScoredDocIdCollector.create(searcher.maxDoc(),false);
+      FacetSearchParams expectedSearchParams=searchParamsWithRequests(K,partitionSize);
+      FacetsCollector fc=new FacetsCollector(expectedSearchParams,indexReader,taxoReader);
+      searcher.search(q,MultiCollector.wrap(docCollector,fc));
+      List<FacetResult> expectedResults=fc.getFacetResults();
+      FacetSearchParams samplingSearchParams=searchParamsWithRequests(K,partitionSize);
+      for (int nTrial=0; nTrial < RETRIES; nTrial++) {
+        try {
+          final Sampler sampler=createSampler(nTrial,docCollector.getScoredDocIDs(),useRandomSampler);
+          assertSampling(expectedResults,q,sampler,samplingSearchParams,false);
+          assertSampling(expectedResults,q,sampler,samplingSearchParams,true);
+          break;
+        }
+ catch (        NotSameResultError e) {
+          if (nTrial >= RETRIES - 1) {
+            throw e;
+          }
+        }
+      }
+    }
+  finally {
+      closeAll();
+    }
   }
 }
