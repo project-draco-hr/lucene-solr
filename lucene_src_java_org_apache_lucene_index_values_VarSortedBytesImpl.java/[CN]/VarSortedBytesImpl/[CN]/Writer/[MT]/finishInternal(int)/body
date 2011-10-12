@@ -2,25 +2,22 @@
   fillDefault(docCount);
   final int count=hash.size();
   final IndexOutput datOut=getOrCreateDataOut();
+  final IndexOutput idxOut=getOrCreateIndexOut();
   long offset=0;
   final int[] index=new int[count];
-  final long[] offsets=new long[count];
   final int[] sortedEntries=hash.sort(comp);
+  idxOut.writeLong(maxBytes);
+  PackedInts.Writer offsetWriter=PackedInts.getWriter(idxOut,count + 1,PackedInts.bitsRequired(maxBytes));
+  final BytesRef spare=new BytesRef();
   for (int i=0; i < count; i++) {
     final int e=sortedEntries[i];
-    offsets[i]=offset;
+    offsetWriter.add(offset);
     index[e]=i;
-    final BytesRef bytes=hash.get(e,new BytesRef());
+    final BytesRef bytes=hash.get(e,spare);
     datOut.writeBytes(bytes.bytes,bytes.offset,bytes.length);
     offset+=bytes.length;
   }
-  final IndexOutput idxOut=getOrCreateIndexOut();
-  idxOut.writeLong(offset);
-  writeIndex(idxOut,docCount,count,index,docToEntry);
-  PackedInts.Writer offsetWriter=PackedInts.getWriter(idxOut,count + 1,PackedInts.bitsRequired(offset));
-  for (int i=0; i < count; i++) {
-    offsetWriter.add(offsets[i]);
-  }
   offsetWriter.add(offset);
   offsetWriter.finish();
+  writeIndex(idxOut,docCount,count,index,docToEntry);
 }

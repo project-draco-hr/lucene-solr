@@ -1,0 +1,27 @@
+{
+  boolean success=false;
+  try {
+    final MergeContext ctx=SortedBytesMergeUtils.init(ValueType.BYTES_FIXED_SORTED,docValues,comp,mergeState);
+    List<SortedSourceSlice> slices=SortedBytesMergeUtils.buildSlices(mergeState,docValues,ctx);
+    final IndexOutput datOut=getOrCreateDataOut();
+    datOut.writeInt(ctx.sizePerValues);
+    final int maxOrd=SortedBytesMergeUtils.mergeRecords(ctx,datOut,slices);
+    final IndexOutput idxOut=getOrCreateIndexOut();
+    idxOut.writeInt(maxOrd);
+    final PackedInts.Writer ordsWriter=PackedInts.getWriter(idxOut,ctx.docToEntry.length,PackedInts.bitsRequired(maxOrd));
+    for (    SortedSourceSlice slice : slices) {
+      slice.writeOrds(ordsWriter);
+    }
+    ordsWriter.finish();
+    success=true;
+  }
+  finally {
+    releaseResources();
+    if (success) {
+      IOUtils.close(getIndexOut(),getDataOut());
+    }
+ else {
+      IOUtils.closeWhileHandlingException(getIndexOut(),getDataOut());
+    }
+  }
+}
