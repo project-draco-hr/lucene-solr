@@ -1,0 +1,39 @@
+{
+  final Directory d=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random,d);
+  Document doc=new Document();
+  doc.add(new TextField("field","0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33"));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(new TextField("field","33"));
+  w.addDocument(doc);
+  final IndexReader r=w.getReader();
+  w.close();
+  final IndexSearcher s=newSearcher(r);
+  final BooleanQuery q=new BooleanQuery();
+  for (int term=0; term < 33; term++) {
+    q.add(new BooleanClause(new TermQuery(new Term("field","" + term)),BooleanClause.Occur.MUST_NOT));
+  }
+  q.add(new BooleanClause(new TermQuery(new Term("field","33")),BooleanClause.Occur.SHOULD));
+  final int[] count=new int[1];
+  s.search(q,new Collector(){
+    private Scorer scorer;
+    @Override public void setScorer(    Scorer scorer){
+      this.scorer=scorer;
+      assertEquals("Scorer is implemented by wrong class",BooleanScorer.class.getName() + "$BucketScorer",scorer.getClass().getName());
+    }
+    @Override public void collect(    int doc) throws IOException {
+      count[0]++;
+    }
+    @Override public void setNextReader(    AtomicReaderContext context){
+    }
+    @Override public boolean acceptsDocsOutOfOrder(){
+      return true;
+    }
+  }
+);
+  assertEquals(1,count[0]);
+  s.close();
+  r.close();
+  d.close();
+}
