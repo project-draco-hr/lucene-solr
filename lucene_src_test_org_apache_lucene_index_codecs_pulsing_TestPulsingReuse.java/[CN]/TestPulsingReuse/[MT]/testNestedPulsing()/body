@@ -1,0 +1,32 @@
+{
+  CodecProvider cp=_TestUtil.alwaysCodec(new NestedPulsing());
+  MockDirectoryWrapper dir=newDirectory();
+  dir.setCheckIndexOnClose(false);
+  RandomIndexWriter iw=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setCodecProvider(cp));
+  Document doc=new Document();
+  doc.add(new Field("foo","a b b c c c d e f g g g h i i j j k l l m m m",TextField.TYPE_UNSTORED));
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexReader segment=ir.getSequentialSubReaders()[0];
+  DocsEnum reuse=null;
+  Map<DocsEnum,Boolean> allEnums=new IdentityHashMap<DocsEnum,Boolean>();
+  TermsEnum te=segment.terms("foo").iterator();
+  while (te.next() != null) {
+    reuse=te.docs(null,reuse);
+    allEnums.put(reuse,true);
+  }
+  assertEquals(4,allEnums.size());
+  allEnums.clear();
+  DocsAndPositionsEnum posReuse=null;
+  te=segment.terms("foo").iterator();
+  while (te.next() != null) {
+    posReuse=te.docsAndPositions(null,posReuse);
+    allEnums.put(posReuse,true);
+  }
+  assertEquals(4,allEnums.size());
+  ir.close();
+  CheckIndex ci=new CheckIndex(dir);
+  ci.checkIndex(null,cp);
+  dir.close();
+}
