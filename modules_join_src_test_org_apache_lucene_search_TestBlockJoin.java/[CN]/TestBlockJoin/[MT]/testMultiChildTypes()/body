@@ -1,0 +1,54 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random,dir);
+  final List<Document> docs=new ArrayList<Document>();
+  docs.add(makeJob("java",2007));
+  docs.add(makeJob("python",2010));
+  docs.add(makeQualification("maths",1999));
+  docs.add(makeResume("Lisa","United Kingdom"));
+  w.addDocuments(docs);
+  IndexReader r=w.getReader();
+  w.close();
+  IndexSearcher s=new IndexSearcher(r);
+  Filter parentsFilter=new CachingWrapperFilter(new QueryWrapperFilter(new TermQuery(new Term("docType","resume"))));
+  BooleanQuery childJobQuery=new BooleanQuery();
+  childJobQuery.add(new BooleanClause(new TermQuery(new Term("skill","java")),Occur.MUST));
+  childJobQuery.add(new BooleanClause(NumericRangeQuery.newIntRange("year",2006,2011,true,true),Occur.MUST));
+  BooleanQuery childQualificationQuery=new BooleanQuery();
+  childQualificationQuery.add(new BooleanClause(new TermQuery(new Term("qualification","maths")),Occur.MUST));
+  childQualificationQuery.add(new BooleanClause(NumericRangeQuery.newIntRange("year",1980,2000,true,true),Occur.MUST));
+  Query parentQuery=new TermQuery(new Term("country","United Kingdom"));
+  BlockJoinQuery childJobJoinQuery=new BlockJoinQuery(childJobQuery,parentsFilter,BlockJoinQuery.ScoreMode.Avg);
+  BlockJoinQuery childQualificationJoinQuery=new BlockJoinQuery(childQualificationQuery,parentsFilter,BlockJoinQuery.ScoreMode.Avg);
+  BooleanQuery fullQuery=new BooleanQuery();
+  fullQuery.add(new BooleanClause(parentQuery,Occur.MUST));
+  fullQuery.add(new BooleanClause(childJobJoinQuery,Occur.MUST));
+  fullQuery.add(new BooleanClause(childQualificationJoinQuery,Occur.MUST));
+  BlockJoinCollector c=new BlockJoinCollector(Sort.RELEVANCE,10,true,false);
+  s.search(fullQuery,c);
+  boolean showNullPointerIssue=true;
+  if (showNullPointerIssue) {
+    TopGroups<Integer> jobResults=c.getTopGroups(childJobJoinQuery,null,0,10,0,true);
+    assertEquals(1,jobResults.totalGroupedHitCount);
+    assertEquals(1,jobResults.groups.length);
+    final GroupDocs<Integer> group=jobResults.groups[0];
+    assertEquals(1,group.totalHits);
+    Document childJobDoc=s.doc(group.scoreDocs[0].doc);
+    assertEquals("java",childJobDoc.get("skill"));
+    assertNotNull(group.groupValue);
+    Document parentDoc=s.doc(group.groupValue);
+    assertEquals("Lisa",parentDoc.get("name"));
+  }
+  TopGroups<Integer> qualificationResults=c.getTopGroups(childQualificationJoinQuery,null,0,10,0,true);
+  assertEquals(1,qualificationResults.totalGroupedHitCount);
+  assertEquals(1,qualificationResults.groups.length);
+  final GroupDocs<Integer> qGroup=qualificationResults.groups[0];
+  assertEquals(1,qGroup.totalHits);
+  Document childQualificationDoc=s.doc(qGroup.scoreDocs[0].doc);
+  assertEquals("maths",childQualificationDoc.get("qualification"));
+  assertNotNull(qGroup.groupValue);
+  Document parentDoc=s.doc(qGroup.groupValue);
+  assertEquals("Lisa",parentDoc.get("name"));
+  r.close();
+  dir.close();
+}
