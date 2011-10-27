@@ -1,5 +1,50 @@
 {
-  defaultResponseWriter=initPlugins(responseWriters,QueryResponseWriter.class);
+  Map<PluginInfo,QueryResponseWriter> writers=new LinkedHashMap<PluginInfo,QueryResponseWriter>();
+  for (  PluginInfo info : solrConfig.getPluginInfos(QueryResponseWriter.class.getName())) {
+    try {
+      QueryResponseWriter writer;
+      String startup=info.attributes.get("startup");
+      if (startup != null) {
+        if ("lazy".equals(startup)) {
+          log.info("adding lazy queryResponseWriter: " + info.className);
+          writer=new LazyQueryResponseWriterWrapper(this,info.className,info.initArgs);
+        }
+ else {
+          throw new Exception("Unknown startup value: '" + startup + "' for: "+ info.className);
+        }
+      }
+ else {
+        writer=createQueryResponseWriter(info.className);
+      }
+      writers.put(info,writer);
+      QueryResponseWriter old=registerResponseWriter(info.name,writer);
+      if (old != null) {
+        log.warn("Multiple queryResponseWriter registered to the same name: " + info.name + " ignoring: "+ old.getClass().getName());
+      }
+      if (info.isDefault()) {
+        defaultResponseWriter=writer;
+        if (defaultResponseWriter != null)         log.warn("Multiple default queryResponseWriter registered ignoring: " + old.getClass().getName());
+      }
+      log.info("created " + info.name + ": "+ info.className);
+    }
+ catch (    Exception ex) {
+      SolrConfig.severeErrors.add(ex);
+      SolrException e=new SolrException(SolrException.ErrorCode.SERVER_ERROR,"QueryResponseWriter init failure",ex);
+      SolrException.logOnce(log,null,e);
+      throw e;
+    }
+  }
+  for (  Map.Entry<PluginInfo,QueryResponseWriter> entry : writers.entrySet()) {
+    PluginInfo info=entry.getKey();
+    QueryResponseWriter writer=entry.getValue();
+    responseWriters.put(info.name,writer);
+    if (writer instanceof PluginInfoInitialized) {
+      ((PluginInfoInitialized)writer).init(info);
+    }
+ else {
+      writer.init(info.initArgs);
+    }
+  }
   for (  Map.Entry<String,QueryResponseWriter> entry : DEFAULT_RESPONSE_WRITERS.entrySet()) {
     if (responseWriters.get(entry.getKey()) == null)     responseWriters.put(entry.getKey(),entry.getValue());
   }
