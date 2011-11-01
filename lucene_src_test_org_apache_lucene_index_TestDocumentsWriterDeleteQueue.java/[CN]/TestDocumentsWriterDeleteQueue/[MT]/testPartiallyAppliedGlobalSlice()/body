@@ -1,0 +1,23 @@
+{
+  final DocumentsWriterDeleteQueue queue=new DocumentsWriterDeleteQueue();
+  Field field=DocumentsWriterDeleteQueue.class.getDeclaredField("globalBufferLock");
+  field.setAccessible(true);
+  ReentrantLock lock=(ReentrantLock)field.get(queue);
+  lock.lock();
+  Thread t=new Thread(){
+    public void run(){
+      queue.addDelete(new Term("foo","bar"));
+    }
+  }
+;
+  t.start();
+  t.join();
+  lock.unlock();
+  assertTrue("changes in del queue but not in slice yet",queue.anyChanges());
+  queue.tryApplyGlobalSlice();
+  assertTrue("changes in global buffer",queue.anyChanges());
+  FrozenBufferedDeletes freezeGlobalBuffer=queue.freezeGlobalBuffer(null);
+  assertTrue(freezeGlobalBuffer.any());
+  assertEquals(1,freezeGlobalBuffer.termCount);
+  assertFalse("all changes applied",queue.anyChanges());
+}
