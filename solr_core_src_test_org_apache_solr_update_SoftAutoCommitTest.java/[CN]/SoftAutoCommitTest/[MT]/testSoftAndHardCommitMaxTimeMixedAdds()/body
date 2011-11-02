@@ -1,0 +1,51 @@
+{
+  final int softCommitWaitMillis=500;
+  final int hardCommitWaitMillis=1200;
+  CommitTracker hardTracker=updater.commitTracker;
+  CommitTracker softTracker=updater.softCommitTracker;
+  softTracker.setTimeUpperBound(softCommitWaitMillis);
+  softTracker.setDocsUpperBound(-1);
+  hardTracker.setTimeUpperBound(hardCommitWaitMillis);
+  hardTracker.setDocsUpperBound(-1);
+  long add529=System.currentTimeMillis();
+  assertU(adoc("id","529","subject","the doc we care about in this test"));
+  monitor.assertSaneOffers();
+  Long soft529=monitor.soft.poll(softCommitWaitMillis * 2,MILLISECONDS);
+  assertNotNull("soft529 wasn't fast enough",soft529);
+  monitor.assertSaneOffers();
+  Long searcher529=monitor.searcher.poll(softCommitWaitMillis,MILLISECONDS);
+  assertNotNull("searcher529 wasn't fast enough",searcher529);
+  monitor.assertSaneOffers();
+  assertU(adoc("id","530","subject","just for noise/activity"));
+  Long hard529=monitor.hard.poll(hardCommitWaitMillis * 2,MILLISECONDS);
+  assertNotNull("hard529 wasn't fast enough",hard529);
+  monitor.assertSaneOffers();
+  assertTrue("soft529 occured too fast: " + add529 + " + "+ softCommitWaitMillis+ " !<= "+ soft529,add529 + softCommitWaitMillis <= soft529);
+  assertTrue("hard529 occured too fast: " + add529 + " + "+ hardCommitWaitMillis+ " !<= "+ hard529,add529 + hardCommitWaitMillis <= hard529);
+  long slowTestFudge=Math.max(100,6 * (soft529 - add529 - softCommitWaitMillis));
+  assertTrue("searcher529 wasn't soon enough after soft529: " + searcher529 + " !< "+ soft529+ " + "+ slowTestFudge+ " (fudge)",searcher529 < soft529 + slowTestFudge);
+  assertTrue("hard529 was before searcher529: " + searcher529 + " !<= "+ hard529,searcher529 <= hard529);
+  monitor.assertSaneOffers();
+  Long hard530=monitor.hard.poll(hardCommitWaitMillis,MILLISECONDS);
+  assertEquals("Tracker reports too many hard commits",(null == hard530 ? 1 : 2),hardTracker.getCommitCount());
+  Long soft530=monitor.soft.poll(0,MILLISECONDS);
+  if (null != soft530) {
+    assertEquals("Tracker reports too many soft commits",2,softTracker.getCommitCount());
+    if (null != hard530) {
+      assertTrue("soft530 after hard530: " + soft530 + " !<= "+ hard530,soft530 <= hard530);
+    }
+ else {
+      assertTrue("soft530 after hard529 but no hard530: " + soft530 + " !<= "+ hard529,soft530 <= hard529);
+    }
+  }
+ else {
+    assertEquals("Tracker reports too many soft commits",1,softTracker.getCommitCount());
+  }
+  if (null != soft530 || null != hard530) {
+    assertNotNull("at least one extra commit for 530, but no searcher",monitor.searcher.poll(0,MILLISECONDS));
+  }
+  monitor.assertSaneOffers();
+  assertNull("Got a hard commit we weren't expecting",monitor.hard.poll(2,SECONDS));
+  assertNull("Got a soft commit we weren't expecting",monitor.soft.poll(0,MILLISECONDS));
+  monitor.assertSaneOffers();
+}
