@@ -1,0 +1,34 @@
+{
+  infos.version=input.readLong();
+  infos.counter=input.readInt();
+  final int format=infos.getFormat();
+  if (format <= DefaultSegmentInfosWriter.FORMAT_4_0) {
+    infos.setGlobalFieldMapVersion(input.readLong());
+  }
+  for (int i=input.readInt(); i > 0; i--) {
+    SegmentInfo si=new SegmentInfo(directory,format,input);
+    if (si.getVersion() == null) {
+      Directory dir=directory;
+      if (si.getDocStoreOffset() != -1) {
+        if (si.getDocStoreIsCompoundFile()) {
+          dir=new CompoundFileDirectory(dir,IndexFileNames.segmentFileName(si.getDocStoreSegment(),"",IndexFileNames.COMPOUND_FILE_STORE_EXTENSION),context,false);
+        }
+      }
+ else       if (si.getUseCompoundFile()) {
+        dir=new CompoundFileDirectory(dir,IndexFileNames.segmentFileName(si.name,"",IndexFileNames.COMPOUND_FILE_EXTENSION),context,false);
+      }
+      try {
+        DefaultFieldsReader.checkCodeVersion(dir,si.getDocStoreSegment());
+      }
+  finally {
+        if (dir != directory)         dir.close();
+      }
+      si.setVersion("3.0");
+    }
+ else     if (si.getVersion().equals("2.x")) {
+      throw new IndexFormatTooOldException(si.name,si.getVersion());
+    }
+    infos.add(si);
+  }
+  infos.userData=input.readStringStringMap();
+}

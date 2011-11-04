@@ -1,0 +1,50 @@
+{
+  if (pendingSegnOutput == null)   throw new IllegalStateException("prepareCommit was not called");
+  boolean success=false;
+  try {
+    SegmentInfosWriter infosWriter=codec.segmentInfosFormat().getSegmentInfosWriter();
+    infosWriter.finishCommit(pendingSegnOutput);
+    pendingSegnOutput=null;
+    success=true;
+  }
+  finally {
+    if (!success)     rollbackCommit(dir);
+  }
+  final String fileName=IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",generation);
+  success=false;
+  try {
+    dir.sync(Collections.singleton(fileName));
+    success=true;
+  }
+  finally {
+    if (!success) {
+      try {
+        dir.deleteFile(fileName);
+      }
+ catch (      Throwable t) {
+      }
+    }
+  }
+  lastGeneration=generation;
+  if (pendingMapVersion != -1) {
+    globalFieldNumberMap.commitLastVersion(pendingMapVersion);
+    pendingMapVersion=-1;
+    lastGlobalFieldMapVersion=globalFieldMapVersion;
+  }
+  try {
+    IndexOutput genOutput=dir.createOutput(IndexFileNames.SEGMENTS_GEN,IOContext.READONCE);
+    try {
+      genOutput.writeInt(FORMAT_SEGMENTS_GEN_CURRENT);
+      genOutput.writeLong(generation);
+      genOutput.writeLong(generation);
+    }
+  finally {
+      genOutput.close();
+    }
+  }
+ catch (  ThreadInterruptedException t) {
+    throw t;
+  }
+catch (  Throwable t) {
+  }
+}

@@ -1,0 +1,44 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setCodec(new PreFlexRWCodec()));
+  final int numField=_TestUtil.nextInt(random,2,5);
+  int uniqueTermCount=0;
+  int tc=0;
+  List<Term> fieldTerms=new ArrayList<Term>();
+  for (int f=0; f < numField; f++) {
+    String field="f" + f;
+    final int numTerms=atLeast(1000);
+    final Set<String> uniqueTerms=new HashSet<String>();
+    for (int i=0; i < numTerms; i++) {
+      String term=getRandomString(random) + "_ " + (tc++);
+      uniqueTerms.add(term);
+      fieldTerms.add(new Term(field,term));
+      Document doc=new Document();
+      doc.add(newField(field,term,StringField.TYPE_UNSTORED));
+      w.addDocument(doc);
+    }
+    uniqueTermCount+=uniqueTerms.size();
+  }
+  IndexReader reader=w.getReader();
+  if (VERBOSE) {
+    Collections.sort(fieldTerms,termAsUTF16Comparator);
+    System.out.println("\nTEST: UTF16 order");
+    for (    Term t : fieldTerms) {
+      System.out.println("  " + toHexString(t));
+    }
+  }
+  Collections.sort(fieldTerms);
+  if (VERBOSE) {
+    System.out.println("\nTEST: codepoint order");
+    for (    Term t : fieldTerms) {
+      System.out.println("  " + toHexString(t));
+    }
+  }
+  Term[] fieldTermsArray=fieldTerms.toArray(new Term[fieldTerms.size()]);
+  doTestStraightEnum(fieldTerms,reader,uniqueTermCount);
+  doTestSeekExists(random,fieldTerms,reader);
+  doTestSeekDoesNotExist(random,numField,fieldTerms,fieldTermsArray,reader);
+  reader.close();
+  w.close();
+  dir.close();
+}
