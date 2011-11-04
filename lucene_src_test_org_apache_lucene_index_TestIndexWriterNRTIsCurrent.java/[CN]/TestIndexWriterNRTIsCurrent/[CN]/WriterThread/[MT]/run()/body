@@ -1,0 +1,61 @@
+{
+  IndexReader currentReader=null;
+  try {
+    Document doc=new Document();
+    doc.add(new Field("id","1",TextField.TYPE_UNSTORED));
+    writer.addDocument(doc);
+    holder.reader=currentReader=writer.getReader(true);
+    Term term=new Term("id");
+    for (int i=0; i < numOps && !holder.stop; i++) {
+      float nextOp=random.nextFloat();
+      if (nextOp < 0.3) {
+        term.set("id","1");
+        writer.updateDocument(term,doc);
+      }
+ else       if (nextOp < 0.5) {
+        writer.addDocument(doc);
+      }
+ else {
+        term.set("id","1");
+        writer.deleteDocuments(term);
+      }
+      if (holder.reader != currentReader) {
+        holder.reader=currentReader;
+        if (countdown) {
+          countdown=false;
+          latch.countDown();
+        }
+      }
+      if (random.nextBoolean()) {
+        writer.commit();
+        final IndexReader newReader=IndexReader.openIfChanged(currentReader);
+        if (newReader != null) {
+          currentReader.decRef();
+          currentReader=newReader;
+        }
+        if (currentReader.numDocs() == 0) {
+          writer.addDocument(doc);
+        }
+      }
+    }
+  }
+ catch (  Throwable e) {
+    failed=e;
+  }
+ finally {
+    holder.reader=null;
+    if (countdown) {
+      latch.countDown();
+    }
+    if (currentReader != null) {
+      try {
+        currentReader.decRef();
+      }
+ catch (      IOException e) {
+      }
+    }
+  }
+  if (VERBOSE) {
+    System.out.println("writer stopped - forced by reader: " + holder.stop);
+  }
+}
