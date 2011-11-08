@@ -1,0 +1,64 @@
+{
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random));
+  Directory d=newDirectory();
+  final CountDownLatch latch=new CountDownLatch(1);
+  final CountDownLatch signal=new CountDownLatch(1);
+  LatchedIndexWriter writer=new LatchedIndexWriter(d,conf,latch,signal);
+  final NRTManager manager=new NRTManager(writer,null,null,false);
+  Document doc=new Document();
+  doc.add(newField("test","test",TextField.TYPE_STORED));
+  long gen=manager.addDocument(doc);
+  assertTrue(manager.maybeReopen(false));
+  assertFalse(gen < manager.getCurrentSearchingGen(false));
+  Thread t=new Thread(){
+    public void run(){
+      try {
+        signal.await();
+        assertTrue(manager.maybeReopen(false));
+        manager.deleteDocuments(new TermQuery(new Term("foo","barista")));
+        manager.maybeReopen(false);
+      }
+ catch (      Exception e) {
+        e.printStackTrace();
+      }
+ finally {
+        latch.countDown();
+      }
+    }
+  }
+;
+  t.start();
+  writer.waitAfterUpdate=true;
+  final long lastGen=manager.updateDocument(new Term("foo","bar"),doc);
+  assertFalse(manager.getSearcherManager(false).isSearcherCurrent());
+  IndexSearcher acquire=manager.getSearcherManager(false).acquire();
+  try {
+    assertEquals(2,acquire.getIndexReader().numDocs());
+  }
+  finally {
+    acquire.getIndexReader().decRef();
+  }
+  NRTManagerReopenThread thread=new NRTManagerReopenThread(manager,0.01,0.01);
+  thread.start();
+  if (VERBOSE) {
+    System.out.println("waiting now for generation " + lastGen);
+  }
+  final AtomicBoolean finished=new AtomicBoolean(false);
+  Thread waiter=new Thread(){
+    public void run(){
+      manager.waitForGeneration(lastGen,false);
+      finished.set(true);
+    }
+  }
+;
+  waiter.start();
+  manager.maybeReopen(false);
+  waiter.join(1000);
+  if (!finished.get()) {
+    waiter.interrupt();
+    fail("thread deadlocked on waitForGeneration");
+  }
+  thread.close();
+  thread.join();
+  IOUtils.close(manager,writer,d);
+}
