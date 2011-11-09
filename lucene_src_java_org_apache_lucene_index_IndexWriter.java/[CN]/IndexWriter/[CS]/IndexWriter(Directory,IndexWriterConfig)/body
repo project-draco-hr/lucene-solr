@@ -2,13 +2,12 @@
   config=(IndexWriterConfig)conf.clone();
   directory=d;
   analyzer=conf.getAnalyzer();
-  infoStream=defaultInfoStream;
+  infoStream=conf.getInfoStream();
   mergePolicy=conf.getMergePolicy();
   mergePolicy.setIndexWriter(this);
   mergeScheduler=conf.getMergeScheduler();
   codec=conf.getCodec();
-  bufferedDeletesStream=new BufferedDeletesStream(messageID);
-  bufferedDeletesStream.setInfoStream(infoStream);
+  bufferedDeletesStream=new BufferedDeletesStream(infoStream);
   poolReaders=conf.getReaderPooling();
   writeLock=directory.makeLock(WRITE_LOCK_NAME);
   if (!writeLock.obtain(conf.getWriteLockTimeout()))   throw new LockObtainFailedException("Index locked for write: " + writeLock);
@@ -46,13 +45,12 @@
         segmentInfos.replace(oldInfos);
         changeCount++;
         segmentInfos.changed();
-        if (infoStream != null)         message("init: loaded commit \"" + commit.getSegmentsFileName() + "\"");
+        if (infoStream != null)         infoStream.message("IW","init: loaded commit \"" + commit.getSegmentsFileName() + "\"");
       }
     }
     rollbackSegments=segmentInfos.createBackupSegmentInfos(true);
     globalFieldNumberMap=segmentInfos.getOrLoadGlobalFieldNumberMap(directory);
     docWriter=new DocumentsWriter(codec,config,directory,this,globalFieldNumberMap,bufferedDeletesStream);
-    docWriter.setInfoStream(infoStream);
 synchronized (this) {
       deleter=new IndexFileDeleter(directory,conf.getIndexDeletionPolicy(),segmentInfos,infoStream,this);
     }
@@ -61,7 +59,7 @@ synchronized (this) {
       segmentInfos.changed();
     }
     if (infoStream != null) {
-      message("init: create=" + create);
+      infoStream.message("IW","init: create=" + create);
       messageState();
     }
     success=true;
@@ -69,7 +67,7 @@ synchronized (this) {
   finally {
     if (!success) {
       if (infoStream != null) {
-        message("init: hit exception on init; releasing write lock");
+        infoStream.message("IW","init: hit exception on init; releasing write lock");
       }
       try {
         writeLock.release();
