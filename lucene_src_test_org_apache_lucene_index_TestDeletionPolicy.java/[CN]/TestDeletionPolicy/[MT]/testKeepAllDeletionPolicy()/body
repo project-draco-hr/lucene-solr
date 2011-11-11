@@ -17,29 +17,29 @@
       addDoc(writer);
     }
     writer.close();
-    final boolean isOptimized;
+    final boolean needsMerging;
 {
       IndexReader r=IndexReader.open(dir);
-      isOptimized=r.isOptimized();
+      needsMerging=r.getSequentialSubReaders().length != 1;
       r.close();
     }
-    if (!isOptimized) {
+    if (needsMerging) {
       conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setOpenMode(OpenMode.APPEND).setIndexDeletionPolicy(policy);
       mp=conf.getMergePolicy();
       if (mp instanceof LogMergePolicy) {
         ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
       }
       if (VERBOSE) {
-        System.out.println("TEST: open writer for optimize");
+        System.out.println("TEST: open writer for forceMerge");
       }
       writer=new IndexWriter(dir,conf);
-      writer.optimize();
+      writer.forceMerge(1);
       writer.close();
     }
-    assertEquals(isOptimized ? 0 : 1,policy.numOnInit);
-    assertEquals(1 + (isOptimized ? 0 : 1),policy.numOnCommit);
+    assertEquals(needsMerging ? 1 : 0,policy.numOnInit);
+    assertEquals(1 + (needsMerging ? 1 : 0),policy.numOnCommit);
     Collection<IndexCommit> commits=IndexReader.listCommits(dir);
-    assertEquals(1 + (isOptimized ? 0 : 1),commits.size());
+    assertEquals(1 + (needsMerging ? 1 : 0),commits.size());
     for (    final IndexCommit commit : commits) {
       IndexReader r=IndexReader.open(commit,null,false);
       r.close();
