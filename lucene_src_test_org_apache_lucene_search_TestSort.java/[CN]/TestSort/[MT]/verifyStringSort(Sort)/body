@@ -1,0 +1,50 @@
+{
+  final IndexSearcher searcher=getFullStrings();
+  final ScoreDoc[] result=searcher.search(new MatchAllDocsQuery(),null,_TestUtil.nextInt(random,500,searcher.getIndexReader().maxDoc()),sort).scoreDocs;
+  StringBuilder buff=new StringBuilder();
+  int n=result.length;
+  String last=null;
+  String lastSub=null;
+  int lastDocId=0;
+  boolean fail=false;
+  final String fieldSuffix=sort.getSort()[0].getField().endsWith("_fixed") ? "_fixed" : "";
+  for (int x=0; x < n; ++x) {
+    Document doc2=searcher.doc(result[x].doc);
+    IndexableField[] v=doc2.getFields("tracer" + fieldSuffix);
+    IndexableField[] v2=doc2.getFields("tracer2" + fieldSuffix);
+    for (int j=0; j < v.length; ++j) {
+      buff.append(v[j] + "(" + v2[j]+ ")("+ result[x].doc+ ")\n");
+      if (last != null) {
+        int cmp=v[j].stringValue().compareTo(last);
+        if (!(cmp >= 0)) {
+          fail=true;
+          System.out.println("fail:" + v[j] + " < "+ last);
+          buff.append("  WRONG tracer\n");
+        }
+        if (cmp == 0) {
+          cmp=v2[j].stringValue().compareTo(lastSub);
+          if (cmp > 0) {
+            fail=true;
+            System.out.println("rev field fail:" + v2[j] + " > "+ lastSub);
+            buff.append("  WRONG tracer2\n");
+          }
+ else           if (cmp == 0) {
+            if (result[x].doc < lastDocId) {
+              fail=true;
+              System.out.println("doc fail:" + result[x].doc + " > "+ lastDocId);
+              buff.append("  WRONG docID\n");
+            }
+          }
+        }
+      }
+      last=v[j].stringValue();
+      lastSub=v2[j].stringValue();
+      lastDocId=result[x].doc;
+    }
+  }
+  if (fail) {
+    System.out.println("topn field1(field2)(docID):\n" + buff);
+  }
+  assertFalse("Found sort results out of order",fail);
+  searcher.close();
+}
