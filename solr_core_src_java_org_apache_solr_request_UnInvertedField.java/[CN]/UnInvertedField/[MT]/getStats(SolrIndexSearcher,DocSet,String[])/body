@@ -1,24 +1,24 @@
 {
   use.incrementAndGet();
-  StatsValues allstats=new StatsValues();
+  SchemaField sf=searcher.getSchema().getField(field);
+  StatsValues allstats=StatsValuesFactory.createStatsValues(sf);
   DocSet docs=baseDocs;
   int baseSize=docs.size();
   int maxDoc=searcher.maxDoc();
   if (baseSize <= 0)   return allstats;
-  FieldType ft=searcher.getSchema().getFieldType(field);
   DocSet missing=docs.andNot(searcher.getDocSet(new TermRangeQuery(field,null,null,false,false)));
   int i=0;
   final FieldFacetStats[] finfo=new FieldFacetStats[facet.length];
   FieldCache.DocTermsIndex si;
   for (  String f : facet) {
-    FieldType facet_ft=searcher.getSchema().getFieldType(f);
+    SchemaField facet_sf=searcher.getSchema().getField(f);
     try {
       si=FieldCache.DEFAULT.getTermsIndex(searcher.getIndexReader(),f);
     }
  catch (    IOException e) {
       throw new RuntimeException("failed to open field cache for: " + f,e);
     }
-    finfo[i]=new FieldFacetStats(f,si,facet_ft,numTermsInField);
+    finfo[i]=new FieldFacetStats(f,si,sf,facet_sf,numTermsInField);
     i++;
   }
   final int[] index=this.index;
@@ -96,12 +96,10 @@
       }
     }
   }
-  final CharsRef charsRef=new CharsRef();
   for (i=0; i < numTermsInField; i++) {
     int c=doNegative ? maxTermCounts[i] - counts[i] : counts[i];
     if (c == 0)     continue;
-    String label=getReadableValue(getTermValue(te,i),ft,charsRef);
-    Double value=Double.parseDouble(label);
+    BytesRef value=getTermValue(te,i);
     allstats.accumulate(value,c);
     for (    FieldFacetStats f : finfo) {
       f.accumulateTermNum(i,value);
@@ -110,7 +108,6 @@
   int c=missing.size();
   allstats.addMissing(c);
   if (finfo.length > 0) {
-    allstats.facets=new HashMap<String,Map<String,StatsValues>>();
     for (    FieldFacetStats f : finfo) {
       Map<String,StatsValues> facetStatsValues=f.facetStatsValues;
       FieldType facetType=searcher.getSchema().getFieldType(f.name);
@@ -119,7 +116,7 @@
         int missingCount=searcher.numDocs(new TermQuery(new Term(f.name,facetType.toInternal(termLabel))),missing);
         entry.getValue().addMissing(missingCount);
       }
-      allstats.facets.put(f.name,facetStatsValues);
+      allstats.addFacet(f.name,facetStatsValues);
     }
   }
   return allstats;
