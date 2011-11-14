@@ -1,24 +1,28 @@
 {
   if (VERBOSE) {
-    System.out.println("Partition Size: " + partitionSize + "  onDisk: "+ onDisk);
+    System.out.println("Partition Size: " + partitionSize + "  forceDisk: "+ forceDisk);
   }
-  if (onDisk) {
-    File indexFile=_TestUtil.getTempDir("index");
-    indexDir=newFSDirectory(indexFile);
-    taxoDir=newFSDirectory(new File(indexFile,"facets"));
-  }
+  SearchTaxoDirPair pair=dirsPerPartitionSize.get(Integer.valueOf(partitionSize));
+  if (pair == null) {
+    pair=new SearchTaxoDirPair();
+    if (forceDisk) {
+      pair.searchDir=newFSDirectory(new File(TEST_DIR,"index"));
+      pair.taxoDir=newFSDirectory(new File(TEST_DIR,"taxo"));
+    }
  else {
-    indexDir=newDirectory();
-    taxoDir=newDirectory();
+      pair.searchDir=newDirectory();
+      pair.taxoDir=newDirectory();
+    }
+    RandomIndexWriter iw=new RandomIndexWriter(random,pair.searchDir,getIndexWriterConfig(getAnalyzer()));
+    TaxonomyWriter taxo=new DirectoryTaxonomyWriter(pair.taxoDir,OpenMode.CREATE);
+    populateIndex(iw,taxo,getFacetIndexingParams(partitionSize));
+    taxo.commit();
+    iw.commit();
+    taxo.close();
+    iw.close();
+    dirsPerPartitionSize.put(Integer.valueOf(partitionSize),pair);
   }
-  RandomIndexWriter iw=new RandomIndexWriter(random,indexDir,getIndexWriterConfig(getAnalyzer()));
-  TaxonomyWriter taxo=new DirectoryTaxonomyWriter(taxoDir,OpenMode.CREATE);
-  populateIndex(iw,taxo,getFacetIndexingParams(partitionSize));
-  taxo.commit();
-  iw.commit();
-  taxo.close();
-  iw.close();
-  taxoReader=new DirectoryTaxonomyReader(taxoDir);
-  indexReader=IndexReader.open(indexDir);
+  taxoReader=new DirectoryTaxonomyReader(pair.taxoDir);
+  indexReader=IndexReader.open(pair.searchDir);
   searcher=newSearcher(indexReader);
 }
