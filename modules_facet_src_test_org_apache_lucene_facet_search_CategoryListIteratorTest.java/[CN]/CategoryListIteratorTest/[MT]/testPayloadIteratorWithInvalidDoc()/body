@@ -1,7 +1,6 @@
 {
   Directory dir=newDirectory();
   DataTokenStream dts=new DataTokenStream("1",new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder()))));
-  DataTokenStream dts2=new DataTokenStream("2",new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder()))));
   final Analyzer noPayloadsAnalyzer=new Analyzer(){
     @Override public TokenStreamComponents createComponents(    String fieldName,    Reader reader){
       return new TokenStreamComponents(new MockTokenizer(reader,MockTokenizer.KEYWORD,false));
@@ -10,29 +9,21 @@
 ;
   RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,noPayloadsAnalyzer).setMergePolicy(newLogMergePolicy()));
   for (int i=0; i < data.length; i++) {
-    dts.setIdx(i);
     Document doc=new Document();
-    if (i == 0 || i == 2) {
+    if (i == 0) {
+      dts.setIdx(i);
       doc.add(new TextField("f",dts));
     }
-    dts2.setIdx(i);
-    doc.add(new TextField("f",dts2));
+ else {
+      doc.add(new TextField("f","1"));
+    }
     writer.addDocument(doc);
     writer.commit();
-  }
-  for (int i=0; i < 10; ++i) {
-    Document d=new Document();
-    dts.setIdx(2);
-    d.add(new TextField("f",dts2));
-    writer.addDocument(d);
-    if (i % 10 == 0) {
-      writer.commit();
-    }
   }
   IndexReader reader=writer.getReader();
   writer.close();
   CategoryListIterator cli=new PayloadIntDecodingIterator(reader,new Term("f","1"),dts.encoder.createMatchingDecoder());
-  cli.init();
+  assertTrue("Failed to initialize payload iterator",cli.init());
   int totalCats=0;
   for (int i=0; i < data.length; i++) {
     Set<Integer> values=new HashSet<Integer>();
@@ -41,7 +32,7 @@
     }
     boolean hasDoc=cli.skipTo(i);
     if (hasDoc) {
-      assertTrue("Document " + i + " must not have a payload!",i == 0 || i == 2);
+      assertTrue("Document " + i + " must not have a payload!",i == 0);
       long cat;
       while ((cat=cli.nextCategory()) < Integer.MAX_VALUE) {
         assertTrue("expected category not found: " + cat,values.contains((int)cat));
@@ -49,11 +40,10 @@
       }
     }
  else {
-      assertFalse("Document " + i + " must have a payload!",i == 0 || i == 2);
+      assertFalse("Document " + i + " must have a payload!",i == 0);
     }
   }
-  assertEquals("Wrong number of total categories!",4,totalCats);
-  assertFalse("Doc #6 (docid=5) should not have a payload!",cli.skipTo(5));
+  assertEquals("Wrong number of total categories!",2,totalCats);
   reader.close();
   dir.close();
 }
