@@ -1,19 +1,33 @@
 {
   ensureOpen();
   IndexReader r2=IndexReader.openIfChanged(indexReader);
-  if (r2 != null) {
-    IndexReader oldreader=indexReader;
-    indexReaderLock.writeLock().lock();
-    indexReader=r2;
-    indexReaderLock.writeLock().unlock();
-    oldreader.close();
-    parentArray.refresh(indexReader);
-    Iterator<Entry<String,Integer>> i=ordinalCache.entrySet().iterator();
-    while (i.hasNext()) {
-      Entry<String,Integer> e=i.next();
-      if (e.getValue().intValue() == INVALID_ORDINAL) {
-        i.remove();
-      }
+  if (r2 == null) {
+    return false;
+  }
+  String t1=indexReader.getCommitUserData().get(DirectoryTaxonomyWriter.INDEX_CREATE_TIME);
+  String t2=r2.getCommitUserData().get(DirectoryTaxonomyWriter.INDEX_CREATE_TIME);
+  if (t1 == null) {
+    if (t2 != null) {
+      r2.close();
+      throw new InconsistentTaxonomyException("Taxonomy was recreated at: " + t2);
     }
   }
+ else   if (!t1.equals(t2)) {
+    r2.close();
+    throw new InconsistentTaxonomyException("Taxonomy was recreated at: " + t2 + "  !=  "+ t1);
+  }
+  IndexReader oldreader=indexReader;
+  indexReaderLock.writeLock().lock();
+  indexReader=r2;
+  indexReaderLock.writeLock().unlock();
+  oldreader.close();
+  parentArray.refresh(indexReader);
+  Iterator<Entry<String,Integer>> i=ordinalCache.entrySet().iterator();
+  while (i.hasNext()) {
+    Entry<String,Integer> e=i.next();
+    if (e.getValue().intValue() == INVALID_ORDINAL) {
+      i.remove();
+    }
+  }
+  return true;
 }
