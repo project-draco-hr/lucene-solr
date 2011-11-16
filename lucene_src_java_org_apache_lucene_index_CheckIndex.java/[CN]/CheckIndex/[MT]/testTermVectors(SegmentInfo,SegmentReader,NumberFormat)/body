@@ -1,16 +1,110 @@
 {
   final Status.TermVectorStatus status=new Status.TermVectorStatus();
+  TermsEnum termsEnum=null;
   try {
     if (infoStream != null) {
       infoStream.print("    test: term vectors........");
     }
+    DocsEnum docs=null;
+    DocsAndPositionsEnum postings=null;
     final Bits liveDocs=reader.getLiveDocs();
     for (int j=0; j < info.docCount; ++j) {
       if (liveDocs == null || liveDocs.get(j)) {
         status.docCount++;
-        TermFreqVector[] tfv=reader.getTermFreqVectors(j);
+        Fields tfv=reader.getTermVectors(j);
         if (tfv != null) {
-          status.totVectors+=tfv.length;
+          int tfvComputedFieldCount=0;
+          long tfvComputedTermCount=0;
+          FieldsEnum fieldsEnum=tfv.iterator();
+          String field=null;
+          String lastField=null;
+          while ((field=fieldsEnum.next()) != null) {
+            status.totVectors++;
+            tfvComputedFieldCount++;
+            if (lastField == null) {
+              lastField=field;
+            }
+ else             if (lastField.compareTo(field) > 0) {
+              throw new RuntimeException("vector fields are out of order: lastField=" + lastField + " field="+ field+ " doc="+ j);
+            }
+            Terms terms=tfv.terms(field);
+            termsEnum=terms.iterator(termsEnum);
+            long tfvComputedTermCountForField=0;
+            long tfvComputedSumTotalTermFreq=0;
+            BytesRef term=null;
+            while ((term=termsEnum.next()) != null) {
+              tfvComputedTermCountForField++;
+              if (termsEnum.docFreq() != 1) {
+                throw new RuntimeException("vector docFreq for doc " + j + ", field "+ field+ ", term"+ term+ " != 1");
+              }
+              long totalTermFreq=termsEnum.totalTermFreq();
+              if (totalTermFreq != -1 && totalTermFreq <= 0) {
+                throw new RuntimeException("totalTermFreq: " + totalTermFreq + " is out of bounds");
+              }
+              DocsEnum docsEnum;
+              DocsAndPositionsEnum dp=termsEnum.docsAndPositions(null,postings);
+              if (dp == null) {
+                DocsEnum d=termsEnum.docs(null,docs);
+                docsEnum=docs=d;
+              }
+ else {
+                docsEnum=postings=dp;
+              }
+              final int doc=docsEnum.nextDoc();
+              if (doc != 0) {
+                throw new RuntimeException("vector for doc " + j + " didn't return docID=0: got docID="+ doc);
+              }
+              final int tf=docsEnum.freq();
+              tfvComputedSumTotalTermFreq+=tf;
+              if (tf <= 0) {
+                throw new RuntimeException("vector freq " + tf + " is out of bounds");
+              }
+              if (totalTermFreq != -1 && totalTermFreq != tf) {
+                throw new RuntimeException("vector totalTermFreq " + totalTermFreq + " != tf "+ tf);
+              }
+              if (dp != null) {
+                int lastPosition=-1;
+                for (int i=0; i < tf; i++) {
+                  int pos=dp.nextPosition();
+                  if (pos != -1 && pos < 0) {
+                    throw new RuntimeException("vector position " + pos + " is out of bounds");
+                  }
+                  if (pos < lastPosition) {
+                    throw new RuntimeException("vector position " + pos + " < lastPos "+ lastPosition);
+                  }
+                  lastPosition=pos;
+                }
+              }
+              if (docsEnum.nextDoc() != DocIdSetIterator.NO_MORE_DOCS) {
+                throw new RuntimeException("vector for doc " + j + " references multiple documents!");
+              }
+            }
+            long uniqueTermCount=terms.getUniqueTermCount();
+            if (uniqueTermCount != -1 && uniqueTermCount != tfvComputedTermCountForField) {
+              throw new RuntimeException("vector term count for doc " + j + ", field "+ field+ " = "+ uniqueTermCount+ " != recomputed term count="+ tfvComputedTermCountForField);
+            }
+            int docCount=terms.getDocCount();
+            if (docCount != -1 && docCount != 1) {
+              throw new RuntimeException("vector doc count for doc " + j + ", field "+ field+ " = "+ docCount+ " != 1");
+            }
+            long sumDocFreq=terms.getSumDocFreq();
+            if (sumDocFreq != -1 && sumDocFreq != tfvComputedTermCountForField) {
+              throw new RuntimeException("vector postings count for doc " + j + ", field "+ field+ " = "+ sumDocFreq+ " != recomputed postings count="+ tfvComputedTermCountForField);
+            }
+            long sumTotalTermFreq=terms.getSumTotalTermFreq();
+            if (sumTotalTermFreq != -1 && sumTotalTermFreq != tfvComputedSumTotalTermFreq) {
+              throw new RuntimeException("vector sumTotalTermFreq for doc " + j + ", field "+ field+ " = "+ sumTotalTermFreq+ " != recomputed sumTotalTermFreq="+ tfvComputedSumTotalTermFreq);
+            }
+            tfvComputedTermCount+=tfvComputedTermCountForField;
+          }
+          int tfvUniqueFieldCount=tfv.getUniqueFieldCount();
+          if (tfvUniqueFieldCount != -1 && tfvUniqueFieldCount != tfvComputedFieldCount) {
+            throw new RuntimeException("vector field count for doc " + j + "="+ tfvUniqueFieldCount+ " != recomputed uniqueFieldCount="+ tfvComputedFieldCount);
+          }
+          long tfvUniqueTermCount=tfv.getUniqueTermCount();
+          if (tfvUniqueTermCount != -1 && tfvUniqueTermCount != tfvComputedTermCount) {
+            throw new RuntimeException("vector term count for doc " + j + "="+ tfvUniqueTermCount+ " != recomputed uniqueTermCount="+ tfvComputedTermCount);
+          }
         }
       }
     }

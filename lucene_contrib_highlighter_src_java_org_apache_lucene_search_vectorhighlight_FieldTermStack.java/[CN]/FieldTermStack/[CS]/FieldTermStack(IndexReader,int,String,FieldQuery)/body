@@ -2,24 +2,40 @@
   this.fieldName=fieldName;
   Set<String> termSet=fieldQuery.getTermSet(fieldName);
   if (termSet == null)   return;
-  TermFreqVector tfv=reader.getTermFreqVector(docId,fieldName);
-  if (tfv == null)   return;
-  TermPositionVector tpv=null;
-  try {
-    tpv=(TermPositionVector)tfv;
+  final Fields vectors=reader.getTermVectors(docId);
+  if (vectors == null) {
+    return;
   }
- catch (  ClassCastException e) {
+  final Terms vector=vectors.terms(fieldName);
+  if (vector == null) {
     return;
   }
   final CharsRef spare=new CharsRef();
-  for (  BytesRef term : tpv.getTerms()) {
-    if (!termSet.contains(term.utf8ToChars(spare).toString()))     continue;
-    int index=tpv.indexOf(term);
-    TermVectorOffsetInfo[] tvois=tpv.getOffsets(index);
-    if (tvois == null)     return;
-    int[] poss=tpv.getTermPositions(index);
-    if (poss == null)     return;
-    for (int i=0; i < tvois.length; i++)     termList.add(new TermInfo(term.utf8ToChars(spare).toString(),tvois[i].getStartOffset(),tvois[i].getEndOffset(),poss[i]));
+  final TermsEnum termsEnum=vector.iterator(null);
+  DocsAndPositionsEnum dpEnum=null;
+  BytesRef text;
+  while ((text=termsEnum.next()) != null) {
+    final String term=text.utf8ToChars(spare).toString();
+    if (!termSet.contains(term)) {
+      continue;
+    }
+    dpEnum=termsEnum.docsAndPositions(null,dpEnum);
+    if (dpEnum == null) {
+      return;
+    }
+    if (!dpEnum.attributes().hasAttribute(OffsetAttribute.class)) {
+      return;
+    }
+    dpEnum.nextDoc();
+    final OffsetAttribute offsetAtt=dpEnum.attributes().getAttribute(OffsetAttribute.class);
+    final int freq=dpEnum.freq();
+    for (int i=0; i < freq; i++) {
+      final int pos=dpEnum.nextPosition();
+      if (pos == -1) {
+        return;
+      }
+      termList.add(new TermInfo(term,offsetAtt.startOffset(),offsetAtt.endOffset(),pos));
+    }
   }
   Collections.sort(termList);
 }

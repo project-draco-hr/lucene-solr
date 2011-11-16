@@ -1,0 +1,56 @@
+{
+  NamedList<Object> fieldNL=new NamedList<Object>();
+  docNL.add(field,fieldNL);
+  BytesRef text;
+  DocsAndPositionsEnum dpEnum=null;
+  while ((text=termsEnum.next()) != null) {
+    String term=text.utf8ToString();
+    NamedList<Object> termInfo=new NamedList<Object>();
+    fieldNL.add(term,termInfo);
+    final int freq=(int)termsEnum.totalTermFreq();
+    if (fieldOptions.termFreq == true) {
+      termInfo.add("tf",freq);
+    }
+    dpEnum=termsEnum.docsAndPositions(null,dpEnum);
+    boolean usePositions=false;
+    boolean useOffsets=false;
+    OffsetAttribute offsetAtt=null;
+    if (dpEnum != null) {
+      dpEnum.nextDoc();
+      usePositions=fieldOptions.positions;
+      if (fieldOptions.offsets && dpEnum.attributes().hasAttribute(OffsetAttribute.class)) {
+        useOffsets=true;
+        offsetAtt=dpEnum.attributes().getAttribute(OffsetAttribute.class);
+      }
+    }
+    NamedList<Number> theOffsets=null;
+    if (useOffsets) {
+      theOffsets=new NamedList<Number>();
+      termInfo.add("offsets",theOffsets);
+    }
+    NamedList<Integer> positionsNL=null;
+    if (usePositions || theOffsets != null) {
+      for (int i=0; i < freq; i++) {
+        final int pos=dpEnum.nextPosition();
+        if (usePositions && pos >= 0) {
+          if (positionsNL == null) {
+            positionsNL=new NamedList<Integer>();
+            termInfo.add("positions",positionsNL);
+          }
+          positionsNL.add("position",pos);
+        }
+        if (theOffsets != null) {
+          theOffsets.add("start",offsetAtt.startOffset());
+          theOffsets.add("end",offsetAtt.endOffset());
+        }
+      }
+    }
+    if (fieldOptions.docFreq) {
+      termInfo.add("df",getDocFreq(reader,field,text));
+    }
+    if (fieldOptions.tfIdf) {
+      double tfIdfVal=((double)freq) / getDocFreq(reader,field,text);
+      termInfo.add("tf-idf",tfIdfVal);
+    }
+  }
+}

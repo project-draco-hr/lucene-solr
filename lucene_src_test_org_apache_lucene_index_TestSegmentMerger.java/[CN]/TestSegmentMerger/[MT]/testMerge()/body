@@ -1,6 +1,6 @@
 {
   final Codec codec=Codec.getDefault();
-  SegmentMerger merger=new SegmentMerger(InfoStream.getDefault(),mergedDir,IndexWriterConfig.DEFAULT_TERM_INDEX_INTERVAL,mergedSegment,MergeState.CheckAbort.NONE,null,new FieldInfos(),codec,newIOContext(random));
+  SegmentMerger merger=new SegmentMerger(InfoStream.getDefault(),mergedDir,IndexWriterConfig.DEFAULT_TERM_INDEX_INTERVAL,mergedSegment,MergeState.CheckAbort.NONE,null,new FieldInfos(new FieldInfos.FieldNumberBiMap()),codec,newIOContext(random));
   merger.add(reader1);
   merger.add(reader2);
   MergeState mergeState=merger.merge();
@@ -22,19 +22,17 @@
   Collection<String> stored=mergedReader.getFieldNames(IndexReader.FieldOption.INDEXED_WITH_TERMVECTOR);
   assertTrue(stored != null);
   assertTrue("We do not have 3 fields that were indexed with term vector",stored.size() == 3);
-  TermFreqVector vector=mergedReader.getTermFreqVector(0,DocHelper.TEXT_FIELD_2_KEY);
-  assertTrue(vector != null);
-  BytesRef[] terms=vector.getTerms();
-  assertTrue(terms != null);
-  assertTrue(terms.length == 3);
-  int[] freqs=vector.getTermFrequencies();
-  assertTrue(freqs != null);
-  assertTrue(vector instanceof TermPositionVector == true);
-  for (int i=0; i < terms.length; i++) {
-    String term=terms[i].utf8ToString();
-    int freq=freqs[i];
+  Terms vector=mergedReader.getTermVectors(0).terms(DocHelper.TEXT_FIELD_2_KEY);
+  assertNotNull(vector);
+  assertEquals(3,vector.getUniqueTermCount());
+  TermsEnum termsEnum=vector.iterator(null);
+  int i=0;
+  while (termsEnum.next() != null) {
+    String term=termsEnum.term().utf8ToString();
+    int freq=(int)termsEnum.totalTermFreq();
     assertTrue(DocHelper.FIELD_2_TEXT.indexOf(term) != -1);
     assertTrue(DocHelper.FIELD_2_FREQS[i] == freq);
+    i++;
   }
   TestSegmentReader.checkNorms(mergedReader);
   mergedReader.close();
