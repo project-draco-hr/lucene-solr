@@ -1,6 +1,6 @@
 {
   Directory dir=newDirectory();
-  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)));
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)));
   Document doc=new Document();
   doc.add(new NumericField("double").setDoubleValue(Double.NEGATIVE_INFINITY));
   doc.add(new NumericField("long").setLongValue(Long.MIN_VALUE));
@@ -13,6 +13,11 @@
   doc.add(new NumericField("double").setDoubleValue(0.0));
   doc.add(new NumericField("long").setLongValue(0L));
   writer.addDocument(doc);
+  for (  double d : TestNumericUtils.DOUBLE_NANs) {
+    doc=new Document();
+    doc.add(new NumericField("double").setDoubleValue(d));
+    writer.addDocument(doc);
+  }
   writer.close();
   IndexReader r=IndexReader.open(dir);
   IndexSearcher s=new IndexSearcher(r);
@@ -34,6 +39,15 @@
   q=NumericRangeQuery.newDoubleRange("double",null,null,false,false);
   topDocs=s.search(q,10);
   assertEquals("Score doc count",3,topDocs.scoreDocs.length);
+  q=NumericRangeQuery.newDoubleRange("double",Double.NEGATIVE_INFINITY,Double.POSITIVE_INFINITY,true,true);
+  topDocs=s.search(q,10);
+  assertEquals("Score doc count",3,topDocs.scoreDocs.length);
+  q=NumericRangeQuery.newDoubleRange("double",Double.NEGATIVE_INFINITY,Double.POSITIVE_INFINITY,false,false);
+  topDocs=s.search(q,10);
+  assertEquals("Score doc count",1,topDocs.scoreDocs.length);
+  q=NumericRangeQuery.newDoubleRange("double",Double.NaN,Double.NaN,true,true);
+  topDocs=s.search(q,10);
+  assertEquals("Score doc count",TestNumericUtils.DOUBLE_NANs.length,topDocs.scoreDocs.length);
   s.close();
   r.close();
   dir.close();
