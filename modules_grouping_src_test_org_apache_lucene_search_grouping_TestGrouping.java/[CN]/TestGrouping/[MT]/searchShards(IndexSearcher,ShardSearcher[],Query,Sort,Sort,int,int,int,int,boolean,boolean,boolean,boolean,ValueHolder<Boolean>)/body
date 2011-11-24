@@ -1,0 +1,76 @@
+{
+  if (VERBOSE) {
+    System.out.println("TEST: " + subSearchers.length + " shards: "+ Arrays.toString(subSearchers));
+  }
+  final Weight w=topSearcher.createNormalizedWeight(query);
+  final List<Collection<SearchGroup<BytesRef>>> shardGroups=new ArrayList<Collection<SearchGroup<BytesRef>>>();
+  List<AbstractFirstPassGroupingCollector> firstPassGroupingCollectors=new ArrayList<AbstractFirstPassGroupingCollector>();
+  AbstractFirstPassGroupingCollector firstPassCollector=null;
+  for (int shardIDX=0; shardIDX < subSearchers.length; shardIDX++) {
+    if (SlowMultiReaderWrapper.class.isAssignableFrom(subSearchers[shardIDX].getIndexReader().getClass())) {
+      canUseIDV=false;
+    }
+ else {
+      canUseIDV=!preFlex;
+    }
+    if (firstPassCollector == null) {
+      firstPassCollector=createRandomFirstPassCollector("group",groupSort,groupOffset + topNGroups,canUseIDV);
+      if (DVFirstPassGroupingCollector.class.isAssignableFrom(firstPassCollector.getClass())) {
+        usedIdvBasedImpl.value=true;
+      }
+    }
+ else {
+      firstPassCollector=createFirstPassCollector("group",groupSort,groupOffset + topNGroups,firstPassCollector);
+    }
+    firstPassGroupingCollectors.add(firstPassCollector);
+    subSearchers[shardIDX].search(w,firstPassCollector);
+    final Collection<SearchGroup<BytesRef>> topGroups=getSearchGroups(firstPassCollector,0,true);
+    if (topGroups != null) {
+      if (VERBOSE) {
+        System.out.println("  shard " + shardIDX + " s="+ subSearchers[shardIDX]+ " "+ topGroups.size()+ " groups:");
+        for (        SearchGroup<BytesRef> group : topGroups) {
+          System.out.println("    " + groupToString(group.groupValue) + " groupSort="+ Arrays.toString(group.sortValues));
+        }
+      }
+      shardGroups.add(topGroups);
+    }
+  }
+  final Collection<SearchGroup<BytesRef>> mergedTopGroups=SearchGroup.merge(shardGroups,groupOffset,topNGroups,groupSort);
+  if (VERBOSE) {
+    System.out.println(" top groups merged:");
+    if (mergedTopGroups == null) {
+      System.out.println("    null");
+    }
+ else {
+      System.out.println("    " + mergedTopGroups.size() + " top groups:");
+      for (      SearchGroup<BytesRef> group : mergedTopGroups) {
+        System.out.println("    [" + groupToString(group.groupValue) + "] groupSort="+ Arrays.toString(group.sortValues));
+      }
+    }
+  }
+  if (mergedTopGroups != null) {
+    @SuppressWarnings("unchecked") final TopGroups<BytesRef>[] shardTopGroups=new TopGroups[subSearchers.length];
+    for (int shardIDX=0; shardIDX < subSearchers.length; shardIDX++) {
+      final AbstractSecondPassGroupingCollector secondPassCollector=createSecondPassCollector(firstPassGroupingCollectors.get(shardIDX),"group",mergedTopGroups,groupSort,docSort,docOffset + topNDocs,getScores,getMaxScores,true);
+      subSearchers[shardIDX].search(w,secondPassCollector);
+      shardTopGroups[shardIDX]=getTopGroups(secondPassCollector,0);
+      if (VERBOSE) {
+        System.out.println(" " + shardTopGroups[shardIDX].groups.length + " shard["+ shardIDX+ "] groups:");
+        for (        GroupDocs<BytesRef> group : shardTopGroups[shardIDX].groups) {
+          System.out.println("    [" + groupToString(group.groupValue) + "] groupSort="+ Arrays.toString(group.groupSortValues)+ " numDocs="+ group.scoreDocs.length);
+        }
+      }
+    }
+    TopGroups<BytesRef> mergedGroups=TopGroups.merge(shardTopGroups,groupSort,docSort,docOffset,topNDocs);
+    if (VERBOSE) {
+      System.out.println(" " + mergedGroups.groups.length + " merged groups:");
+      for (      GroupDocs<BytesRef> group : mergedGroups.groups) {
+        System.out.println("    [" + groupToString(group.groupValue) + "] groupSort="+ Arrays.toString(group.groupSortValues)+ " numDocs="+ group.scoreDocs.length);
+      }
+    }
+    return mergedGroups;
+  }
+ else {
+    return null;
+  }
+}

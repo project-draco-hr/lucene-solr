@@ -1,5 +1,6 @@
 {
-  for (int iter=0; iter < 3; iter++) {
+  int numberOfRuns=_TestUtil.nextInt(random,3,6);
+  for (int iter=0; iter < numberOfRuns; iter++) {
     if (VERBOSE) {
       System.out.println("TEST: iter=" + iter);
     }
@@ -10,7 +11,12 @@
     }
     final List<BytesRef> groups=new ArrayList<BytesRef>();
     for (int i=0; i < numGroups; i++) {
-      groups.add(new BytesRef(_TestUtil.randomRealisticUnicodeString(random)));
+      String randomValue;
+      do {
+        randomValue=_TestUtil.randomSimpleString(random);
+      }
+ while ("".equals(randomValue));
+      groups.add(new BytesRef(randomValue));
     }
     final String[] contentStrings=new String[_TestUtil.nextInt(random,2,20)];
     if (VERBOSE) {
@@ -18,7 +24,7 @@
     }
     for (int contentIDX=0; contentIDX < contentStrings.length; contentIDX++) {
       final StringBuilder sb=new StringBuilder();
-      sb.append("real" + random.nextInt(3)).append(' ');
+      sb.append("real").append(random.nextInt(3)).append(' ');
       final int fakeCount=random.nextInt(10);
       for (int fakeIDX=0; fakeIDX < fakeCount; fakeIDX++) {
         sb.append("fake ");
@@ -30,8 +36,14 @@
     }
     Directory dir=newDirectory();
     RandomIndexWriter w=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)));
+    final boolean preFlex="Lucene3x".equals(w.w.getConfig().getCodec().getName());
+    boolean canUseIDV=!preFlex;
     Document doc=new Document();
     Document docNoGroup=new Document();
+    IndexDocValuesField idvGroupField=new IndexDocValuesField("group");
+    if (canUseIDV) {
+      doc.add(idvGroupField);
+    }
     Field group=newField("group","",StringField.TYPE_UNSTORED);
     doc.add(group);
     Field sort1=newField("sort1","",StringField.TYPE_UNSTORED);
@@ -62,6 +74,9 @@
       groupDocs[i]=groupDoc;
       if (groupDoc.group != null) {
         group.setValue(groupDoc.group.utf8ToString());
+        if (canUseIDV) {
+          idvGroupField.setBytes(new BytesRef(groupDoc.group),ValueType.BYTES_VAR_SORTED);
+        }
       }
       sort1.setValue(groupDoc.sort1.utf8ToString());
       sort2.setValue(groupDoc.sort2.utf8ToString());
@@ -83,6 +98,12 @@
     Directory dirBlocks=null;
     try {
       final IndexSearcher s=newSearcher(r);
+      if (SlowMultiReaderWrapper.class.isAssignableFrom(s.getIndexReader().getClass())) {
+        canUseIDV=false;
+      }
+ else {
+        canUseIDV=!preFlex;
+      }
       final ShardState shards=new ShardState(s);
       for (int contentID=0; contentID < 3; contentID++) {
         final ScoreDoc[] hits=s.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
@@ -144,7 +165,7 @@
         if (VERBOSE) {
           System.out.println("TEST: groupSort=" + groupSort + " docSort="+ docSort+ " searchTerm="+ searchTerm+ " dF="+ r.docFreq("content",new BytesRef(searchTerm))+ " dFBlock="+ rBlocks.docFreq("content",new BytesRef(searchTerm))+ " topNGroups="+ topNGroups+ " groupOffset="+ groupOffset+ " docOffset="+ docOffset+ " doCache="+ doCache+ " docsPerGroup="+ docsPerGroup+ " doAllGroups="+ doAllGroups+ " getScores="+ getScores+ " getMaxScores="+ getMaxScores);
         }
-        final AbstractFirstPassGroupingCollector c1=createRandomFirstPassCollector("group",groupSort,groupOffset + topNGroups);
+        final AbstractFirstPassGroupingCollector c1=createRandomFirstPassCollector("group",groupSort,groupOffset + topNGroups,canUseIDV);
         final CachingCollector cCache;
         final Collector c;
         final AbstractAllGroupsCollector allGroupsCollector;
@@ -211,7 +232,8 @@
             }
           }
         }
-        final TopGroups<BytesRef> topGroupsShards=searchShards(s,shards.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
+        ValueHolder<Boolean> idvBasedImplsUsedSharded=new ValueHolder<Boolean>(false);
+        final TopGroups<BytesRef> topGroupsShards=searchShards(s,shards.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores,canUseIDV,preFlex,idvBasedImplsUsedSharded);
         final AbstractSecondPassGroupingCollector c2;
         if (topGroups != null) {
           if (VERBOSE) {
@@ -284,9 +306,22 @@
               }
             }
           }
+          if (topGroupsShards == null) {
+            System.out.println("TEST: no matched-merged groups");
+          }
+ else {
+            System.out.println("TEST: matched-merged groups totalGroupedHitCount=" + topGroupsShards.totalGroupedHitCount);
+            for (            GroupDocs<BytesRef> gd : topGroupsShards.groups) {
+              System.out.println("  group=" + (gd.groupValue == null ? "null" : gd.groupValue) + " totalHits="+ gd.totalHits);
+              for (              ScoreDoc sd : gd.scoreDocs) {
+                System.out.println("    id=" + docIDToID[sd.doc] + " score="+ sd.score);
+              }
+            }
+          }
         }
-        assertEquals(docIDToID,expectedGroups,groupsResult,true,true,true,getScores);
-        assertEquals(docIDToID,expectedGroups,topGroupsShards,true,false,fillFields,getScores);
+        boolean idvBasedImplsUsed=DVFirstPassGroupingCollector.class.isAssignableFrom(c1.getClass());
+        assertEquals(docIDToID,expectedGroups,groupsResult,true,true,true,getScores,idvBasedImplsUsed);
+        assertEquals(docIDToID,expectedGroups,topGroupsShards,true,false,fillFields,getScores,idvBasedImplsUsedSharded.value);
         if (topGroupsShards != null) {
           verifyShards(shards.docStarts,topGroupsShards);
         }
@@ -331,7 +366,7 @@
             }
           }
         }
-        final TopGroups<BytesRef> topGroupsBlockShards=searchShards(sBlocks,shardsBlocks.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores);
+        final TopGroups<BytesRef> topGroupsBlockShards=searchShards(sBlocks,shardsBlocks.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores,false,true,new ValueHolder<Boolean>(false));
         if (expectedGroups != null) {
           for (          GroupDocs groupDocsHits : expectedGroups.groups) {
             for (            ScoreDoc hit : groupDocsHits.scoreDocs) {
@@ -367,8 +402,8 @@
             }
           }
         }
-        assertEquals(docIDToIDBlocks,expectedGroups,groupsResultBlocks,false,true,true,getScores);
-        assertEquals(docIDToIDBlocks,expectedGroups,topGroupsBlockShards,false,false,fillFields,getScores);
+        assertEquals(docIDToIDBlocks,expectedGroups,groupsResultBlocks,false,true,true,getScores,false);
+        assertEquals(docIDToIDBlocks,expectedGroups,topGroupsBlockShards,false,false,fillFields,getScores,false);
       }
       s.close();
       sBlocks.close();
