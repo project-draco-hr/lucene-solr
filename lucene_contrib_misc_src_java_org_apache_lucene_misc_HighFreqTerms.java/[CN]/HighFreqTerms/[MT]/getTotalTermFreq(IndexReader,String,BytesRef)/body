@@ -1,29 +1,21 @@
 {
-  long totalTF=0;
-  Terms terms=MultiFields.getTerms(reader,field);
-  if (terms == null) {
-    return 0;
-  }
-  TermsEnum termsEnum=terms.iterator(null);
-  if (termsEnum.seekCeil(termText) != TermsEnum.SeekStatus.FOUND) {
-    return 0;
-  }
-  Bits liveDocs=MultiFields.getLiveDocs(reader);
-  if (liveDocs == null) {
-    final long totTF=termsEnum.totalTermFreq();
-    if (totTF != -1) {
-      return totTF;
+  final long totalTF[]=new long[1];
+  new ReaderUtil.Gather(reader){
+    @Override protected void add(    int base,    IndexReader r) throws IOException {
+      Bits liveDocs=r.getLiveDocs();
+      if (liveDocs == null) {
+        final long totTF=r.totalTermFreq(field,termText);
+        if (totTF != -1) {
+          totalTF[0]+=totTF;
+          return;
+        }
+      }
+      DocsEnum de=r.termDocsEnum(liveDocs,field,termText);
+      if (de != null) {
+        while (de.nextDoc() != DocIdSetIterator.NO_MORE_DOCS)         totalTF[0]+=de.freq();
+      }
     }
   }
-  DocsEnum de=termsEnum.docs(liveDocs,null);
-  final DocsEnum.BulkReadResult bulkresult=de.getBulkResult();
-  int count;
-  while ((count=de.read()) != 0) {
-    final int[] freqs=bulkresult.freqs.ints;
-    final int limit=bulkresult.freqs.offset + count;
-    for (int i=bulkresult.freqs.offset; i < limit; i++) {
-      totalTF+=freqs[i];
-    }
-  }
-  return totalTF;
+.run();
+  return totalTF[0];
 }
