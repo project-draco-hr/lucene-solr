@@ -1,0 +1,61 @@
+{
+  File tempInput=File.createTempFile(FSTCompletionLookup.class.getSimpleName(),".input",Sort.defaultTempDir());
+  File tempSorted=File.createTempFile(FSTCompletionLookup.class.getSimpleName(),".sorted",Sort.defaultTempDir());
+  Sort.ByteSequencesWriter writer=new Sort.ByteSequencesWriter(tempInput);
+  Sort.ByteSequencesReader reader=null;
+  boolean success=false;
+  try {
+    BytesRef tmp1=new BytesRef();
+    byte[] buffer=new byte[0];
+    ByteArrayDataOutput output=new ByteArrayDataOutput(buffer);
+    while (tfit.hasNext()) {
+      String key=tfit.next();
+      UnicodeUtil.UTF16toUTF8(key,0,key.length(),tmp1);
+      if (tmp1.length + 4 >= buffer.length) {
+        buffer=ArrayUtil.grow(buffer,tmp1.length + 4);
+      }
+      output.reset(buffer);
+      output.writeInt(FloatMagic.toSortable(tfit.freq()));
+      output.writeBytes(tmp1.bytes,tmp1.offset,tmp1.length);
+      writer.write(buffer,0,output.getPosition());
+    }
+    writer.close();
+    SortInfo info=new Sort().sort(tempInput,tempSorted);
+    tempInput.delete();
+    FSTCompletionBuilder builder=new FSTCompletionBuilder(buckets,new ExternalRefSorter(new Sort()),sharedTailLength);
+    final int inputLines=info.lines;
+    reader=new Sort.ByteSequencesReader(tempSorted);
+    long line=0;
+    int previousBucket=0;
+    float previousScore=0;
+    ByteArrayDataInput input=new ByteArrayDataInput();
+    BytesRef tmp2=new BytesRef();
+    while (reader.read(tmp1)) {
+      input.reset(tmp1.bytes);
+      float currentScore=FloatMagic.fromSortable(input.readInt());
+      int bucket;
+      if (line > 0 && currentScore == previousScore) {
+        bucket=previousBucket;
+      }
+ else {
+        bucket=(int)(line * buckets / inputLines);
+      }
+      previousScore=currentScore;
+      previousBucket=bucket;
+      tmp2.bytes=tmp1.bytes;
+      tmp2.offset=input.getPosition();
+      tmp2.length=tmp1.length - input.getPosition();
+      builder.add(tmp2,bucket);
+      line++;
+    }
+    this.higherWeightsCompletion=builder.build();
+    this.normalCompletion=new FSTCompletion(higherWeightsCompletion.getFST(),false,exactMatchFirst);
+    success=true;
+  }
+  finally {
+    if (success)     IOUtils.close(reader,writer);
+ else     IOUtils.closeWhileHandlingException(reader,writer);
+    tempInput.delete();
+    tempSorted.delete();
+  }
+}
