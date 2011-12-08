@@ -1,0 +1,46 @@
+{
+  Directory dir=newDirectory();
+  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setMaxBufferedDocs(2).setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH));
+  Document document=new Document();
+  FieldType customType=new FieldType();
+  customType.setStored(true);
+  FieldType customType1=new FieldType(TextField.TYPE_UNSTORED);
+  customType1.setTokenized(false);
+  customType1.setStoreTermVectors(true);
+  customType1.setStoreTermVectorPositions(true);
+  customType1.setStoreTermVectorOffsets(true);
+  Field idField=newField("id","",StringField.TYPE_UNSTORED);
+  document.add(idField);
+  Field storedField=newField("stored","stored",customType);
+  document.add(storedField);
+  Field termVectorField=newField("termVector","termVector",customType1);
+  document.add(termVectorField);
+  for (int i=0; i < 10; i++) {
+    idField.setValue("" + i);
+    writer.addDocument(document);
+  }
+  writer.close();
+  IndexReader ir=IndexReader.open(dir);
+  assertEquals(10,ir.maxDoc());
+  assertEquals(10,ir.numDocs());
+  ir.close();
+  IndexWriterConfig dontMergeConfig=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setMergePolicy(NoMergePolicy.COMPOUND_FILES);
+  writer=new IndexWriter(dir,dontMergeConfig);
+  writer.deleteDocuments(new Term("id","0"));
+  writer.deleteDocuments(new Term("id","7"));
+  writer.close();
+  ir=IndexReader.open(dir);
+  assertEquals(8,ir.numDocs());
+  ir.close();
+  writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setMergePolicy(newLogMergePolicy()));
+  assertEquals(8,writer.numDocs());
+  assertEquals(10,writer.maxDoc());
+  writer.forceMergeDeletes();
+  assertEquals(8,writer.numDocs());
+  writer.close();
+  ir=IndexReader.open(dir);
+  assertEquals(8,ir.maxDoc());
+  assertEquals(8,ir.numDocs());
+  ir.close();
+  dir.close();
+}
