@@ -3,8 +3,8 @@
   SolrParams solrParams=sreq.getParams();
   SolrCore core=sreq.getCore();
   String urlField=solrParams.get(CarrotParams.URL_FIELD_NAME,"url");
-  String titleField=solrParams.get(CarrotParams.TITLE_FIELD_NAME,"title");
-  String snippetField=solrParams.get(CarrotParams.SNIPPET_FIELD_NAME,titleField);
+  String titleFieldSpec=solrParams.get(CarrotParams.TITLE_FIELD_NAME,"title");
+  String snippetFieldSpec=solrParams.get(CarrotParams.SNIPPET_FIELD_NAME,titleFieldSpec);
   boolean produceSummary=solrParams.getBool(CarrotParams.PRODUCE_SUMMARY,false);
   SolrQueryRequest req=null;
   String[] snippetFieldAry=null;
@@ -12,7 +12,7 @@
     highlighter=HighlightComponent.getHighlighter(core);
     if (highlighter != null) {
       Map<String,Object> args=Maps.newHashMap();
-      snippetFieldAry=new String[]{snippetField};
+      snippetFieldAry=snippetFieldSpec.split("[, ]");
       args.put(HighlightParams.FIELDS,snippetFieldAry);
       args.put(HighlightParams.HIGHLIGHT,"true");
       args.put(HighlightParams.SIMPLE_PRE,"");
@@ -38,25 +38,30 @@
   Query theQuery=query;
   while (docsIter.hasNext()) {
     SolrDocument sdoc=docsIter.next();
-    String snippet=getValue(sdoc,snippetField);
+    String snippet=null;
     if (produceSummary && docIds != null) {
       docsHolder[0]=docIds.get(sdoc).intValue();
       DocList docAsList=new DocSlice(0,1,docsHolder,scores,1,1.0f);
       NamedList<Object> highlights=highlighter.doHighlighting(docAsList,theQuery,req,snippetFieldAry);
       if (highlights != null && highlights.size() == 1) {
         @SuppressWarnings("unchecked") NamedList<String[]> tmp=(NamedList<String[]>)highlights.getVal(0);
-        String[] highlt=tmp.get(snippetField);
-        if (highlt != null && highlt.length > 0) {
-          final StringBuilder sb=new StringBuilder(highlt[0]);
-          for (int i=1; i < highlt.length; i++) {
-            sb.append(" . ");
-            sb.append(highlt[i]);
+        final StringBuilder sb=new StringBuilder();
+        for (int j=0; j < snippetFieldAry.length; j++) {
+          String[] highlt=tmp.get(snippetFieldAry[j]);
+          if (highlt != null && highlt.length > 0) {
+            for (int i=0; i < highlt.length; i++) {
+              sb.append(highlt[i]);
+              sb.append(" . ");
+            }
           }
-          snippet=sb.toString();
         }
+        snippet=sb.toString();
       }
     }
-    Document carrotDocument=new Document(getValue(sdoc,titleField),snippet,(String)sdoc.getFieldValue(urlField));
+    if (snippet == null) {
+      snippet=getConcatenated(sdoc,snippetFieldSpec);
+    }
+    Document carrotDocument=new Document(getConcatenated(sdoc,titleFieldSpec),snippet,(String)sdoc.getFieldValue(urlField));
     carrotDocument.setField(SOLR_DOCUMENT_ID,sdoc.getFieldValue(idFieldName));
     result.add(carrotDocument);
   }
