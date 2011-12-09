@@ -5,6 +5,19 @@
   String urlField=solrParams.get(CarrotParams.URL_FIELD_NAME,"url");
   String titleFieldSpec=solrParams.get(CarrotParams.TITLE_FIELD_NAME,"title");
   String snippetFieldSpec=solrParams.get(CarrotParams.SNIPPET_FIELD_NAME,titleFieldSpec);
+  String languageField=solrParams.get(CarrotParams.LANGUAGE_FIELD_NAME,null);
+  Map<String,String> languageCodeMap=Maps.newHashMap();
+  if (StringUtils.isNotBlank(languageField)) {
+    for (    String pair : solrParams.get(CarrotParams.LANGUAGE_CODE_MAP,"").split("[, ]")) {
+      final String[] split=pair.split(":");
+      if (split.length == 2 && StringUtils.isNotBlank(split[0]) && StringUtils.isNotBlank(split[1])) {
+        languageCodeMap.put(split[0],split[1]);
+      }
+ else {
+        log.warn("Unsupported format for " + CarrotParams.LANGUAGE_CODE_MAP + ": '"+ pair+ "'. Skipping this mapping.");
+      }
+    }
+  }
   boolean produceSummary=solrParams.getBool(CarrotParams.PRODUCE_SUMMARY,false);
   SolrQueryRequest req=null;
   String[] snippetFieldAry=null;
@@ -63,6 +76,25 @@
     }
     Document carrotDocument=new Document(getConcatenated(sdoc,titleFieldSpec),snippet,(String)sdoc.getFieldValue(urlField));
     carrotDocument.setField(SOLR_DOCUMENT_ID,sdoc.getFieldValue(idFieldName));
+    if (StringUtils.isNotBlank(languageField)) {
+      Collection<Object> languages=sdoc.getFieldValues(languageField);
+      if (languages != null) {
+        for (        Object l : languages) {
+          String lang=ObjectUtils.toString(l,"");
+          if (languageCodeMap.containsKey(lang)) {
+            lang=languageCodeMap.get(lang);
+          }
+          if (lang.indexOf('-') > 0) {
+            lang=lang.replace('-','_');
+          }
+          final LanguageCode carrot2Language=LanguageCode.forISOCode(lang);
+          if (carrot2Language != null) {
+            carrotDocument.setLanguage(carrot2Language);
+            break;
+          }
+        }
+      }
+    }
     result.add(carrotDocument);
   }
   return result;
