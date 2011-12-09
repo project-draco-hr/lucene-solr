@@ -1,0 +1,50 @@
+{
+  int numThreads=5;
+  int numDocs=40;
+  String[][][] docs=generateDocs(numDocs);
+  final MockSolrEntityProcessor entityProcessor=new MockSolrEntityProcessor(docs,25);
+  final Map<String,Map<String,Object>> rowList=new HashMap<String,Map<String,Object>>();
+  final CountDownLatch latch=new CountDownLatch(numThreads);
+  for (int i=0; i < numThreads; i++) {
+    Runnable runnable=new Runnable(){
+      public void run(){
+        try {
+          while (true) {
+            Map<String,Object> row;
+synchronized (entityProcessor) {
+              row=entityProcessor.nextRow();
+            }
+            if (row == null) {
+              break;
+            }
+            rowList.put(row.get(ID).toString(),row);
+          }
+        }
+  finally {
+          latch.countDown();
+        }
+      }
+    }
+;
+    new ThreadPoolExecutor(0,Integer.MAX_VALUE,5,TimeUnit.SECONDS,new SynchronousQueue<Runnable>()).execute(runnable);
+  }
+  try {
+    latch.await();
+  }
+ catch (  InterruptedException e) {
+    LOG.error(e.getMessage(),e);
+  }
+  assertEquals(numDocs,rowList.size());
+  for (  String[][] expectedDoc : docs) {
+    Map<String,Object> row=rowList.get(expectedDoc[0][1]);
+    assertNotNull(row);
+    int i=0;
+    for (    Entry<String,Object> entry : row.entrySet()) {
+      assertEquals(expectedDoc[i][0],entry.getKey());
+      assertEquals(expectedDoc[i][1],entry.getValue());
+      i++;
+    }
+    rowList.remove(expectedDoc[0][1]);
+  }
+  assertEquals(0,rowList.size());
+}
