@@ -3,8 +3,22 @@
   SolrParams solrParams=sreq.getParams();
   SolrCore core=sreq.getCore();
   String urlField=solrParams.get(CarrotParams.URL_FIELD_NAME,"url");
-  String titleField=solrParams.get(CarrotParams.TITLE_FIELD_NAME,"title");
-  String snippetField=solrParams.get(CarrotParams.SNIPPET_FIELD_NAME,titleField);
+  String titleFieldSpec=solrParams.get(CarrotParams.TITLE_FIELD_NAME,"title");
+  String snippetFieldSpec=solrParams.get(CarrotParams.SNIPPET_FIELD_NAME,titleFieldSpec);
+  String languageField=solrParams.get(CarrotParams.LANGUAGE_FIELD_NAME,null);
+  Map<String,String> customFields=getCustomFieldsMap(solrParams);
+  Map<String,String> languageCodeMap=Maps.newHashMap();
+  if (StringUtils.isNotBlank(languageField)) {
+    for (    String pair : solrParams.get(CarrotParams.LANGUAGE_CODE_MAP,"").split("[, ]")) {
+      final String[] split=pair.split(":");
+      if (split.length == 2 && StringUtils.isNotBlank(split[0]) && StringUtils.isNotBlank(split[1])) {
+        languageCodeMap.put(split[0],split[1]);
+      }
+ else {
+        log.warn("Unsupported format for " + CarrotParams.LANGUAGE_CODE_MAP + ": '"+ pair+ "'. Skipping this mapping.");
+      }
+    }
+  }
   boolean produceSummary=solrParams.getBool(CarrotParams.PRODUCE_SUMMARY,false);
   SolrQueryRequest req=null;
   String[] snippetFieldAry=null;
@@ -12,12 +26,13 @@
     highlighter=HighlightComponent.getHighlighter(core);
     if (highlighter != null) {
       Map<String,Object> args=Maps.newHashMap();
-      snippetFieldAry=new String[]{snippetField};
+      snippetFieldAry=snippetFieldSpec.split("[, ]");
       args.put(HighlightParams.FIELDS,snippetFieldAry);
       args.put(HighlightParams.HIGHLIGHT,"true");
       args.put(HighlightParams.SIMPLE_PRE,"");
       args.put(HighlightParams.SIMPLE_POST,"");
       args.put(HighlightParams.FRAGSIZE,solrParams.getInt(CarrotParams.SUMMARY_FRAGSIZE,solrParams.getInt(HighlightParams.FRAGSIZE,100)));
+      args.put(HighlightParams.SNIPPETS,solrParams.getInt(CarrotParams.SUMMARY_SNIPPETS,solrParams.getInt(HighlightParams.SNIPPETS,1)));
       req=new LocalSolrQueryRequest(core,query.toString(),"",0,1,args){
         @Override public SolrIndexSearcher getSearcher(){
           return sreq.getSearcher();
@@ -37,21 +52,55 @@
   Query theQuery=query;
   while (docsIter.hasNext()) {
     SolrDocument sdoc=docsIter.next();
-    String snippet=getValue(sdoc,snippetField);
+    String snippet=null;
     if (produceSummary && docIds != null) {
       docsHolder[0]=docIds.get(sdoc).intValue();
       DocList docAsList=new DocSlice(0,1,docsHolder,scores,1,1.0f);
       NamedList<Object> highlights=highlighter.doHighlighting(docAsList,theQuery,req,snippetFieldAry);
       if (highlights != null && highlights.size() == 1) {
         @SuppressWarnings("unchecked") NamedList<String[]> tmp=(NamedList<String[]>)highlights.getVal(0);
-        String[] highlt=tmp.get(snippetField);
-        if (highlt != null && highlt.length == 1) {
-          snippet=highlt[0];
+        final StringBuilder sb=new StringBuilder();
+        for (int j=0; j < snippetFieldAry.length; j++) {
+          String[] highlt=tmp.get(snippetFieldAry[j]);
+          if (highlt != null && highlt.length > 0) {
+            for (int i=0; i < highlt.length; i++) {
+              sb.append(highlt[i]);
+              sb.append(" . ");
+            }
+          }
+        }
+        snippet=sb.toString();
+      }
+    }
+    if (snippet == null) {
+      snippet=getConcatenated(sdoc,snippetFieldSpec);
+    }
+    Document carrotDocument=new Document(getConcatenated(sdoc,titleFieldSpec),snippet,ObjectUtils.toString(sdoc.getFieldValue(urlField),""));
+    carrotDocument.setField(SOLR_DOCUMENT_ID,sdoc.getFieldValue(idFieldName));
+    if (StringUtils.isNotBlank(languageField)) {
+      Collection<Object> languages=sdoc.getFieldValues(languageField);
+      if (languages != null) {
+        for (        Object l : languages) {
+          String lang=ObjectUtils.toString(l,"");
+          if (languageCodeMap.containsKey(lang)) {
+            lang=languageCodeMap.get(lang);
+          }
+          if (lang.indexOf('-') > 0) {
+            lang=lang.replace('-','_');
+          }
+          final LanguageCode carrot2Language=LanguageCode.forISOCode(lang);
+          if (carrot2Language != null) {
+            carrotDocument.setLanguage(carrot2Language);
+            break;
+          }
         }
       }
     }
-    Document carrotDocument=new Document(getValue(sdoc,titleField),snippet,(String)sdoc.getFieldValue(urlField));
-    carrotDocument.setField(SOLR_DOCUMENT_ID,sdoc.getFieldValue(idFieldName));
+    if (customFields != null) {
+      for (      Entry<String,String> entry : customFields.entrySet()) {
+        carrotDocument.setField(entry.getValue(),sdoc.getFieldValue(entry.getKey()));
+      }
+    }
     result.add(carrotDocument);
   }
   return result;
