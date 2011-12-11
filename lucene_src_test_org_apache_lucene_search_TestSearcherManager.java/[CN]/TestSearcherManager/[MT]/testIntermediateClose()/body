@@ -5,19 +5,26 @@
   writer.commit();
   final CountDownLatch awaitEnterWarm=new CountDownLatch(1);
   final CountDownLatch awaitClose=new CountDownLatch(1);
+  final AtomicBoolean triedReopen=new AtomicBoolean(false);
   final ExecutorService es=random.nextBoolean() ? null : Executors.newCachedThreadPool(new NamedThreadFactory("testIntermediateClose"));
-  final SearcherWarmer warmer=new SearcherWarmer(){
-    @Override public void warm(    IndexSearcher s) throws IOException {
+  final SearcherFactory factory=new SearcherFactory(){
+    @Override public IndexSearcher newSearcher(    IndexReader r) throws IOException {
       try {
-        awaitEnterWarm.countDown();
-        awaitClose.await();
+        if (triedReopen.get()) {
+          awaitEnterWarm.countDown();
+          awaitClose.await();
+        }
       }
  catch (      InterruptedException e) {
       }
+      return new IndexSearcher(r,es);
     }
   }
 ;
-  final SearcherManager searcherManager=random.nextBoolean() ? new SearcherManager(dir,warmer,es) : new SearcherManager(writer,random.nextBoolean(),warmer,es);
+  final SearcherManager searcherManager=random.nextBoolean() ? new SearcherManager(dir,factory) : new SearcherManager(writer,random.nextBoolean(),factory);
+  if (VERBOSE) {
+    System.out.println("sm created");
+  }
   IndexSearcher searcher=searcherManager.acquire();
   try {
     assertEquals(1,searcher.getIndexReader().numDocs());
@@ -28,20 +35,24 @@
   writer.addDocument(new Document());
   writer.commit();
   final AtomicBoolean success=new AtomicBoolean(false);
-  final AtomicBoolean triedReopen=new AtomicBoolean(false);
   final Throwable[] exc=new Throwable[1];
   Thread thread=new Thread(new Runnable(){
     @Override public void run(){
       try {
         triedReopen.set(true);
+        if (VERBOSE) {
+          System.out.println("NOW call maybeReopen");
+        }
         searcherManager.maybeReopen();
         success.set(true);
       }
  catch (      AlreadyClosedException e) {
       }
 catch (      Throwable e) {
-        System.out.println("FAIL: unexpected exc");
-        e.printStackTrace(System.out);
+        if (VERBOSE) {
+          System.out.println("FAIL: unexpected exc");
+          e.printStackTrace(System.out);
+        }
         exc[0]=e;
         success.set(false);
       }
@@ -49,7 +60,13 @@ catch (      Throwable e) {
   }
 );
   thread.start();
+  if (VERBOSE) {
+    System.out.println("THREAD started");
+  }
   awaitEnterWarm.await();
+  if (VERBOSE) {
+    System.out.println("NOW call close");
+  }
   searcherManager.close();
   awaitClose.countDown();
   thread.join();
