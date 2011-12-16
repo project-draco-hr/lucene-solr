@@ -1,0 +1,35 @@
+{
+  Directory dir=newDirectory();
+  Codec cp=_TestUtil.alwaysPostingsFormat(new Lucene40PostingsFormat());
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setCodec(cp));
+  int numdocs=atLeast(20);
+  createRandomIndex(numdocs,writer,random);
+  writer.commit();
+  IndexReader firstReader=IndexReader.open(dir);
+  IndexReader secondReader=IndexReader.open(dir);
+  IndexReader[] sequentialSubReaders=firstReader.getSequentialSubReaders();
+  IndexReader[] sequentialSubReaders2=secondReader.getSequentialSubReaders();
+  for (  IndexReader indexReader : sequentialSubReaders) {
+    Terms terms=indexReader.terms("body");
+    TermsEnum iterator=terms.iterator(null);
+    IdentityHashMap<DocsEnum,Boolean> enums=new IdentityHashMap<DocsEnum,Boolean>();
+    MatchNoBits bits=new Bits.MatchNoBits(firstReader.maxDoc());
+    iterator=terms.iterator(null);
+    DocsEnum docs=null;
+    BytesRef term=null;
+    while ((term=iterator.next()) != null) {
+      docs=iterator.docs(null,randomDocsEnum("body",term,sequentialSubReaders2,bits),random.nextBoolean());
+      enums.put(docs,true);
+    }
+    assertEquals(terms.getUniqueTermCount(),enums.size());
+    iterator=terms.iterator(null);
+    enums.clear();
+    docs=null;
+    while ((term=iterator.next()) != null) {
+      docs=iterator.docs(bits,randomDocsEnum("body",term,sequentialSubReaders2,bits),random.nextBoolean());
+      enums.put(docs,true);
+    }
+    assertEquals(terms.getUniqueTermCount(),enums.size());
+  }
+  IOUtils.close(writer,firstReader,secondReader,dir);
+}
