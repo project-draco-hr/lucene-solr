@@ -1,0 +1,102 @@
+{
+  int numHits=_TestUtil.nextInt(random,1,100);
+  if (state != null && state.searchAfterLocal == null) {
+    numHits+=state.numHitsPaged;
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: query=" + q + " sort="+ sort+ " numHits="+ numHits);
+    if (state != null) {
+      System.out.println("  prev: searchAfterLocal=" + state.searchAfterLocal + " searchAfterShard="+ state.searchAfterShard+ " numHitsPaged="+ state.numHitsPaged);
+    }
+  }
+  final TopDocs hits;
+  if (sort == null) {
+    if (state != null && state.searchAfterLocal != null) {
+      hits=mockSearcher.searchAfter(state.searchAfterLocal,q,numHits);
+    }
+ else {
+      hits=mockSearcher.search(q,numHits);
+    }
+  }
+ else {
+    hits=mockSearcher.search(q,numHits,sort);
+  }
+  final TopDocs shardHits;
+  if (sort == null) {
+    if (state != null && state.searchAfterShard != null) {
+      shardHits=shardSearcher.searchAfter(state.searchAfterShard,q,numHits);
+    }
+ else {
+      shardHits=shardSearcher.search(q,numHits);
+    }
+  }
+ else {
+    shardHits=shardSearcher.search(q,numHits,sort);
+  }
+  final int numNodes=shardSearcher.nodeVersions.length;
+  int[] base=new int[numNodes];
+  final IndexReader[] subs=mockSearcher.getIndexReader().getSequentialSubReaders();
+  assertEquals(numNodes,subs.length);
+  int docCount=0;
+  for (int nodeID=0; nodeID < numNodes; nodeID++) {
+    base[nodeID]=docCount;
+    docCount+=subs[nodeID].maxDoc();
+  }
+  if (VERBOSE) {
+    System.out.println("  single searcher: " + hits.totalHits + " totalHits maxScore="+ hits.getMaxScore());
+    for (int i=0; i < hits.scoreDocs.length; i++) {
+      final ScoreDoc sd=hits.scoreDocs[i];
+      System.out.println("    doc=" + sd.doc + " score="+ sd.score);
+    }
+    System.out.println("  shard searcher: " + shardHits.totalHits + " totalHits maxScore="+ shardHits.getMaxScore());
+    for (int i=0; i < shardHits.scoreDocs.length; i++) {
+      final ScoreDoc sd=shardHits.scoreDocs[i];
+      System.out.println("    doc=" + sd.doc + " (rebased: "+ (sd.doc + base[sd.shardIndex])+ ") score="+ sd.score+ " shard="+ sd.shardIndex);
+    }
+  }
+  int numHitsPaged;
+  if (state != null && state.searchAfterLocal != null) {
+    numHitsPaged=hits.scoreDocs.length;
+    if (state != null) {
+      numHitsPaged+=state.numHitsPaged;
+    }
+  }
+ else {
+    numHitsPaged=hits.scoreDocs.length;
+  }
+  final boolean moreHits;
+  final ScoreDoc bottomHit;
+  final ScoreDoc bottomHitShards;
+  if (numHitsPaged < hits.totalHits) {
+    moreHits=true;
+    if (sort == null) {
+      bottomHit=hits.scoreDocs[hits.scoreDocs.length - 1];
+      final ScoreDoc sd=shardHits.scoreDocs[shardHits.scoreDocs.length - 1];
+      bottomHitShards=new ScoreDoc(sd.doc,sd.score,sd.shardIndex);
+      if (VERBOSE) {
+        System.out.println("  save bottomHit=" + bottomHit);
+      }
+    }
+ else {
+      bottomHit=null;
+      bottomHitShards=null;
+    }
+  }
+ else {
+    assertEquals(hits.totalHits,numHitsPaged);
+    bottomHit=null;
+    bottomHitShards=null;
+    moreHits=false;
+  }
+  for (int hitID=0; hitID < shardHits.scoreDocs.length; hitID++) {
+    final ScoreDoc sd=shardHits.scoreDocs[hitID];
+    sd.doc+=base[sd.shardIndex];
+  }
+  _TestUtil.assertEquals(hits,shardHits);
+  if (moreHits) {
+    return new PreviousSearchState(q,sort,bottomHit,bottomHitShards,shardSearcher.nodeVersions,numHitsPaged);
+  }
+ else {
+    return null;
+  }
+}
