@@ -1,0 +1,71 @@
+{
+  final int threadCount=atLeast(32), keyCount=atLeast(1024);
+  final ExecutorService exec=Executors.newFixedThreadPool(threadCount + 1);
+  final WeakIdentityMap<Object,Integer> map=WeakIdentityMap.newConcurrentHashMap();
+  final AtomicReferenceArray<Object> keys=new AtomicReferenceArray<Object>(keyCount);
+  for (int j=0; j < keyCount; j++) {
+    keys.set(j,new Object());
+  }
+  try {
+    final AtomicInteger running=new AtomicInteger(threadCount);
+    for (int t=0; t < threadCount; t++) {
+      final Random rnd=new Random(random.nextLong());
+      final int count=atLeast(rnd,20000);
+      exec.execute(new Runnable(){
+        public void run(){
+          for (int i=0; i < count; i++) {
+            final int j=rnd.nextInt(keyCount);
+switch (rnd.nextInt(4)) {
+case 0:
+              map.put(keys.get(j),Integer.valueOf(j));
+            break;
+case 1:
+          final Integer v=map.get(keys.get(j));
+        if (v != null) {
+          assertEquals(j,v.intValue());
+        }
+      break;
+case 2:
+    map.remove(keys.get(j));
+  break;
+case 3:
+keys.set(j,new Object());
+break;
+default :
+fail("Should not get here.");
+}
+}
+running.decrementAndGet();
+}
+}
+);
+}
+exec.execute(new Runnable(){
+public void run(){
+while (running.get() > 0) {
+System.runFinalization();
+System.gc();
+map.isEmpty();
+}
+}
+}
+);
+}
+  finally {
+exec.shutdown();
+while (!exec.awaitTermination(1000L,TimeUnit.MILLISECONDS)) ;
+}
+for (int j=0; j < keyCount; j++) {
+keys.set(j,null);
+}
+int size=map.size();
+for (int i=0; size > 0 && i < 10; i++) try {
+System.runFinalization();
+System.gc();
+Thread.sleep(100L);
+assertTrue(size >= map.size());
+size=map.size();
+}
+ catch (InterruptedException ie) {
+}
+}
