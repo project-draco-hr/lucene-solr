@@ -1,0 +1,55 @@
+{
+  return new FieldComparator<Integer>(){
+    private final int[] values=new int[numHits];
+    private int bottomVal;
+    private TermsEnum termsEnum;
+    private DocsEnum docsEnum;
+    Set<String> seen=new HashSet<String>(elevations.ids.size());
+    @Override public int compare(    int slot1,    int slot2){
+      return values[slot2] - values[slot1];
+    }
+    @Override public void setBottom(    int slot){
+      bottomVal=values[slot];
+    }
+    private int docVal(    int doc) throws IOException {
+      if (ordSet.size() > 0) {
+        int slot=ordSet.find(doc);
+        if (slot >= 0) {
+          BytesRef id=termValues[slot];
+          Integer prio=elevations.priority.get(id);
+          return prio == null ? 0 : prio.intValue();
+        }
+      }
+      return 0;
+    }
+    @Override public int compareBottom(    int doc) throws IOException {
+      return docVal(doc) - bottomVal;
+    }
+    @Override public void copy(    int slot,    int doc) throws IOException {
+      values[slot]=docVal(doc);
+    }
+    @Override public FieldComparator setNextReader(    AtomicReaderContext context) throws IOException {
+      ordSet.clear();
+      Fields fields=context.reader.fields();
+      Terms terms=fields.terms(fieldname);
+      termsEnum=terms.iterator(termsEnum);
+      BytesRef term=new BytesRef();
+      for (      String id : elevations.ids) {
+        term.copyChars(id);
+        if (seen.contains(id) == false && termsEnum.seekExact(term,false)) {
+          docsEnum=termsEnum.docs(null,docsEnum,false);
+          if (docsEnum != null) {
+            int docId=docsEnum.nextDoc();
+            termValues[ordSet.put(docId)]=BytesRef.deepCopyOf(term);
+            seen.add(id);
+          }
+        }
+      }
+      return this;
+    }
+    @Override public Integer value(    int slot){
+      return values[slot];
+    }
+  }
+;
+}
