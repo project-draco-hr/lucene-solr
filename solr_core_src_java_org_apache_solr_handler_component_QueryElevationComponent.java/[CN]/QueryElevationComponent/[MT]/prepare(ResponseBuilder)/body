@@ -6,6 +6,7 @@
   }
   boolean exclusive=params.getBool(QueryElevationParams.EXCLUSIVE,false);
   boolean force=params.getBool(QueryElevationParams.FORCE_ELEVATION,forceElevation);
+  boolean markExcludes=params.getBool(QueryElevationParams.MARK_EXCLUDES,false);
   Query query=rb.getQuery();
   String qstr=rb.getQueryString();
   if (query == null || qstr == null) {
@@ -21,7 +22,7 @@
     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error loading elevation",ex);
   }
   if (booster != null) {
-    rb.req.getContext().put("BOOSTED",booster.ids);
+    rb.req.getContext().put(BOOSTED,booster.ids);
     if (exclusive == true) {
       rb.setQuery(booster.include);
     }
@@ -30,8 +31,16 @@
       newq.add(query,BooleanClause.Occur.SHOULD);
       newq.add(booster.include,BooleanClause.Occur.SHOULD);
       if (booster.exclude != null) {
-        for (        BooleanClause bq : booster.exclude) {
-          newq.add(bq);
+        if (markExcludes == false) {
+          for (          TermQuery tq : booster.exclude) {
+            newq.add(new BooleanClause(tq,BooleanClause.Occur.MUST_NOT));
+          }
+        }
+ else {
+          rb.req.getContext().put(EXCLUDED,booster.excludeIds);
+          for (          TermQuery tq : booster.exclude) {
+            newq.add(new BooleanClause(tq,BooleanClause.Occur.SHOULD));
+          }
         }
       }
       rb.setQuery(newq);
