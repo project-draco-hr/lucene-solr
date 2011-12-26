@@ -1,13 +1,14 @@
 def main():
-    if (len(sys.argv) != 2):
+    if (len(sys.argv) != 3):
         print 
-        print ('Usage: python -u %s N' % sys.argv[0])
+        print ('Usage: python -u %s N <True/False>' % sys.argv[0])
         print 
         print 'NOTE: the resulting .java file is created in the current working dir!'
         print 
         sys.exit(1)
     n = int(sys.argv[1])
-    tables = genTransitions(n)
+    transpose = (sys.argv[2] == 'True')
+    tables = genTransitions(n, transpose)
     stateMap = {}
     stateMap['[]'] = (-1)
     stateMap['[(0, 0)]'] = 0
@@ -37,8 +38,13 @@ def main():
     w('')
     w('import org.apache.lucene.util.automaton.LevenshteinAutomata.ParametricDescription;')
     w('')
-    w(('/** Parametric description for generating a Levenshtein automaton of degree %s */' % n))
-    className = ('Lev%dParametricDescription' % n)
+    if transpose:
+        w(('/** Parametric description for generating a Levenshtein automaton of degree %s, ' % n))
+        w('    with transpositions as primitive edits */')
+        className = ('Lev%dTParametricDescription' % n)
+    else:
+        w(('/** Parametric description for generating a Levenshtein automaton of degree %s */' % n))
+        className = ('Lev%dParametricDescription' % n)
     w(('class %s extends ParametricDescription {' % className))
     w('')
     w('@Override')
@@ -78,24 +84,22 @@ def main():
             byAction = {}
             for (s, (toS, offset)) in l:
                 state = str(s)
-                if (state == '[]'):
-                    continue
                 toState = str(toS)
                 if (state not in stateMap):
                     stateMap[state] = (len(stateMap) - 1)
                 if (toState not in stateMap):
                     stateMap[toState] = (len(stateMap) - 1)
                 byFromState[stateMap[state]] = ((1 + stateMap[toState]), offset)
-                fromStateDesc = ', '.join([str(x) for x in eval(s)])
+                fromStateDesc = s[1:(len(s) - 1)]
                 toStateDesc = ', '.join([str(x) for x in toS])
                 tup = (stateMap[toState], toStateDesc, offset)
                 if (tup not in byAction):
                     byAction[tup] = []
                 byAction[tup].append((fromStateDesc, stateMap[state]))
             if (numCasesPerVector is None):
-                numCasesPerVector = (len(l) - 1)
+                numCasesPerVector = len(l)
             else:
-                assert (numCasesPerVector == (len(l) - 1))
+                assert (numCasesPerVector == len(l))
             if (MODE == 'array'):
                 for s in range(numCasesPerVector):
                     (toState, offsetIncr) = byFromState[s]
@@ -165,7 +169,8 @@ def main():
     minErrors = []
     for i in xrange((len(stateMap2) - 1)):
         w(('//   %s -> %s' % (i, stateMap2[i])))
-        v = eval(stateMap2[i])
+        st = stateMap2[i].replace('t', '')
+        v = eval(st)
         minError = min([((- i) + e) for (i, e) in v])
         c = len(v)
         sum += c
