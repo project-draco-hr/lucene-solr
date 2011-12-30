@@ -1,3 +1,31 @@
 {
   LuceneTestCase.PREFLEX_IMPERSONATION_IS_ACTIVE=true;
+  IndexWriterConfig config=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random,MockTokenizer.KEYWORD,false));
+  termIndexInterval=config.getTermIndexInterval();
+  indexDivisor=_TestUtil.nextInt(random,1,10);
+  NUMBER_OF_DOCUMENTS=atLeast(100);
+  NUMBER_OF_FIELDS=atLeast(Math.max(10,3 * termIndexInterval * indexDivisor / NUMBER_OF_DOCUMENTS));
+  directory=newDirectory();
+  config.setCodec(new PreFlexRWCodec());
+  LogMergePolicy mp=newLogMergePolicy();
+  mp.setUseCompoundFile(false);
+  config.setMergePolicy(mp);
+  populate(directory,config);
+  IndexReader r0=IndexReader.open(directory);
+  SegmentReader r=(SegmentReader)r0.getSequentialSubReaders()[0];
+  String segment=r.getSegmentName();
+  r.close();
+  FieldInfosReader infosReader=new PreFlexRWCodec().fieldInfosFormat().getFieldInfosReader();
+  FieldInfos fieldInfos=infosReader.read(directory,segment,IOContext.READONCE);
+  String segmentFileName=IndexFileNames.segmentFileName(segment,"",Lucene3xPostingsFormat.TERMS_INDEX_EXTENSION);
+  long tiiFileLength=directory.fileLength(segmentFileName);
+  IndexInput input=directory.openInput(segmentFileName,newIOContext(random));
+  termEnum=new SegmentTermEnum(directory.openInput(IndexFileNames.segmentFileName(segment,"",Lucene3xPostingsFormat.TERMS_EXTENSION),newIOContext(random)),fieldInfos,false);
+  int totalIndexInterval=termEnum.indexInterval * indexDivisor;
+  SegmentTermEnum indexEnum=new SegmentTermEnum(input,fieldInfos,true);
+  index=new TermInfosReaderIndex(indexEnum,indexDivisor,tiiFileLength,totalIndexInterval);
+  indexEnum.close();
+  input.close();
+  reader=IndexReader.open(directory);
+  sampleTerms=sample(reader,1000);
 }
