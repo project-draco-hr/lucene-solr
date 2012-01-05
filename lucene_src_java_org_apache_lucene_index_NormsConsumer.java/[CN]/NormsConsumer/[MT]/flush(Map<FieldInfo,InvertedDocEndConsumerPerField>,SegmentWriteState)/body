@@ -1,2 +1,37 @@
 {
+  boolean success=false;
+  boolean anythingFlushed=false;
+  try {
+    if (state.fieldInfos.hasNorms()) {
+      for (      FieldInfo fi : state.fieldInfos) {
+        final NormsConsumerPerField toWrite=(NormsConsumerPerField)fieldsToFlush.get(fi);
+        if (!fi.omitNorms) {
+          if (toWrite != null) {
+            anythingFlushed=true;
+            toWrite.flush(state.numDocs);
+          }
+ else           if (fi.isIndexed) {
+            anythingFlushed=true;
+            final DocValuesConsumer valuesConsumer=newConsumer(new PerDocWriteState(state),fi);
+            final DocValuesField value=new DocValuesField("");
+            value.setBytes(new BytesRef(new byte[]{0x00}),Type.BYTES_FIXED_STRAIGHT);
+            valuesConsumer.add(state.numDocs - 1,value);
+            valuesConsumer.finish(state.numDocs);
+          }
+        }
+      }
+    }
+    success=true;
+    if (!anythingFlushed && consumer != null) {
+      consumer.abort();
+    }
+  }
+  finally {
+    if (success) {
+      IOUtils.close(consumer);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(consumer);
+    }
+  }
 }
