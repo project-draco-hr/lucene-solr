@@ -1,0 +1,57 @@
+{
+  Directory dir=reader.directory();
+  SimpleOrderedMap<Object> indexInfo=new SimpleOrderedMap<Object>();
+  indexInfo.add("numDocs",reader.numDocs());
+  indexInfo.add("maxDoc",reader.maxDoc());
+  final CharsRef spare=new CharsRef();
+  if (numTerms > 0) {
+    Fields fields=MultiFields.getFields(reader);
+    long totalTerms=0;
+    if (fields != null) {
+      FieldsEnum fieldsEnum=fields.iterator();
+      String field;
+      while ((field=fieldsEnum.next()) != null) {
+        Terms terms=fieldsEnum.terms();
+        if (terms == null) {
+          continue;
+        }
+        totalTerms+=terms.getUniqueTermCount();
+        if (fieldList != null && !fieldList.contains(field)) {
+          continue;
+        }
+        TermsEnum termsEnum=terms.iterator(null);
+        BytesRef text;
+        int[] buckets=new int[HIST_ARRAY_SIZE];
+        TopTermQueue tiq=topTerms.get(field);
+        if (tiq == null) {
+          tiq=new TopTermQueue(numTerms + 1);
+          topTerms.put(field,tiq);
+        }
+        while ((text=termsEnum.next()) != null) {
+          int freq=termsEnum.docFreq();
+          int slot=32 - Integer.numberOfLeadingZeros(Math.max(0,freq - 1));
+          buckets[slot]=buckets[slot] + 1;
+          if (freq > tiq.minFreq) {
+            UnicodeUtil.UTF8toUTF16(text,spare);
+            String t=spare.toString();
+            tiq.distinctTerms=new Long(fieldsEnum.terms().getUniqueTermCount()).intValue();
+            tiq.add(new TopTermQueue.TermInfo(new Term(field,t),termsEnum.docFreq()));
+            if (tiq.size() > numTerms) {
+              tiq.pop();
+              tiq.minFreq=tiq.getTopTermInfo().docFreq;
+            }
+          }
+        }
+        tiq.histogram.add(buckets);
+      }
+    }
+    indexInfo.add("numTerms",(new Long(totalTerms)).intValue());
+  }
+  indexInfo.add("version",reader.getVersion());
+  indexInfo.add("segmentCount",reader.getSequentialSubReaders().length);
+  indexInfo.add("current",reader.isCurrent());
+  indexInfo.add("hasDeletions",reader.hasDeletions());
+  indexInfo.add("directory",dir);
+  indexInfo.add("lastModified",new Date(IndexReader.lastModified(dir)));
+  return indexInfo;
+}

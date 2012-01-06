@@ -1,0 +1,63 @@
+{
+  IndexReader reader=searcher.getIndexReader();
+  IndexSchema schema=searcher.getSchema();
+  SimpleOrderedMap<Object> finfo=new SimpleOrderedMap<Object>();
+  Fields theFields=MultiFields.getFields(reader);
+  Set<String> fieldNames=new TreeSet<String>(reader.getFieldNames(IndexReader.FieldOption.ALL));
+  for (  String fieldName : fieldNames) {
+    if (fields != null && !fields.contains(fieldName)) {
+      continue;
+    }
+    SimpleOrderedMap<Object> f=new SimpleOrderedMap<Object>();
+    SchemaField sfield=schema.getFieldOrNull(fieldName);
+    FieldType ftype=(sfield == null) ? null : sfield.getType();
+    f.add("type",(ftype == null) ? null : ftype.getTypeName());
+    f.add("schema",getFieldFlags(sfield));
+    if (sfield != null && schema.isDynamicField(sfield.getName()) && schema.getDynamicPattern(sfield.getName()) != null) {
+      f.add("dynamicBase",schema.getDynamicPattern(sfield.getName()));
+    }
+    Terms terms=theFields.terms(fieldName);
+    if (terms == null) {
+      finfo.add(fieldName,f);
+      continue;
+    }
+    TopTermQueue topTerms=ttinfo.get(fieldName);
+    if (ttinfo != null && sfield != null && sfield.indexed()) {
+      if (numTerms > 0) {
+        Document doc=null;
+        if (topTerms != null && topTerms.getTopTermInfo() != null) {
+          Term term=topTerms.getTopTermInfo().term;
+          DocsEnum docsEnum=MultiFields.getTermDocsEnum(reader,MultiFields.getLiveDocs(reader),term.field(),new BytesRef(term.text()),false);
+          if (docsEnum != null) {
+            int docId;
+            if ((docId=docsEnum.nextDoc()) != DocsEnum.NO_MORE_DOCS) {
+              doc=reader.document(docId);
+            }
+          }
+        }
+        if (doc != null) {
+          try {
+            IndexableField fld=doc.getField(fieldName);
+            if (fld != null) {
+              f.add("index",getFieldFlags(fld));
+            }
+ else {
+              f.add("index","(unstored field)");
+            }
+          }
+ catch (          Exception ex) {
+            log.warn("error reading field: " + fieldName);
+          }
+        }
+        f.add("docs",terms.getDocCount());
+      }
+      if (topTerms != null) {
+        f.add("distinct",topTerms.distinctTerms);
+        f.add("topTerms",topTerms.toNamedList(searcher.getSchema()));
+        f.add("histogram",topTerms.histogram.toNamedList());
+      }
+    }
+    finfo.add(fieldName,f);
+  }
+  return finfo;
+}
