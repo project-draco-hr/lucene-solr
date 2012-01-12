@@ -1,0 +1,67 @@
+{
+  ViterbiNode[][] startIndexArr=new ViterbiNode[length + 2][];
+  ViterbiNode[][] endIndexArr=new ViterbiNode[length + 2][];
+  int[] startSizeArr=new int[length + 2];
+  int[] endSizeArr=new int[length + 2];
+  FST.Arc<Long> arc=new FST.Arc<Long>();
+  ViterbiNode bosNode=new ViterbiNode(-1,BOS,0,BOS.length,0,0,0,-1,Type.KNOWN);
+  addToArrays(bosNode,0,1,startIndexArr,endIndexArr,startSizeArr,endSizeArr);
+  if (useUserDictionary) {
+    processUserDictionary(text,offset,length,startIndexArr,endIndexArr,startSizeArr,endSizeArr);
+  }
+  int unknownWordEndIndex=-1;
+  final IntsRef wordIdRef=new IntsRef();
+  for (int startIndex=0; startIndex < length; startIndex++) {
+    if (endSizeArr[startIndex + 1] == 0) {
+      continue;
+    }
+    int suffixStart=offset + startIndex;
+    int suffixLength=length - startIndex;
+    boolean found=false;
+    arc=fst.getFirstArc(arc);
+    int output=0;
+    for (int endIndex=1; endIndex < suffixLength + 1; endIndex++) {
+      int ch=text[suffixStart + endIndex - 1];
+      if (fst.findTargetArc(ch,arc,arc,endIndex == 1) == null) {
+        break;
+      }
+      output+=arc.output.intValue();
+      if (arc.isFinal()) {
+        output+=arc.nextFinalOutput.intValue();
+        found=true;
+        dictionary.lookupWordIds(output,wordIdRef);
+        for (int ofs=0; ofs < wordIdRef.length; ofs++) {
+          final int wordId=wordIdRef.ints[wordIdRef.offset + ofs];
+          ViterbiNode node=new ViterbiNode(wordId,text,suffixStart,endIndex,dictionary.getLeftId(wordId),dictionary.getRightId(wordId),dictionary.getWordCost(wordId),startIndex,Type.KNOWN);
+          addToArrays(node,startIndex + 1,startIndex + 1 + endIndex,startIndexArr,endIndexArr,startSizeArr,endSizeArr);
+        }
+      }
+    }
+    if (!searchMode && unknownWordEndIndex > startIndex) {
+      continue;
+    }
+    int unknownWordLength=0;
+    char firstCharacter=text[suffixStart];
+    boolean isInvoke=characterDefinition.isInvoke(firstCharacter);
+    if (isInvoke) {
+      unknownWordLength=unkDictionary.lookup(text,suffixStart,suffixLength);
+    }
+ else     if (found == false) {
+      unknownWordLength=unkDictionary.lookup(text,suffixStart,suffixLength);
+    }
+    if (unknownWordLength > 0) {
+      final int characterId=characterDefinition.getCharacterClass(firstCharacter);
+      unkDictionary.lookupWordIds(characterId,wordIdRef);
+      for (int ofs=0; ofs < wordIdRef.length; ofs++) {
+        final int wordId=wordIdRef.ints[wordIdRef.offset + ofs];
+        ViterbiNode node=new ViterbiNode(wordId,text,suffixStart,unknownWordLength,unkDictionary.getLeftId(wordId),unkDictionary.getRightId(wordId),unkDictionary.getWordCost(wordId),startIndex,Type.UNKNOWN);
+        addToArrays(node,startIndex + 1,startIndex + 1 + unknownWordLength,startIndexArr,endIndexArr,startSizeArr,endSizeArr);
+      }
+      unknownWordEndIndex=startIndex + unknownWordLength;
+    }
+  }
+  ViterbiNode eosNode=new ViterbiNode(-1,EOS,0,EOS.length,0,0,0,length + 1,Type.KNOWN);
+  addToArrays(eosNode,length + 1,0,startIndexArr,endIndexArr,startSizeArr,endSizeArr);
+  ViterbiNode[][][] result=new ViterbiNode[][][]{startIndexArr,endIndexArr};
+  return result;
+}

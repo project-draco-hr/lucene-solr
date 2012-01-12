@@ -1,0 +1,80 @@
+{
+  ViterbiNode[][] startIndexArr=lattice[0];
+  ViterbiNode[][] endIndexArr=lattice[1];
+  for (int i=1; i < startIndexArr.length; i++) {
+    if (startIndexArr[i] == null || endIndexArr[i] == null) {
+      continue;
+    }
+    for (    ViterbiNode node : startIndexArr[i]) {
+      if (node == null) {
+        break;
+      }
+      int backwardConnectionId=node.getLeftId();
+      int wordCost=node.getWordCost();
+      int leastPathCost=DEFAULT_COST;
+      for (      ViterbiNode leftNode : endIndexArr[i]) {
+        if (leftNode == null) {
+          break;
+        }
+        int pathCost=leftNode.getPathCost() + costs.get(leftNode.getRightId(),backwardConnectionId) + wordCost;
+        if (searchMode) {
+          char[] surfaceForm=node.getSurfaceForm();
+          int offset=node.getOffset();
+          int length=node.getLength();
+          if (length > SEARCH_MODE_LENGTH_KANJI) {
+            boolean allKanji=true;
+            for (int pos=0; pos < length; pos++) {
+              if (!characterDefinition.isKanji(surfaceForm[offset + pos])) {
+                allKanji=false;
+                break;
+              }
+            }
+            if (allKanji) {
+              pathCost+=(length - SEARCH_MODE_LENGTH_KANJI) * SEARCH_MODE_PENALTY;
+            }
+ else             if (length > SEARCH_MODE_LENGTH) {
+              pathCost+=(length - SEARCH_MODE_LENGTH) * SEARCH_MODE_PENALTY;
+            }
+          }
+        }
+        if (pathCost < leastPathCost) {
+          leastPathCost=pathCost;
+          node.setPathCost(leastPathCost);
+          node.setLeftNode(leftNode);
+        }
+      }
+    }
+  }
+  ViterbiNode node=endIndexArr[0][0];
+  LinkedList<ViterbiNode> result=new LinkedList<ViterbiNode>();
+  result.add(node);
+  while (true) {
+    ViterbiNode leftNode=node.getLeftNode();
+    if (leftNode == null) {
+      break;
+    }
+    if (extendedMode && leftNode.getType() == Type.UNKNOWN) {
+      byte unigramWordId=CharacterDefinition.NGRAM;
+      int unigramLeftId=unkDictionary.getLeftId(unigramWordId);
+      int unigramRightId=unkDictionary.getLeftId(unigramWordId);
+      int unigramWordCost=unkDictionary.getWordCost(unigramWordId);
+      char[] surfaceForm=leftNode.getSurfaceForm();
+      int offset=leftNode.getOffset();
+      int length=leftNode.getLength();
+      for (int i=length - 1; i >= 0; i--) {
+        int charLen=1;
+        if (i > 0 && Character.isLowSurrogate(surfaceForm[offset + i])) {
+          i--;
+          charLen=2;
+        }
+        ViterbiNode uniGramNode=new ViterbiNode(unigramWordId,surfaceForm,offset + i,charLen,unigramLeftId,unigramRightId,unigramWordCost,leftNode.getStartIndex() + i,Type.UNKNOWN);
+        result.addFirst(uniGramNode);
+      }
+    }
+ else {
+      result.addFirst(leftNode);
+    }
+    node=leftNode;
+  }
+  return result;
+}

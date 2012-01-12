@@ -1,0 +1,74 @@
+{
+  TokenInfoDictionaryWriter dictionary=new TokenInfoDictionaryWriter(10 * 1024 * 1024);
+  System.out.println("  parse...");
+  List<String[]> lines=new ArrayList<String[]>(400000);
+  for (  File file : csvFiles) {
+    FileInputStream inputStream=new FileInputStream(file);
+    Charset cs=Charset.forName(encoding);
+    CharsetDecoder decoder=cs.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT);
+    InputStreamReader streamReader=new InputStreamReader(inputStream,decoder);
+    BufferedReader reader=new BufferedReader(streamReader);
+    String line=null;
+    while ((line=reader.readLine()) != null) {
+      String[] entry=CSVUtil.parse(line);
+      if (entry.length < 13) {
+        System.out.println("Entry in CSV is not valid: " + line);
+        continue;
+      }
+      String[] formatted=formatEntry(entry);
+      dictionary.noteInflection(formatted);
+      lines.add(formatted);
+      if (normalizeEntries) {
+        if (normalizer.isNormalized(entry[0])) {
+          continue;
+        }
+        String[] normalizedEntry=new String[entry.length];
+        for (int i=0; i < entry.length; i++) {
+          normalizedEntry[i]=normalizer.normalize(entry[i]);
+        }
+        formatted=formatEntry(normalizedEntry);
+        dictionary.noteInflection(formatted);
+        lines.add(formatted);
+      }
+    }
+  }
+  dictionary.finalizeInflections();
+  System.out.println("  sort...");
+  Collections.sort(lines,new Comparator<String[]>(){
+    public int compare(    String[] left,    String[] right){
+      return left[0].compareTo(right[0]);
+    }
+  }
+);
+  System.out.println("  encode...");
+  PositiveIntOutputs fstOutput=PositiveIntOutputs.getSingleton(true);
+  Builder<Long> fstBuilder=new Builder<Long>(FST.INPUT_TYPE.BYTE2,fstOutput);
+  IntsRef scratch=new IntsRef();
+  long ord=-1;
+  String lastValue=null;
+  for (  String[] entry : lines) {
+    int next=dictionary.put(entry);
+    if (next == offset) {
+      System.out.println("Failed to process line: " + Arrays.toString(entry));
+      continue;
+    }
+    String token=entry[0];
+    if (!token.equals(lastValue)) {
+      ord++;
+      lastValue=token;
+      scratch.grow(token.length());
+      scratch.length=token.length();
+      for (int i=0; i < token.length(); i++) {
+        scratch.ints[i]=(int)token.charAt(i);
+      }
+      fstBuilder.add(scratch,fstOutput.get(ord));
+    }
+    dictionary.addMapping((int)ord,offset);
+    offset=next;
+  }
+  FST<Long> fst=fstBuilder.finish();
+  System.out.print("  " + fst.getNodeCount() + " nodes, "+ fst.getArcCount()+ " arcs, "+ fst.sizeInBytes()+ " bytes...  ");
+  dictionary.setFST(fst);
+  System.out.println(" done");
+  return dictionary;
+}

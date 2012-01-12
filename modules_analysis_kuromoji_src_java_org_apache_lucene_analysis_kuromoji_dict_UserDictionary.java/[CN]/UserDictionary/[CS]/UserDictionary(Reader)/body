@@ -1,0 +1,53 @@
+{
+  BufferedReader br=new BufferedReader(reader);
+  String line=null;
+  int wordId=CUSTOM_DICTIONARY_WORD_ID_OFFSET;
+  List<String[]> featureEntries=new ArrayList<String[]>();
+  while ((line=br.readLine()) != null) {
+    line=line.replaceAll("#.*$","");
+    if (line.trim().length() == 0) {
+      continue;
+    }
+    String[] values=CSVUtil.parse(line);
+    featureEntries.add(values);
+  }
+  Collections.sort(featureEntries,new Comparator<String[]>(){
+    @Override public int compare(    String[] left,    String[] right){
+      return left[0].compareTo(right[0]);
+    }
+  }
+);
+  List<String> data=new ArrayList<String>(featureEntries.size());
+  List<int[]> segmentations=new ArrayList<int[]>(featureEntries.size());
+  PositiveIntOutputs fstOutput=PositiveIntOutputs.getSingleton(true);
+  Builder<Long> fstBuilder=new Builder<Long>(FST.INPUT_TYPE.BYTE2,fstOutput);
+  IntsRef scratch=new IntsRef();
+  long ord=0;
+  for (  String[] values : featureEntries) {
+    String[] segmentation=values[1].replaceAll("  *"," ").split(" ");
+    String[] readings=values[2].replaceAll("  *"," ").split(" ");
+    String pos=values[3];
+    if (segmentation.length != readings.length) {
+      System.out.println("This entry is not properly formatted : " + line);
+    }
+    int[] wordIdAndLength=new int[segmentation.length + 1];
+    wordIdAndLength[0]=wordId;
+    for (int i=0; i < segmentation.length; i++) {
+      wordIdAndLength[i + 1]=segmentation[i].length();
+      data.add(readings[i] + INTERNAL_SEPARATOR + pos);
+      wordId++;
+    }
+    String token=values[0];
+    scratch.grow(token.length());
+    scratch.length=token.length();
+    for (int i=0; i < token.length(); i++) {
+      scratch.ints[i]=(int)token.charAt(i);
+    }
+    fstBuilder.add(scratch,fstOutput.get(ord));
+    segmentations.add(wordIdAndLength);
+    ord++;
+  }
+  this.fst=new TokenInfoFST(fstBuilder.finish(),false);
+  this.data=data.toArray(new String[data.size()]);
+  this.segmentations=segmentations.toArray(new int[segmentations.size()][]);
+}
