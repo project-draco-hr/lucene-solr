@@ -1,0 +1,38 @@
+{
+  if (!markAndSweepLock.tryLock())   return;
+  try {
+    long lowHitCount=this.lowHitCount;
+    isCleaning=true;
+    this.lowHitCount=lowHitCount;
+    int sz=stats.size.get();
+    int wantToRemove=sz - lowerWaterMark;
+    TreeSet<CacheEntry> tree=new TreeSet<CacheEntry>();
+    for (    CacheEntry<K,V> ce : map.values()) {
+      ce.hitsCopy=ce.hits.get();
+      ce.lastAccessedCopy=ce.lastAccessed;
+      if (timeDecay) {
+        ce.hits.set(ce.hitsCopy >>> 1);
+      }
+      if (tree.size() < wantToRemove) {
+        tree.add(ce);
+      }
+ else {
+        if (ce.hitsCopy < tree.first().hitsCopy) {
+          tree.remove(tree.first());
+          tree.add(ce);
+        }
+ else         if (ce.hitsCopy == tree.first().hitsCopy) {
+          tree.add(ce);
+          tree.remove(tree.first());
+        }
+      }
+    }
+    for (    CacheEntry<K,V> e : tree) {
+      evictEntry(e.key);
+    }
+  }
+  finally {
+    isCleaning=false;
+    markAndSweepLock.unlock();
+  }
+}

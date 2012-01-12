@@ -1,0 +1,54 @@
+{
+  LFUCache lfuCache=new LFUCache();
+  LFUCache newLFUCache=new LFUCache();
+  LFUCache noWarmLFUCache=new LFUCache();
+  try {
+    Map params=new HashMap();
+    params.put("size","100");
+    params.put("initialSize","10");
+    params.put("autowarmCount","25");
+    LFURegenerator regenerator=new LFURegenerator();
+    Object initObj=lfuCache.init(params,null,regenerator);
+    lfuCache.setState(SolrCache.State.LIVE);
+    for (int i=0; i < 101; i++) {
+      lfuCache.put(i + 1,"" + (i + 1));
+    }
+    assertEquals("15",lfuCache.get(15));
+    assertEquals("75",lfuCache.get(75));
+    assertEquals(null,lfuCache.get(110));
+    NamedList nl=lfuCache.getStatistics();
+    assertEquals(3L,nl.get("lookups"));
+    assertEquals(2L,nl.get("hits"));
+    assertEquals(101L,nl.get("inserts"));
+    assertEquals(null,lfuCache.get(1));
+    newLFUCache.init(params,initObj,regenerator);
+    newLFUCache.warm(null,lfuCache);
+    newLFUCache.setState(SolrCache.State.LIVE);
+    newLFUCache.put(103,"103");
+    assertEquals("15",newLFUCache.get(15));
+    assertEquals("75",newLFUCache.get(75));
+    assertEquals(null,newLFUCache.get(50));
+    nl=newLFUCache.getStatistics();
+    assertEquals(3L,nl.get("lookups"));
+    assertEquals(2L,nl.get("hits"));
+    assertEquals(1L,nl.get("inserts"));
+    assertEquals(0L,nl.get("evictions"));
+    assertEquals(7L,nl.get("cumulative_lookups"));
+    assertEquals(4L,nl.get("cumulative_hits"));
+    assertEquals(102L,nl.get("cumulative_inserts"));
+    newLFUCache.close();
+    params.put("autowarmCount","0");
+    noWarmLFUCache.init(params,initObj,regenerator);
+    noWarmLFUCache.warm(null,lfuCache);
+    noWarmLFUCache.setState(SolrCache.State.LIVE);
+    noWarmLFUCache.put(103,"103");
+    assertNull(noWarmLFUCache.get(15));
+    assertNull(noWarmLFUCache.get(75));
+    assertEquals("103",noWarmLFUCache.get(103));
+  }
+  finally {
+    if (newLFUCache != null)     newLFUCache.close();
+    if (noWarmLFUCache != null)     noWarmLFUCache.close();
+    if (lfuCache != null)     lfuCache.close();
+  }
+}
