@@ -22,7 +22,15 @@
     }
     final List<Document> joinDocs=new ArrayList<Document>();
     if (VERBOSE) {
-      System.out.println("  " + parentDoc);
+      StringBuilder sb=new StringBuilder();
+      sb.append("parentID=" + parentDoc.get("parentID"));
+      for (int fieldID=0; fieldID < parentFields.length; fieldID++) {
+        String s=parentDoc.get("parent" + fieldID);
+        if (s != null) {
+          sb.append(" parent" + fieldID + "="+ s);
+        }
+      }
+      System.out.println("  " + sb.toString());
     }
     final int numChildDocs=_TestUtil.nextInt(random,1,20);
     for (int childDocID=0; childDocID < numChildDocs; childDocID++) {
@@ -40,7 +48,15 @@
         }
       }
       if (VERBOSE) {
-        System.out.println("    " + joinChildDoc);
+        StringBuilder sb=new StringBuilder();
+        sb.append("childID=" + joinChildDoc.get("childID"));
+        for (int fieldID=0; fieldID < childFields.length; fieldID++) {
+          String s=joinChildDoc.get("child" + fieldID);
+          if (s != null) {
+            sb.append(" child" + fieldID + "="+ s);
+          }
+        }
+        System.out.println("    " + sb.toString());
       }
       w.addDocument(childDoc);
     }
@@ -100,7 +116,21 @@
       final int childFieldID=_TestUtil.nextInt(random,1,childFields.length - 1);
       bq.add(new TermQuery(new Term("child" + childFieldID,childFields[childFieldID][random.nextInt(childFields[childFieldID].length)])),random.nextBoolean() ? BooleanClause.Occur.MUST : BooleanClause.Occur.MUST_NOT);
     }
-    final BlockJoinQuery childJoinQuery=new BlockJoinQuery(childQuery,parentsFilter,BlockJoinQuery.ScoreMode.Avg);
+    final int x=random.nextInt(4);
+    final ToParentBlockJoinQuery.ScoreMode agg;
+    if (x == 0) {
+      agg=ToParentBlockJoinQuery.ScoreMode.None;
+    }
+ else     if (x == 1) {
+      agg=ToParentBlockJoinQuery.ScoreMode.Max;
+    }
+ else     if (x == 2) {
+      agg=ToParentBlockJoinQuery.ScoreMode.Total;
+    }
+ else {
+      agg=ToParentBlockJoinQuery.ScoreMode.Avg;
+    }
+    final ToParentBlockJoinQuery childJoinQuery=new ToParentBlockJoinQuery(childQuery,parentsFilter,agg);
     final Query parentJoinQuery;
     final Query parentQuery;
     if (random.nextBoolean()) {
@@ -160,7 +190,17 @@
         }
       }
     }
-    final BlockJoinCollector c=new BlockJoinCollector(parentSort,10,true,true);
+    final boolean trackScores;
+    final boolean trackMaxScore;
+    if (agg == ToParentBlockJoinQuery.ScoreMode.None) {
+      trackScores=false;
+      trackMaxScore=false;
+    }
+ else {
+      trackScores=random.nextBoolean();
+      trackMaxScore=random.nextBoolean();
+    }
+    final ToParentBlockJoinCollector c=new ToParentBlockJoinCollector(parentSort,10,trackScores,trackMaxScore);
     joinS.search(parentJoinQuery,c);
     final int hitsPerGroup=_TestUtil.nextInt(random,1,20);
     final TopGroups<Integer> joinResults=c.getTopGroups(childJoinQuery,childSort,0,hitsPerGroup,0,true);
@@ -198,6 +238,97 @@
  else {
       compareHits(r,joinR,results,joinResults);
     }
+    final Query parentQuery2;
+    if (random.nextInt(3) == 2) {
+      final int fieldID=random.nextInt(parentFields.length);
+      parentQuery2=new TermQuery(new Term("parent" + fieldID,parentFields[fieldID][random.nextInt(parentFields[fieldID].length)]));
+    }
+ else     if (random.nextInt(3) == 2) {
+      BooleanQuery bq=new BooleanQuery();
+      parentQuery2=bq;
+      final int numClauses=_TestUtil.nextInt(random,2,4);
+      boolean didMust=false;
+      for (int clauseIDX=0; clauseIDX < numClauses; clauseIDX++) {
+        Query clause;
+        BooleanClause.Occur occur;
+        if (!didMust && random.nextBoolean()) {
+          occur=random.nextBoolean() ? BooleanClause.Occur.MUST : BooleanClause.Occur.MUST_NOT;
+          clause=new TermQuery(randomParentTerm(parentFields[0]));
+          didMust=true;
+        }
+ else {
+          occur=BooleanClause.Occur.SHOULD;
+          final int fieldID=_TestUtil.nextInt(random,1,parentFields.length - 1);
+          clause=new TermQuery(new Term("parent" + fieldID,parentFields[fieldID][random.nextInt(parentFields[fieldID].length)]));
+        }
+        bq.add(clause,occur);
+      }
+    }
+ else {
+      BooleanQuery bq=new BooleanQuery();
+      parentQuery2=bq;
+      bq.add(new TermQuery(randomParentTerm(parentFields[0])),BooleanClause.Occur.MUST);
+      final int fieldID=_TestUtil.nextInt(random,1,parentFields.length - 1);
+      bq.add(new TermQuery(new Term("parent" + fieldID,parentFields[fieldID][random.nextInt(parentFields[fieldID].length)])),random.nextBoolean() ? BooleanClause.Occur.MUST : BooleanClause.Occur.MUST_NOT);
+    }
+    if (VERBOSE) {
+      System.out.println("\nTEST: top down: parentQuery2=" + parentQuery2);
+    }
+    final ToChildBlockJoinQuery parentJoinQuery2=new ToChildBlockJoinQuery(parentQuery2,parentsFilter,random.nextBoolean());
+    final Query childJoinQuery2;
+    final Query childQuery2;
+    if (random.nextBoolean()) {
+      childQuery2=parentQuery2;
+      childJoinQuery2=parentJoinQuery2;
+    }
+ else {
+      final BooleanQuery bq=new BooleanQuery();
+      childJoinQuery2=bq;
+      final Term childTerm=randomChildTerm(childFields[0]);
+      if (random.nextBoolean()) {
+        bq.add(parentJoinQuery2,BooleanClause.Occur.MUST);
+        bq.add(new TermQuery(childTerm),BooleanClause.Occur.MUST);
+      }
+ else {
+        bq.add(new TermQuery(childTerm),BooleanClause.Occur.MUST);
+        bq.add(parentJoinQuery2,BooleanClause.Occur.MUST);
+      }
+      final BooleanQuery bq2=new BooleanQuery();
+      childQuery2=bq2;
+      if (random.nextBoolean()) {
+        bq2.add(parentQuery2,BooleanClause.Occur.MUST);
+        bq2.add(new TermQuery(childTerm),BooleanClause.Occur.MUST);
+      }
+ else {
+        bq2.add(new TermQuery(childTerm),BooleanClause.Occur.MUST);
+        bq2.add(parentQuery2,BooleanClause.Occur.MUST);
+      }
+    }
+    final Sort childSort2=getRandomSort("child",childFields.length);
+    if (VERBOSE) {
+      System.out.println("TEST: run top down query=" + childQuery2 + " sort="+ childSort2);
+    }
+    final TopDocs results2=s.search(childQuery2,null,r.numDocs(),childSort2);
+    if (VERBOSE) {
+      System.out.println("  " + results2.totalHits + " totalHits:");
+      for (      ScoreDoc sd : results2.scoreDocs) {
+        final Document doc=s.doc(sd.doc);
+        System.out.println("  childID=" + doc.get("childID") + " parentID="+ doc.get("parentID")+ " docID="+ sd.doc);
+      }
+    }
+    if (VERBOSE) {
+      System.out.println("TEST: run top down join query=" + childJoinQuery2 + " sort="+ childSort2);
+    }
+    TopDocs joinResults2=joinS.search(childJoinQuery2,null,joinR.numDocs(),childSort2);
+    if (VERBOSE) {
+      System.out.println("  " + joinResults2.totalHits + " totalHits:");
+      for (      ScoreDoc sd : joinResults2.scoreDocs) {
+        final Document doc=joinS.doc(sd.doc);
+        final Document parentDoc=getParentDoc(joinR,parentsFilter,sd.doc);
+        System.out.println("  childID=" + doc.get("childID") + " parentID="+ parentDoc.get("parentID")+ " docID="+ sd.doc);
+      }
+    }
+    compareChildHits(r,joinR,results2,joinResults2);
   }
   r.close();
   joinR.close();
