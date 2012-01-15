@@ -5,7 +5,6 @@
     final Directory d=newDirectory();
     IndexWriterConfig cfg=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random));
     IndexWriter w=new IndexWriter(d,cfg);
-    Comparator<BytesRef> comp=BytesRef.getUTF8SortedAsUnicodeComparator();
     int numDocs=atLeast(100);
     BytesRefHash hash=new BytesRefHash();
     Map<String,String> docToString=new HashMap<String,String>();
@@ -13,12 +12,11 @@
     for (int i=0; i < numDocs; i++) {
       Document doc=new Document();
       doc.add(newField("id","" + i,TextField.TYPE_STORED));
-      DocValuesField f=new DocValuesField("field");
       String string=fixed ? _TestUtil.randomFixedByteLengthUnicodeString(random,len) : _TestUtil.randomRealisticUnicodeString(random,1,len);
-      hash.add(new BytesRef(string));
+      BytesRef br=new BytesRef(string);
+      doc.add(new DocValuesField("field",br,type));
+      hash.add(br);
       docToString.put("" + i,string);
-      f.setBytes(new BytesRef(string),type,comp);
-      doc.add(f);
       w.addDocument(doc);
     }
     if (rarely()) {
@@ -41,12 +39,11 @@
       Document doc=new Document();
       String id="" + i + numDocs;
       doc.add(newField("id",id,TextField.TYPE_STORED));
-      DocValuesField f=new DocValuesField("field");
       String string=fixed ? _TestUtil.randomFixedByteLengthUnicodeString(random,len) : _TestUtil.randomRealisticUnicodeString(random,1,len);
-      hash.add(new BytesRef(string));
+      BytesRef br=new BytesRef(string);
+      hash.add(br);
       docToString.put(id,string);
-      f.setBytes(new BytesRef(string),type,comp);
-      doc.add(f);
+      doc.add(new DocValuesField("field",br,type));
       w.addDocument(doc);
     }
     w.commit();
@@ -54,7 +51,7 @@
     DocValues docValues=MultiDocValues.getDocValues(reader,"field");
     Source source=getSource(docValues);
     SortedSource asSortedSource=source.asSortedSource();
-    int[] sort=hash.sort(comp);
+    int[] sort=hash.sort(BytesRef.getUTF8SortedAsUnicodeComparator());
     BytesRef expected=new BytesRef();
     BytesRef actual=new BytesRef();
     assertEquals(hash.size(),asSortedSource.getValueCount());

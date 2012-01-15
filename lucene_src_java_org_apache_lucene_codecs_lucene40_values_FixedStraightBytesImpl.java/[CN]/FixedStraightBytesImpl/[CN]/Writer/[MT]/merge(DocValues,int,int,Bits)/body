@@ -1,0 +1,45 @@
+{
+  datOut=getOrCreateDataOut();
+  boolean success=false;
+  try {
+    if (!hasMerged && size != -1) {
+      datOut.writeInt(size);
+    }
+    if (liveDocs == null && tryBulkMerge(readerIn)) {
+      FixedStraightReader reader=(FixedStraightReader)readerIn;
+      final int maxDocs=reader.maxDoc;
+      if (maxDocs == 0) {
+        return;
+      }
+      if (size == -1) {
+        size=reader.size;
+        datOut.writeInt(size);
+      }
+ else       if (size != reader.size) {
+        throw new IllegalArgumentException("expected bytes size=" + size + " but got "+ reader.size);
+      }
+      if (lastDocID + 1 < docBase) {
+        fill(datOut,docBase);
+        lastDocID=docBase - 1;
+      }
+      final IndexInput cloneData=reader.cloneData();
+      try {
+        datOut.copyBytes(cloneData,size * maxDocs);
+      }
+  finally {
+        IOUtils.close(cloneData);
+      }
+      lastDocID+=maxDocs;
+    }
+ else {
+      super.merge(readerIn,docBase,docCount,liveDocs);
+    }
+    success=true;
+  }
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(datOut);
+    }
+    hasMerged=true;
+  }
+}

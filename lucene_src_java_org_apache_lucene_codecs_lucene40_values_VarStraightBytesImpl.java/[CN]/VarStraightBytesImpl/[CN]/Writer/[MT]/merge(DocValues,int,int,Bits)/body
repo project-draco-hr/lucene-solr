@@ -1,0 +1,55 @@
+{
+  merge=true;
+  datOut=getOrCreateDataOut();
+  boolean success=false;
+  try {
+    if (liveDocs == null && readerIn instanceof VarStraightReader) {
+      VarStraightReader reader=(VarStraightReader)readerIn;
+      final int maxDocs=reader.maxDoc;
+      if (maxDocs == 0) {
+        return;
+      }
+      if (lastDocID + 1 < docBase) {
+        fill(docBase,address);
+        lastDocID=docBase - 1;
+      }
+      final long numDataBytes;
+      final IndexInput cloneIdx=reader.cloneIndex();
+      try {
+        numDataBytes=cloneIdx.readVLong();
+        final ReaderIterator iter=PackedInts.getReaderIterator(cloneIdx);
+        for (int i=0; i < maxDocs; i++) {
+          long offset=iter.next();
+          ++lastDocID;
+          if (lastDocID >= docToAddress.length) {
+            int oldSize=docToAddress.length;
+            docToAddress=ArrayUtil.grow(docToAddress,1 + lastDocID);
+            bytesUsed.addAndGet((docToAddress.length - oldSize) * RamUsageEstimator.NUM_BYTES_INT);
+          }
+          docToAddress[lastDocID]=address + offset;
+        }
+        address+=numDataBytes;
+        iter.close();
+      }
+  finally {
+        IOUtils.close(cloneIdx);
+      }
+      final IndexInput cloneData=reader.cloneData();
+      try {
+        datOut.copyBytes(cloneData,numDataBytes);
+      }
+  finally {
+        IOUtils.close(cloneData);
+      }
+    }
+ else {
+      super.merge(readerIn,docBase,docCount,liveDocs);
+    }
+    success=true;
+  }
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(datOut);
+    }
+  }
+}
