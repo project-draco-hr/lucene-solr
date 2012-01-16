@@ -1,0 +1,68 @@
+{
+  for (int indexIter=1; indexIter <= maxIndexIter; indexIter++) {
+    if (VERBOSE) {
+      System.out.println("indexIter=" + indexIter);
+    }
+    Directory dir=newDirectory();
+    RandomIndexWriter w=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random,MockTokenizer.KEYWORD,false)).setMergePolicy(newLogMergePolicy()));
+    int numberOfDocumentsToIndex=_TestUtil.nextInt(random,87,764);
+    IndexIterationContext context=createContext(numberOfDocumentsToIndex,w,multipleValuesPerDocument);
+    IndexReader topLevelReader=w.getReader();
+    w.close();
+    for (int searchIter=1; searchIter <= maxSearchIter; searchIter++) {
+      if (VERBOSE) {
+        System.out.println("searchIter=" + searchIter);
+      }
+      IndexSearcher indexSearcher=newSearcher(topLevelReader);
+      int r=random.nextInt(context.randomUniqueValues.length);
+      boolean from=context.randomFrom[r];
+      String randomValue=context.randomUniqueValues[r];
+      FixedBitSet expectedResult=createExpectedResult(randomValue,from,indexSearcher.getIndexReader(),context);
+      Query actualQuery=new TermQuery(new Term("value",randomValue));
+      if (VERBOSE) {
+        System.out.println("actualQuery=" + actualQuery);
+      }
+      Query joinQuery;
+      if (from) {
+        joinQuery=JoinUtil.createJoinQuery("from",multipleValuesPerDocument,"to",actualQuery,indexSearcher);
+      }
+ else {
+        joinQuery=JoinUtil.createJoinQuery("to",multipleValuesPerDocument,"from",actualQuery,indexSearcher);
+      }
+      if (VERBOSE) {
+        System.out.println("joinQuery=" + joinQuery);
+      }
+      final FixedBitSet actualResult=new FixedBitSet(indexSearcher.getIndexReader().maxDoc());
+      indexSearcher.search(joinQuery,new Collector(){
+        int docBase;
+        public void collect(        int doc) throws IOException {
+          actualResult.set(doc + docBase);
+        }
+        public void setNextReader(        IndexReader.AtomicReaderContext context) throws IOException {
+          docBase=context.docBase;
+        }
+        public void setScorer(        Scorer scorer) throws IOException {
+        }
+        public boolean acceptsDocsOutOfOrder(){
+          return true;
+        }
+      }
+);
+      if (VERBOSE) {
+        System.out.println("expected cardinality:" + expectedResult.cardinality());
+        DocIdSetIterator iterator=expectedResult.iterator();
+        for (int doc=iterator.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=iterator.nextDoc()) {
+          System.out.println(String.format("Expected doc[%d] with id value %s",doc,indexSearcher.doc(doc).get("id")));
+        }
+        System.out.println("actual cardinality:" + actualResult.cardinality());
+        iterator=actualResult.iterator();
+        for (int doc=iterator.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=iterator.nextDoc()) {
+          System.out.println(String.format("Actual doc[%d] with id value %s",doc,indexSearcher.doc(doc).get("id")));
+        }
+      }
+      assertEquals(expectedResult,actualResult);
+    }
+    topLevelReader.close();
+    dir.close();
+  }
+}
