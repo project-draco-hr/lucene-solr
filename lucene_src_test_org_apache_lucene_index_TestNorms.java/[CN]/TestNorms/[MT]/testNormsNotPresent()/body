@@ -1,0 +1,53 @@
+{
+  Directory dir=newDirectory();
+  boolean firstWriteNorm=random.nextBoolean();
+  buildIndex(dir,firstWriteNorm);
+  Directory otherDir=newDirectory();
+  boolean secondWriteNorm=random.nextBoolean();
+  buildIndex(otherDir,secondWriteNorm);
+  IndexReader reader=new SlowMultiReaderWrapper(IndexReader.open(otherDir));
+  FieldInfos fieldInfos=reader.getFieldInfos();
+  FieldInfo fieldInfo=fieldInfos.fieldInfo(byteTestField);
+  assertFalse(fieldInfo.omitNorms);
+  assertTrue(fieldInfo.isIndexed);
+  if (secondWriteNorm) {
+    assertTrue(fieldInfo.normsPresent());
+  }
+ else {
+    assertFalse(fieldInfo.normsPresent());
+  }
+  IndexWriterConfig config=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random));
+  RandomIndexWriter writer=new RandomIndexWriter(random,dir,config);
+  writer.addIndexes(reader);
+  IndexReader mergedReader=new SlowMultiReaderWrapper(writer.getReader());
+  if (!firstWriteNorm && !secondWriteNorm) {
+    DocValues normValues=mergedReader.normValues(byteTestField);
+    assertNull(normValues);
+    FieldInfo fi=mergedReader.getFieldInfos().fieldInfo(byteTestField);
+    assertFalse(fi.omitNorms);
+    assertTrue(fi.isIndexed);
+    assertFalse(fi.normsPresent());
+  }
+ else {
+    FieldInfo fi=mergedReader.getFieldInfos().fieldInfo(byteTestField);
+    assertFalse(fi.omitNorms);
+    assertTrue(fi.isIndexed);
+    assertTrue(fi.normsPresent());
+    DocValues normValues=mergedReader.normValues(byteTestField);
+    assertNotNull(normValues);
+    Source source=normValues.getSource();
+    assertTrue(source.hasArray());
+    assertEquals(Type.FIXED_INTS_8,normValues.type());
+    byte[] norms=(byte[])source.getArray();
+    for (int i=0; i < mergedReader.maxDoc(); i++) {
+      Document document=mergedReader.document(i);
+      int expected=Integer.parseInt(document.get(byteTestField));
+      assertEquals((byte)expected,norms[i]);
+    }
+  }
+  mergedReader.close();
+  reader.close();
+  writer.close();
+  dir.close();
+  otherDir.close();
+}
