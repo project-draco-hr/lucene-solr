@@ -1,0 +1,59 @@
+{
+  final FST.BytesReader in=fst.getBytesReader(0);
+  FST.Arc<Long> arc=fst.getFirstArc(new FST.Arc<Long>());
+  FST.Arc<Long> scratchArc=new FST.Arc<Long>();
+  final IntsRef result=new IntsRef();
+  long output=arc.output;
+  int upto=0;
+  while (true) {
+    if (arc.isFinal()) {
+      final long finalOutput=output + arc.nextFinalOutput;
+      if (finalOutput == targetOutput) {
+        result.length=upto;
+        return result;
+      }
+ else       if (finalOutput > targetOutput) {
+        return null;
+      }
+    }
+    if (fst.targetHasArcs(arc)) {
+      if (result.ints.length == upto) {
+        result.grow(1 + upto);
+      }
+      fst.readFirstRealArc(arc.target,arc,in);
+      FST.Arc<Long> prevArc=null;
+      while (true) {
+        final long minArcOutput=output + arc.output;
+        if (minArcOutput == targetOutput) {
+          output=minArcOutput;
+          result.ints[upto++]=arc.label;
+          break;
+        }
+ else         if (minArcOutput > targetOutput) {
+          if (prevArc == null) {
+            return null;
+          }
+ else {
+            arc.copyFrom(prevArc);
+            result.ints[upto++]=arc.label;
+            output+=arc.output;
+            break;
+          }
+        }
+ else         if (arc.isLast()) {
+          output=minArcOutput;
+          result.ints[upto++]=arc.label;
+          break;
+        }
+ else {
+          prevArc=scratchArc;
+          prevArc.copyFrom(arc);
+          fst.readNextRealArc(arc,in);
+        }
+      }
+    }
+ else {
+      return null;
+    }
+  }
+}
