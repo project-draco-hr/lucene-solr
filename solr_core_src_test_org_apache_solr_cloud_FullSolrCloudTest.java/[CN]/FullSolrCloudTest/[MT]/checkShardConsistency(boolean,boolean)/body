@@ -1,0 +1,47 @@
+{
+  long docs=controlClient.query(new SolrQuery("*:*")).getResults().getNumFound();
+  if (verbose)   System.out.println("Control Docs:" + docs);
+  updateMappingsFromZk(jettys,clients);
+  Set<String> theShards=shardToClient.keySet();
+  String failMessage=null;
+  for (  String shard : theShards) {
+    String shardFailMessage=checkShardConsistency(shard,verbose);
+    if (shardFailMessage != null && failMessage == null) {
+      failMessage=shardFailMessage;
+    }
+  }
+  if (failMessage != null) {
+    fail(failMessage);
+  }
+  if (checkVsControl) {
+    theShards=shardToClient.keySet();
+    int cnt=0;
+    for (    String s : theShards) {
+      int times=shardToClient.get(s).size();
+      for (int i=0; i < times; i++) {
+        try {
+          SolrServer client=shardToClient.get(s).get(i);
+          ZkNodeProps props=clientToInfo.get(new CloudSolrServerClient(client));
+          boolean active=props.get(ZkStateReader.STATE_PROP).equals(ZkStateReader.ACTIVE);
+          if (active) {
+            SolrQuery query=new SolrQuery("*:*");
+            query.set("distrib",false);
+            long results=client.query(query).getResults().getNumFound();
+            if (verbose)             System.out.println(new ZkCoreNodeProps(props).getCoreUrl() + " : " + results);
+            if (verbose)             System.out.println("shard:" + props.get(ZkStateReader.SHARD_ID_PROP));
+            cnt+=results;
+            break;
+          }
+        }
+ catch (        SolrServerException e) {
+          if (i == times - 1) {
+            throw e;
+          }
+        }
+      }
+    }
+    SolrQuery q=new SolrQuery("*:*");
+    long cloudClientDocs=cloudClient.query(q).getResults().getNumFound();
+    assertEquals("adding up the # of docs on each shard does not match the control - cloud client returns:" + cloudClientDocs,docs,cnt);
+  }
+}

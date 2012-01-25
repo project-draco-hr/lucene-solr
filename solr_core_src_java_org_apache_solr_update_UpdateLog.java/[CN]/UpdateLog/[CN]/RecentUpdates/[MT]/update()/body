@@ -1,0 +1,55 @@
+{
+  int numUpdates=0;
+  updateList=new ArrayList<List<Update>>(logList.size());
+  deleteByQueryList=new ArrayList<Update>();
+  updates=new HashMap<Long,Update>(numRecordsToKeep);
+  for (  TransactionLog oldLog : logList) {
+    List<Update> updatesForLog=new ArrayList<Update>();
+    TransactionLog.ReverseReader reader=null;
+    try {
+      reader=oldLog.getReverseReader();
+      while (numUpdates < numRecordsToKeep) {
+        Object o=reader.next();
+        if (o == null)         break;
+        try {
+          List entry=(List)o;
+          int oper=(Integer)entry.get(0);
+          long version=(Long)entry.get(1);
+switch (oper) {
+case UpdateLog.ADD:
+case UpdateLog.DELETE:
+case UpdateLog.DELETE_BY_QUERY:
+            Update update=new Update();
+          update.log=oldLog;
+        update.pointer=reader.position();
+      update.version=version;
+    updatesForLog.add(update);
+  updates.put(version,update);
+if (oper == UpdateLog.DELETE_BY_QUERY) {
+  deleteByQueryList.add(update);
+}
+break;
+case UpdateLog.COMMIT:
+break;
+default :
+throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unknown Operation! " + oper);
+}
+}
+ catch (ClassCastException cl) {
+log.warn("Unexpected log entry or corrupt log.  Entry=" + o,cl);
+}
+catch (Exception ex) {
+log.warn("Exception reverse reading log",ex);
+break;
+}
+}
+}
+ catch (IOException e) {
+log.error("Exception reading versions from log",e);
+}
+ finally {
+if (reader != null) reader.close();
+}
+updateList.add(updatesForLog);
+}
+}

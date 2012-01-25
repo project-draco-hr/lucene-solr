@@ -1,0 +1,65 @@
+{
+  SolrIndexSearcher tmp;
+  RefCounted<SolrIndexSearcher> newestSearcher=null;
+  boolean nrt=solrConfig.reopenReaders && updateHandlerReopens;
+  openSearcherLock.lock();
+  try {
+    String newIndexDir=null;
+    File indexDirFile=null;
+    File newIndexDirFile=null;
+    if (!nrt) {
+      indexDirFile=new File(getIndexDir()).getCanonicalFile();
+      newIndexDir=getNewIndexDir();
+      newIndexDirFile=new File(newIndexDir).getCanonicalFile();
+    }
+synchronized (searcherLock) {
+      newestSearcher=realtimeSearcher;
+      if (newestSearcher != null) {
+        newestSearcher.incref();
+      }
+    }
+    if (newestSearcher != null && solrConfig.reopenReaders && (nrt || indexDirFile.equals(newIndexDirFile))) {
+      IndexReader newReader;
+      IndexReader currentReader=newestSearcher.get().getIndexReader();
+      if (updateHandlerReopens) {
+        IndexWriter writer=getUpdateHandler().getSolrCoreState().getIndexWriter(this);
+        newReader=IndexReader.openIfChanged(currentReader,writer,true);
+      }
+ else {
+        newReader=IndexReader.openIfChanged(currentReader);
+      }
+      if (newReader == null) {
+        if (realtime) {
+          newestSearcher.incref();
+          return newestSearcher;
+        }
+        currentReader.incRef();
+        newReader=currentReader;
+      }
+      tmp=new SolrIndexSearcher(this,schema,(realtime ? "realtime" : "main"),newReader,true,!realtime,true,directoryFactory);
+    }
+ else {
+      tmp=new SolrIndexSearcher(this,newIndexDir,schema,getSolrConfig().mainIndexConfig,"main",true,directoryFactory);
+    }
+    List<RefCounted<SolrIndexSearcher>> searcherList=realtime ? _realtimeSearchers : _searchers;
+    RefCounted<SolrIndexSearcher> newSearcher=newHolder(tmp,searcherList);
+    newSearcher.incref();
+synchronized (searcherLock) {
+      if (realtimeSearcher != null) {
+        realtimeSearcher.decref();
+      }
+      realtimeSearcher=newSearcher;
+      searcherList.add(realtimeSearcher);
+    }
+    return newSearcher;
+  }
+ catch (  Exception e) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error opening new searcher",e);
+  }
+ finally {
+    openSearcherLock.unlock();
+    if (newestSearcher != null) {
+      newestSearcher.decref();
+    }
+  }
+}

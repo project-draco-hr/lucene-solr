@@ -1,0 +1,43 @@
+{
+  boolean updated=false;
+  final Map<String,Map<String,Slice>> newStates=new LinkedHashMap<String,Map<String,Slice>>();
+  newStates.putAll(state.getCollectionStates());
+  final Map<String,Slice> slices=newStates.get(collection);
+  if (slices == null) {
+    log.error("Could not mark shard leader for non existing collection.");
+    return state;
+  }
+  if (!slices.containsKey(sliceName)) {
+    log.error("Could not mark leader for non existing slice.");
+    return state;
+  }
+ else {
+    final Map<String,ZkNodeProps> newShards=new LinkedHashMap<String,ZkNodeProps>();
+    for (    Entry<String,ZkNodeProps> shard : slices.get(sliceName).getShards().entrySet()) {
+      Map<String,String> newShardProps=new LinkedHashMap<String,String>();
+      newShardProps.putAll(shard.getValue().getProperties());
+      String wasLeader=newShardProps.remove(ZkStateReader.LEADER_PROP);
+      ZkCoreNodeProps zkCoreNodeProps=new ZkCoreNodeProps(new ZkNodeProps(newShardProps));
+      if (leaderUrl != null && leaderUrl.equals(zkCoreNodeProps.getCoreUrl())) {
+        newShardProps.put(ZkStateReader.LEADER_PROP,"true");
+        if (wasLeader == null) {
+          updated=true;
+        }
+      }
+ else {
+        if (wasLeader != null) {
+          updated=true;
+        }
+      }
+      newShards.put(shard.getKey(),new ZkNodeProps(newShardProps));
+    }
+    Slice slice=new Slice(sliceName,newShards);
+    slices.put(sliceName,slice);
+  }
+  if (updated) {
+    return new CloudState(state.getLiveNodes(),newStates);
+  }
+ else {
+    return state;
+  }
+}

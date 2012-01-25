@@ -1,66 +1,9 @@
 {
-  File adminFile=null;
-  final SolrResourceLoader loader=req.getCore().getResourceLoader();
-  File configdir=new File(loader.getConfigDir());
-  if (!configdir.exists()) {
-    try {
-      configdir=new File(loader.getClassLoader().getResource(loader.getConfigDir()).toURI());
-    }
- catch (    URISyntaxException e) {
-      throw new SolrException(ErrorCode.FORBIDDEN,"Can not access configuration directory!");
-    }
-  }
-  String fname=req.getParams().get("file",null);
-  if (fname == null) {
-    adminFile=configdir;
+  CoreContainer coreContainer=req.getCore().getCoreDescriptor().getCoreContainer();
+  if (coreContainer.isZooKeeperAware()) {
+    showFromZooKeeper(req,rsp,coreContainer);
   }
  else {
-    fname=fname.replace('\\','/');
-    if (hiddenFiles.contains(fname.toUpperCase(Locale.ENGLISH))) {
-      throw new SolrException(ErrorCode.FORBIDDEN,"Can not access: " + fname);
-    }
-    if (fname.indexOf("..") >= 0) {
-      throw new SolrException(ErrorCode.FORBIDDEN,"Invalid path: " + fname);
-    }
-    adminFile=new File(configdir,fname);
+    showFromFileSystem(req,rsp);
   }
-  if (!adminFile.exists()) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Can not find: " + adminFile.getName() + " ["+ adminFile.getAbsolutePath()+ "]");
-  }
-  if (!adminFile.canRead() || adminFile.isHidden()) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Can not show: " + adminFile.getName() + " ["+ adminFile.getAbsolutePath()+ "]");
-  }
-  if (adminFile.isDirectory()) {
-    int basePath=configdir.getAbsolutePath().length() + 1;
-    NamedList<SimpleOrderedMap<Object>> files=new SimpleOrderedMap<SimpleOrderedMap<Object>>();
-    for (    File f : adminFile.listFiles()) {
-      String path=f.getAbsolutePath().substring(basePath);
-      path=path.replace('\\','/');
-      if (hiddenFiles.contains(path.toUpperCase(Locale.ENGLISH))) {
-        continue;
-      }
-      if (f.isHidden() || f.getName().startsWith(".")) {
-        continue;
-      }
-      SimpleOrderedMap<Object> fileInfo=new SimpleOrderedMap<Object>();
-      files.add(path,fileInfo);
-      if (f.isDirectory()) {
-        fileInfo.add("directory",true);
-      }
- else {
-        fileInfo.add("size",f.length());
-      }
-      fileInfo.add("modified",new Date(f.lastModified()));
-    }
-    rsp.add("files",files);
-  }
- else {
-    ModifiableSolrParams params=new ModifiableSolrParams(req.getParams());
-    params.set(CommonParams.WT,"raw");
-    req.setParams(params);
-    ContentStreamBase content=new ContentStreamBase.FileStream(adminFile);
-    content.setContentType(req.getParams().get(USE_CONTENT_TYPE));
-    rsp.add(RawResponseWriter.CONTENT,content);
-  }
-  rsp.setHttpCaching(false);
 }

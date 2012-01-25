@@ -1,0 +1,29 @@
+{
+  cmdDistrib.finish();
+  Response response=cmdDistrib.getResponse();
+  if (response.errors.size() > 0) {
+    if (response.errors.get(0).node instanceof RetryNode) {
+      rsp.setException(response.errors.get(0).e);
+    }
+  }
+  for (  SolrCmdDistributor.Error error : response.errors) {
+    if (error.node instanceof RetryNode) {
+      continue;
+    }
+    String recoveryUrl=error.node.getBaseUrl();
+    CommonsHttpSolrServer server;
+    log.info("try and ask " + recoveryUrl + " to recover");
+    try {
+      server=new CommonsHttpSolrServer(recoveryUrl);
+      server.setSoTimeout(5000);
+      server.setConnectionTimeout(5000);
+      RequestRecovery recoverRequestCmd=new RequestRecovery();
+      recoverRequestCmd.setAction(CoreAdminAction.REQUESTRECOVERY);
+      recoverRequestCmd.setCoreName(error.node.getCoreName());
+      server.request(recoverRequestCmd);
+    }
+ catch (    Exception e) {
+      log.info("Could not tell a replica to recover",e);
+    }
+  }
+}

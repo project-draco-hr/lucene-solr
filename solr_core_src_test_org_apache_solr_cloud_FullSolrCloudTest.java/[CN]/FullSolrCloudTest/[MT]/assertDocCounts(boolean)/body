@@ -1,0 +1,41 @@
+{
+  if (verbose)   System.out.println("control docs:" + controlClient.query(new SolrQuery("*:*")).getResults().getNumFound() + "\n\n");
+  long controlCount=controlClient.query(new SolrQuery("*:*")).getResults().getNumFound();
+  ZkStateReader zk=new ZkStateReader(zkServer.getZkAddress(),10000,AbstractZkTestCase.TIMEOUT);
+  Map<String,Slice> slices=null;
+  CloudState cloudState;
+  try {
+    zk.createClusterStateWatchersAndUpdate();
+    cloudState=zk.getCloudState();
+    slices=cloudState.getSlices(DEFAULT_COLLECTION);
+  }
+  finally {
+    zk.close();
+  }
+  if (slices == null) {
+    throw new RuntimeException("Could not find collection " + DEFAULT_COLLECTION + " in "+ cloudState.getCollections());
+  }
+  for (  SolrServer client : clients) {
+    for (    Map.Entry<String,Slice> slice : slices.entrySet()) {
+      Map<String,ZkNodeProps> theShards=slice.getValue().getShards();
+      for (      Map.Entry<String,ZkNodeProps> shard : theShards.entrySet()) {
+        String shardName=new URI(((CommonsHttpSolrServer)client).getBaseURL()).getPort() + "_solr_";
+        if (verbose && shard.getKey().endsWith(shardName)) {
+          System.out.println("shard:" + slice.getKey());
+          System.out.println(shard.getValue());
+        }
+      }
+    }
+    long count=0;
+    String currentState=clientToInfo.get(new CloudSolrServerClient(client)).get(ZkStateReader.STATE_PROP);
+    if (currentState != null && currentState.equals(ZkStateReader.ACTIVE)) {
+      SolrQuery query=new SolrQuery("*:*");
+      query.set("distrib",false);
+      count=client.query(query).getResults().getNumFound();
+    }
+    if (verbose)     System.out.println("client docs:" + count + "\n\n");
+  }
+  if (verbose)   System.out.println("control docs:" + controlClient.query(new SolrQuery("*:*")).getResults().getNumFound() + "\n\n");
+  SolrQuery query=new SolrQuery("*:*");
+  assertEquals("Doc Counts do not add up",controlCount,cloudClient.query(query).getResults().getNumFound());
+}

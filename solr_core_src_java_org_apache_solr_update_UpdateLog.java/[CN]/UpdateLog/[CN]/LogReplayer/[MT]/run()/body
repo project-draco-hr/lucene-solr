@@ -1,0 +1,143 @@
+{
+  try {
+    uhandler.core.log.warn("Starting log replay " + translog + " active="+ activeLog+ "starting pos="+ recoveryInfo.positionOfStart);
+    tlogReader=translog.getReader(recoveryInfo.positionOfStart);
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(DistributedUpdateProcessor.SEEN_LEADER,true);
+    SolrQueryRequest req=new LocalSolrQueryRequest(uhandler.core,params);
+    SolrQueryResponse rsp=new SolrQueryResponse();
+    RunUpdateProcessorFactory runFac=new RunUpdateProcessorFactory();
+    DistributedUpdateProcessorFactory magicFac=new DistributedUpdateProcessorFactory();
+    runFac.init(new NamedList());
+    magicFac.init(new NamedList());
+    UpdateRequestProcessor proc=magicFac.getInstance(req,rsp,runFac.getInstance(req,rsp,null));
+    long commitVersion=0;
+    for (; ; ) {
+      Object o=null;
+      if (cancelApplyBufferUpdate)       break;
+      try {
+        if (testing_logReplayHook != null)         testing_logReplayHook.run();
+        o=null;
+        o=tlogReader.next();
+        if (o == null && activeLog) {
+          if (!finishing) {
+            versionInfo.blockUpdates();
+            finishing=true;
+            o=tlogReader.next();
+          }
+ else {
+          }
+        }
+      }
+ catch (      InterruptedException e) {
+        SolrException.log(log,e);
+      }
+catch (      IOException e) {
+        SolrException.log(log,e);
+      }
+catch (      Throwable e) {
+        SolrException.log(log,e);
+      }
+      if (o == null)       break;
+      try {
+        List entry=(List)o;
+        int oper=(Integer)entry.get(0);
+        long version=(Long)entry.get(1);
+switch (oper) {
+case UpdateLog.ADD:
+{
+            recoveryInfo.adds++;
+            SolrInputDocument sdoc=(SolrInputDocument)entry.get(entry.size() - 1);
+            AddUpdateCommand cmd=new AddUpdateCommand(req);
+            cmd.solrDoc=sdoc;
+            cmd.setVersion(version);
+            cmd.setFlags(UpdateCommand.REPLAY | UpdateCommand.IGNORE_AUTOCOMMIT);
+            proc.processAdd(cmd);
+            break;
+          }
+case UpdateLog.DELETE:
+{
+          recoveryInfo.deletes++;
+          byte[] idBytes=(byte[])entry.get(2);
+          DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+          cmd.setIndexedId(new BytesRef(idBytes));
+          cmd.setVersion(version);
+          cmd.setFlags(UpdateCommand.REPLAY | UpdateCommand.IGNORE_AUTOCOMMIT);
+          proc.processDelete(cmd);
+          break;
+        }
+case UpdateLog.DELETE_BY_QUERY:
+{
+        recoveryInfo.deleteByQuery++;
+        String query=(String)entry.get(2);
+        DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+        cmd.query=query;
+        cmd.setVersion(version);
+        cmd.setFlags(UpdateCommand.REPLAY | UpdateCommand.IGNORE_AUTOCOMMIT);
+        proc.processDelete(cmd);
+        break;
+      }
+case UpdateLog.COMMIT:
+{
+      commitVersion=version;
+      break;
+    }
+default :
+  throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unknown Operation! " + oper);
+}
+if (rsp.getException() != null) {
+log.error("Exception replaying log",rsp.getException());
+throw rsp.getException();
+}
+}
+ catch (IOException ex) {
+recoveryInfo.errors++;
+log.warn("IOException reading log",ex);
+}
+catch (ClassCastException cl) {
+recoveryInfo.errors++;
+log.warn("Unexpected log entry or corrupt log.  Entry=" + o,cl);
+}
+catch (Throwable ex) {
+recoveryInfo.errors++;
+log.warn("Exception replaying log",ex);
+}
+}
+CommitUpdateCommand cmd=new CommitUpdateCommand(req,false);
+cmd.setVersion(commitVersion);
+cmd.softCommit=false;
+cmd.waitSearcher=true;
+cmd.setFlags(UpdateCommand.REPLAY);
+try {
+uhandler.commit(cmd);
+}
+ catch (IOException ex) {
+recoveryInfo.errors++;
+log.error("Replay exception: final commit.",ex);
+}
+if (!activeLog) {
+translog.writeCommit(cmd);
+}
+try {
+proc.finish();
+}
+ catch (IOException ex) {
+recoveryInfo.errors++;
+log.error("Replay exception: finish()",ex);
+}
+tlogReader.close();
+translog.decref();
+}
+ catch (Throwable e) {
+recoveryInfo.errors++;
+SolrException.log(log,e);
+}
+ finally {
+state=State.ACTIVE;
+if (finishing) {
+versionInfo.unblockUpdates();
+}
+}
+log.warn("Ending log replay " + tlogReader);
+if (testing_logReplayFinishHook != null) testing_logReplayFinishHook.run();
+}

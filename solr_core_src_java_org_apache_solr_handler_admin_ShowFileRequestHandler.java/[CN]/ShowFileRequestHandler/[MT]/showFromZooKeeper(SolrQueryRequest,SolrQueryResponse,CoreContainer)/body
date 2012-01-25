@@ -1,0 +1,55 @@
+{
+  String adminFile=null;
+  SolrCore core=req.getCore();
+  SolrZkClient zkClient=coreContainer.getZkController().getZkClient();
+  final ZkSolrResourceLoader loader=(ZkSolrResourceLoader)core.getResourceLoader();
+  String confPath=loader.getCollectionZkPath();
+  String fname=req.getParams().get("file",null);
+  if (fname == null) {
+    adminFile=confPath;
+  }
+ else {
+    fname=fname.replace('\\','/');
+    if (hiddenFiles.contains(fname.toUpperCase(Locale.ENGLISH))) {
+      throw new SolrException(ErrorCode.FORBIDDEN,"Can not access: " + fname);
+    }
+    if (fname.indexOf("..") >= 0) {
+      throw new SolrException(ErrorCode.FORBIDDEN,"Invalid path: " + fname);
+    }
+    adminFile=confPath + "/" + fname;
+  }
+  if (!zkClient.exists(adminFile,true)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Can not find: " + adminFile);
+  }
+  List<String> children=zkClient.getChildren(adminFile,null,true);
+  if (children.size() > 0) {
+    NamedList<SimpleOrderedMap<Object>> files=new SimpleOrderedMap<SimpleOrderedMap<Object>>();
+    for (    String f : children) {
+      if (hiddenFiles.contains(f.toUpperCase(Locale.ENGLISH))) {
+        continue;
+      }
+      if (f.startsWith(".")) {
+        continue;
+      }
+      SimpleOrderedMap<Object> fileInfo=new SimpleOrderedMap<Object>();
+      files.add(f,fileInfo);
+      List<String> fchildren=zkClient.getChildren(adminFile,null,true);
+      if (fchildren.size() > 0) {
+        fileInfo.add("directory",true);
+      }
+ else {
+        fileInfo.add("size",f.length());
+      }
+    }
+    rsp.add("files",files);
+  }
+ else {
+    ModifiableSolrParams params=new ModifiableSolrParams(req.getParams());
+    params.set(CommonParams.WT,"raw");
+    req.setParams(params);
+    ContentStreamBase content=new ContentStreamBase.StringStream(new String(zkClient.getData(adminFile,null,null,true),"UTF-8"));
+    content.setContentType(req.getParams().get(USE_CONTENT_TYPE));
+    rsp.add(RawResponseWriter.CONTENT,content);
+  }
+  rsp.setHttpCaching(false);
+}

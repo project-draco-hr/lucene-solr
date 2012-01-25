@@ -1,14 +1,21 @@
 {
+  log.info("Manual update of cluster state initiated");
   if (immediate) {
-    if (!onlyLiveNodes) {
-      log.info("Updating cloud state from ZooKeeper... ");
-    }
+    CloudState clusterState;
+synchronized (getUpdateLock()) {
+      List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,null,true);
+      Set<String> liveNodesSet=new HashSet<String>();
+      liveNodesSet.addAll(liveNodes);
+      if (!onlyLiveNodes) {
+        log.info("Updating cloud state from ZooKeeper... ");
+        clusterState=CloudState.load(zkClient,liveNodesSet);
+      }
  else {
-      log.info("Updating live nodes from ZooKeeper... ");
+        log.info("Updating live nodes from ZooKeeper... ");
+        clusterState=new CloudState(liveNodesSet,ZkStateReader.this.cloudState.getCollectionStates());
+      }
     }
-    CloudState cloudState;
-    cloudState=CloudState.buildCloudState(zkClient,this.cloudState,onlyLiveNodes);
-    this.cloudState=cloudState;
+    this.cloudState=clusterState;
   }
  else {
     if (cloudStateUpdateScheduled) {
@@ -19,12 +26,23 @@
     cloudStateUpdateScheduled=true;
     updateCloudExecutor.schedule(new Runnable(){
       public void run(){
-        log.info("Updating cloud state from ZooKeeper...");
+        log.info("Updating cluster state from ZooKeeper...");
 synchronized (getUpdateLock()) {
           cloudStateUpdateScheduled=false;
-          CloudState cloudState;
+          CloudState clusterState;
           try {
-            cloudState=CloudState.buildCloudState(zkClient,ZkStateReader.this.cloudState,onlyLiveNodes);
+            List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,null,true);
+            Set<String> liveNodesSet=new HashSet<String>();
+            liveNodesSet.addAll(liveNodes);
+            if (!onlyLiveNodes) {
+              log.info("Updating cloud state from ZooKeeper... ");
+              clusterState=CloudState.load(zkClient,liveNodesSet);
+            }
+ else {
+              log.info("Updating live nodes from ZooKeeper... ");
+              clusterState=new CloudState(liveNodesSet,ZkStateReader.this.cloudState.getCollectionStates());
+            }
+            ZkStateReader.this.cloudState=clusterState;
           }
  catch (          KeeperException e) {
             if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
@@ -39,14 +57,10 @@ catch (          InterruptedException e) {
             log.error("",e);
             throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
           }
-catch (          IOException e) {
-            log.error("",e);
-            throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
-          }
           ZkStateReader.this.cloudState=cloudState;
         }
       }
     }
-,CLOUD_UPDATE_DELAY,TimeUnit.MILLISECONDS);
+,SOLRCLOUD_UPDATE_DELAY,TimeUnit.MILLISECONDS);
   }
 }

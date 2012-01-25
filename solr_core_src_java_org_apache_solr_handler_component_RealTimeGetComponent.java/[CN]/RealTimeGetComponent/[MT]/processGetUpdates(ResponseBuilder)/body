@@ -1,0 +1,40 @@
+{
+  SolrQueryRequest req=rb.req;
+  SolrQueryResponse rsp=rb.rsp;
+  SolrParams params=req.getParams();
+  if (!params.getBool(COMPONENT_NAME,true)) {
+    return;
+  }
+  String versionsStr=params.get("getUpdates");
+  if (versionsStr == null)   return;
+  UpdateLog ulog=req.getCore().getUpdateHandler().getUpdateLog();
+  if (ulog == null)   return;
+  List<String> versions=StrUtils.splitSmart(versionsStr,",",true);
+  UpdateLog.RecentUpdates recentUpdates=ulog.getRecentUpdates();
+  List<Object> updates=new ArrayList<Object>(versions.size());
+  long minVersion=Long.MAX_VALUE;
+  try {
+    for (    String versionStr : versions) {
+      long version=Long.parseLong(versionStr);
+      try {
+        Object o=recentUpdates.lookup(version);
+        if (o == null)         continue;
+        if (version > 0) {
+          minVersion=Math.min(minVersion,version);
+        }
+        updates.add(o);
+      }
+ catch (      SolrException e) {
+        log.warn("Exception reading log for updates",e);
+      }
+catch (      ClassCastException e) {
+        log.warn("Exception reading log for updates",e);
+      }
+    }
+    updates.addAll(recentUpdates.getDeleteByQuery(minVersion));
+    rb.rsp.add("updates",updates);
+  }
+  finally {
+    recentUpdates.close();
+  }
+}

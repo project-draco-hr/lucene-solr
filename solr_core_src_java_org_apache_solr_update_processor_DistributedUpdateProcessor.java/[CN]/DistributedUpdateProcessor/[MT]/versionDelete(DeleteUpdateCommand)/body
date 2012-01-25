@@ -1,0 +1,55 @@
+{
+  BytesRef idBytes=cmd.getIndexedId();
+  if (vinfo == null || idBytes == null) {
+    super.processDelete(cmd);
+    return false;
+  }
+  int bucketHash=Hash.murmurhash3_x86_32(idBytes.bytes,idBytes.offset,idBytes.length,0);
+  long versionOnUpdate=cmd.getVersion();
+  if (versionOnUpdate == 0) {
+    String versionOnUpdateS=req.getParams().get(VERSION_FIELD);
+    versionOnUpdate=versionOnUpdateS == null ? 0 : Long.parseLong(versionOnUpdateS);
+  }
+  versionOnUpdate=Math.abs(versionOnUpdate);
+  boolean isReplay=(cmd.getFlags() & UpdateCommand.REPLAY) != 0;
+  boolean leaderLogic=isLeader && !isReplay;
+  if (!leaderLogic && versionOnUpdate == 0) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"missing _version_ on update from leader");
+  }
+  VersionBucket bucket=vinfo.bucket(bucketHash);
+  vinfo.lockForUpdate();
+  try {
+synchronized (bucket) {
+      if (versionsStored) {
+        long bucketVersion=bucket.highest;
+        if (leaderLogic) {
+          long version=vinfo.getNewClock();
+          cmd.setVersion(-version);
+          bucket.updateHighest(version);
+        }
+ else {
+          cmd.setVersion(-versionOnUpdate);
+          if (ulog.getState() != UpdateLog.State.ACTIVE && (cmd.getFlags() & UpdateCommand.REPLAY) == 0) {
+            cmd.setFlags(cmd.getFlags() | UpdateCommand.BUFFERING);
+            ulog.delete(cmd);
+            return true;
+          }
+          if (bucketVersion != 0 && bucketVersion < versionOnUpdate) {
+            bucket.updateHighest(versionOnUpdate);
+          }
+ else {
+            Long lastVersion=vinfo.lookupVersion(cmd.getIndexedId());
+            if (lastVersion != null && Math.abs(lastVersion) >= versionOnUpdate) {
+              return true;
+            }
+          }
+        }
+      }
+      doLocalDelete(cmd);
+      return false;
+    }
+  }
+  finally {
+    vinfo.unlockForUpdate();
+  }
+}

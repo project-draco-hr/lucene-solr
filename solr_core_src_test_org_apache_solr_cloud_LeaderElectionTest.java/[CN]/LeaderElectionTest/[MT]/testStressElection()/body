@@ -1,0 +1,95 @@
+{
+  final ScheduledExecutorService scheduler=Executors.newScheduledThreadPool(15);
+  final List<ClientThread> threads=Collections.synchronizedList(new ArrayList<ClientThread>());
+  ClientThread thread1=null;
+  thread1=new ClientThread(0);
+  threads.add(thread1);
+  scheduler.schedule(thread1,0,TimeUnit.MILLISECONDS);
+  Thread.sleep(4000);
+  Thread scheduleThread=new Thread(){
+    @Override public void run(){
+      for (int i=1; i < atLeast(15); i++) {
+        int launchIn=random.nextInt(500);
+        ClientThread thread=null;
+        try {
+          thread=new ClientThread(i);
+        }
+ catch (        Exception e) {
+        }
+        if (thread != null) {
+          threads.add(thread);
+          scheduler.schedule(thread,launchIn,TimeUnit.MILLISECONDS);
+        }
+      }
+    }
+  }
+;
+  Thread killThread=new Thread(){
+    @Override public void run(){
+      while (!stopStress) {
+        try {
+          int j;
+          try {
+            j=random.nextInt(threads.size() - 2);
+          }
+ catch (          IllegalArgumentException e) {
+            continue;
+          }
+          try {
+            threads.get(j).close();
+          }
+ catch (          InterruptedException e) {
+            throw e;
+          }
+catch (          Exception e) {
+          }
+          Thread.sleep(10);
+        }
+ catch (        Exception e) {
+        }
+      }
+    }
+  }
+;
+  Thread connLossThread=new Thread(){
+    @Override public void run(){
+      while (!stopStress) {
+        try {
+          Thread.sleep(50);
+          int j;
+          j=random.nextInt(threads.size());
+          try {
+            threads.get(j).zkClient.getSolrZooKeeper().pauseCnxn(ZkTestServer.TICK_TIME * 2);
+          }
+ catch (          Exception e) {
+            e.printStackTrace();
+          }
+          Thread.sleep(500);
+        }
+ catch (        Exception e) {
+        }
+      }
+    }
+  }
+;
+  scheduleThread.start();
+  connLossThread.start();
+  killThread.start();
+  Thread.sleep(6000);
+  stopStress=true;
+  scheduleThread.interrupt();
+  connLossThread.interrupt();
+  killThread.interrupt();
+  scheduleThread.join();
+  connLossThread.join();
+  killThread.join();
+  scheduler.shutdownNow();
+  int seq=threads.get(getLeaderThread()).getSeq();
+  assertFalse("seq is -1 and we may have a zombie leader",seq == -1);
+  for (  ClientThread thread : threads) {
+    thread.close();
+  }
+  for (  Thread thread : threads) {
+    thread.join();
+  }
+}

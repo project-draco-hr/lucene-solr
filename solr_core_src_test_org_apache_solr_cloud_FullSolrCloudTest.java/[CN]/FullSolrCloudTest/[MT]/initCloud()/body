@@ -1,0 +1,35 @@
+{
+  if (zkStateReader == null) {
+synchronized (this) {
+      if (zkStateReader != null) {
+        return;
+      }
+      zkStateReader=new ZkStateReader(zkServer.getZkAddress(),10000,AbstractZkTestCase.TIMEOUT);
+      zkStateReader.createClusterStateWatchersAndUpdate();
+    }
+    chaosMonkey=new ChaosMonkey(zkServer,zkStateReader,DEFAULT_COLLECTION,shardToJetty,shardToClient,shardToLeaderClient,shardToLeaderJetty,random);
+  }
+  while (!zkStateReader.getCloudState().getCollections().contains(DEFAULT_COLLECTION)) {
+    Thread.sleep(500);
+  }
+  while (zkStateReader.getCloudState().getSlices(DEFAULT_COLLECTION).size() != sliceCount) {
+    Thread.sleep(500);
+  }
+  if (cloudClient == null) {
+synchronized (this) {
+      if (cloudClient != null) {
+        return;
+      }
+      try {
+        CloudSolrServer server=new CloudSolrServer(zkServer.getZkAddress());
+        server.setDefaultCollection(DEFAULT_COLLECTION);
+        server.getLbServer().getHttpClient().getParams().setConnectionManagerTimeout(5000);
+        server.getLbServer().getHttpClient().getParams().setSoTimeout(15000);
+        cloudClient=server;
+      }
+ catch (      MalformedURLException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+}

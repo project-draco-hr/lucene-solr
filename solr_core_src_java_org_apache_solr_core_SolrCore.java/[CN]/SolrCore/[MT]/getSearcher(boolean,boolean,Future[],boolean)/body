@@ -41,54 +41,20 @@ synchronized (searcherLock) {
       log.info(logid + "PERFORMANCE WARNING: Overlapping onDeckSearchers=" + onDeckSearchers);
     }
   }
-  SolrIndexSearcher tmp;
-  RefCounted<SolrIndexSearcher> newestSearcher=null;
-  try {
-    newestSearcher=getNewestSearcher(false);
-    String newIndexDir=getNewIndexDir();
-    File indexDirFile=new File(getIndexDir()).getCanonicalFile();
-    File newIndexDirFile=new File(newIndexDir).getCanonicalFile();
-    if (newestSearcher != null && solrConfig.reopenReaders && indexDirFile.equals(newIndexDirFile)) {
-      if (updateHandlerReopens) {
-        tmp=getUpdateHandler().reopenSearcher(newestSearcher.get());
-      }
- else {
-        IndexReader currentReader=newestSearcher.get().getIndexReader();
-        IndexReader newReader;
-        newReader=IndexReader.openIfChanged(currentReader);
-        if (newReader == null) {
-          currentReader.incRef();
-          newReader=currentReader;
-        }
-        tmp=new SolrIndexSearcher(this,schema,"main",newReader,true,true,true,directoryFactory);
-      }
-    }
- else {
-      tmp=new SolrIndexSearcher(this,newIndexDir,schema,getSolrConfig().mainIndexConfig,"main",true,directoryFactory);
-    }
-  }
- catch (  Throwable th) {
-synchronized (searcherLock) {
-      onDeckSearchers--;
-      searcherLock.notify();
-    }
-    throw new RuntimeException(th);
-  }
- finally {
-    if (newestSearcher != null) {
-      newestSearcher.decref();
-    }
-  }
-  final SolrIndexSearcher newSearcher=tmp;
+  final boolean[] decrementOnDeckCount=new boolean[]{true};
   RefCounted<SolrIndexSearcher> currSearcherHolder=null;
-  final RefCounted<SolrIndexSearcher> newSearchHolder=newHolder(newSearcher);
-  if (returnSearcher)   newSearchHolder.incref();
-  final boolean[] decrementOnDeckCount=new boolean[1];
-  decrementOnDeckCount[0]=true;
+  RefCounted<SolrIndexSearcher> searchHolder=null;
+  boolean success=false;
+  openSearcherLock.lock();
   try {
+    searchHolder=openNewSearcher(updateHandlerReopens,false);
+    if (returnSearcher) {
+      searchHolder.incref();
+    }
+    final RefCounted<SolrIndexSearcher> newSearchHolder=searchHolder;
+    final SolrIndexSearcher newSearcher=newSearchHolder.get();
     boolean alreadyRegistered=false;
 synchronized (searcherLock) {
-      _searchers.add(newSearchHolder);
       if (_searcher == null) {
         if (solrConfig.useColdSearcher) {
           registerSearcher(newSearchHolder);
@@ -104,132 +70,99 @@ synchronized (searcherLock) {
     final SolrIndexSearcher currSearcher=currSearcherHolder == null ? null : currSearcherHolder.get();
     Future future=null;
     if (currSearcher != null) {
-      try {
-        future=searcherExecutor.submit(new Callable(){
-          public Object call() throws Exception {
-            try {
-              newSearcher.warm(currSearcher);
-            }
- catch (            Throwable e) {
-              SolrException.log(log,null,e);
-            }
-            return null;
+      future=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            newSearcher.warm(currSearcher);
           }
+ catch (          Throwable e) {
+            SolrException.log(log,e);
+          }
+          return null;
         }
+      }
 );
-      }
- catch (      Exception e) {
-        if (newSearchHolder != null) {
-          newSearchHolder.decref();
-          if (returnSearcher) {
-            newSearchHolder.decref();
-          }
-        }
-        throw e;
-      }
     }
     if (currSearcher == null && firstSearcherListeners.size() > 0) {
-      try {
-        future=searcherExecutor.submit(new Callable(){
-          public Object call() throws Exception {
-            try {
-              for (              SolrEventListener listener : firstSearcherListeners) {
-                listener.newSearcher(newSearcher,null);
-              }
+      future=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            for (            SolrEventListener listener : firstSearcherListeners) {
+              listener.newSearcher(newSearcher,null);
             }
- catch (            Throwable e) {
-              SolrException.log(log,null,e);
-            }
-            return null;
           }
+ catch (          Throwable e) {
+            SolrException.log(log,null,e);
+          }
+          return null;
         }
+      }
 );
-      }
- catch (      Exception e) {
-        if (newSearchHolder != null) {
-          newSearchHolder.decref();
-          if (returnSearcher) {
-            newSearchHolder.decref();
-          }
-        }
-        throw e;
-      }
     }
     if (currSearcher != null && newSearcherListeners.size() > 0) {
-      try {
-        future=searcherExecutor.submit(new Callable(){
-          public Object call() throws Exception {
-            try {
-              for (              SolrEventListener listener : newSearcherListeners) {
-                listener.newSearcher(newSearcher,currSearcher);
-              }
+      future=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            for (            SolrEventListener listener : newSearcherListeners) {
+              listener.newSearcher(newSearcher,currSearcher);
             }
- catch (            Throwable e) {
-              SolrException.log(log,null,e);
-            }
-            return null;
           }
+ catch (          Throwable e) {
+            SolrException.log(log,null,e);
+          }
+          return null;
         }
+      }
 );
-      }
- catch (      Exception e) {
-        if (newSearchHolder != null) {
-          newSearchHolder.decref();
-          if (returnSearcher) {
-            newSearchHolder.decref();
-          }
-        }
-        throw e;
-      }
     }
     final RefCounted<SolrIndexSearcher> currSearcherHolderF=currSearcherHolder;
     if (!alreadyRegistered) {
-      try {
-        future=searcherExecutor.submit(new Callable(){
-          public Object call() throws Exception {
-            try {
-              decrementOnDeckCount[0]=false;
-              registerSearcher(newSearchHolder);
-            }
- catch (            Throwable e) {
-              SolrException.log(log,null,e);
-            }
+      future=searcherExecutor.submit(new Callable(){
+        public Object call() throws Exception {
+          try {
+            registerSearcher(newSearchHolder);
+          }
+ catch (          Throwable e) {
+            SolrException.log(log,e);
+          }
  finally {
-              if (currSearcherHolderF != null)               currSearcherHolderF.decref();
-            }
-            return null;
+            if (currSearcherHolderF != null)             currSearcherHolderF.decref();
           }
+          return null;
         }
+      }
 );
-      }
- catch (      Exception e) {
-        if (newSearchHolder != null) {
-          newSearchHolder.decref();
-          if (returnSearcher) {
-            newSearchHolder.decref();
-          }
-        }
-        throw e;
-      }
     }
     if (waitSearcher != null) {
       waitSearcher[0]=future;
     }
+    success=true;
     return returnSearcher ? newSearchHolder : null;
   }
  catch (  Exception e) {
-    SolrException.log(log,null,e);
-    if (currSearcherHolder != null)     currSearcherHolder.decref();
+    if (e instanceof SolrException)     throw (SolrException)e;
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
+  }
+ finally {
+    if (!success) {
 synchronized (searcherLock) {
-      if (decrementOnDeckCount[0]) {
         onDeckSearchers--;
+        if (onDeckSearchers < 0) {
+          log.error(logid + "ERROR!!! onDeckSearchers after decrement=" + onDeckSearchers);
+          onDeckSearchers=0;
+        }
+        searcherLock.notify();
       }
-      if (onDeckSearchers < 0) {
-        log.error(logid + "ERROR!!! onDeckSearchers after decrement=" + onDeckSearchers);
-        onDeckSearchers=0;
+      if (currSearcherHolder != null) {
+        currSearcherHolder.decref();
       }
-      searcherLock.notify();
+      if (searchHolder != null) {
+        searchHolder.decref();
+        if (returnSearcher) {
+          searchHolder.decref();
+        }
+      }
     }
-    return returnSearcher ? newSearchHolder : null;
+    openSearcherLock.unlock();
   }
 }

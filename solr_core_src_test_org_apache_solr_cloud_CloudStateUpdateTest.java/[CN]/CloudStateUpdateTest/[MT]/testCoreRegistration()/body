@@ -1,10 +1,11 @@
 {
-  System.setProperty("CLOUD_UPDATE_DELAY","1");
-  ZkNodeProps props2=new ZkNodeProps();
+  System.setProperty("solrcloud.update.delay","1");
+  Map<String,String> props2=new HashMap<String,String>();
   props2.put("configName","conf1");
+  ZkNodeProps zkProps2=new ZkNodeProps(props2);
   SolrZkClient zkClient=new SolrZkClient(zkServer.getZkAddress(),AbstractZkTestCase.TIMEOUT);
-  zkClient.makePath("/collections/testcore",props2.store(),CreateMode.PERSISTENT);
-  zkClient.makePath("/collections/testcore/shards",CreateMode.PERSISTENT);
+  zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/testcore",ZkStateReader.toJSON(zkProps2),CreateMode.PERSISTENT,true);
+  zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/testcore/shards",CreateMode.PERSISTENT,true);
   zkClient.close();
   CoreDescriptor dcore=new CoreDescriptor(container1,"testcore","testcore");
   dcore.setDataDir(dataDir4.getAbsolutePath());
@@ -17,21 +18,21 @@
   for (int i=75; i > 0; i--) {
     cloudState2=zkController2.getCloudState();
     slices=cloudState2.getSlices("testcore");
-    if (slices != null && slices.containsKey(host + ":1661_solr_testcore")) {
+    if (slices != null && slices.containsKey("shard1") && slices.get("shard1").getShards().size() > 0) {
       break;
     }
     Thread.sleep(500);
   }
   assertNotNull(slices);
-  assertTrue(slices.containsKey(host + ":1661_solr_testcore"));
-  Slice slice=slices.get(host + ":1661_solr_testcore");
-  assertEquals(host + ":1661_solr_testcore",slice.getName());
+  assertTrue(slices.containsKey("shard1"));
+  Slice slice=slices.get("shard1");
+  assertEquals("shard1",slice.getName());
   Map<String,ZkNodeProps> shards=slice.getShards();
   assertEquals(1,shards.size());
   ZkNodeProps zkProps=shards.get(host + ":1661_solr_testcore");
   assertNotNull(zkProps);
-  assertEquals(host + ":1661_solr",zkProps.get("node_name"));
-  assertEquals("http://" + host + ":1661/solr/testcore",zkProps.get("url"));
+  assertEquals(host + ":1661_solr",zkProps.get(ZkStateReader.NODE_NAME_PROP));
+  assertEquals("http://" + host + ":1661/solr",zkProps.get(ZkStateReader.BASE_URL_PROP));
   Set<String> liveNodes=cloudState2.getLiveNodes();
   assertNotNull(liveNodes);
   assertEquals(3,liveNodes.size());

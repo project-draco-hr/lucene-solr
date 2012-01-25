@@ -1,0 +1,30 @@
+{
+  List<String> liveNodes=zkCmdExecutor.retryOperation(new ZkOperation(){
+    @Override public Object execute() throws KeeperException, InterruptedException {
+      return zkClient.getChildren(ZkStateReader.LIVE_NODES_ZKNODE,new Watcher(){
+        @Override public void process(        WatchedEvent event){
+          try {
+            List<String> liveNodes=zkClient.getChildren(ZkStateReader.LIVE_NODES_ZKNODE,this,true);
+            Set<String> liveNodesSet=new HashSet<String>();
+            liveNodesSet.addAll(liveNodes);
+            processLiveNodesChanged(nodeStateWatches.keySet(),liveNodes);
+          }
+ catch (          KeeperException e) {
+            if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+              log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+              return;
+            }
+            SolrException.log(log,"",e);
+            throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+          }
+catch (          InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        }
+      }
+,true);
+    }
+  }
+);
+  processLiveNodesChanged(Collections.<String>emptySet(),liveNodes);
+}

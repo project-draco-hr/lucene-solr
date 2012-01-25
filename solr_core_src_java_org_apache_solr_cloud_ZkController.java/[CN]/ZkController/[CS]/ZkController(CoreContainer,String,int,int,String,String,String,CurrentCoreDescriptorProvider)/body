@@ -1,0 +1,45 @@
+{
+  this.cc=cc;
+  if (localHostContext.contains("/")) {
+    throw new IllegalArgumentException("localHostContext (" + localHostContext + ") should not contain a /");
+  }
+  this.zkServerAddress=zkServerAddress;
+  this.localHostPort=locaHostPort;
+  this.localHostContext=localHostContext;
+  this.localHost=localHost;
+  zkClient=new SolrZkClient(zkServerAddress,zkClientTimeout,zkClientConnectTimeout,new OnReconnect(){
+    public void command(){
+      try {
+        ElectionContext context=new OverseerElectionContext(getNodeName(),zkClient,zkStateReader);
+        overseerElector.joinElection(context);
+        zkStateReader.createClusterStateWatchersAndUpdate();
+        List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
+        if (descriptors != null) {
+          for (          CoreDescriptor descriptor : descriptors) {
+            final String shardZkNodeName=getNodeName() + "_" + descriptor.getName();
+            publishAsDown(getBaseUrl(),descriptor,shardZkNodeName,descriptor.getName());
+          }
+        }
+        createEphemeralLiveNode();
+        if (descriptors != null) {
+          for (          CoreDescriptor descriptor : descriptors) {
+            register(descriptor.getName(),descriptor,true);
+          }
+        }
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      Exception e) {
+        SolrException.log(log,"",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+  }
+);
+  cmdExecutor=new ZkCmdExecutor();
+  leaderElector=new LeaderElector(zkClient);
+  zkStateReader=new ZkStateReader(zkClient);
+  init();
+}
