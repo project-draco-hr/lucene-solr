@@ -1,0 +1,31 @@
+{
+  List<Long> otherVersions=(List<Long>)srsp.getSolrResponse().getResponse().get("versions");
+  SyncShardRequest sreq=(SyncShardRequest)srsp.getShardRequest();
+  sreq.reportedVersions=otherVersions;
+  if (otherVersions.size() == 0) {
+    return true;
+  }
+  Collections.sort(otherVersions,absComparator);
+  long otherHigh=percentile(otherVersions,.2f);
+  long otherLow=percentile(otherVersions,.8f);
+  if (ourHighThreshold < otherLow) {
+    return false;
+  }
+  if (ourLowThreshold > otherHigh) {
+    return true;
+  }
+  List<Long> toRequest=new ArrayList<Long>();
+  for (  Long otherVersion : otherVersions) {
+    if (Math.abs(otherVersion) < ourLowThreshold)     break;
+    if (ourUpdateSet.contains(otherVersion) || requestedUpdateSet.contains(otherVersion)) {
+      continue;
+    }
+    toRequest.add(otherVersion);
+    requestedUpdateSet.add(otherVersion);
+  }
+  sreq.requestedUpdates=toRequest;
+  if (toRequest.isEmpty()) {
+    return true;
+  }
+  return requestUpdates(srsp,toRequest);
+}

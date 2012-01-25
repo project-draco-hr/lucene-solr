@@ -1,0 +1,53 @@
+{
+  String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient controllerClient=null;
+  SolrZkClient overseerClient=null;
+  ZkStateReader reader=null;
+  try {
+    server.run();
+    controllerClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    controllerClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE,true);
+    reader=new ZkStateReader(controllerClient);
+    reader.createClusterStateWatchersAndUpdate();
+    Overseer.createClientNodes(controllerClient,"node1");
+    overseerClient=electNewOverseer(server.getZkAddress());
+    final String nodePath=ZkStateReader.LIVE_NODES_ZKNODE + "/" + "node1";
+    controllerClient.makePath(nodePath,CreateMode.EPHEMERAL,true);
+    HashMap<String,String> coreProps=new HashMap<String,String>();
+    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING);
+    coreProps.put(ZkStateReader.NODE_NAME_PROP,"node1");
+    CoreState state=new CoreState("core1","collection1",coreProps);
+    final String statePath=Overseer.STATES_NODE + "/node1";
+    controllerClient.setData(statePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    waitForSliceCount(reader,"collection1",1);
+    verifyStatus(reader,ZkStateReader.RECOVERING);
+    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.ACTIVE);
+    coreProps.put(ZkStateReader.SHARD_ID_PROP,"shard1");
+    state=new CoreState("core1","collection1",coreProps);
+    controllerClient.setData(statePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    verifyStatus(reader,ZkStateReader.ACTIVE);
+    overseerClient.close();
+    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING);
+    state=new CoreState("core1","collection1",coreProps);
+    controllerClient.setData(statePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    overseerClient=electNewOverseer(server.getZkAddress());
+    verifyStatus(reader,ZkStateReader.RECOVERING);
+    assertEquals("Live nodes count does not match",1,reader.getCloudState().getLiveNodes().size());
+    assertEquals("Shard count does not match",1,reader.getCloudState().getSlice("collection1","shard1").getShards().size());
+  }
+  finally {
+    if (overseerClient != null) {
+      overseerClient.close();
+    }
+    if (controllerClient != null) {
+      controllerClient.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+    server.shutdown();
+  }
+}

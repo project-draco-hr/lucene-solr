@@ -1,0 +1,26 @@
+{
+  handle.clear();
+  handle.put("QTime",SKIPVAL);
+  handle.put("timestamp",SKIPVAL);
+  indexThread=new StopableIndexingThread(0,true);
+  indexThread.start();
+  indexThread2=new StopableIndexingThread(10000,true);
+  indexThread2.start();
+  Thread.sleep(atLeast(2000));
+  JettySolrRunner replica=chaosMonkey.stopShard("shard1",1);
+  Thread.sleep(atLeast(2000));
+  replica.start();
+  Thread.sleep(1500);
+  waitForRecoveriesToFinish(false);
+  indexThread.safeStop();
+  indexThread2.safeStop();
+  indexThread.join();
+  indexThread2.join();
+  Thread.sleep(5000);
+  commit();
+  checkShardConsistency("shard1",false);
+  long client1Docs=shardToClient.get("shard1").get(0).query(new SolrQuery("*:*")).getResults().getNumFound();
+  long client2Docs=shardToClient.get("shard1").get(1).query(new SolrQuery("*:*")).getResults().getNumFound();
+  assertTrue(client1Docs > 0);
+  assertEquals(client1Docs,client2Docs);
+}

@@ -1,0 +1,30 @@
+{
+  if (log.isInfoEnabled()) {
+    log.info("Leader nodes changed for collection: " + collection + " nodes now:"+ shardIds);
+  }
+  Map<String,ShardLeaderWatcher> watches=shardLeaderWatches.get(collection);
+  Set<String> currentWatches=new HashSet<String>();
+  currentWatches.addAll(watches.keySet());
+  Set<String> newLeaders=complement(shardIds,currentWatches);
+  Set<String> lostLeaders=complement(currentWatches,shardIds);
+  for (  String shardId : lostLeaders) {
+    ShardLeaderWatcher watcher=watches.remove(shardId);
+    if (watcher != null) {
+      watcher.close();
+      announceLeader(collection,shardId,new ZkCoreNodeProps(new ZkNodeProps()));
+    }
+  }
+  for (  String shardId : newLeaders) {
+    try {
+      ShardLeaderWatcher watcher=new ShardLeaderWatcher(shardId,collection,zkClient,this);
+      watches.put(shardId,watcher);
+    }
+ catch (    KeeperException e) {
+      log.error("Failed to create watcher for shard leader col:" + collection + " shard:"+ shardId+ ", exception: "+ e.getClass());
+    }
+catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.error("Failed to create watcher for shard leader col:" + collection + " shard:"+ shardId+ ", exception: "+ e.getClass());
+    }
+  }
+}

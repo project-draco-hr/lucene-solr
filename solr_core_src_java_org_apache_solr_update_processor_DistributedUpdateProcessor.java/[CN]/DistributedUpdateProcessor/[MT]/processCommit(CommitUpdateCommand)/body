@@ -1,0 +1,34 @@
+{
+  if (zkEnabled) {
+    zkCheck();
+  }
+  if (vinfo != null) {
+    vinfo.lockForUpdate();
+  }
+  try {
+    if (ulog == null || ulog.getState() == UpdateLog.State.ACTIVE || (cmd.getFlags() & UpdateCommand.REPLAY) != 0) {
+      super.processCommit(cmd);
+    }
+ else {
+      log.info("Ignoring commit while not ACTIVE - state: " + ulog.getState() + " replay:"+ (cmd.getFlags() & UpdateCommand.REPLAY));
+    }
+  }
+  finally {
+    if (vinfo != null) {
+      vinfo.unlockForUpdate();
+    }
+  }
+  if (zkEnabled) {
+    ModifiableSolrParams params=new ModifiableSolrParams(req.getParams());
+    if (!params.getBool(COMMIT_END_POINT,false)) {
+      params.set(COMMIT_END_POINT,true);
+      String nodeName=req.getCore().getCoreDescriptor().getCoreContainer().getZkController().getNodeName();
+      String shardZkNodeName=nodeName + "_" + req.getCore().getName();
+      List<Node> nodes=getCollectionUrls(req,req.getCore().getCoreDescriptor().getCloudDescriptor().getCollectionName(),shardZkNodeName);
+      if (nodes != null) {
+        cmdDistrib.distribCommit(cmd,nodes,params);
+        finish();
+      }
+    }
+  }
+}

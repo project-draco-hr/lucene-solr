@@ -1,0 +1,46 @@
+{
+  commit();
+  query("q","*:*","sort","n_tl1 desc");
+  JettySolrRunner deadShard=chaosMonkey.stopShard(SHARD2,0);
+  try {
+    index_specific(shardToClient.get(SHARD2).get(0),id,999,i1,107,t1,"specific doc!");
+    fail("This server should be down and this update should have failed");
+  }
+ catch (  SolrServerException e) {
+  }
+  commit();
+  query("q","*:*","sort","n_tl1 desc");
+  index_specific(shardToClient.get(SHARD2).get(1),id,1000,i1,108,t1,"specific doc!");
+  commit();
+  checkShardConsistency(true,false);
+  query("q","*:*","sort","n_tl1 desc");
+  cloudClient.setDefaultCollection(DEFAULT_COLLECTION);
+  SolrQuery query=new SolrQuery("*:*");
+  long numFound1=cloudClient.query(query).getResults().getNumFound();
+  SolrInputDocument doc=new SolrInputDocument();
+  doc.addField("id",1001);
+  controlClient.add(doc);
+  UpdateRequest ureq=new UpdateRequest();
+  ureq.add(doc);
+  ureq.process(cloudClient);
+  commit();
+  query("q","*:*","sort","n_tl1 desc");
+  long numFound2=cloudClient.query(query).getResults().getNumFound();
+  assertEquals(numFound1 + 1,numFound2);
+  testDebugQueries();
+  if (VERBOSE) {
+    System.out.println(controlClient.query(new SolrQuery("*:*")).getResults().getNumFound());
+    for (    SolrServer client : clients) {
+      try {
+        System.out.println(client.query(new SolrQuery("*:*")).getResults().getNumFound());
+      }
+ catch (      Exception e) {
+      }
+    }
+  }
+  deadShard.start(true);
+  Thread.sleep(1500);
+  waitForRecoveriesToFinish(false);
+  List<SolrServer> s2c=shardToClient.get(SHARD2);
+  assertEquals(s2c.get(0).query(new SolrQuery("*:*")).getResults().getNumFound(),s2c.get(1).query(new SolrQuery("*:*")).getResults().getNumFound());
+}

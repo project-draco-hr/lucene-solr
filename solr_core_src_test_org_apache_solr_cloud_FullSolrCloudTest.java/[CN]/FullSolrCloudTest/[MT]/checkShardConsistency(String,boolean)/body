@@ -1,0 +1,41 @@
+{
+  List<SolrServer> solrClients=shardToClient.get(shard);
+  if (solrClients == null) {
+    throw new RuntimeException("shard not found:" + shard + " keys:"+ shardToClient.keySet());
+  }
+  long num=-1;
+  long lastNum=-1;
+  String failMessage=null;
+  if (verbose)   System.out.println("check const of " + shard);
+  int cnt=0;
+  assertEquals("The client count does not match up with the shard count for slice:" + shard,zkStateReader.getCloudState().getSlice(DEFAULT_COLLECTION,shard).getShards().size(),solrClients.size());
+  for (  SolrServer client : solrClients) {
+    ZkNodeProps props=clientToInfo.get(new CloudSolrServerClient(client));
+    if (verbose)     System.out.println("client" + cnt++);
+    if (verbose)     System.out.println("PROPS:" + props);
+    try {
+      SolrQuery query=new SolrQuery("*:*");
+      query.set("distrib",false);
+      num=client.query(query).getResults().getNumFound();
+    }
+ catch (    SolrServerException e) {
+      if (verbose)       System.out.println("error contacting client: " + e.getMessage() + "\n");
+      continue;
+    }
+    boolean live=false;
+    String nodeName=props.get(ZkStateReader.NODE_NAME_PROP);
+    if (zkStateReader.getCloudState().liveNodesContain(nodeName)) {
+      live=true;
+    }
+    if (verbose)     System.out.println(" live:" + live);
+    if (verbose)     System.out.println(" num:" + num + "\n");
+    boolean active=props.get(ZkStateReader.STATE_PROP).equals(ZkStateReader.ACTIVE);
+    if (active && live) {
+      if (lastNum > -1 && lastNum != num && failMessage == null) {
+        failMessage=shard + " is not consistent, expected:" + lastNum+ " and got:"+ num;
+      }
+      lastNum=num;
+    }
+  }
+  return failMessage;
+}

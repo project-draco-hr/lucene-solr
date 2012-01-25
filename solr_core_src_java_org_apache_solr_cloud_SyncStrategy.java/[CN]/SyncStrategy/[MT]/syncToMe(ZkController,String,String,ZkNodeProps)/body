@@ -1,0 +1,33 @@
+{
+  List<ZkCoreNodeProps> nodes=zkController.getZkStateReader().getReplicaProps(collection,shardId,leaderProps.get(ZkStateReader.NODE_NAME_PROP),leaderProps.get(ZkStateReader.CORE_NAME_PROP),ZkStateReader.ACTIVE);
+  if (nodes == null) {
+    return;
+  }
+  ZkCoreNodeProps zkLeader=new ZkCoreNodeProps(leaderProps);
+  for (  ZkCoreNodeProps node : nodes) {
+    try {
+      QueryRequest qr=new QueryRequest(params("qt","/get","getVersions",Integer.toString(1000),"sync",zkLeader.getCoreUrl(),"distrib","false"));
+      CommonsHttpSolrServer server=new CommonsHttpSolrServer(node.getCoreUrl());
+      NamedList rsp=server.request(qr);
+      boolean success=(Boolean)rsp.get("sync");
+      if (!success) {
+        log.info("try and ask " + node.getCoreUrl() + " to recover");
+        try {
+          server=new CommonsHttpSolrServer(node.getBaseUrl());
+          server.setSoTimeout(5000);
+          server.setConnectionTimeout(5000);
+          RequestRecovery recoverRequestCmd=new RequestRecovery();
+          recoverRequestCmd.setAction(CoreAdminAction.REQUESTRECOVERY);
+          recoverRequestCmd.setCoreName(node.getCoreName());
+          server.request(recoverRequestCmd);
+        }
+ catch (        Exception e) {
+          log.info("Could not tell a replica to recover",e);
+        }
+      }
+    }
+ catch (    Exception e) {
+      SolrException.log(log,"Error syncing replica to leader",e);
+    }
+  }
+}

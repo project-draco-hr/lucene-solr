@@ -1,0 +1,85 @@
+{
+  List<Object> updates=(List<Object>)srsp.getSolrResponse().getResponse().get("updates");
+  SyncShardRequest sreq=(SyncShardRequest)srsp.getShardRequest();
+  if (updates.size() < sreq.requestedUpdates.size()) {
+    log.error("PeerSync: Requested " + sreq.requestedUpdates.size() + " updates from "+ sreq.shards[0]+ " but retrieved "+ updates.size());
+    return false;
+  }
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.SEEN_LEADER,true);
+  SolrQueryRequest req=new LocalSolrQueryRequest(uhandler.core,params);
+  SolrQueryResponse rsp=new SolrQueryResponse();
+  RunUpdateProcessorFactory runFac=new RunUpdateProcessorFactory();
+  DistributedUpdateProcessorFactory magicFac=new DistributedUpdateProcessorFactory();
+  runFac.init(new NamedList());
+  magicFac.init(new NamedList());
+  UpdateRequestProcessor proc=magicFac.getInstance(req,rsp,runFac.getInstance(req,rsp,null));
+  Collections.sort(updates,updateRecordComparator);
+  Object o=null;
+  long lastVersion=0;
+  try {
+    for (    Object obj : updates) {
+      o=obj;
+      List<Object> entry=(List<Object>)o;
+      int oper=(Integer)entry.get(0);
+      long version=(Long)entry.get(1);
+      if (version == lastVersion && version != 0)       continue;
+      lastVersion=version;
+switch (oper) {
+case UpdateLog.ADD:
+{
+          SolrInputDocument sdoc=(SolrInputDocument)entry.get(entry.size() - 1);
+          AddUpdateCommand cmd=new AddUpdateCommand(req);
+          cmd.solrDoc=sdoc;
+          cmd.setVersion(version);
+          cmd.setFlags(UpdateCommand.PEER_SYNC | UpdateCommand.IGNORE_AUTOCOMMIT);
+          proc.processAdd(cmd);
+          break;
+        }
+case UpdateLog.DELETE:
+{
+        byte[] idBytes=(byte[])entry.get(2);
+        DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+        cmd.setIndexedId(new BytesRef(idBytes));
+        cmd.setVersion(version);
+        cmd.setFlags(UpdateCommand.PEER_SYNC | UpdateCommand.IGNORE_AUTOCOMMIT);
+        proc.processDelete(cmd);
+        break;
+      }
+case UpdateLog.DELETE_BY_QUERY:
+{
+      String query=(String)entry.get(2);
+      DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+      cmd.query=query;
+      cmd.setVersion(version);
+      cmd.setFlags(UpdateCommand.PEER_SYNC | UpdateCommand.IGNORE_AUTOCOMMIT);
+      proc.processDelete(cmd);
+      break;
+    }
+default :
+  throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unknown Operation! " + oper);
+}
+}
+}
+ catch (IOException e) {
+sreq.updateException=e;
+log.error("Error applying updates from " + sreq.shards + " ,update="+ o,e);
+return false;
+}
+catch (Exception e) {
+sreq.updateException=e;
+log.error("Error applying updates from " + sreq.shards + " ,update="+ o,e);
+return false;
+}
+ finally {
+try {
+proc.finish();
+}
+ catch (Exception e) {
+sreq.updateException=e;
+log.error("Error applying updates from " + sreq.shards + " ,finish()",e);
+return false;
+}
+}
+return true;
+}

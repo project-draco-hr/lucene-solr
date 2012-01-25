@@ -1,17 +1,27 @@
 {
   connect();
   CloudState cloudState=zkStateReader.getCloudState();
-  String collection=request.getParams().get("collection",defaultCollection);
-  Map<String,Slice> slices=cloudState.getSlices(collection);
+  SolrParams reqParams=request.getParams();
+  if (reqParams == null) {
+    reqParams=new ModifiableSolrParams();
+  }
+  String collection=reqParams.get("collection",defaultCollection);
+  List<String> collectionList=StrUtils.splitSmart(collection,",",true);
+  Map<String,Slice> slices=new HashMap<String,Slice>();
+  for (int i=0; i < collectionList.size(); i++) {
+    String coll=collectionList.get(i);
+    ClientUtils.appendMap(coll,slices,cloudState.getSlices(coll));
+  }
   Set<String> liveNodes=cloudState.getLiveNodes();
   Map<String,ZkNodeProps> nodes=new HashMap<String,ZkNodeProps>();
   List<String> urlList=new ArrayList<String>();
   for (  Slice slice : slices.values()) {
     for (    ZkNodeProps nodeProps : slice.getShards().values()) {
-      String node=nodeProps.get(ZkStateReader.NODE_NAME);
-      if (!liveNodes.contains(node))       continue;
+      ZkCoreNodeProps coreNodeProps=new ZkCoreNodeProps(nodeProps);
+      String node=coreNodeProps.getNodeName();
+      if (!liveNodes.contains(coreNodeProps.getNodeName()) || !coreNodeProps.getState().equals(ZkStateReader.ACTIVE))       continue;
       if (nodes.put(node,nodeProps) == null) {
-        String url=nodeProps.get(ZkStateReader.URL_PROP);
+        String url=coreNodeProps.getCoreUrl();
         urlList.add(url);
       }
     }

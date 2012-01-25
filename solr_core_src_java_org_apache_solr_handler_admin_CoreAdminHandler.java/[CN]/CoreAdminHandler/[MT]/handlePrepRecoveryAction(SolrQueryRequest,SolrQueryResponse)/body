@@ -1,0 +1,46 @@
+{
+  final SolrParams params=req.getParams();
+  String cname=params.get(CoreAdminParams.CORE);
+  if (cname == null) {
+    cname="";
+  }
+  String nodeName=params.get("nodeName");
+  String coreNodeName=params.get("coreNodeName");
+  SolrCore core=null;
+  try {
+    core=coreContainer.getCore(cname);
+    if (core == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"core not found:" + cname);
+    }
+    String state;
+    int retry=0;
+    while (true) {
+      CloudDescriptor cloudDescriptor=core.getCoreDescriptor().getCloudDescriptor();
+      CloudState cloudState=coreContainer.getZkController().getCloudState();
+      ZkNodeProps nodeProps=cloudState.getSlice(cloudDescriptor.getCollectionName(),cloudDescriptor.getShardId()).getShards().get(coreNodeName);
+      state=nodeProps.get(ZkStateReader.STATE_PROP);
+      boolean live=cloudState.liveNodesContain(nodeName);
+      if (nodeProps != null && state.equals(ZkStateReader.RECOVERING) && live) {
+        break;
+      }
+      if (retry++ == 30) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"I was asked to prep for recovery for " + nodeName + " but she is not live or not in a recovery state - state: "+ state+ " live:"+ live);
+      }
+      Thread.sleep(1000);
+    }
+    Thread.sleep(4000);
+    UpdateRequestProcessorChain processorChain=core.getUpdateProcessingChain(params.get(UpdateParams.UPDATE_CHAIN));
+    ModifiableSolrParams reqParams=new ModifiableSolrParams(req.getParams());
+    reqParams.set(DistributedUpdateProcessor.COMMIT_END_POINT,"true");
+    SolrQueryRequest sqr=new LocalSolrQueryRequest(core,reqParams);
+    UpdateRequestProcessor processor=processorChain.createProcessor(sqr,new SolrQueryResponse());
+    CommitUpdateCommand cuc=new CommitUpdateCommand(req,false);
+    processor.processCommit(cuc);
+    processor.finish();
+  }
+  finally {
+    if (core != null) {
+      core.close();
+    }
+  }
+}

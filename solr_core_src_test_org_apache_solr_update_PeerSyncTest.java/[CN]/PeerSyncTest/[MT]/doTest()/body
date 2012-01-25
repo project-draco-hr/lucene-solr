@@ -1,0 +1,75 @@
+{
+  handle.clear();
+  handle.put("QTime",SKIPVAL);
+  handle.put("timestamp",SKIPVAL);
+  handle.put("score",SKIPVAL);
+  handle.put("maxScore",SKIPVAL);
+  SolrServer client0=clients.get(0);
+  SolrServer client1=clients.get(1);
+  SolrServer client2=clients.get(2);
+  long v=0;
+  add(client0,seenLeader,sdoc("id","1","_version_",++v));
+  assertSync(client1,numVersions,false,shardsArr[0]);
+  add(client1,seenLeader,sdoc("id","1","_version_",v));
+  assertSync(client1,numVersions,true,shardsArr[0]);
+  client0.commit();
+  client1.commit();
+  queryAndCompare(params("q","*:*"),client0,client1);
+  add(client0,seenLeader,addRandFields(sdoc("id","2","_version_",++v)));
+  assertSync(client1,numVersions,true,shardsArr[0]);
+  client0.commit();
+  client1.commit();
+  queryAndCompare(params("q","*:*"),client0,client1);
+  add(client0,seenLeader,addRandFields(sdoc("id","3","_version_",++v)));
+  add(client0,seenLeader,addRandFields(sdoc("id","4","_version_",++v)));
+  add(client0,seenLeader,addRandFields(sdoc("id","5","_version_",++v)));
+  add(client0,seenLeader,addRandFields(sdoc("id","6","_version_",++v)));
+  add(client0,seenLeader,addRandFields(sdoc("id","7","_version_",++v)));
+  add(client0,seenLeader,addRandFields(sdoc("id","8","_version_",++v)));
+  add(client0,seenLeader,addRandFields(sdoc("id","9","_version_",++v)));
+  add(client0,seenLeader,addRandFields(sdoc("id","10","_version_",++v)));
+  assertSync(client1,numVersions,true,shardsArr[0]);
+  client0.commit();
+  client1.commit();
+  queryAndCompare(params("q","*:*"),client0,client1);
+  int toAdd=(int)(numVersions * .95);
+  for (int i=0; i < toAdd; i++) {
+    add(client0,seenLeader,sdoc("id",Integer.toString(i + 11),"_version_",v + i + 1));
+  }
+  assertSync(client1,numVersions,false,shardsArr[0]);
+  int toAdd2=(int)(numVersions * .25);
+  for (int i=0; i < toAdd2; i++) {
+    add(client1,seenLeader,sdoc("id",Integer.toString(i + 11),"_version_",v + i + 1));
+  }
+  assertSync(client1,numVersions,true,shardsArr[0]);
+  client0.commit();
+  client1.commit();
+  queryAndCompare(params("q","*:*","sort","_version_ desc"),client0,client1);
+  v=1000;
+  add(client0,seenLeader,sdoc("id","1000","_version_",++v));
+  add(client0,seenLeader,sdoc("id","1001","_version_",++v));
+  delQ(client0,params("leader","true","_version_",Long.toString(-++v)),"id:1001 OR id:1002");
+  add(client0,seenLeader,sdoc("id","1002","_version_",++v));
+  del(client0,params("leader","true","_version_",Long.toString(-++v)),"1000");
+  assertSync(client1,numVersions,true,shardsArr[0]);
+  client0.commit();
+  client1.commit();
+  queryAndCompare(params("q","*:*","sort","_version_ desc"),client0,client1);
+  v=2000;
+  SolrServer client=client0;
+  add(client,seenLeader,sdoc("id","2000","_version_",++v));
+  add(client,seenLeader,sdoc("id","2001","_version_",++v));
+  delQ(client,params("leader","true","_version_",Long.toString(-++v)),"id:2001 OR id:2002");
+  add(client,seenLeader,sdoc("id","2002","_version_",++v));
+  del(client,params("leader","true","_version_",Long.toString(-++v)),"2000");
+  v=2000;
+  client=client1;
+  add(client,seenLeader,sdoc("id","2000","_version_",++v));
+  ++v;
+  delQ(client,params("leader","true","_version_",Long.toString(-++v)),"id:2001 OR id:2002");
+  add(client,seenLeader,sdoc("id","2002","_version_",++v));
+  del(client,params("leader","true","_version_",Long.toString(-++v)),"2000");
+  client0.commit();
+  client1.commit();
+  queryAndCompare(params("q","*:*","sort","_version_ desc"),client0,client1);
+}

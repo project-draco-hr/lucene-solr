@@ -1,0 +1,32 @@
+{
+  String leaderBaseUrl=leaderprops.get(ZkStateReader.BASE_URL_PROP);
+  ZkCoreNodeProps leaderCNodeProps=new ZkCoreNodeProps(leaderprops);
+  String leaderUrl=leaderCNodeProps.getCoreUrl();
+  String leaderCoreName=leaderCNodeProps.getCoreName();
+  log.info("Attempt to replicate from " + leaderUrl);
+  if (!leaderBaseUrl.equals(baseUrl)) {
+    CommonsHttpSolrServer server=new CommonsHttpSolrServer(leaderBaseUrl);
+    server.setSoTimeout(15000);
+    PrepRecovery prepCmd=new PrepRecovery();
+    prepCmd.setCoreName(leaderCoreName);
+    prepCmd.setNodeName(nodeName);
+    prepCmd.setCoreNodeName(shardZkNodeName);
+    server.request(prepCmd);
+    server.shutdown();
+    SolrRequestHandler handler=core.getRequestHandler(REPLICATION_HANDLER);
+    if (handler instanceof LazyRequestHandlerWrapper) {
+      handler=((LazyRequestHandlerWrapper)handler).getWrappedHandler();
+    }
+    ReplicationHandler replicationHandler=(ReplicationHandler)handler;
+    if (replicationHandler == null) {
+      throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Skipping recovery, no " + REPLICATION_HANDLER + " handler found");
+    }
+    ModifiableSolrParams solrParams=new ModifiableSolrParams();
+    solrParams.set(ReplicationHandler.MASTER_URL,leaderUrl + "replication");
+    if (close)     retries=INTERRUPTED;
+    boolean success=replicationHandler.doFetch(solrParams,true);
+    if (!success) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Replication for recovery failed.");
+    }
+  }
+}
