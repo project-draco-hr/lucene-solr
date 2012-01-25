@@ -1,0 +1,122 @@
+{
+  String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  final int nodeCount=random.nextInt(50) + 50;
+  final int coreCount=random.nextInt(100) + 100;
+  final int sliceCount=random.nextInt(20) + 1;
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient zkClient=null;
+  ZkStateReader reader=null;
+  final ZkController[] controllers=new ZkController[nodeCount];
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    reader=new ZkStateReader(zkClient);
+    System.setProperty(ZkStateReader.NUM_SHARDS_PROP,Integer.valueOf(sliceCount).toString());
+    for (int i=0; i < nodeCount; i++) {
+      controllers[i]=new ZkController(null,server.getZkAddress(),TIMEOUT,10000,"localhost","898" + i,"solr",new CurrentCoreDescriptorProvider(){
+        @Override public List<CoreDescriptor> getCurrentDescriptors(){
+          return null;
+        }
+      }
+);
+    }
+    System.setProperty("bootstrap_confdir",getFile("solr/conf").getAbsolutePath());
+    final ExecutorService[] nodeExecutors=new ExecutorService[nodeCount];
+    for (int i=0; i < nodeCount; i++) {
+      nodeExecutors[i]=Executors.newFixedThreadPool(1);
+    }
+    final String[] ids=new String[coreCount];
+    for (int i=0; i < coreCount; i++) {
+      final int slot=i;
+      Runnable coreStarter=new Runnable(){
+        @Override public void run(){
+          final CloudDescriptor collection1Desc=new CloudDescriptor();
+          collection1Desc.setCollectionName("collection1");
+          final String coreName="core" + slot;
+          final CoreDescriptor desc=new CoreDescriptor(null,coreName,"");
+          desc.setCloudDescriptor(collection1Desc);
+          try {
+            controllers[slot % nodeCount].publishAsDown(controllers[slot % nodeCount].getBaseUrl(),desc,controllers[slot % nodeCount].getNodeName() + "_" + coreName,coreName);
+            ids[slot]=controllers[slot % nodeCount].register(coreName,desc);
+          }
+ catch (          Throwable e) {
+            e.printStackTrace();
+            fail("register threw exception:" + e.getClass());
+          }
+        }
+      }
+;
+      nodeExecutors[i % nodeCount].submit(coreStarter);
+    }
+    for (int i=0; i < nodeCount; i++) {
+      nodeExecutors[i].shutdown();
+    }
+    for (int i=0; i < nodeCount; i++) {
+      while (!nodeExecutors[i].awaitTermination(100,TimeUnit.MILLISECONDS))       ;
+    }
+    for (int i=0; i < 40; i++) {
+      reader.updateCloudState(true);
+      CloudState state=reader.getCloudState();
+      Map<String,Slice> slices=state.getSlices("collection1");
+      int count=0;
+      for (      String name : slices.keySet()) {
+        count+=slices.get(name).getShards().size();
+      }
+      if (coreCount == count)       break;
+      Thread.sleep(200);
+    }
+    for (int i=0; i < 150; i++) {
+      int assignedCount=0;
+      for (int j=0; j < coreCount; j++) {
+        if (ids[j] != null) {
+          assignedCount++;
+        }
+      }
+      if (coreCount == assignedCount) {
+        break;
+      }
+      Thread.sleep(200);
+    }
+    final HashMap<String,AtomicInteger> counters=new HashMap<String,AtomicInteger>();
+    for (int i=1; i < sliceCount + 1; i++) {
+      counters.put("shard" + i,new AtomicInteger());
+    }
+    for (int i=0; i < coreCount; i++) {
+      final AtomicInteger ai=counters.get(ids[i]);
+      assertNotNull("could not find counter for shard:" + ids[i],ai);
+      ai.incrementAndGet();
+    }
+    for (    String counter : counters.keySet()) {
+      int count=counters.get(counter).intValue();
+      int expectedCount=coreCount / sliceCount;
+      int min=expectedCount - 1;
+      int max=expectedCount + 1;
+      if (count < min || count > max) {
+        fail("Unevenly assigned shard ids, " + counter + " had "+ count+ ", expected: "+ min+ "-"+ max);
+      }
+    }
+    for (int i=0; i < sliceCount; i++) {
+      assertNotNull(reader.getLeaderUrl("collection1","shard" + (i + 1)),15000);
+    }
+  }
+  finally {
+    if (DEBUG) {
+      if (controllers[0] != null) {
+        zkClient.printLayoutToStdOut();
+      }
+    }
+    if (zkClient != null) {
+      zkClient.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+    for (int i=0; i < controllers.length; i++)     if (controllers[i] != null) {
+      controllers[i].close();
+    }
+    server.shutdown();
+  }
+  System.clearProperty(ZkStateReader.NUM_SHARDS_PROP);
+}

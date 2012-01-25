@@ -16,16 +16,23 @@
       return rsp;
     }
  catch (    SolrException e) {
-      throw e;
+      if (e.code() == 404 || e.code() == 403 || e.code() == 503 || e.code() == 500) {
+        ex=addZombie(server,e);
+      }
+ else {
+        throw e;
+      }
+    }
+catch (    SocketException e) {
+      ex=addZombie(server,e);
+    }
+catch (    SocketTimeoutException e) {
+      ex=addZombie(server,e);
     }
 catch (    SolrServerException e) {
-      if (e.getRootCause() instanceof IOException) {
-        ex=e;
-        wrapper=new ServerWrapper(server);
-        wrapper.lastUsed=System.currentTimeMillis();
-        wrapper.standard=false;
-        zombieServers.put(wrapper.getKey(),wrapper);
-        startAliveCheckExecutor();
+      Throwable rootCause=e.getRootCause();
+      if (rootCause instanceof IOException) {
+        ex=addZombie(server,e);
       }
  else {
         throw e;
@@ -42,11 +49,23 @@ catch (    Exception e) {
       return rsp;
     }
  catch (    SolrException e) {
-      zombieServers.remove(wrapper.getKey());
-      throw e;
+      if (e.code() == 404 || e.code() == 403 || e.code() == 503 || e.code() == 500) {
+        ex=e;
+      }
+ else {
+        zombieServers.remove(wrapper.getKey());
+        throw e;
+      }
+    }
+catch (    SocketException e) {
+      ex=e;
+    }
+catch (    SocketTimeoutException e) {
+      ex=e;
     }
 catch (    SolrServerException e) {
-      if (e.getRootCause() instanceof IOException) {
+      Throwable rootCause=e.getRootCause();
+      if (rootCause instanceof IOException) {
         ex=e;
       }
  else {
@@ -61,6 +80,6 @@ catch (    Exception e) {
     throw new SolrServerException("No live SolrServers available to handle this request");
   }
  else {
-    throw new SolrServerException("No live SolrServers available to handle this request",ex);
+    throw new SolrServerException("No live SolrServers available to handle this request:" + zombieServers.keySet(),ex);
   }
 }

@@ -4,7 +4,7 @@
   final int commitPercent=5 + random.nextInt(20);
   final int softCommitPercent=30 + random.nextInt(75);
   final int deletePercent=4 + random.nextInt(25);
-  final int deleteByQueryPercent=0;
+  final int deleteByQueryPercent=1 + random.nextInt(5);
   final int ndocs=5 + (random.nextBoolean() ? random.nextInt(25) : random.nextInt(200));
   int nWriteThreads=5 + random.nextInt(25);
   final int maxConcurrentCommits=nWriteThreads;
@@ -33,10 +33,10 @@
             int oper=rand.nextInt(100);
             if (oper < commitPercent) {
               if (numCommitting.incrementAndGet() <= maxConcurrentCommits) {
-                Map<Integer,Long> newCommittedModel;
+                Map<Integer,DocInfo> newCommittedModel;
                 long version;
 synchronized (TestRealTimeGet.this) {
-                  newCommittedModel=new HashMap<Integer,Long>(model);
+                  newCommittedModel=new HashMap<Integer,DocInfo>(model);
                   version=snapshotCount++;
                   verbose("took snapshot version=",version);
                 }
@@ -70,14 +70,15 @@ synchronized (TestRealTimeGet.this) {
               lastId=id;
             }
 synchronized (sync) {
-              Long val=model.get(id);
+              DocInfo info=model.get(id);
+              long val=info.val;
               long nextVal=Math.abs(val) + 1;
               if (oper < commitPercent + deletePercent) {
                 if (VERBOSE) {
                   verbose("deleting id",id,"val=",nextVal);
                 }
-                assertU("<delete><id>" + id + "</id></delete>");
-                model.put(id,-nextVal);
+                Long version=deleteAndGetVersion(Integer.toString(id),null);
+                model.put(id,new DocInfo(version,-nextVal));
                 if (VERBOSE) {
                   verbose("deleting id",id,"val=",nextVal,"DONE");
                 }
@@ -87,7 +88,7 @@ synchronized (sync) {
                   verbose("deleteByQuery id ",id,"val=",nextVal);
                 }
                 assertU("<delete><query>id:" + id + "</query></delete>");
-                model.put(id,-nextVal);
+                model.put(id,new DocInfo(-1L,-nextVal));
                 if (VERBOSE) {
                   verbose("deleteByQuery id",id,"val=",nextVal,"DONE");
                 }
@@ -96,8 +97,8 @@ synchronized (sync) {
                 if (VERBOSE) {
                   verbose("adding id",id,"val=",nextVal);
                 }
-                assertU(adoc("id",Integer.toString(id),field,Long.toString(nextVal)));
-                model.put(id,nextVal);
+                Long version=addAndGetVersion(sdoc("id",Integer.toString(id),field,Long.toString(nextVal)),null);
+                model.put(id,new DocInfo(version,nextVal));
                 if (VERBOSE) {
                   verbose("adding id",id,"val=",nextVal,"DONE");
                 }
@@ -126,13 +127,13 @@ synchronized (sync) {
           while (operations.decrementAndGet() >= 0) {
             int id=rand.nextInt(100) < 25 ? lastId : rand.nextInt(ndocs);
             boolean realTime=rand.nextInt(100) < percentRealtimeQuery;
-            long val;
+            DocInfo info;
             if (realTime) {
-              val=model.get(id);
+              info=model.get(id);
             }
  else {
 synchronized (TestRealTimeGet.this) {
-                val=committedModel.get(id);
+                info=committedModel.get(id);
               }
             }
             if (VERBOSE) {
@@ -153,9 +154,10 @@ synchronized (TestRealTimeGet.this) {
  else {
               assertEquals(1,doclist.size());
               long foundVal=(Long)(((Map)doclist.get(0)).get(field));
-              if (foundVal < Math.abs(val)) {
-                verbose("ERROR, id",id,"foundVal=",foundVal,"model val=",val,"realTime=",realTime);
-                assertTrue(foundVal >= Math.abs(val));
+              long foundVer=(Long)(((Map)doclist.get(0)).get("_version_"));
+              if (foundVal < Math.abs(info.val) || (foundVer == info.version && foundVal != info.val)) {
+                verbose("ERROR, id=",id,"found=",response,"model",info);
+                assertTrue(false);
               }
             }
           }

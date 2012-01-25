@@ -9,18 +9,15 @@
       log.error("Unrecognized host:" + localHostName);
       throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"Unrecognized host:" + localHostName);
     }
-    try {
-      zkClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE);
-    }
- catch (    KeeperException e) {
-      if (e.code() != KeeperException.Code.NODEEXISTS) {
-        log.error("",e);
-        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
-      }
-    }
+    cmdExecutor.ensureExists(ZkStateReader.LIVE_NODES_ZKNODE,zkClient);
+    Overseer.createClientNodes(zkClient,getNodeName());
     createEphemeralLiveNode();
-    setUpCollectionsNode();
-    zkStateReader.makeCollectionsNodeWatches();
+    cmdExecutor.ensureExists(ZkStateReader.COLLECTIONS_ZKNODE,zkClient);
+    overseerElector=new LeaderElector(zkClient);
+    ElectionContext context=new OverseerElectionContext(getNodeName(),zkClient,zkStateReader);
+    overseerElector.setup(context);
+    overseerElector.joinElection(context);
+    zkStateReader.createClusterStateWatchersAndUpdate();
   }
  catch (  IOException e) {
     log.error("",e);

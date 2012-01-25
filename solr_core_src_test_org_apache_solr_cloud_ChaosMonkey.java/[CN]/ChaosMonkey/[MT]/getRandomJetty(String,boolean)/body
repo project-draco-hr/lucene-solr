@@ -1,0 +1,54 @@
+{
+  zkStateReader.updateCloudState(true);
+  Slice theShards=zkStateReader.getCloudState().getSlices(collection).get(slice);
+  int numRunning=0;
+  int numRecovering=0;
+  int numActive=0;
+  for (  CloudJettyRunner cloudJetty : shardToJetty.get(slice)) {
+    boolean running=true;
+    ZkNodeProps props=theShards.getShards().get(cloudJetty.coreNodeName);
+    if (props == null) {
+      throw new RuntimeException("shard name " + cloudJetty.coreNodeName + " not found in "+ theShards.getShards().keySet());
+    }
+    String state=props.get(ZkStateReader.STATE_PROP);
+    String nodeName=props.get(ZkStateReader.NODE_NAME_PROP);
+    if (!cloudJetty.jetty.isRunning() || !state.equals(ZkStateReader.ACTIVE) || !zkStateReader.getCloudState().liveNodesContain(nodeName)) {
+      running=false;
+    }
+    if (cloudJetty.jetty.isRunning() && state.equals(ZkStateReader.RECOVERING) && zkStateReader.getCloudState().liveNodesContain(nodeName)) {
+      numRecovering++;
+    }
+    if (cloudJetty.jetty.isRunning() && state.equals(ZkStateReader.ACTIVE) && zkStateReader.getCloudState().liveNodesContain(nodeName)) {
+      numActive++;
+    }
+    if (running) {
+      numRunning++;
+    }
+  }
+  if (numActive < 2) {
+    return null;
+  }
+  int chance=random.nextInt(10);
+  JettySolrRunner jetty;
+  if (chance <= 5 && aggressivelyKillLeaders) {
+    Collection<CloudJettyRunner> leaders=shardToLeaderJetty.values();
+    List<CloudJettyRunner> leadersList=new ArrayList<CloudJettyRunner>(leaders.size());
+    leadersList.addAll(leaders);
+    int index=random.nextInt(leadersList.size());
+    jetty=leadersList.get(index).jetty;
+  }
+ else {
+    List<CloudJettyRunner> jetties=shardToJetty.get(slice);
+    int index=random.nextInt(jetties.size());
+    jetty=jetties.get(index).jetty;
+    ZkNodeProps leader=zkStateReader.getLeaderProps(collection,slice);
+    boolean isLeader=leader.get(ZkStateReader.NODE_NAME_PROP).equals(jetties.get(index).nodeName);
+    if (!aggressivelyKillLeaders && isLeader) {
+      return null;
+    }
+  }
+  if (jetty.getLocalPort() == -1) {
+    return null;
+  }
+  return jetty;
+}

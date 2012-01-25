@@ -1,0 +1,30 @@
+{
+  final Map<String,Map<String,Slice>> newStates=new LinkedHashMap<String,Map<String,Slice>>();
+  newStates.putAll(state.getCollectionStates());
+  if (!newStates.containsKey(collection)) {
+    newStates.put(collection,new LinkedHashMap<String,Slice>());
+  }
+  final Map<String,Slice> slices=newStates.get(collection);
+  if (!slices.containsKey(slice.getName())) {
+    slices.put(slice.getName(),slice);
+  }
+ else {
+    final Map<String,ZkNodeProps> shards=new LinkedHashMap<String,ZkNodeProps>();
+    final Slice existingSlice=slices.get(slice.getName());
+    shards.putAll(existingSlice.getShards());
+    for (    Entry<String,ZkNodeProps> edit : slice.getShards().entrySet()) {
+      if (existingSlice.getShards().get(edit.getKey()) != null && existingSlice.getShards().get(edit.getKey()).containsKey(ZkStateReader.LEADER_PROP)) {
+        HashMap<String,String> newProps=new HashMap<String,String>();
+        newProps.putAll(edit.getValue().getProperties());
+        newProps.put(ZkStateReader.LEADER_PROP,existingSlice.getShards().get(edit.getKey()).get(ZkStateReader.LEADER_PROP));
+        shards.put(edit.getKey(),new ZkNodeProps(newProps));
+      }
+ else {
+        shards.put(edit.getKey(),edit.getValue());
+      }
+    }
+    final Slice updatedSlice=new Slice(slice.getName(),shards);
+    slices.put(slice.getName(),updatedSlice);
+  }
+  return new CloudState(state.getLiveNodes(),newStates);
+}

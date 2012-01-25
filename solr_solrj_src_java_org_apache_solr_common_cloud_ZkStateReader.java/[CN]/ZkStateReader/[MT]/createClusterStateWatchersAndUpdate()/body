@@ -1,0 +1,67 @@
+{
+synchronized (getUpdateLock()) {
+    cmdExecutor.ensureExists(CLUSTER_STATE,zkClient);
+    log.info("Updating cluster state from ZooKeeper... ");
+    zkClient.exists(CLUSTER_STATE,new Watcher(){
+      @Override public void process(      WatchedEvent event){
+        log.info("A cluster state change has occurred");
+        try {
+synchronized (ZkStateReader.this.getUpdateLock()) {
+            final Watcher thisWatch=this;
+            byte[] data=zkClient.getData(CLUSTER_STATE,thisWatch,null,true);
+            CloudState clusterState=CloudState.load(data,ZkStateReader.this.cloudState.getLiveNodes());
+            cloudState=clusterState;
+          }
+        }
+ catch (        KeeperException e) {
+          if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+            log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+            return;
+          }
+          log.error("",e);
+          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+        }
+catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          log.warn("",e);
+          return;
+        }
+      }
+    }
+,true);
+  }
+synchronized (ZkStateReader.this.getUpdateLock()) {
+    List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,new Watcher(){
+      @Override public void process(      WatchedEvent event){
+        log.info("Updating live nodes");
+        try {
+synchronized (ZkStateReader.this.getUpdateLock()) {
+            List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,this,true);
+            Set<String> liveNodesSet=new HashSet<String>();
+            liveNodesSet.addAll(liveNodes);
+            CloudState clusterState=new CloudState(liveNodesSet,ZkStateReader.this.cloudState.getCollectionStates());
+            ZkStateReader.this.cloudState=clusterState;
+          }
+        }
+ catch (        KeeperException e) {
+          if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+            log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+            return;
+          }
+          log.error("",e);
+          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+        }
+catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          log.warn("",e);
+          return;
+        }
+      }
+    }
+,true);
+    Set<String> liveNodeSet=new HashSet<String>();
+    liveNodeSet.addAll(liveNodes);
+    CloudState clusterState=CloudState.load(zkClient,liveNodeSet);
+    this.cloudState=clusterState;
+  }
+}

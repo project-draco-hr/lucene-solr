@@ -1,0 +1,84 @@
+{
+  try {
+    DirectUpdateHandler2.commitOnClose=false;
+    final Semaphore logReplay=new Semaphore(0);
+    final Semaphore logReplayFinish=new Semaphore(0);
+    UpdateLog.testing_logReplayHook=new Runnable(){
+      @Override public void run(){
+        try {
+          assertTrue(logReplay.tryAcquire(timeout,TimeUnit.SECONDS));
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    UpdateLog.testing_logReplayFinishHook=new Runnable(){
+      @Override public void run(){
+        logReplayFinish.release();
+      }
+    }
+;
+    clearIndex();
+    assertU(commit());
+    File logDir=h.getCore().getUpdateHandler().getUpdateLog().getLogDir();
+    h.close();
+    String[] files=UpdateLog.getLogList(logDir);
+    for (    String file : files) {
+      new File(logDir,file).delete();
+    }
+    assertEquals(0,UpdateLog.getLogList(logDir).length);
+    createCore();
+    int start=0;
+    int maxReq=50;
+    LinkedList<Long> versions=new LinkedList<Long>();
+    addDocs(10,start,versions);
+    start+=10;
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    assertU(commit());
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    addDocs(10,start,versions);
+    start+=10;
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    assertU(commit());
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    assertEquals(2,UpdateLog.getLogList(logDir).length);
+    addDocs(105,start,versions);
+    start+=105;
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    assertU(commit());
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    assertEquals(1,UpdateLog.getLogList(logDir).length);
+    addDocs(1,start,versions);
+    start+=1;
+    h.close();
+    createCore();
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    logReplay.release(1000);
+    assertTrue(logReplayFinish.tryAcquire(timeout,TimeUnit.SECONDS));
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    addDocs(105,start,versions);
+    start+=105;
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    assertU(commit());
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    assertEquals(1,UpdateLog.getLogList(logDir).length);
+    addDocs(1,start,new LinkedList<Long>());
+    h.close();
+    files=UpdateLog.getLogList(logDir);
+    Arrays.sort(files);
+    RandomAccessFile raf=new RandomAccessFile(new File(logDir,files[files.length - 1]),"rw");
+    raf.writeChars("This is a trashed log file that really shouldn't work at all, but we'll see...");
+    raf.close();
+    ignoreException("Failure to open existing");
+    createCore();
+    assertJQ(req("qt","/get","getVersions","" + maxReq),"/versions==" + versions.subList(0,Math.min(maxReq,start)));
+    resetExceptionIgnores();
+  }
+  finally {
+    DirectUpdateHandler2.commitOnClose=true;
+    UpdateLog.testing_logReplayHook=null;
+    UpdateLog.testing_logReplayFinishHook=null;
+  }
+}

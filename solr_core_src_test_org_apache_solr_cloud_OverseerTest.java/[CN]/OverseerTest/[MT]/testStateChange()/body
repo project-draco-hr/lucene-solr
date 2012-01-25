@@ -1,0 +1,58 @@
+{
+  String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient zkClient=null;
+  ZkStateReader reader=null;
+  SolrZkClient overseerClient=null;
+  try {
+    server.run();
+    zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    zkClient.makePath("/live_nodes",true);
+    System.setProperty(ZkStateReader.NUM_SHARDS_PROP,"2");
+    String nodePath=ZkStateReader.LIVE_NODES_ZKNODE + "/" + "node1";
+    zkClient.makePath(nodePath,CreateMode.EPHEMERAL,true);
+    reader=new ZkStateReader(zkClient);
+    reader.createClusterStateWatchersAndUpdate();
+    Overseer.createClientNodes(zkClient,"node1");
+    overseerClient=electNewOverseer(server.getZkAddress());
+    HashMap<String,String> coreProps=new HashMap<String,String>();
+    coreProps.put(ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr");
+    coreProps.put(ZkStateReader.NODE_NAME_PROP,"node1");
+    coreProps.put(ZkStateReader.CORE_NAME_PROP,"core1");
+    coreProps.put(ZkStateReader.ROLES_PROP,"");
+    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING);
+    CoreState state=new CoreState("core1","collection1",coreProps);
+    nodePath="/node_states/node1";
+    try {
+      zkClient.makePath(nodePath,CreateMode.EPHEMERAL,true);
+    }
+ catch (    KeeperException ke) {
+      if (ke.code() != Code.NODEEXISTS) {
+        throw ke;
+      }
+    }
+    zkClient.setData(nodePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    waitForSliceCount(reader,"collection1",1);
+    assertEquals(reader.getCloudState().toString(),ZkStateReader.RECOVERING,reader.getCloudState().getSlice("collection1","shard1").getShards().get("node1_core1").get(ZkStateReader.STATE_PROP));
+    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.ACTIVE);
+    coreProps.put(ZkStateReader.SHARD_ID_PROP,"shard1");
+    state=new CoreState("core1","collection1",coreProps);
+    zkClient.setData(nodePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    verifyStatus(reader,ZkStateReader.ACTIVE);
+  }
+  finally {
+    System.clearProperty(ZkStateReader.NUM_SHARDS_PROP);
+    if (zkClient != null) {
+      zkClient.close();
+    }
+    if (overseerClient != null) {
+      overseerClient.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+    server.shutdown();
+  }
+}

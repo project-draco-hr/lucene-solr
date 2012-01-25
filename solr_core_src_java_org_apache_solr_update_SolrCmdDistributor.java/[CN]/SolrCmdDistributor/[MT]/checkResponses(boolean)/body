@@ -1,0 +1,37 @@
+{
+  while (pending != null && pending.size() > 0) {
+    try {
+      Future<Request> future=block ? completionService.take() : completionService.poll();
+      if (future == null)       return;
+      pending.remove(future);
+      try {
+        Request sreq=future.get();
+        if (sreq.rspCode != 0) {
+          if (sreq.retries < 5 && sreq.node.checkRetry()) {
+            sreq.retries++;
+            sreq.rspCode=0;
+            sreq.exception=null;
+            Thread.sleep(500);
+            submit(sreq);
+            checkResponses(block);
+          }
+ else {
+            Exception e=sreq.exception;
+            Error error=new Error();
+            error.e=e;
+            error.node=sreq.node;
+            response.errors.add(error);
+            response.sreq=sreq;
+            SolrException.log(SolrCore.log,"shard update error " + sreq.node,sreq.exception);
+          }
+        }
+      }
+ catch (      ExecutionException e) {
+        SolrException.log(SolrCore.log,"error sending update request to shard",e);
+      }
+    }
+ catch (    InterruptedException e) {
+      throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"interrupted waiting for shard update response",e);
+    }
+  }
+}

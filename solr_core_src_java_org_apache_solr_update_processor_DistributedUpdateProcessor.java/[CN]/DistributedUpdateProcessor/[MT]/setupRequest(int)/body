@@ -1,0 +1,36 @@
+{
+  List<Node> nodes=null;
+  if (zkEnabled) {
+    String shardId=getShard(hash,collection,zkController.getCloudState());
+    try {
+      ZkCoreNodeProps leaderProps=new ZkCoreNodeProps(zkController.getZkStateReader().getLeaderProps(collection,shardId));
+      String leaderNodeName=leaderProps.getCoreNodeName();
+      String coreName=req.getCore().getName();
+      String coreNodeName=zkController.getNodeName() + "_" + coreName;
+      isLeader=coreNodeName.equals(leaderNodeName);
+      if (req.getParams().getBool(SEEN_LEADER,false)) {
+        forwardToLeader=false;
+      }
+ else       if (isLeader) {
+        forwardToLeader=false;
+        List<ZkCoreNodeProps> replicaProps=zkController.getZkStateReader().getReplicaProps(collection,shardId,zkController.getNodeName(),coreName);
+        if (replicaProps != null) {
+          nodes=new ArrayList<Node>(replicaProps.size());
+          for (          ZkCoreNodeProps props : replicaProps) {
+            nodes.add(new StdNode(props));
+          }
+        }
+      }
+ else {
+        nodes=new ArrayList<Node>(1);
+        nodes.add(new RetryNode(leaderProps,zkController.getZkStateReader(),collection,shardId));
+        forwardToLeader=true;
+      }
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+  }
+  return nodes;
+}
