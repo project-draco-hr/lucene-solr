@@ -1,35 +1,44 @@
 {
-  handle.clear();
-  handle.put("QTime",SKIPVAL);
-  handle.put("timestamp",SKIPVAL);
-  indexr(id,1,i1,100,tlong,100,t1,"now is the time for all good men","foo_f",1.414f,"foo_b","true","foo_d",1.414d);
-  waitForRecoveriesToFinish(false);
-  commit();
-  assertDocCounts(false);
-  indexAbunchOfDocs();
-  commit();
-  assertDocCounts(VERBOSE);
-  checkQueries();
-  assertDocCounts(VERBOSE);
-  query("q","*:*","sort","n_tl1 desc");
-  brindDownShardIndexSomeDocsAndRecover();
-  query("q","*:*","sort","n_tl1 desc");
-  addNewReplica();
-  long docId=testUpdateAndDelete();
+  boolean testFinished=false;
   try {
-    indexr(t1,"a doc with no id");
-    fail("this should fail");
+    handle.clear();
+    handle.put("QTime",SKIPVAL);
+    handle.put("timestamp",SKIPVAL);
+    indexr(id,1,i1,100,tlong,100,t1,"now is the time for all good men","foo_f",1.414f,"foo_b","true","foo_d",1.414d);
+    waitForRecoveriesToFinish(false);
+    commit();
+    assertDocCounts(false);
+    indexAbunchOfDocs();
+    commit();
+    assertDocCounts(VERBOSE);
+    checkQueries();
+    assertDocCounts(VERBOSE);
+    query("q","*:*","sort","n_tl1 desc");
+    brindDownShardIndexSomeDocsAndRecover();
+    query("q","*:*","sort","n_tl1 desc");
+    addNewReplica();
+    long docId=testUpdateAndDelete();
+    try {
+      indexr(t1,"a doc with no id");
+      fail("this should fail");
+    }
+ catch (    SolrException e) {
+    }
+    ZkNodeProps leaderProps=zkStateReader.getLeaderProps(DEFAULT_COLLECTION,SHARD2);
+    String nodeName=leaderProps.get(ZkStateReader.NODE_NAME_PROP);
+    chaosMonkey.stopShardExcept(SHARD2,nodeName);
+    SolrServer client=getClient(nodeName);
+    index_specific(client,"id",docId + 1,t1,"what happens here?");
+    CloudJettyRunner cloudJetty=shardToJetty.get("shard1").get(0);
+    chaosMonkey.expireSession(cloudJetty.jetty);
+    indexr("id",docId + 1,t1,"slip this doc in");
+    waitForRecoveriesToFinish(false);
+    checkShardConsistency("shard1");
+    testFinished=true;
   }
- catch (  SolrException e) {
+  finally {
+    if (!testFinished) {
+      printLayout();
+    }
   }
-  ZkNodeProps leaderProps=zkStateReader.getLeaderProps(DEFAULT_COLLECTION,SHARD2);
-  String nodeName=leaderProps.get(ZkStateReader.NODE_NAME_PROP);
-  chaosMonkey.stopShardExcept(SHARD2,nodeName);
-  SolrServer client=getClient(nodeName);
-  index_specific(client,"id",docId + 1,t1,"what happens here?");
-  CloudJettyRunner cloudJetty=shardToJetty.get("shard1").get(0);
-  chaosMonkey.expireSession(cloudJetty.jetty);
-  indexr("id",docId + 1,t1,"slip this doc in");
-  waitForRecoveriesToFinish(false);
-  checkShardConsistency("shard1");
 }
