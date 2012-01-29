@@ -1,0 +1,44 @@
+{
+  while (amILeader()) {
+    LinkedList<CloudStateUpdateRequest> requests=new LinkedList<Overseer.CloudStateUpdateRequest>();
+    while (!fifo.isEmpty()) {
+      CloudStateUpdateRequest req;
+      req=fifo.poll();
+      if (req == null) {
+        break;
+      }
+      requests.add(req);
+    }
+    if (requests.size() > 0) {
+synchronized (reader.getUpdateLock()) {
+        try {
+          reader.updateCloudState(true);
+          CloudState cloudState=reader.getCloudState();
+          for (          CloudStateUpdateRequest request : requests) {
+switch (request.operation) {
+case LeaderChange:
+              cloudState=setShardLeader(cloudState,(String)request.args[0],(String)request.args[1],(String)request.args[2]);
+            break;
+case StateChange:
+          cloudState=updateState(cloudState,(String)request.args[0],(CoreState)request.args[1]);
+        break;
+    }
+  }
+  log.info("Announcing new cluster state");
+  zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(cloudState),true);
+}
+ catch (KeeperException e) {
+  return;
+}
+catch (InterruptedException e) {
+  return;
+}
+}
+}
+try {
+Thread.sleep(STATE_UPDATE_DELAY);
+}
+ catch (InterruptedException e) {
+}
+}
+}
