@@ -19,7 +19,8 @@
   IndexReader r=IndexReader.open(writer,true);
   writer.close();
   final PositiveIntOutputs outputs=PositiveIntOutputs.getSingleton(random.nextBoolean());
-  Builder<Long> builder=new Builder<Long>(FST.INPUT_TYPE.BYTE1,outputs);
+  final boolean doRewrite=random.nextBoolean();
+  Builder<Long> builder=new Builder<Long>(FST.INPUT_TYPE.BYTE1,0,0,true,true,Integer.MAX_VALUE,outputs,null,doRewrite);
   boolean storeOrd=random.nextBoolean();
   if (VERBOSE) {
     if (storeOrd) {
@@ -57,55 +58,65 @@
  else {
         output=termsEnum.docFreq();
       }
-      builder.add(Util.toIntsRef(term,scratchIntsRef),outputs.get(output));
+      builder.add(Util.toIntsRef(term,scratchIntsRef),(long)output);
       ord++;
       if (VERBOSE && ord % 100000 == 0 && LuceneTestCase.TEST_NIGHTLY) {
         System.out.println(ord + " terms...");
       }
     }
-    final FST<Long> fst=builder.finish();
+    FST<Long> fst=builder.finish();
     if (VERBOSE) {
       System.out.println("FST: " + docCount + " docs; "+ ord+ " terms; "+ fst.getNodeCount()+ " nodes; "+ fst.getArcCount()+ " arcs;"+ " "+ fst.sizeInBytes()+ " bytes");
     }
     if (ord > 0) {
-      final BytesRefFSTEnum<Long> fstEnum=new BytesRefFSTEnum<Long>(fst);
-      int num=atLeast(1000);
-      for (int iter=0; iter < num; iter++) {
-        final BytesRef randomTerm=new BytesRef(getRandomString());
-        if (VERBOSE) {
-          System.out.println("TEST: seek non-exist " + randomTerm.utf8ToString() + " "+ randomTerm);
-        }
-        final TermsEnum.SeekStatus seekResult=termsEnum.seekCeil(randomTerm);
-        final BytesRefFSTEnum.InputOutput fstSeekResult=fstEnum.seekCeil(randomTerm);
-        if (seekResult == TermsEnum.SeekStatus.END) {
-          assertNull("got " + (fstSeekResult == null ? "null" : fstSeekResult.input.utf8ToString()) + " but expected null",fstSeekResult);
-        }
+      for (int rewriteIter=0; rewriteIter < 2; rewriteIter++) {
+        if (rewriteIter == 1) {
+          if (doRewrite) {
+            fst=fst.pack(_TestUtil.nextInt(random,1,10),_TestUtil.nextInt(random,0,10000000));
+          }
  else {
-          assertSame(termsEnum,fstEnum,storeOrd);
-          for (int nextIter=0; nextIter < 10; nextIter++) {
-            if (VERBOSE) {
-              System.out.println("TEST: next");
-              if (storeOrd) {
-                System.out.println("  ord=" + termsEnum.ord());
-              }
-            }
-            if (termsEnum.next() != null) {
-              if (VERBOSE) {
-                System.out.println("  term=" + termsEnum.term().utf8ToString());
-              }
-              assertNotNull(fstEnum.next());
-              assertSame(termsEnum,fstEnum,storeOrd);
-            }
+            break;
+          }
+        }
+        final BytesRefFSTEnum<Long> fstEnum=new BytesRefFSTEnum<Long>(fst);
+        int num=atLeast(1000);
+        for (int iter=0; iter < num; iter++) {
+          final BytesRef randomTerm=new BytesRef(getRandomString());
+          if (VERBOSE) {
+            System.out.println("TEST: seek non-exist " + randomTerm.utf8ToString() + " "+ randomTerm);
+          }
+          final TermsEnum.SeekStatus seekResult=termsEnum.seekCeil(randomTerm);
+          final BytesRefFSTEnum.InputOutput fstSeekResult=fstEnum.seekCeil(randomTerm);
+          if (seekResult == TermsEnum.SeekStatus.END) {
+            assertNull("got " + (fstSeekResult == null ? "null" : fstSeekResult.input.utf8ToString()) + " but expected null",fstSeekResult);
+          }
  else {
+            assertSame(termsEnum,fstEnum,storeOrd);
+            for (int nextIter=0; nextIter < 10; nextIter++) {
               if (VERBOSE) {
-                System.out.println("  end!");
+                System.out.println("TEST: next");
+                if (storeOrd) {
+                  System.out.println("  ord=" + termsEnum.ord());
+                }
               }
-              BytesRefFSTEnum.InputOutput<Long> nextResult=fstEnum.next();
-              if (nextResult != null) {
-                System.out.println("expected null but got: input=" + nextResult.input.utf8ToString() + " output="+ outputs.outputToString(nextResult.output));
-                fail();
+              if (termsEnum.next() != null) {
+                if (VERBOSE) {
+                  System.out.println("  term=" + termsEnum.term().utf8ToString());
+                }
+                assertNotNull(fstEnum.next());
+                assertSame(termsEnum,fstEnum,storeOrd);
               }
-              break;
+ else {
+                if (VERBOSE) {
+                  System.out.println("  end!");
+                }
+                BytesRefFSTEnum.InputOutput<Long> nextResult=fstEnum.next();
+                if (nextResult != null) {
+                  System.out.println("expected null but got: input=" + nextResult.input.utf8ToString() + " output="+ outputs.outputToString(nextResult.output));
+                  fail();
+                }
+                break;
+              }
             }
           }
         }
