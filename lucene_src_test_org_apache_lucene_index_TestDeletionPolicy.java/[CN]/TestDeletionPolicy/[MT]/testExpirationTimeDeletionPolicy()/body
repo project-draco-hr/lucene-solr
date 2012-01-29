@@ -8,6 +8,9 @@
     ((LogMergePolicy)mp).setUseCompoundFile(true);
   }
   IndexWriter writer=new IndexWriter(dir,conf);
+  Map<String,String> commitData=new HashMap<String,String>();
+  commitData.put("commitTime",String.valueOf(System.currentTimeMillis()));
+  writer.commit(commitData);
   writer.close();
   final int ITER=9;
   long lastDeleteTime=0;
@@ -22,6 +25,9 @@
     for (int j=0; j < 17; j++) {
       addDoc(writer);
     }
+    commitData=new HashMap<String,String>();
+    commitData.put("commitTime",String.valueOf(System.currentTimeMillis()));
+    writer.commit(commitData);
     writer.close();
     if (i < ITER - 1) {
       Thread.sleep((int)(1000.0 * (SECONDS / 5.0)));
@@ -37,7 +43,9 @@
       IndexReader reader=IndexReader.open(dir);
       reader.close();
       fileName=IndexFileNames.fileNameFromGeneration(IndexFileNames.SEGMENTS,"",gen);
-      long modTime=dir.fileModified(fileName);
+      SegmentInfos sis=new SegmentInfos();
+      sis.read(dir,fileName);
+      long modTime=Long.parseLong(sis.getUserData().get("commitTime"));
       oneSecondResolution&=(modTime % 1000) == 0;
       final long leeway=(long)((SECONDS + (oneSecondResolution ? 1.0 : 0.0)) * 1000);
       assertTrue("commit point was older than " + SECONDS + " seconds ("+ (lastDeleteTime - modTime)+ " msec) but did not get deleted ",lastDeleteTime - modTime <= leeway);
