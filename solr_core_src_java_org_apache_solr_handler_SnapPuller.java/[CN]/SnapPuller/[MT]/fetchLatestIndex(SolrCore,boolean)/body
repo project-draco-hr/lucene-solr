@@ -26,7 +26,7 @@
       if (searcherRefCounted != null)       searcherRefCounted.decref();
     }
     if (latestVersion == 0L) {
-      if (force && commit.getVersion() != 0) {
+      if (force && commit.getGeneration() != 0) {
         core.getUpdateHandler().getSolrCoreState().getIndexWriter(core).deleteAll();
         SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
         core.getUpdateHandler().commit(new CommitUpdateCommand(req,false));
@@ -34,20 +34,20 @@
       successfulInstall=true;
       return true;
     }
-    if (!force && commit.getVersion() == latestVersion && commit.getGeneration() == latestGeneration) {
+    if (!force && IndexDeletionPolicyWrapper.getCommitTimestamp(commit) == latestVersion) {
       LOG.info("Slave in sync with master.");
       successfulInstall=true;
       return true;
     }
-    LOG.info("Master's version: " + latestVersion + ", generation: "+ latestGeneration);
-    LOG.info("Slave's version: " + commit.getVersion() + ", generation: "+ commit.getGeneration());
+    LOG.info("Master's generation: " + latestGeneration);
+    LOG.info("Slave's generation: " + commit.getGeneration());
     LOG.info("Starting replication process");
-    fetchFileList(latestVersion);
+    fetchFileList(latestGeneration);
     if (filesToDownload.isEmpty())     return false;
     LOG.info("Number of files in latest index in master: " + filesToDownload.size());
     fsyncService=Executors.newSingleThreadExecutor();
     filesDownloaded=Collections.synchronizedList(new ArrayList<Map<String,Object>>());
-    boolean isFullCopyNeeded=commit.getVersion() >= latestVersion || force;
+    boolean isFullCopyNeeded=IndexDeletionPolicyWrapper.getCommitTimestamp(commit) >= latestVersion || force;
     File tmpIndexDir=createTempindexDir(core);
     if (isIndexStale())     isFullCopyNeeded=true;
     successfulInstall=false;
@@ -55,11 +55,11 @@
     File indexDir=null;
     try {
       indexDir=new File(core.getIndexDir());
-      downloadIndexFiles(isFullCopyNeeded,tmpIndexDir,latestVersion);
+      downloadIndexFiles(isFullCopyNeeded,tmpIndexDir,latestGeneration);
       LOG.info("Total time taken for download : " + ((System.currentTimeMillis() - replicationStartTime) / 1000) + " secs");
       Collection<Map<String,Object>> modifiedConfFiles=getModifiedConfFiles(confFilesToDownload);
       if (!modifiedConfFiles.isEmpty()) {
-        downloadConfFiles(confFilesToDownload,latestVersion);
+        downloadConfFiles(confFilesToDownload,latestGeneration);
         if (isFullCopyNeeded) {
           successfulInstall=modifyIndexProps(tmpIndexDir.getName());
           deleteTmpIdxDir=false;
