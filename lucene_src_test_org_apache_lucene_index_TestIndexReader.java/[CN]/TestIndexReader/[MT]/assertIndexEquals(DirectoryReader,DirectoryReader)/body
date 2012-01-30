@@ -1,0 +1,82 @@
+{
+  assertEquals("IndexReaders have different values for numDocs.",index1.numDocs(),index2.numDocs());
+  assertEquals("IndexReaders have different values for maxDoc.",index1.maxDoc(),index2.maxDoc());
+  assertEquals("Only one IndexReader has deletions.",index1.hasDeletions(),index2.hasDeletions());
+  assertEquals("Single segment test differs.",index1.getSequentialSubReaders().length == 1,index2.getSequentialSubReaders().length == 1);
+  FieldInfos fieldInfos1=MultiFields.getMergedFieldInfos(index1);
+  FieldInfos fieldInfos2=MultiFields.getMergedFieldInfos(index2);
+  assertEquals("IndexReaders have different numbers of fields.",fieldInfos1.size(),fieldInfos2.size());
+  final int numFields=fieldInfos1.size();
+  for (int fieldID=0; fieldID < numFields; fieldID++) {
+    final FieldInfo fieldInfo1=fieldInfos1.fieldInfo(fieldID);
+    final FieldInfo fieldInfo2=fieldInfos2.fieldInfo(fieldID);
+    assertEquals("Different field names.",fieldInfo1.name,fieldInfo2.name);
+  }
+  for (  FieldInfo fieldInfo : fieldInfos1) {
+    String curField=fieldInfo.name;
+    DocValues norms1=MultiDocValues.getNormDocValues(index1,curField);
+    DocValues norms2=MultiDocValues.getNormDocValues(index2,curField);
+    if (norms1 != null && norms2 != null) {
+      byte[] b1=(byte[])norms1.getSource().getArray();
+      byte[] b2=(byte[])norms2.getSource().getArray();
+      assertEquals(b1.length,b2.length);
+      for (int i=0; i < b1.length; i++) {
+        assertEquals("Norm different for doc " + i + " and field '"+ curField+ "'.",b1[i],b2[i]);
+      }
+    }
+ else {
+      assertSame(norms1,norms2);
+    }
+  }
+  final Bits liveDocs1=MultiFields.getLiveDocs(index1);
+  final Bits liveDocs2=MultiFields.getLiveDocs(index2);
+  for (int i=0; i < index1.maxDoc(); i++) {
+    assertEquals("Doc " + i + " only deleted in one index.",liveDocs1 == null || !liveDocs1.get(i),liveDocs2 == null || !liveDocs2.get(i));
+  }
+  for (int i=0; i < index1.maxDoc(); i++) {
+    if (liveDocs1 == null || liveDocs1.get(i)) {
+      Document doc1=index1.document(i);
+      Document doc2=index2.document(i);
+      List<IndexableField> field1=doc1.getFields();
+      List<IndexableField> field2=doc2.getFields();
+      assertEquals("Different numbers of fields for doc " + i + ".",field1.size(),field2.size());
+      Iterator<IndexableField> itField1=field1.iterator();
+      Iterator<IndexableField> itField2=field2.iterator();
+      while (itField1.hasNext()) {
+        Field curField1=(Field)itField1.next();
+        Field curField2=(Field)itField2.next();
+        assertEquals("Different fields names for doc " + i + ".",curField1.name(),curField2.name());
+        assertEquals("Different field values for doc " + i + ".",curField1.stringValue(),curField2.stringValue());
+      }
+    }
+  }
+  FieldsEnum fenum1=MultiFields.getFields(index1).iterator();
+  FieldsEnum fenum2=MultiFields.getFields(index1).iterator();
+  String field1=null;
+  Bits liveDocs=MultiFields.getLiveDocs(index1);
+  while ((field1=fenum1.next()) != null) {
+    assertEquals("Different fields",field1,fenum2.next());
+    Terms terms1=fenum1.terms();
+    if (terms1 == null) {
+      assertNull(fenum2.terms());
+      continue;
+    }
+    TermsEnum enum1=terms1.iterator(null);
+    Terms terms2=fenum2.terms();
+    assertNotNull(terms2);
+    TermsEnum enum2=terms2.iterator(null);
+    while (enum1.next() != null) {
+      assertEquals("Different terms",enum1.term(),enum2.next());
+      DocsAndPositionsEnum tp1=enum1.docsAndPositions(liveDocs,null,false);
+      DocsAndPositionsEnum tp2=enum2.docsAndPositions(liveDocs,null,false);
+      while (tp1.nextDoc() != DocIdSetIterator.NO_MORE_DOCS) {
+        assertTrue(tp2.nextDoc() != DocIdSetIterator.NO_MORE_DOCS);
+        assertEquals("Different doc id in postinglist of term " + enum1.term() + ".",tp1.docID(),tp2.docID());
+        assertEquals("Different term frequence in postinglist of term " + enum1.term() + ".",tp1.freq(),tp2.freq());
+        for (int i=0; i < tp1.freq(); i++) {
+          assertEquals("Different positions in postinglist of term " + enum1.term() + ".",tp1.nextPosition(),tp2.nextPosition());
+        }
+      }
+    }
+  }
+}

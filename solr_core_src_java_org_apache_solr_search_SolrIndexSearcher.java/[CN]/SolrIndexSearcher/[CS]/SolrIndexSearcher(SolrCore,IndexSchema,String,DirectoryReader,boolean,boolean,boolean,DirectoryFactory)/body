@@ -1,0 +1,69 @@
+{
+  super(r);
+  this.directoryFactory=directoryFactory;
+  this.reader=r;
+  this.atomicReader=SlowCompositeReaderWrapper.wrap(r);
+  this.core=core;
+  this.schema=schema;
+  this.name="Searcher@" + Integer.toHexString(hashCode()) + (name != null ? " " + name : "");
+  log.info("Opening " + this.name);
+  Directory dir=r.directory();
+  if (reserveDirectory) {
+    directoryFactory.incRef(dir);
+  }
+  if (dir instanceof FSDirectory) {
+    FSDirectory fsDirectory=(FSDirectory)dir;
+    indexDir=fsDirectory.getDirectory().getAbsolutePath();
+  }
+ else {
+    log.warn("WARNING: Directory impl does not support setting indexDir: " + dir.getClass().getName());
+  }
+  this.closeReader=closeReader;
+  setSimilarityProvider(schema.getSimilarityProvider());
+  SolrConfig solrConfig=core.getSolrConfig();
+  queryResultWindowSize=solrConfig.queryResultWindowSize;
+  queryResultMaxDocsCached=solrConfig.queryResultMaxDocsCached;
+  useFilterForSortedQuery=solrConfig.useFilterForSortedQuery;
+  enableLazyFieldLoading=solrConfig.enableLazyFieldLoading;
+  cachingEnabled=enableCache;
+  if (cachingEnabled) {
+    ArrayList<SolrCache> clist=new ArrayList<SolrCache>();
+    fieldValueCache=solrConfig.fieldValueCacheConfig == null ? null : solrConfig.fieldValueCacheConfig.newInstance();
+    if (fieldValueCache != null)     clist.add(fieldValueCache);
+    filterCache=solrConfig.filterCacheConfig == null ? null : solrConfig.filterCacheConfig.newInstance();
+    if (filterCache != null)     clist.add(filterCache);
+    queryResultCache=solrConfig.queryResultCacheConfig == null ? null : solrConfig.queryResultCacheConfig.newInstance();
+    if (queryResultCache != null)     clist.add(queryResultCache);
+    documentCache=solrConfig.documentCacheConfig == null ? null : solrConfig.documentCacheConfig.newInstance();
+    if (documentCache != null)     clist.add(documentCache);
+    if (solrConfig.userCacheConfigs == null) {
+      cacheMap=noGenericCaches;
+    }
+ else {
+      cacheMap=new HashMap<String,SolrCache>(solrConfig.userCacheConfigs.length);
+      for (      CacheConfig userCacheConfig : solrConfig.userCacheConfigs) {
+        SolrCache cache=null;
+        if (userCacheConfig != null)         cache=userCacheConfig.newInstance();
+        if (cache != null) {
+          cacheMap.put(cache.name(),cache);
+          clist.add(cache);
+        }
+      }
+    }
+    cacheList=clist.toArray(new SolrCache[clist.size()]);
+  }
+ else {
+    filterCache=null;
+    queryResultCache=null;
+    documentCache=null;
+    fieldValueCache=null;
+    cacheMap=noGenericCaches;
+    cacheList=noCaches;
+  }
+  optimizer=solrConfig.filtOptEnabled ? new LuceneQueryOptimizer(solrConfig.filtOptCacheSize,solrConfig.filtOptThreshold) : null;
+  fieldNames=new HashSet<String>();
+  for (  FieldInfo fieldInfo : atomicReader.getFieldInfos()) {
+    fieldNames.add(fieldInfo.name);
+  }
+  numOpens.incrementAndGet();
+}
