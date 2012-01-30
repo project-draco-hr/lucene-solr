@@ -1,5 +1,6 @@
 {
   String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  System.setProperty(ZkStateReader.NUM_SHARDS_PROP,"2");
   ZkTestServer server=new ZkTestServer(zkDir);
   SolrZkClient controllerClient=null;
   SolrZkClient overseerClient=null;
@@ -18,27 +19,22 @@
     mockController.publishState("core1",ZkStateReader.RECOVERING);
     waitForSliceCount(reader,"collection1",1);
     verifyStatus(reader,ZkStateReader.RECOVERING);
+    mockController.close();
     int version=getCloudStateVersion(controllerClient);
-    mockController.publishState("core1",ZkStateReader.ACTIVE);
-    while (version == getCloudStateVersion(controllerClient))     ;
-    verifyStatus(reader,ZkStateReader.ACTIVE);
-    version=getCloudStateVersion(controllerClient);
-    overseerClient.close();
-    Thread.sleep(1000);
+    mockController=new MockZKController(server.getZkAddress(),"node1");
     mockController.publishState("core1",ZkStateReader.RECOVERING);
-    version=getCloudStateVersion(controllerClient);
-    overseerClient=electNewOverseer(server.getZkAddress());
     while (version == getCloudStateVersion(controllerClient))     ;
-    verifyStatus(reader,ZkStateReader.RECOVERING);
-    assertEquals("Live nodes count does not match",1,reader.getCloudState().getLiveNodes().size());
-    assertEquals("Shard count does not match",1,reader.getCloudState().getSlice("collection1","shard1").getShards().size());
+    reader.updateCloudState(true);
+    CloudState state=reader.getCloudState();
+    assertEquals("more than 1 shard id was assigned to same core",1,state.getSlices("collection1").size());
   }
   finally {
-    if (mockController != null) {
-      mockController.close();
-    }
+    System.clearProperty(ZkStateReader.NUM_SHARDS_PROP);
     if (overseerClient != null) {
       overseerClient.close();
+    }
+    if (mockController != null) {
+      mockController.close();
     }
     if (controllerClient != null) {
       controllerClient.close();
