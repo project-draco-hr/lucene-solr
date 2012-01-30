@@ -4,6 +4,7 @@
   SolrZkClient controllerClient=null;
   SolrZkClient overseerClient=null;
   ZkStateReader reader=null;
+  MockZKController mockController=null;
   try {
     server.run();
     controllerClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
@@ -12,33 +13,30 @@
     controllerClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE,true);
     reader=new ZkStateReader(controllerClient);
     reader.createClusterStateWatchersAndUpdate();
-    Overseer.createClientNodes(controllerClient,"node1");
+    mockController=new MockZKController(server.getZkAddress(),"node1");
     overseerClient=electNewOverseer(server.getZkAddress());
-    final String nodePath=ZkStateReader.LIVE_NODES_ZKNODE + "/" + "node1";
-    controllerClient.makePath(nodePath,CreateMode.EPHEMERAL,true);
-    HashMap<String,String> coreProps=new HashMap<String,String>();
-    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING);
-    coreProps.put(ZkStateReader.NODE_NAME_PROP,"node1");
-    CoreState state=new CoreState("core1","collection1",coreProps);
-    final String statePath=Overseer.STATES_NODE + "/node1";
-    controllerClient.setData(statePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    mockController.publishState("core1",ZkStateReader.RECOVERING);
     waitForSliceCount(reader,"collection1",1);
     verifyStatus(reader,ZkStateReader.RECOVERING);
-    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.ACTIVE);
-    coreProps.put(ZkStateReader.SHARD_ID_PROP,"shard1");
-    state=new CoreState("core1","collection1",coreProps);
-    controllerClient.setData(statePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    int version=getCloudStateVersion(controllerClient);
+    mockController.publishState("core1",ZkStateReader.ACTIVE);
+    while (version == getCloudStateVersion(controllerClient))     ;
     verifyStatus(reader,ZkStateReader.ACTIVE);
+    version=getCloudStateVersion(controllerClient);
     overseerClient.close();
-    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING);
-    state=new CoreState("core1","collection1",coreProps);
-    controllerClient.setData(statePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    Thread.sleep(1000);
+    mockController.publishState("core1",ZkStateReader.RECOVERING);
+    version=getCloudStateVersion(controllerClient);
     overseerClient=electNewOverseer(server.getZkAddress());
+    while (version == getCloudStateVersion(controllerClient))     ;
     verifyStatus(reader,ZkStateReader.RECOVERING);
     assertEquals("Live nodes count does not match",1,reader.getCloudState().getLiveNodes().size());
     assertEquals("Shard count does not match",1,reader.getCloudState().getSlice("collection1","shard1").getShards().size());
   }
   finally {
+    if (mockController != null) {
+      mockController.close();
+    }
     if (overseerClient != null) {
       overseerClient.close();
     }
