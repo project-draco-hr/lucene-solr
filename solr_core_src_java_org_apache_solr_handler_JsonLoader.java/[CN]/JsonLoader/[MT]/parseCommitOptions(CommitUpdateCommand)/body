@@ -1,26 +1,20 @@
 {
   assertNextEvent(JSONParser.OBJECT_START);
-  while (true) {
-    int ev=parser.nextEvent();
-    if (ev == JSONParser.STRING) {
-      String key=parser.getString();
-      if (parser.wasKey()) {
-        if (XmlUpdateRequestHandler.WAIT_SEARCHER.equals(key)) {
-          cmd.waitSearcher=parser.getBoolean();
-        }
- else {
-          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown key: " + key + " ["+ parser.getPosition()+ "]");
-        }
-      }
- else {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"invalid string: " + key + " at ["+ parser.getPosition()+ "]");
-      }
+  final Map<String,Object> map=(Map)ObjectBuilder.getVal(parser);
+  SolrParams p=new SolrParams(){
+    @Override public String get(    String param){
+      Object o=map.get(param);
+      return o == null ? null : o.toString();
     }
- else     if (ev == JSONParser.OBJECT_END) {
-      return;
+    @Override public String[] getParams(    String param){
+      return new String[]{get(param)};
     }
- else {
-      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Got: " + JSONParser.getEventString(ev) + " at ["+ parser.getPosition()+ "]");
+    @Override public Iterator<String> getParameterNamesIterator(){
+      return map.keySet().iterator();
     }
   }
+;
+  RequestHandlerUtils.validateCommitParams(p);
+  p=SolrParams.wrapDefaults(p,req.getParams());
+  RequestHandlerUtils.updateCommit(cmd,p);
 }
