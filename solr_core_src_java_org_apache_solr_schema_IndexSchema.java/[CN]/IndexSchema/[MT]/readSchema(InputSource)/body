@@ -65,29 +65,14 @@
     log.trace("Dynamic Field Ordering:" + dFields);
     dynamicFields=dFields.toArray(new DynamicField[dFields.size()]);
     Node node=(Node)xpath.evaluate("/schema/similarity",document,XPathConstants.NODE);
-    Similarity similarity=readSimilarity(loader,node);
-    fallbackSimilarity=similarity == null ? new DefaultSimilarity() : similarity;
-    node=(Node)xpath.evaluate("/schema/similarityProvider",document,XPathConstants.NODE);
-    if (node == null) {
-      final SolrSimilarityProvider provider=new SolrSimilarityProvider(this);
-      similarityProviderFactory=new SimilarityProviderFactory(){
-        @Override public SolrSimilarityProvider getSimilarityProvider(        IndexSchema schema){
-          return provider;
-        }
-      }
-;
-      log.debug("using default similarityProvider");
+    SimilarityFactory simFactory=readSimilarity(loader,node);
+    if (simFactory == null) {
+      simFactory=new DefaultSimilarityFactory();
     }
- else {
-      final Object obj=loader.newInstance(((Element)node).getAttribute("class"),"search.similarities.");
-      NamedList<?> args=DOMUtil.childNodesToNamedList(node);
-      similarityProviderFactory=(SimilarityProviderFactory)obj;
-      similarityProviderFactory.init(args);
-      if (similarityProviderFactory instanceof SchemaAware) {
-        schemaAware.add((SchemaAware)similarityProviderFactory);
-      }
-      log.debug("using similarityProvider factory" + similarityProviderFactory.getClass().getName());
+    if (simFactory instanceof SchemaAware) {
+      ((SchemaAware)simFactory).inform(this);
     }
+    similarity=simFactory.getSimilarity();
     node=(Node)xpath.evaluate("/schema/defaultSearchField/text()",document,XPathConstants.NODE);
     if (node == null) {
       log.warn("no default search field specified in schema.");
