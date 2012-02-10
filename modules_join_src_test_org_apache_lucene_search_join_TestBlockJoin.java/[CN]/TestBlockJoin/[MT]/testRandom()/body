@@ -4,6 +4,8 @@
   final int numParentDocs=_TestUtil.nextInt(random,100 * RANDOM_MULTIPLIER,300 * RANDOM_MULTIPLIER);
   final String[][] parentFields=getRandomFields(numParentDocs / 2);
   final String[][] childFields=getRandomFields(numParentDocs);
+  final boolean doDeletes=random.nextBoolean();
+  final List<Integer> toDelete=new ArrayList<Integer>();
   final RandomIndexWriter w=new RandomIndexWriter(random,dir);
   final RandomIndexWriter joinW=new RandomIndexWriter(random,joinDir);
   for (int parentDocID=0; parentDocID < numParentDocs; parentDocID++) {
@@ -19,6 +21,10 @@
         parentDoc.add(f);
         parentJoinDoc.add(f);
       }
+    }
+    if (doDeletes) {
+      parentDoc.add(newField("blockID","" + parentDocID,StringField.TYPE_UNSTORED));
+      parentJoinDoc.add(newField("blockID","" + parentDocID,StringField.TYPE_UNSTORED));
     }
     final List<Document> joinDocs=new ArrayList<Document>();
     if (VERBOSE) {
@@ -58,10 +64,23 @@
         }
         System.out.println("    " + sb.toString());
       }
+      if (doDeletes) {
+        joinChildDoc.add(newField("blockID","" + parentDocID,StringField.TYPE_UNSTORED));
+      }
       w.addDocument(childDoc);
     }
     joinDocs.add(parentJoinDoc);
     joinW.addDocuments(joinDocs);
+    if (doDeletes && random.nextInt(30) == 7) {
+      toDelete.add(parentDocID);
+    }
+  }
+  for (  int deleteID : toDelete) {
+    if (VERBOSE) {
+      System.out.println("DELETE parentID=" + deleteID);
+    }
+    w.deleteDocuments(new Term("blockID","" + deleteID));
+    joinW.deleteDocuments(new Term("blockID","" + deleteID));
   }
   final IndexReader r=w.getReader();
   w.close();
