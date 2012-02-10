@@ -2,6 +2,14 @@
   commit();
   query("q","*:*","sort","n_tl1 desc");
   JettySolrRunner deadShard=chaosMonkey.stopShard(SHARD2,0);
+  cloudClient.connect();
+  int tries=0;
+  while (cloudClient.getZkStateReader().getCloudState().liveNodesContain(clientToInfo.get(new CloudSolrServerClient(shardToClient.get(SHARD2).get(0))).get(ZkStateReader.NODE_NAME_PROP))) {
+    if (tries++ == 60) {
+      fail("Shard still reported as live in zk");
+    }
+    Thread.sleep(1000);
+  }
   try {
     index_specific(shardToClient.get(SHARD2).get(0),id,999,i1,107,t1,"specific doc!");
     fail("This server should be down and this update should have failed");
@@ -10,6 +18,13 @@
   }
   commit();
   query("q","*:*","sort","n_tl1 desc");
+  tries=0;
+  while (((SolrDispatchFilter)shardToJetty.get(SHARD2).get(1).jetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader().getCloudState().liveNodesContain(clientToInfo.get(new CloudSolrServerClient(shardToClient.get(SHARD2).get(0))).get(ZkStateReader.NODE_NAME_PROP))) {
+    if (tries++ == 60) {
+      fail("Shard still reported as live in zk");
+    }
+    Thread.sleep(1000);
+  }
   index_specific(shardToClient.get(SHARD2).get(1),id,1000,i1,108,t1,"specific doc!");
   commit();
   checkShardConsistency(true,false);
