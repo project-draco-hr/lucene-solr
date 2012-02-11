@@ -4,16 +4,20 @@
   DirectoryReader reader=searcher.getIndexReader();
   SolrParams params=req.getParams();
   int numTerms=params.getInt(NUMTERMS,DEFAULT_COUNT);
+  ShowStyle style=ShowStyle.get(params.get("show"));
   Map<String,TopTermQueue> topTerms=new TreeMap<String,TopTermQueue>();
   Set<String> fields=null;
   String fl=params.get(CommonParams.FL);
   if (fl != null) {
     fields=new TreeSet<String>(Arrays.asList(fl.split("[,\\s]+")));
   }
-  if ("schema".equals(params.get("show"))) {
+  if (ShowStyle.SCHEMA == style) {
     numTerms=0;
   }
   rsp.add("index",getIndexInfo(reader,numTerms,topTerms,fields));
+  if (ShowStyle.INDEX == style) {
+    return;
+  }
   Integer docId=params.getInt(DOC_ID);
   if (docId == null && params.get(ID) != null) {
     SchemaField uniqueKey=schema.getUniqueKeyField();
@@ -25,6 +29,9 @@
     }
   }
   if (docId != null) {
+    if (style != null && style != ShowStyle.DOC) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"missing doc param for doc style");
+    }
     Document doc=null;
     try {
       doc=reader.document(docId);
@@ -41,7 +48,7 @@
     docinfo.add("solr",doc);
     rsp.add("doc",docinfo);
   }
- else   if ("schema".equals(params.get("show"))) {
+ else   if (ShowStyle.SCHEMA == style) {
     rsp.add("schema",getSchemaInfo(req.getSchema()));
   }
  else {
