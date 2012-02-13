@@ -1,0 +1,44 @@
+{
+  log("Scanning: " + jarFile.getPath(),verboseLevel);
+  Map<File,LicenseType> foundLicenses=new LinkedHashMap<File,LicenseType>();
+  List<File> expectedLocations=new ArrayList<File>();
+  outer:   for (  String mappedPath : licenseMapper.mapFileName(jarFile.getPath())) {
+    for (    LicenseType licenseType : LicenseType.values()) {
+      File licensePath=new File(mappedPath + licenseType.licenseFileSuffix());
+      if (licensePath.exists()) {
+        foundLicenses.put(licensePath,licenseType);
+        log(" FOUND " + licenseType.name() + " license at "+ licensePath.getPath(),verboseLevel);
+        break outer;
+      }
+ else {
+        expectedLocations.add(licensePath);
+      }
+    }
+  }
+  for (  Map.Entry<File,LicenseType> e : foundLicenses.entrySet()) {
+    LicenseType license=e.getValue();
+    String licensePath=e.getKey().getAbsolutePath();
+    String baseName=licensePath.substring(0,licensePath.length() - license.licenseFileSuffix().length());
+    File noticeFile=new File(baseName + license.noticeFileSuffix());
+    if (noticeFile.exists()) {
+      log(" FOUND NOTICE file at " + noticeFile.getAbsolutePath(),verboseLevel);
+    }
+ else {
+      if (license.isNoticeRequired()) {
+        this.failures=true;
+        log("MISSING NOTICE for the license file:\n  " + licensePath + "\n  Expected location below:\n  "+ noticeFile.getAbsolutePath(),Project.MSG_ERR);
+      }
+    }
+  }
+  if (foundLicenses.isEmpty()) {
+    this.failures=true;
+    StringBuilder message=new StringBuilder();
+    message.append("MISSING LICENSE for the following file:\n  " + jarFile.getAbsolutePath() + "\n  Expected locations below:\n");
+    for (    File location : expectedLocations) {
+      message.append("  => ").append(location.getAbsolutePath()).append("\n");
+    }
+    log(message.toString(),Project.MSG_ERR);
+    return false;
+  }
+  return true;
+}
