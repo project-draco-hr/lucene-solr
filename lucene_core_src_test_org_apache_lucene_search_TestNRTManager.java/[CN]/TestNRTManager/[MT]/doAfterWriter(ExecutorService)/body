@@ -4,7 +4,8 @@
   if (VERBOSE) {
     System.out.println("TEST: make NRTManager maxReopenSec=" + maxReopenSec + " minReopenSec="+ minReopenSec);
   }
-  nrt=new NRTManager(writer,new SearcherFactory(){
+  genWriter=new NRTManager.TrackingIndexWriter(writer);
+  final SearcherFactory sf=new SearcherFactory(){
     @Override public IndexSearcher newSearcher(    IndexReader r) throws IOException {
       TestNRTManager.this.warmCalled=true;
       IndexSearcher s=new IndexSearcher(r,es);
@@ -12,10 +13,17 @@
       return s;
     }
   }
-,false);
-  nrtThread=new NRTManagerReopenThread(nrt,maxReopenSec,minReopenSec);
-  nrtThread.setName("NRT Reopen Thread");
-  nrtThread.setPriority(Math.min(Thread.currentThread().getPriority() + 2,Thread.MAX_PRIORITY));
-  nrtThread.setDaemon(true);
-  nrtThread.start();
+;
+  nrtNoDeletes=new NRTManager(genWriter,sf,false);
+  nrtDeletes=new NRTManager(genWriter,sf,true);
+  nrtDeletesThread=new NRTManagerReopenThread(nrtDeletes,maxReopenSec,minReopenSec);
+  nrtDeletesThread.setName("NRTDeletes Reopen Thread");
+  nrtDeletesThread.setPriority(Math.min(Thread.currentThread().getPriority() + 2,Thread.MAX_PRIORITY));
+  nrtDeletesThread.setDaemon(true);
+  nrtDeletesThread.start();
+  nrtNoDeletesThread=new NRTManagerReopenThread(nrtNoDeletes,maxReopenSec,minReopenSec);
+  nrtNoDeletesThread.setName("NRTNoDeletes Reopen Thread");
+  nrtNoDeletesThread.setPriority(Math.min(Thread.currentThread().getPriority() + 2,Thread.MAX_PRIORITY));
+  nrtNoDeletesThread.setDaemon(true);
+  nrtNoDeletesThread.start();
 }

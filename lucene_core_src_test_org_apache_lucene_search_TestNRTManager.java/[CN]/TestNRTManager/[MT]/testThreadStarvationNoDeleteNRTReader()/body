@@ -3,20 +3,21 @@
   Directory d=newDirectory();
   final CountDownLatch latch=new CountDownLatch(1);
   final CountDownLatch signal=new CountDownLatch(1);
-  LatchedIndexWriter writer=new LatchedIndexWriter(d,conf,latch,signal);
+  LatchedIndexWriter _writer=new LatchedIndexWriter(d,conf,latch,signal);
+  final NRTManager.TrackingIndexWriter writer=new NRTManager.TrackingIndexWriter(_writer);
   final NRTManager manager=new NRTManager(writer,null,false);
   Document doc=new Document();
   doc.add(newField("test","test",TextField.TYPE_STORED));
-  long gen=manager.addDocument(doc);
-  assertTrue(manager.maybeReopen(false));
-  assertFalse(gen < manager.getCurrentSearchingGen(false));
+  long gen=writer.addDocument(doc);
+  manager.maybeReopen();
+  assertFalse(gen < manager.getCurrentSearchingGen());
   Thread t=new Thread(){
     public void run(){
       try {
         signal.await();
-        assertTrue(manager.maybeReopen(false));
-        manager.deleteDocuments(new TermQuery(new Term("foo","barista")));
-        manager.maybeReopen(false);
+        manager.maybeReopen();
+        writer.deleteDocuments(new TermQuery(new Term("foo","barista")));
+        manager.maybeReopen();
       }
  catch (      Exception e) {
         e.printStackTrace();
@@ -28,15 +29,15 @@
   }
 ;
   t.start();
-  writer.waitAfterUpdate=true;
-  final long lastGen=manager.updateDocument(new Term("foo","bar"),doc);
-  assertFalse(manager.getSearcherManager(false).isSearcherCurrent());
-  IndexSearcher acquire=manager.getSearcherManager(false).acquire();
+  _writer.waitAfterUpdate=true;
+  final long lastGen=writer.updateDocument(new Term("foo","bar"),doc);
+  assertFalse(manager.getSearcherManager().isSearcherCurrent());
+  IndexSearcher acquire=manager.getSearcherManager().acquire();
   try {
     assertEquals(2,acquire.getIndexReader().numDocs());
   }
   finally {
-    acquire.getIndexReader().decRef();
+    manager.getSearcherManager().release(acquire);
   }
   NRTManagerReopenThread thread=new NRTManagerReopenThread(manager,0.01,0.01);
   thread.start();
@@ -46,13 +47,13 @@
   final AtomicBoolean finished=new AtomicBoolean(false);
   Thread waiter=new Thread(){
     public void run(){
-      manager.waitForGeneration(lastGen,false);
+      manager.waitForGeneration(lastGen);
       finished.set(true);
     }
   }
 ;
   waiter.start();
-  manager.maybeReopen(false);
+  manager.maybeReopen();
   waiter.join(1000);
   if (!finished.get()) {
     waiter.interrupt();
@@ -60,5 +61,5 @@
   }
   thread.close();
   thread.join();
-  IOUtils.close(manager,writer,d);
+  IOUtils.close(manager,_writer,d);
 }
