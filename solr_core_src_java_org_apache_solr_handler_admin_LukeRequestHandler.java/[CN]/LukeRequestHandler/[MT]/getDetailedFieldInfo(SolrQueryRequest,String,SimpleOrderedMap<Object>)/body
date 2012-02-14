@@ -1,0 +1,36 @@
+{
+  SolrParams params=req.getParams();
+  int numTerms=params.getInt(NUMTERMS,DEFAULT_COUNT);
+  TopTermQueue tiq=new TopTermQueue(numTerms + 1);
+  final CharsRef spare=new CharsRef();
+  Fields fields=MultiFields.getFields(req.getSearcher().getIndexReader());
+  if (fields == null) {
+    return;
+  }
+  Terms terms=fields.terms(field);
+  if (terms == null) {
+    return;
+  }
+  TermsEnum termsEnum=terms.iterator(null);
+  BytesRef text;
+  int[] buckets=new int[HIST_ARRAY_SIZE];
+  while ((text=termsEnum.next()) != null) {
+    int freq=termsEnum.docFreq();
+    int slot=32 - Integer.numberOfLeadingZeros(Math.max(0,freq - 1));
+    buckets[slot]=buckets[slot] + 1;
+    if (freq > tiq.minFreq) {
+      UnicodeUtil.UTF8toUTF16(text,spare);
+      String t=spare.toString();
+      tiq.distinctTerms=new Long(terms.getUniqueTermCount()).intValue();
+      tiq.add(new TopTermQueue.TermInfo(new Term(field,t),termsEnum.docFreq()));
+      if (tiq.size() > numTerms) {
+        tiq.pop();
+        tiq.minFreq=tiq.getTopTermInfo().docFreq;
+      }
+    }
+  }
+  tiq.histogram.add(buckets);
+  fieldMap.add("distinct",tiq.distinctTerms);
+  fieldMap.add("topTerms",tiq.toNamedList(req.getSearcher().getSchema()));
+  fieldMap.add("histogram",tiq.histogram.toNamedList());
+}

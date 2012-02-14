@@ -1,0 +1,57 @@
+{
+  SolrIndexSearcher searcher=req.getSearcher();
+  SolrParams params=req.getParams();
+  Set<String> fields=null;
+  String fl=params.get(CommonParams.FL);
+  if (fl != null) {
+    fields=new TreeSet<String>(Arrays.asList(fl.split("[,\\s]+")));
+  }
+  AtomicReader reader=searcher.getAtomicReader();
+  IndexSchema schema=searcher.getSchema();
+  Set<String> fieldNames=new TreeSet<String>();
+  for (  FieldInfo fieldInfo : reader.getFieldInfos()) {
+    fieldNames.add(fieldInfo.name);
+  }
+  SimpleOrderedMap<Object> finfo=new SimpleOrderedMap<Object>();
+  for (  String fieldName : fieldNames) {
+    if (fields != null && !fields.contains(fieldName) && !fields.contains("*")) {
+      continue;
+    }
+    SimpleOrderedMap<Object> fieldMap=new SimpleOrderedMap<Object>();
+    SchemaField sfield=schema.getFieldOrNull(fieldName);
+    FieldType ftype=(sfield == null) ? null : sfield.getType();
+    fieldMap.add("type",(ftype == null) ? null : ftype.getTypeName());
+    fieldMap.add("schema",getFieldFlags(sfield));
+    if (sfield != null && schema.isDynamicField(sfield.getName()) && schema.getDynamicPattern(sfield.getName()) != null) {
+      fieldMap.add("dynamicBase",schema.getDynamicPattern(sfield.getName()));
+    }
+    Terms terms=reader.fields().terms(fieldName);
+    if (terms == null) {
+      finfo.add(fieldName,fieldMap);
+      continue;
+    }
+    if (sfield != null && sfield.indexed()) {
+      Document doc=getFirstLiveDoc(reader,fieldName,terms);
+      if (doc != null) {
+        try {
+          IndexableField fld=doc.getField(fieldName);
+          if (fld != null) {
+            fieldMap.add("index",getFieldFlags(fld));
+          }
+ else {
+            fieldMap.add("index","(unstored field)");
+          }
+        }
+ catch (        Exception ex) {
+          log.warn("error reading field: " + fieldName);
+        }
+      }
+      fieldMap.add("docs",terms.getDocCount());
+    }
+    if (fields != null && (fields.contains(fieldName) || fields.contains("*"))) {
+      getDetailedFieldInfo(req,fieldName,fieldMap);
+    }
+    finfo.add(fieldName,fieldMap);
+  }
+  return finfo;
+}
