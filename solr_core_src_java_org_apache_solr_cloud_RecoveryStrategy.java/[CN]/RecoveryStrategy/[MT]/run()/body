@@ -2,37 +2,56 @@
   boolean replayed=false;
   boolean succesfulRecovery=false;
   while (!succesfulRecovery && !close && !isInterrupted()) {
-    UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
-    if (ulog == null)     return;
-    ulog.bufferUpdates();
-    replayed=false;
-    CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
     try {
       zkController.publish(core,ZkStateReader.RECOVERING);
-      ZkNodeProps leaderprops=zkStateReader.getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId());
-      replicate(zkController.getNodeName(),core,coreZkNodeName,leaderprops,ZkCoreNodeProps.getCoreUrl(baseUrl,coreName));
-      replay(ulog);
-      replayed=true;
-      zkController.publishAsActive(baseUrl,core.getCoreDescriptor(),coreZkNodeName,coreName);
-      succesfulRecovery=true;
-    }
- catch (    InterruptedException e) {
-      Thread.currentThread().interrupt();
-      log.warn("Recovery was interrupted",e);
-      retries=INTERRUPTED;
-    }
-catch (    Throwable t) {
-      SolrException.log(log,"Error while trying to recover",t);
-    }
+      CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
+      ZkNodeProps leaderprops=null;
+      leaderprops=zkStateReader.getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId());
+      String leaderUrl=ZkCoreNodeProps.getCoreUrl(leaderprops.get(ZkStateReader.BASE_URL_PROP),leaderprops.get(ZkStateReader.CORE_NAME_PROP));
+      log.info("Attempting to PeerSync from " + leaderUrl);
+      PeerSync peerSync=new PeerSync(core,Collections.singletonList(leaderUrl),100);
+      boolean syncSuccess=peerSync.sync();
+      if (syncSuccess) {
+        SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
+        core.getUpdateHandler().commit(new CommitUpdateCommand(req,false));
+        log.info("Sync Recovery was succesful - registering as Active");
+        zkController.publishAsActive(baseUrl,core.getCoreDescriptor(),coreZkNodeName,coreName);
+        return;
+      }
+      log.info("Sync Recovery was not successful - trying replication");
+      UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
+      if (ulog == null)       return;
+      ulog.bufferUpdates();
+      replayed=false;
+      try {
+        replicate(zkController.getNodeName(),core,leaderprops,leaderUrl);
+        replay(ulog);
+        replayed=true;
+        log.info("Recovery was succesful - registering as Active");
+        zkController.publishAsActive(baseUrl,core.getCoreDescriptor(),coreZkNodeName,coreName);
+        succesfulRecovery=true;
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.warn("Recovery was interrupted",e);
+        retries=INTERRUPTED;
+      }
+catch (      Throwable t) {
+        SolrException.log(log,"Error while trying to recover",t);
+      }
  finally {
-      if (!replayed) {
-        try {
-          ulog.dropBufferedUpdates();
-        }
- catch (        Throwable t) {
-          SolrException.log(log,"",t);
+        if (!replayed) {
+          try {
+            ulog.dropBufferedUpdates();
+          }
+ catch (          Throwable t) {
+            SolrException.log(log,"",t);
+          }
         }
       }
+    }
+ catch (    Throwable t) {
+      SolrException.log(log,"Error while trying to recover",t);
     }
     if (!succesfulRecovery) {
       try {
