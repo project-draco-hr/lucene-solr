@@ -1,0 +1,98 @@
+{
+  if (!zkEnabled) {
+    isLeader=!req.getParams().getBool(SEEN_LEADER,false);
+  }
+ else {
+    zkCheck();
+  }
+  int dbqlevel=req.getParams().getInt(DELETE_BY_QUERY_LEVEL,1);
+  if (zkEnabled && dbqlevel == 1) {
+    boolean leaderForAnyShard=false;
+    Map<String,Slice> slices=zkController.getCloudState().getSlices(collection);
+    ModifiableSolrParams params=new ModifiableSolrParams(req.getParams());
+    params.set("dbqlevel",2);
+    List<Node> leaders=new ArrayList<Node>(slices.size());
+    for (    Map.Entry<String,Slice> sliceEntry : slices.entrySet()) {
+      String sliceName=sliceEntry.getKey();
+      ZkNodeProps leaderProps;
+      try {
+        leaderProps=zkController.getZkStateReader().getLeaderProps(collection,sliceName);
+      }
+ catch (      InterruptedException e) {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"Exception finding leader for shard " + sliceName,e);
+      }
+      ZkCoreNodeProps coreLeaderProps=new ZkCoreNodeProps(leaderProps);
+      String leaderNodeName=coreLeaderProps.getCoreNodeName();
+      String coreName=req.getCore().getName();
+      String coreNodeName=zkController.getNodeName() + "_" + coreName;
+      isLeader=coreNodeName.equals(leaderNodeName);
+      if (isLeader) {
+        leaderForAnyShard=true;
+      }
+ else {
+        leaders.add(new StdNode(coreLeaderProps));
+      }
+    }
+    cmdDistrib.distribDelete(cmd,leaders,params);
+    if (!leaderForAnyShard) {
+      return;
+    }
+    dbqlevel=2;
+  }
+  List<Node> replicas=null;
+  if (zkEnabled && dbqlevel == 2) {
+    replicas=setupRequest();
+  }
+  if (vinfo == null) {
+    super.processDelete(cmd);
+    return;
+  }
+  long versionOnUpdate=cmd.getVersion();
+  if (versionOnUpdate == 0) {
+    String versionOnUpdateS=req.getParams().get(VERSION_FIELD);
+    versionOnUpdate=versionOnUpdateS == null ? 0 : Long.parseLong(versionOnUpdateS);
+  }
+  versionOnUpdate=Math.abs(versionOnUpdate);
+  boolean isReplay=(cmd.getFlags() & UpdateCommand.REPLAY) != 0;
+  boolean leaderLogic=isLeader && !isReplay;
+  if (!leaderLogic && versionOnUpdate == 0) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"missing _version_ on update from leader");
+  }
+  vinfo.blockUpdates();
+  try {
+    if (versionsStored) {
+      if (leaderLogic) {
+        long version=vinfo.getNewClock();
+        cmd.setVersion(-version);
+        doLocalDelete(cmd);
+        if (replicas != null) {
+          ModifiableSolrParams params=new ModifiableSolrParams(req.getParams());
+          params.set("dbqlevel",3);
+          params.set(VERSION_FIELD,Long.toString(cmd.getVersion()));
+          params.set(SEEN_LEADER,"true");
+          cmdDistrib.distribDelete(cmd,replicas,params);
+          cmdDistrib.finish();
+        }
+      }
+ else {
+        cmd.setVersion(-versionOnUpdate);
+        if (ulog.getState() != UpdateLog.State.ACTIVE && (cmd.getFlags() & UpdateCommand.REPLAY) == 0) {
+          cmd.setFlags(cmd.getFlags() | UpdateCommand.BUFFERING);
+          ulog.deleteByQuery(cmd);
+          return;
+        }
+        doLocalDelete(cmd);
+      }
+    }
+  }
+  finally {
+    vinfo.unblockUpdates();
+  }
+  if (returnVersions && rsp != null) {
+    if (deleteByQueryResponse == null) {
+      deleteByQueryResponse=new NamedList<String>();
+      rsp.add("deleteByQuery",deleteByQueryResponse);
+    }
+    deleteByQueryResponse.add(cmd.getQuery(),cmd.getVersion());
+  }
+}
