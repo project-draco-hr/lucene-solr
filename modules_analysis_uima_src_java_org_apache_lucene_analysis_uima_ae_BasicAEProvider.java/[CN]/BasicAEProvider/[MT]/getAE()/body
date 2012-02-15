@@ -1,23 +1,31 @@
 {
-  try {
-    if (cachedAE == null) {
-      XMLInputSource in;
+synchronized (this) {
+    if (cachedDescription == null) {
+      XMLInputSource in=null;
+      boolean success=false;
       try {
-        in=new XMLInputSource(aePath);
+        in=getInputSource();
+        cachedDescription=UIMAFramework.getXMLParser().parseAnalysisEngineDescription(in);
+        configureDescription(cachedDescription);
+        success=true;
       }
  catch (      Exception e) {
-        in=new XMLInputSource(getClass().getResource(aePath));
+        throw new ResourceInitializationException(e);
       }
-      AnalysisEngineDescription desc=UIMAFramework.getXMLParser().parseAnalysisEngineDescription(in);
-      cachedAE=UIMAFramework.produceAnalysisEngine(desc);
-    }
- else {
-      cachedAE.reconfigure();
+ finally {
+        if (success) {
+          try {
+            IOUtils.close(in.getInputStream());
+          }
+ catch (          IOException e) {
+            throw new ResourceInitializationException(e);
+          }
+        }
+ else         if (in != null) {
+          IOUtils.closeWhileHandlingException(in.getInputStream());
+        }
+      }
     }
   }
- catch (  Exception e) {
-    cachedAE=null;
-    throw new ResourceInitializationException(e);
-  }
-  return cachedAE;
+  return UIMAFramework.produceAnalysisEngine(cachedDescription);
 }
