@@ -12,16 +12,20 @@
     if (core == null) {
       throw new SolrException(ErrorCode.BAD_REQUEST,"core not found:" + cname);
     }
-    String state;
+    String state=null;
     int retry=0;
     while (true) {
       CloudDescriptor cloudDescriptor=core.getCoreDescriptor().getCloudDescriptor();
       CloudState cloudState=coreContainer.getZkController().getCloudState();
-      ZkNodeProps nodeProps=cloudState.getSlice(cloudDescriptor.getCollectionName(),cloudDescriptor.getShardId()).getShards().get(coreNodeName);
-      state=nodeProps.get(ZkStateReader.STATE_PROP);
-      boolean live=cloudState.liveNodesContain(nodeName);
-      if (nodeProps != null && state.equals(ZkStateReader.RECOVERING) && live) {
-        break;
+      String collection=cloudDescriptor.getCollectionName();
+      ZkNodeProps nodeProps=cloudState.getSlice(collection,cloudDescriptor.getShardId()).getShards().get(coreNodeName);
+      boolean live=false;
+      if (nodeProps != null) {
+        state=nodeProps.get(ZkStateReader.STATE_PROP);
+        live=cloudState.liveNodesContain(nodeName);
+        if (nodeProps != null && state.equals(ZkStateReader.RECOVERING) && live) {
+          break;
+        }
       }
       if (retry++ == 30) {
         throw new SolrException(ErrorCode.BAD_REQUEST,"I was asked to prep for recovery for " + nodeName + " but she is not live or not in a recovery state - state: "+ state+ " live:"+ live);
