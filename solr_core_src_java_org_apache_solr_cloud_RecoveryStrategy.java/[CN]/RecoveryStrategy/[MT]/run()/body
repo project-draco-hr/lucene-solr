@@ -19,9 +19,11 @@
     try {
       zkController.publish(core,ZkStateReader.RECOVERING);
       CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
-      ZkNodeProps leaderprops=null;
-      leaderprops=zkStateReader.getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId());
-      String leaderUrl=ZkCoreNodeProps.getCoreUrl(leaderprops.get(ZkStateReader.BASE_URL_PROP),leaderprops.get(ZkStateReader.CORE_NAME_PROP));
+      ZkNodeProps leaderprops=zkStateReader.getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId());
+      String leaderBaseUrl=leaderprops.get(ZkStateReader.BASE_URL_PROP);
+      String leaderCoreName=leaderprops.get(ZkStateReader.CORE_NAME_PROP);
+      String leaderUrl=ZkCoreNodeProps.getCoreUrl(leaderBaseUrl,leaderCoreName);
+      sendPrepRecoveryCmd(leaderBaseUrl,leaderCoreName);
       log.info("Attempting to PeerSync from " + leaderUrl);
       PeerSync peerSync=new PeerSync(core,Collections.singletonList(leaderUrl),100);
       peerSync.setStartingVersions(startingRecentVersions);
@@ -31,6 +33,8 @@
         core.getUpdateHandler().commit(new CommitUpdateCommand(req,false));
         log.info("Sync Recovery was succesful - registering as Active");
         zkController.publishAsActive(baseUrl,core.getCoreDescriptor(),coreZkNodeName,coreName);
+        succesfulRecovery=true;
+        close=true;
         return;
       }
       log.info("Sync Recovery was not successful - trying replication");
@@ -43,6 +47,7 @@
         replayed=true;
         log.info("Recovery was succesful - registering as Active");
         zkController.publishAsActive(baseUrl,core.getCoreDescriptor(),coreZkNodeName,coreName);
+        close=true;
         succesfulRecovery=true;
       }
  catch (      InterruptedException e) {
