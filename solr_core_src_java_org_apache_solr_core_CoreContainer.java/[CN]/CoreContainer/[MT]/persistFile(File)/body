@@ -4,41 +4,75 @@
   if (libDir != null)   rootSolrAttribs.put("sharedLib",libDir);
   rootSolrAttribs.put("persistent",Boolean.toString(isPersistent()));
   Map<String,String> coresAttribs=new HashMap<String,String>();
-  coresAttribs.put("adminPath",adminPath);
-  if (adminHandler != null)   coresAttribs.put("adminHandler",adminHandler);
-  if (shareSchema)   coresAttribs.put("shareSchema","true");
+  addCoresAttrib(coresAttribs,"adminPath",this.adminPath,null);
+  addCoresAttrib(coresAttribs,"adminHandler",this.adminHandler,null);
+  addCoresAttrib(coresAttribs,"shareSchema",Boolean.toString(this.shareSchema),Boolean.toString(DEFAULT_SHARE_SCHEMA));
+  addCoresAttrib(coresAttribs,"host",this.host,null);
   if (!defaultCoreName.equals(""))   coresAttribs.put("defaultCoreName",defaultCoreName);
-  if (host != null)   coresAttribs.put("host",host);
-  if (hostPort != null)   coresAttribs.put("hostPort",hostPort);
-  if (zkClientTimeout != null)   coresAttribs.put("zkClientTimeout",Integer.toString(zkClientTimeout));
-  if (hostContext != null)   coresAttribs.put("hostContext",hostContext);
+  addCoresAttrib(coresAttribs,"hostPort",this.hostPort,DEFAULT_HOST_PORT);
+  addCoresAttrib(coresAttribs,"zkClientTimeout",intToString(this.zkClientTimeout),Integer.toString(DEFAULT_ZK_CLIENT_TIMEOUT));
+  addCoresAttrib(coresAttribs,"hostContext",this.hostContext,DEFAULT_HOST_CONTEXT);
   List<SolrCoreXMLDef> solrCoreXMLDefs=new ArrayList<SolrCoreXMLDef>();
 synchronized (cores) {
     for (    SolrCore solrCore : cores.values()) {
       Map<String,String> coreAttribs=new HashMap<String,String>();
       CoreDescriptor dcore=solrCore.getCoreDescriptor();
-      coreAttribs.put("name",dcore.name.equals("") ? defaultCoreName : dcore.name);
-      coreAttribs.put("instanceDir",dcore.getInstanceDir());
-      String opt=dcore.getConfigName();
-      if (opt != null && !opt.equals(dcore.getDefaultConfigName())) {
-        coreAttribs.put("config",opt);
+      String coreName=dcore.name.equals("") ? defaultCoreName : dcore.name;
+      Node coreNode=null;
+      if (cfg != null) {
+        NodeList nodes=(NodeList)cfg.evaluate("solr/cores/core",XPathConstants.NODESET);
+        String origCoreName=coreToOrigName.get(solrCore);
+        if (origCoreName == null) {
+          origCoreName=coreName;
+        }
+        for (int i=0; i < nodes.getLength(); i++) {
+          Node node=nodes.item(i);
+          String name=DOMUtil.getAttr(node,"name",null);
+          if (origCoreName.equals(name)) {
+            coreNode=node;
+            if (coreName.equals(origCoreName)) {
+              coreName=name;
+            }
+            break;
+          }
+        }
+        if (coreNode == null) {
+          for (int i=0; i < nodes.getLength(); i++) {
+            Node node=nodes.item(i);
+            String name=DOMUtil.getAttr(node,"name",null);
+            if (origCoreName.equals(DOMUtil.substituteProperty(name,loader.getCoreProperties()))) {
+              coreNode=node;
+              if (coreName.equals(origCoreName)) {
+                coreName=name;
+              }
+              break;
+            }
+          }
+        }
       }
-      opt=dcore.getSchemaName();
-      if (opt != null && !opt.equals(dcore.getDefaultSchemaName())) {
-        coreAttribs.put("schema",opt);
+      coreAttribs.put("name",coreName);
+      String instanceDir=dcore.getInstanceDir();
+      addCoreProperty(coreAttribs,coreNode,"instanceDir",instanceDir,null);
+      String configName=dcore.getConfigName();
+      addCoreProperty(coreAttribs,coreNode,"conf",configName,dcore.getDefaultConfigName());
+      String schema=dcore.getSchemaName();
+      addCoreProperty(coreAttribs,coreNode,"schema",schema,dcore.getDefaultSchemaName());
+      String dataDir=dcore.dataDir;
+      addCoreProperty(coreAttribs,coreNode,"dataDir",dataDir,null);
+      CloudDescriptor cd=dcore.getCloudDescriptor();
+      String shard=null;
+      if (cd != null) {
+        shard=cd.getShardId();
       }
-      opt=dcore.getPropertiesName();
+      addCoreProperty(coreAttribs,coreNode,"shard",shard,null);
+      String collection=null;
+      if (cd != null) {
+        collection=cd.getCollectionName();
+      }
+      addCoreProperty(coreAttribs,coreNode,"collection",collection,dcore.name);
+      String opt=dcore.getPropertiesName();
       if (opt != null) {
         coreAttribs.put("properties",opt);
-      }
-      opt=dcore.dataDir;
-      if (opt != null)       coreAttribs.put("dataDir",opt);
-      CloudDescriptor cd=dcore.getCloudDescriptor();
-      if (cd != null) {
-        opt=cd.getShardId();
-        if (opt != null)         coreAttribs.put("shard",opt);
-        opt=cd.getCollectionName();
-        if (opt != null && !opt.equals(dcore.name))         coreAttribs.put("collection",opt);
       }
       SolrCoreXMLDef solrCoreXMLDef=new SolrCoreXMLDef();
       solrCoreXMLDef.coreAttribs=coreAttribs;
