@@ -9,15 +9,15 @@
   Document doc=new Document();
   doc.add(newField("test","test",TextField.TYPE_STORED));
   long gen=writer.addDocument(doc);
-  manager.maybeReopen();
+  manager.maybeRefresh();
   assertFalse(gen < manager.getCurrentSearchingGen());
   Thread t=new Thread(){
     public void run(){
       try {
         signal.await();
-        manager.maybeReopen();
+        manager.maybeRefresh();
         writer.deleteDocuments(new TermQuery(new Term("foo","barista")));
-        manager.maybeReopen();
+        manager.maybeRefresh();
       }
  catch (      Exception e) {
         e.printStackTrace();
@@ -31,13 +31,13 @@
   t.start();
   _writer.waitAfterUpdate=true;
   final long lastGen=writer.updateDocument(new Term("foo","bar"),doc);
-  assertFalse(manager.getSearcherManager().isSearcherCurrent());
-  IndexSearcher acquire=manager.getSearcherManager().acquire();
+  assertFalse(manager.isSearcherCurrent());
+  IndexSearcher searcher=manager.acquire();
   try {
-    assertEquals(2,acquire.getIndexReader().numDocs());
+    assertEquals(2,searcher.getIndexReader().numDocs());
   }
   finally {
-    manager.getSearcherManager().release(acquire);
+    manager.release(searcher);
   }
   NRTManagerReopenThread thread=new NRTManagerReopenThread(manager,0.01,0.01);
   thread.start();
@@ -53,7 +53,7 @@
   }
 ;
   waiter.start();
-  manager.maybeReopen();
+  manager.maybeRefresh();
   waiter.join(1000);
   if (!finished.get()) {
     waiter.interrupt();
