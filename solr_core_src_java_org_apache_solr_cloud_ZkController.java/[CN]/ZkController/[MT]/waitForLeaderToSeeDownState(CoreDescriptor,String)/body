@@ -1,0 +1,45 @@
+{
+  CloudDescriptor cloudDesc=descriptor.getCloudDescriptor();
+  String collection=cloudDesc.getCollectionName();
+  String shard=cloudDesc.getShardId();
+  ZkCoreNodeProps leaderProps;
+  try {
+    leaderProps=getLeaderProps(collection,shard);
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+  }
+catch (  KeeperException e) {
+    throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+  }
+  String leaderBaseUrl=leaderProps.getBaseUrl();
+  String leaderCoreName=leaderProps.getCoreName();
+  String ourUrl=ZkCoreNodeProps.getCoreUrl(getBaseUrl(),descriptor.getName());
+  boolean isLeader=leaderProps.getCoreUrl().equals(ourUrl);
+  if (!isLeader && !SKIP_AUTO_RECOVERY) {
+    CommonsHttpSolrServer server=null;
+    try {
+      server=new CommonsHttpSolrServer(leaderBaseUrl);
+    }
+ catch (    MalformedURLException e) {
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+    server.setConnectionTimeout(45000);
+    server.setSoTimeout(45000);
+    WaitForState prepCmd=new WaitForState();
+    prepCmd.setCoreName(leaderCoreName);
+    prepCmd.setNodeName(getNodeName());
+    prepCmd.setCoreNodeName(shardZkNodeName);
+    prepCmd.setState(ZkStateReader.DOWN);
+    prepCmd.setCheckLive(false);
+    try {
+      server.request(prepCmd);
+    }
+ catch (    Exception e) {
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"Could not talk to the leader",e);
+    }
+    server.shutdown();
+  }
+  return leaderProps;
+}

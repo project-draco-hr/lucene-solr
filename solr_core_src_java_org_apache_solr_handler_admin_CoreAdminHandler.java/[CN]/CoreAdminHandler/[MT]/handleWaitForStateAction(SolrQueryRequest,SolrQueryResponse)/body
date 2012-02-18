@@ -1,0 +1,50 @@
+{
+  final SolrParams params=req.getParams();
+  String cname=params.get(CoreAdminParams.CORE);
+  if (cname == null) {
+    cname="";
+  }
+  String nodeName=params.get("nodeName");
+  String coreNodeName=params.get("coreNodeName");
+  String waitForState=params.get("state");
+  boolean checkLive=params.getBool("checkLive",true);
+  int pauseFor=params.getInt("pauseFor",0);
+  SolrCore core=null;
+  try {
+    core=coreContainer.getCore(cname);
+    if (core == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"core not found:" + cname);
+    }
+    String state=null;
+    int retry=0;
+    while (true) {
+      CloudDescriptor cloudDescriptor=core.getCoreDescriptor().getCloudDescriptor();
+      CloudState cloudState=coreContainer.getZkController().getCloudState();
+      String collection=cloudDescriptor.getCollectionName();
+      ZkNodeProps nodeProps=cloudState.getSlice(collection,cloudDescriptor.getShardId()).getShards().get(coreNodeName);
+      boolean live=false;
+      if (nodeProps != null) {
+        state=nodeProps.get(ZkStateReader.STATE_PROP);
+        live=cloudState.liveNodesContain(nodeName);
+        if (nodeProps != null && state.equals(waitForState)) {
+          if (checkLive && live) {
+            break;
+          }
+ else {
+            break;
+          }
+        }
+      }
+      if (retry++ == 30) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"I was asked to wait on state " + waitForState + " for "+ nodeName+ " but I still do not see the request state. I see state: "+ state+ " live:"+ live);
+      }
+      Thread.sleep(1000);
+    }
+    Thread.sleep(pauseFor);
+  }
+  finally {
+    if (core != null) {
+      core.close();
+    }
+  }
+}
