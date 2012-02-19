@@ -1,0 +1,55 @@
+{
+  int numWords=atLeast(1000);
+  final TreeMap<String,Long> slowCompletor=new TreeMap<String,Long>();
+  final TreeSet<String> allPrefixes=new TreeSet<String>();
+  final PositiveIntOutputs outputs=PositiveIntOutputs.getSingleton(true);
+  final Builder<Long> builder=new Builder<Long>(FST.INPUT_TYPE.BYTE1,outputs);
+  final IntsRef scratch=new IntsRef();
+  for (int i=0; i < numWords; i++) {
+    String s;
+    while (true) {
+      s=_TestUtil.randomSimpleString(random);
+      if (!slowCompletor.containsKey(s)) {
+        break;
+      }
+    }
+    for (int j=1; j < s.length(); j++) {
+      allPrefixes.add(s.substring(0,j));
+    }
+    int weight=_TestUtil.nextInt(random,1,100);
+    slowCompletor.put(s,(long)weight);
+  }
+  for (  Map.Entry<String,Long> e : slowCompletor.entrySet()) {
+    builder.add(Util.toIntsRef(new BytesRef(e.getKey()),scratch),e.getValue());
+  }
+  final FST<Long> fst=builder.finish();
+  BytesReader reader=fst.getBytesReader(0);
+  for (  String prefix : allPrefixes) {
+    long prefixOutput=0;
+    FST.Arc<Long> arc=fst.getFirstArc(new FST.Arc<Long>());
+    for (int idx=0; idx < prefix.length(); idx++) {
+      if (fst.findTargetArc((int)prefix.charAt(idx),arc,arc,reader) == null) {
+        fail();
+      }
+      prefixOutput+=arc.output;
+    }
+    final int topN=_TestUtil.nextInt(random,1,10);
+    Util.MinResult[] r=Util.shortestPaths(fst,arc,topN);
+    final List<Util.MinResult> matches=new ArrayList<Util.MinResult>();
+    for (    Map.Entry<String,Long> e : slowCompletor.entrySet()) {
+      if (e.getKey().startsWith(prefix)) {
+        matches.add(new Util.MinResult(Util.toIntsRef(new BytesRef(e.getKey().substring(prefix.length())),new IntsRef()),e.getValue() - prefixOutput));
+      }
+    }
+    assertTrue(matches.size() > 0);
+    Collections.sort(matches);
+    if (matches.size() > topN) {
+      matches.subList(topN,matches.size()).clear();
+    }
+    assertEquals(matches.size(),r.length);
+    for (int hit=0; hit < r.length; hit++) {
+      assertEquals(matches.get(hit).input,r[hit].input);
+      assertEquals(matches.get(hit).output,r[hit].output);
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  String prefix=getClass().getSimpleName();
+  File directory=Sort.defaultTempDir();
+  File tempInput=File.createTempFile(prefix,".input",directory);
+  File tempSorted=File.createTempFile(prefix,".sorted",directory);
+  Sort.ByteSequencesWriter writer=new Sort.ByteSequencesWriter(tempInput);
+  Sort.ByteSequencesReader reader=null;
+  BytesRef scratch=new BytesRef();
+  boolean success=false;
+  try {
+    byte[] buffer=new byte[0];
+    ByteArrayDataOutput output=new ByteArrayDataOutput(buffer);
+    while (iterator.hasNext()) {
+      String key=iterator.next();
+      UnicodeUtil.UTF16toUTF8(key,0,key.length(),scratch);
+      if (scratch.length + 5 >= buffer.length) {
+        buffer=ArrayUtil.grow(buffer,scratch.length + 5);
+      }
+      output.reset(buffer);
+      output.writeBytes(scratch.bytes,scratch.offset,scratch.length);
+      output.writeByte((byte)0);
+      output.writeInt((int)encodeWeight(iterator.freq()));
+      writer.write(buffer,0,output.getPosition());
+    }
+    writer.close();
+    new Sort().sort(tempInput,tempSorted);
+    reader=new Sort.ByteSequencesReader(tempSorted);
+    PositiveIntOutputs outputs=PositiveIntOutputs.getSingleton(true);
+    Builder<Long> builder=new Builder<Long>(FST.INPUT_TYPE.BYTE1,outputs);
+    BytesRef previous=null;
+    BytesRef suggestion=new BytesRef();
+    IntsRef scratchInts=new IntsRef();
+    ByteArrayDataInput input=new ByteArrayDataInput();
+    while (reader.read(scratch)) {
+      suggestion.bytes=scratch.bytes;
+      suggestion.offset=scratch.offset;
+      suggestion.length=scratch.length - 5;
+      input.reset(scratch.bytes);
+      input.skipBytes(suggestion.length + 1);
+      long cost=input.readInt();
+      if (previous == null) {
+        previous=new BytesRef();
+      }
+ else       if (suggestion.equals(previous)) {
+        continue;
+      }
+      Util.toIntsRef(suggestion,scratchInts);
+      builder.add(scratchInts,cost);
+      previous.copyBytes(suggestion);
+    }
+    fst=builder.finish();
+    success=true;
+  }
+  finally {
+    if (success) {
+      IOUtils.close(reader,writer);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(reader,writer);
+    }
+    tempInput.delete();
+    tempSorted.delete();
+  }
+}
