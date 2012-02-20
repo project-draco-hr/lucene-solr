@@ -2,17 +2,23 @@
   List<Long> otherVersions=(List<Long>)srsp.getSolrResponse().getResponse().get("versions");
   SyncShardRequest sreq=(SyncShardRequest)srsp.getShardRequest();
   sreq.reportedVersions=otherVersions;
+  log.info(msg() + " Received " + otherVersions.size()+ " versions from "+ sreq.shards[0]);
   if (otherVersions.size() == 0) {
     return true;
   }
   boolean completeList=otherVersions.size() < nUpdates;
   Collections.sort(otherVersions,absComparator);
+  if (debug) {
+    log.debug(msg() + " sorted versions from " + sreq.shards[0]+ " = "+ otherVersions);
+  }
   long otherHigh=percentile(otherVersions,.2f);
   long otherLow=percentile(otherVersions,.8f);
   if (ourHighThreshold < otherLow) {
+    log.info(msg() + " Our versions are too old. ourHighThreshold=" + ourHighThreshold+ " otherLowThreshold="+ otherLow);
     return false;
   }
   if (ourLowThreshold > otherHigh) {
+    log.info(msg() + " Our versions are newer. ourLowThreshold=" + ourLowThreshold+ " otherHigh="+ otherHigh);
     return true;
   }
   List<Long> toRequest=new ArrayList<Long>();
@@ -26,9 +32,11 @@
   }
   sreq.requestedUpdates=toRequest;
   if (toRequest.isEmpty()) {
+    log.info(msg() + " Our versions are newer. ourLowThreshold=" + ourLowThreshold+ " otherHigh="+ otherHigh);
     return true;
   }
   if (toRequest.size() > maxUpdates) {
+    log.info(msg() + " Failing due to needing too many updates:" + maxUpdates);
     return false;
   }
   return requestUpdates(srsp,toRequest);
