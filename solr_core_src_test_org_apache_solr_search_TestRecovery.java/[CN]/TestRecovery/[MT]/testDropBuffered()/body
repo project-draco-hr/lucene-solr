@@ -59,6 +59,17 @@
     assertEquals(2,rinfo.adds);
     assertJQ(req("q","*:*","sort","_version_ asc","fl","id,_version_"),"/response/docs==[" + "{'id':'C4','_version_':104}" + ",{'id':'C5','_version_':105}"+ ",{'id':'C100','_version_':200}"+ ",{'id':'C101','_version_':201}"+ ",{'id':'C105','_version_':205}"+ ",{'id':'C106','_version_':206}"+ "]");
     assertJQ(req("qt","/get","getVersions","6"),"=={'versions':[206,205,201,200,105,104]}");
+    ulog.bufferUpdates();
+    assertEquals(UpdateLog.State.BUFFERING,ulog.getState());
+    updateJ(jsonAdd(sdoc("id","C301","_version_","998")),params(SEEN_LEADER,SEEN_LEADER_VAL));
+    updateJ(jsonAdd(sdoc("id","C302","_version_","999")),params(SEEN_LEADER,SEEN_LEADER_VAL));
+    assertTrue(ulog.dropBufferedUpdates());
+    updateJ(jsonAdd(sdoc("id","C301","_version_","301")),params(SEEN_LEADER,SEEN_LEADER_VAL));
+    updateJ(jsonAdd(sdoc("id","C302","_version_","302")),params(SEEN_LEADER,SEEN_LEADER_VAL));
+    assertU(commit());
+    assertJQ(req("qt","/get","getVersions","2"),"=={'versions':[302,301]}");
+    assertJQ(req("q","*:*","sort","_version_ desc","fl","id,_version_","rows","2"),"/response/docs==[" + "{'id':'C302','_version_':302}" + ",{'id':'C301','_version_':301}"+ "]");
+    updateJ(jsonAdd(sdoc("id","C2","_version_","302")),params(SEEN_LEADER,SEEN_LEADER_VAL));
     assertEquals(UpdateLog.State.ACTIVE,ulog.getState());
   }
   finally {
