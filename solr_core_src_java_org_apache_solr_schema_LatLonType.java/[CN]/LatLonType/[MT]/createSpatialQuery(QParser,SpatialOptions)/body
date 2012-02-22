@@ -1,46 +1,30 @@
 {
   double[] point=null;
   try {
-    point=DistanceUtils.parseLatitudeLongitude(options.pointStr);
+    point=ParseUtils.parseLatitudeLongitude(options.pointStr);
   }
- catch (  InvalidGeoException e) {
+ catch (  InvalidShapeException e) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
   }
   double latCenter=point[LAT];
   double lonCenter=point[LONG];
-  point[0]=point[0] * DistanceUtils.DEGREES_TO_RADIANS;
-  point[1]=point[1] * DistanceUtils.DEGREES_TO_RADIANS;
-  double[] tmp=new double[2];
-  double[] north=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,0,tmp,options.radius);
-  double ur_lat=north[LAT] * DistanceUtils.RADIANS_TO_DEGREES;
-  double[] east=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,DistanceUtils.DEG_90_AS_RADS,tmp,options.radius);
-  double ur_lon=east[LONG] * DistanceUtils.RADIANS_TO_DEGREES;
-  double[] south=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,DistanceUtils.DEG_180_AS_RADS,tmp,options.radius);
-  double ll_lat=south[LAT] * DistanceUtils.RADIANS_TO_DEGREES;
-  double[] west=DistanceUtils.pointOnBearing(point[LAT],point[LONG],options.distance,DistanceUtils.DEG_270_AS_RADS,tmp,options.radius);
-  double ll_lon=west[LONG] * DistanceUtils.RADIANS_TO_DEGREES;
-  double angDist=DistanceUtils.angularDistance(options.distance,options.radius);
-  double latMin=-90.0, latMax=90.0, lonMin=-180.0, lonMax=180.0;
-  double lon2Min=-180.0, lon2Max=180.0;
-  if (point[LAT] + angDist > DistanceUtils.DEG_90_AS_RADS) {
-    latMin=Math.min(ll_lat,ur_lat);
-  }
- else   if (point[LAT] - angDist < -DistanceUtils.DEG_90_AS_RADS) {
-    latMax=Math.max(ll_lat,ur_lat);
+  DistanceCalculator distCalc=new GeodesicSphereDistCalc.Haversine(options.units.earthRadius());
+  SpatialContext ctx=new SimpleSpatialContext(options.units,distCalc,null);
+  Rectangle bbox=DistanceUtils.calcBoxByDistFromPtDEG(latCenter,lonCenter,options.distance,ctx);
+  double latMin=bbox.getMinY();
+  double latMax=bbox.getMaxY();
+  double lonMin, lonMax, lon2Min, lon2Max;
+  if (bbox.getCrossesDateLine()) {
+    lonMin=-180;
+    lonMax=bbox.getMaxX();
+    lon2Min=bbox.getMinX();
+    lon2Max=180;
   }
  else {
-    latMin=ll_lat;
-    latMax=ur_lat;
-    if (ll_lon > ur_lon) {
-      lonMin=-180;
-      lonMax=ur_lon;
-      lon2Min=ll_lon;
-      lon2Max=180;
-    }
- else {
-      lonMin=ll_lon;
-      lonMax=ur_lon;
-    }
+    lonMin=bbox.getMinX();
+    lonMax=bbox.getMaxX();
+    lon2Min=-180;
+    lon2Max=180;
   }
   SchemaField latField=subField(options.field,LAT);
   SchemaField lonField=subField(options.field,LONG);
