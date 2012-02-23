@@ -1,11 +1,22 @@
 {
   boolean replayed=false;
   boolean succesfulRecovery=false;
-  UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
-  if (ulog == null) {
-    SolrException.log(log,"No UpdateLog found - cannot recover");
-    recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
+  SolrCore core=cc.getCore(coreName);
+  if (core == null) {
+    SolrException.log(log,"SolrCore not found - cannot recover:" + coreName);
     return;
+  }
+  UpdateLog ulog;
+  try {
+    ulog=core.getUpdateHandler().getUpdateLog();
+    if (ulog == null) {
+      SolrException.log(log,"No UpdateLog found - cannot recover");
+      recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
+      return;
+    }
+  }
+  finally {
+    core.close();
   }
   List<Long> startingRecentVersions;
   UpdateLog.RecentUpdates startingRecentUpdates=ulog.getRecentUpdates();
@@ -33,6 +44,11 @@
   }
   boolean firstTime=true;
   while (!succesfulRecovery && !close && !isInterrupted()) {
+    core=cc.getCore(coreName);
+    if (core == null) {
+      SolrException.log(log,"SolrCore not found - cannot recover:" + coreName);
+      return;
+    }
     try {
       zkController.publish(core.getCoreDescriptor(),ZkStateReader.RECOVERING);
       CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
@@ -92,6 +108,11 @@ catch (      Throwable t) {
  catch (    Throwable t) {
       SolrException.log(log,"Error while trying to recover",t);
     }
+ finally {
+      if (core != null) {
+        core.close();
+      }
+    }
     if (!succesfulRecovery) {
       try {
         SolrException.log(log,"Recovery failed - trying again...");
@@ -100,7 +121,15 @@ catch (      Throwable t) {
           if (retries == INTERRUPTED) {
           }
  else {
-            recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
+            core=cc.getCore(coreName);
+            try {
+              recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
+            }
+  finally {
+              if (core != null) {
+                core.close();
+              }
+            }
           }
           break;
         }
