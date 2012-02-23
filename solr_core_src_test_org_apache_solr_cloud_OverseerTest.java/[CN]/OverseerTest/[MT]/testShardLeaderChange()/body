@@ -1,0 +1,59 @@
+{
+  String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  final ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient controllerClient=null;
+  ZkStateReader reader=null;
+  MockZKController mockController=null;
+  MockZKController mockController2=null;
+  OverseerRestarter killer=null;
+  Thread killerThread=null;
+  try {
+    server.run();
+    controllerClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    controllerClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE,true);
+    killer=new OverseerRestarter(server.getZkAddress());
+    killerThread=new Thread(killer);
+    killerThread.start();
+    reader=new ZkStateReader(controllerClient);
+    reader.createClusterStateWatchersAndUpdate();
+    for (int i=0; i < 20; i++) {
+      mockController=new MockZKController(server.getZkAddress(),"node1","collection1");
+      mockController.publishState("core1","state1",1);
+      if (mockController2 != null) {
+        mockController2.close();
+        mockController2=null;
+      }
+      mockController.publishState("core1","state2",1);
+      mockController2=new MockZKController(server.getZkAddress(),"node2","collection1");
+      mockController.publishState("core1","state1",1);
+      verifyShardLeader(reader,"collection1","shard1","core1");
+      mockController2.publishState("core4","state2",1);
+      mockController.close();
+      mockController=null;
+      verifyShardLeader(reader,"collection1","shard1","core4");
+    }
+  }
+  finally {
+    if (killer != null) {
+      killer.run=false;
+      if (killerThread != null) {
+        killerThread.join();
+      }
+    }
+    if (mockController != null) {
+      mockController.close();
+    }
+    if (mockController2 != null) {
+      mockController2.close();
+    }
+    if (controllerClient != null) {
+      controllerClient.close();
+    }
+    if (reader != null) {
+      reader.close();
+    }
+    server.shutdown();
+  }
+}
