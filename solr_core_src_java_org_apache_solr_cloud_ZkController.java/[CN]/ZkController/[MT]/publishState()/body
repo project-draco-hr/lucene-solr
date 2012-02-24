@@ -1,8 +1,20 @@
 {
   final String nodePath="/node_states/" + getNodeName();
+  long version;
+  byte[] coreStatesData;
 synchronized (coreStates) {
+    version=++coreStatesVersion;
+    coreStatesData=ZkStateReader.toJSON(coreStates.values());
+  }
+synchronized (coreStatesPublishLock) {
     try {
-      zkClient.setData(nodePath,ZkStateReader.toJSON(coreStates.values()),true);
+      if (version < coreStatesPublishedVersion) {
+        log.info("Another thread already published a newer coreStates: ours=" + version + " lastPublished="+ coreStatesPublishedVersion);
+      }
+ else {
+        zkClient.setData(nodePath,coreStatesData,true);
+        coreStatesPublishedVersion=version;
+      }
     }
  catch (    KeeperException e) {
       throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"could not publish node state",e);
