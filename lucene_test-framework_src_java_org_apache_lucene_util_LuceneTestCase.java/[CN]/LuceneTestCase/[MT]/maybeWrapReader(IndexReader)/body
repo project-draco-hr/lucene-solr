@@ -1,6 +1,6 @@
 {
-  final boolean wasOriginallyAtomic=r instanceof AtomicReader;
   if (rarely()) {
+    final boolean wasOriginallyAtomic=r instanceof AtomicReader;
     for (int i=0, c=random.nextInt(6) + 1; i < c; i++) {
 switch (random.nextInt(4)) {
 case 0:
@@ -10,29 +10,40 @@ case 1:
     r=(r instanceof AtomicReader) ? new ParallelAtomicReader((AtomicReader)r) : new ParallelCompositeReader((CompositeReader)r);
   break;
 case 2:
-if (!wasOriginallyAtomic) {
-  r=new MultiReader(r);
-}
-break;
-case 3:
-if (r instanceof AtomicReader) {
-r=new FilterAtomicReader((AtomicReader)r){
-@Override public Fields fields() throws IOException {
-  Fields f=super.fields();
-  if (f == null) {
-    return null;
+r=new MultiReader(r){
+  private final Object cacheKey=new Object();
+  @Override public Object getCoreCacheKey(){
+    return cacheKey;
   }
- else {
-    return new FilterFields(f);
+  @Override public Object getCombinedCoreAndDeletesKey(){
+    return cacheKey;
   }
-}
+  @Override public String toString(){
+    return "MultiReader(" + subReaders[0] + ")";
+  }
 }
 ;
+break;
+case 3:
+final AtomicReader ar=SlowCompositeReaderWrapper.wrap(r);
+final List<String> allFields=new ArrayList<String>();
+for (FieldInfo fi : ar.getFieldInfos()) {
+allFields.add(fi.name);
 }
+Collections.shuffle(allFields,random);
+final int end=allFields.isEmpty() ? 0 : random.nextInt(allFields.size());
+final Set<String> fields=new HashSet<String>(allFields.subList(0,end));
+r=new ParallelAtomicReader(new FieldFilterAtomicReader(ar,fields,false),new FieldFilterAtomicReader(ar,fields,true));
 break;
 default :
 fail("should not get here");
 }
+}
+if (wasOriginallyAtomic) {
+r=SlowCompositeReaderWrapper.wrap(r);
+}
+if (VERBOSE) {
+System.out.println("maybeWrapReader wrapped: " + r);
 }
 }
 return r;
