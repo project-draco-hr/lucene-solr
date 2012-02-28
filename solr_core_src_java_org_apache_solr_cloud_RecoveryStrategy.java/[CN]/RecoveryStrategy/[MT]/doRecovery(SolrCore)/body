@@ -1,0 +1,146 @@
+{
+  boolean replayed=false;
+  boolean succesfulRecovery=false;
+  UpdateLog ulog;
+  try {
+    ulog=core.getUpdateHandler().getUpdateLog();
+    if (ulog == null) {
+      SolrException.log(log,"No UpdateLog found - cannot recover");
+      recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
+      return;
+    }
+  }
+  finally {
+    core.close();
+  }
+  List<Long> startingRecentVersions;
+  UpdateLog.RecentUpdates startingRecentUpdates=ulog.getRecentUpdates();
+  try {
+    startingRecentVersions=startingRecentUpdates.getVersions(ulog.numRecordsToKeep);
+  }
+  finally {
+    startingRecentUpdates.close();
+  }
+  List<Long> reallyStartingVersions=ulog.getStartingVersions();
+  if (reallyStartingVersions != null && recoveringAfterStartup) {
+    int oldIdx=0;
+    long firstStartingVersion=reallyStartingVersions.size() > 0 ? reallyStartingVersions.get(0) : 0;
+    for (; oldIdx < startingRecentVersions.size(); oldIdx++) {
+      if (startingRecentVersions.get(oldIdx) == firstStartingVersion)       break;
+    }
+    if (oldIdx > 0) {
+      log.info("####### Found new versions added after startup: num=" + oldIdx);
+    }
+    log.info("###### startupVersions=" + reallyStartingVersions);
+    log.info("###### currentVersions=" + startingRecentVersions);
+  }
+  if (recoveringAfterStartup) {
+    startingRecentVersions=reallyStartingVersions;
+  }
+  boolean firstTime=true;
+  while (!succesfulRecovery && !close && !isInterrupted()) {
+    core=cc.getCore(coreName);
+    if (core == null) {
+      SolrException.log(log,"SolrCore not found - cannot recover:" + coreName);
+      return;
+    }
+    try {
+      zkController.publish(core.getCoreDescriptor(),ZkStateReader.RECOVERING);
+      CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
+      ZkNodeProps leaderprops=zkStateReader.getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId());
+      String leaderBaseUrl=leaderprops.get(ZkStateReader.BASE_URL_PROP);
+      String leaderCoreName=leaderprops.get(ZkStateReader.CORE_NAME_PROP);
+      String leaderUrl=ZkCoreNodeProps.getCoreUrl(leaderBaseUrl,leaderCoreName);
+      sendPrepRecoveryCmd(leaderBaseUrl,leaderCoreName);
+      if (firstTime) {
+        firstTime=false;
+        log.info("Attempting to PeerSync from " + leaderUrl + " recoveringAfterStartup="+ recoveringAfterStartup);
+        PeerSync peerSync=new PeerSync(core,Collections.singletonList(leaderUrl),ulog.numRecordsToKeep);
+        peerSync.setStartingVersions(startingRecentVersions);
+        boolean syncSuccess=peerSync.sync();
+        if (syncSuccess) {
+          SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
+          core.getUpdateHandler().commit(new CommitUpdateCommand(req,false));
+          log.info("Sync Recovery was succesful - registering as Active");
+          zkController.publishAsActive(baseUrl,core.getCoreDescriptor(),coreZkNodeName,coreName);
+          succesfulRecovery=true;
+          close=true;
+          return;
+        }
+        log.info("Sync Recovery was not successful - trying replication");
+      }
+      log.info("Begin buffering updates");
+      ulog.bufferUpdates();
+      replayed=false;
+      try {
+        replicate(zkController.getNodeName(),core,leaderprops,leaderUrl);
+        replay(ulog);
+        replayed=true;
+        log.info("Recovery was succesful - registering as Active");
+        zkController.publishAsActive(baseUrl,core.getCoreDescriptor(),coreZkNodeName,coreName);
+        close=true;
+        succesfulRecovery=true;
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.warn("Recovery was interrupted",e);
+        retries=INTERRUPTED;
+      }
+catch (      Throwable t) {
+        SolrException.log(log,"Error while trying to recover",t);
+      }
+ finally {
+        if (!replayed) {
+          try {
+            ulog.dropBufferedUpdates();
+          }
+ catch (          Throwable t) {
+            SolrException.log(log,"",t);
+          }
+        }
+      }
+    }
+ catch (    Throwable t) {
+      SolrException.log(log,"Error while trying to recover",t);
+    }
+ finally {
+      if (core != null) {
+        core.close();
+      }
+    }
+    if (!succesfulRecovery) {
+      try {
+        SolrException.log(log,"Recovery failed - trying again...");
+        retries++;
+        if (retries >= MAX_RETRIES) {
+          if (retries == INTERRUPTED) {
+          }
+ else {
+            core=cc.getCore(coreName);
+            try {
+              recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
+            }
+  finally {
+              if (core != null) {
+                core.close();
+              }
+            }
+          }
+          break;
+        }
+      }
+ catch (      Exception e) {
+        SolrException.log(log,"",e);
+      }
+      try {
+        Thread.sleep(Math.min(START_TIMEOUT * retries,60000));
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.warn("Recovery was interrupted",e);
+        retries=INTERRUPTED;
+      }
+    }
+    log.info("Finished recovery process");
+  }
+}
