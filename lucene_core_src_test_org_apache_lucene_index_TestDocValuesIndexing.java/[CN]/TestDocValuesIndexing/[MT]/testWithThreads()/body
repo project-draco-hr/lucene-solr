@@ -42,10 +42,6 @@
   writer.close();
   final AtomicReader sr=getOnlySegmentReader(r);
   final DocValues dv=sr.docValues("stringdv");
-  final DocValues.Source stringDVSource=dv.getSource();
-  assertNotNull(stringDVSource);
-  final DocValues.Source stringDVDirectSource=dv.getDirectSource();
-  assertNotNull(stringDVDirectSource);
   assertNotNull(dv);
   final long END_TIME=System.currentTimeMillis() + (TEST_NIGHTLY ? 30 : 1);
   final DocValues.Source docIDToID=sr.docValues("id").getSource();
@@ -54,9 +50,20 @@
   for (int thread=0; thread < NUM_THREADS; thread++) {
     threads[thread]=new Thread(){
       @Override public void run(){
+        final DocValues.Source stringDVSource;
+        final DocValues.Source stringDVDirectSource;
+        try {
+          stringDVSource=dv.getSource();
+          assertNotNull(stringDVSource);
+          stringDVDirectSource=dv.getDirectSource();
+          assertNotNull(stringDVDirectSource);
+        }
+ catch (        IOException ioe) {
+          throw new RuntimeException(ioe);
+        }
         while (System.currentTimeMillis() < END_TIME) {
           final DocValues.Source source;
-          if (true || random.nextBoolean()) {
+          if (random.nextBoolean()) {
             source=stringDVSource;
           }
  else {
@@ -75,6 +82,9 @@
     }
 ;
     threads[thread].start();
+  }
+  for (  Thread thread : threads) {
+    thread.join();
   }
   r.close();
   dir.close();
