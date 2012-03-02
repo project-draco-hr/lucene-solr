@@ -1,20 +1,24 @@
 {
   recoveryInfo=new RecoveryInfo();
-  if (newestLogOnStartup == null)   return null;
-  if (!newestLogOnStartup.try_incref())   return null;
-  try {
-    if (newestLogOnStartup.endsWithCommit()) {
-      newestLogOnStartup.decref();
-      return null;
+  List<TransactionLog> recoverLogs=new ArrayList<TransactionLog>(1);
+  for (  TransactionLog ll : newestLogsOnStartup) {
+    if (!ll.try_incref())     continue;
+    try {
+      if (ll.endsWithCommit()) {
+        ll.decref();
+        continue;
+      }
     }
+ catch (    IOException e) {
+      log.error("Error inspecting tlog " + ll);
+      ll.decref();
+      continue;
+    }
+    recoverLogs.add(ll);
   }
- catch (  IOException e) {
-    log.error("Error inspecting tlog " + newestLogOnStartup);
-    newestLogOnStartup.decref();
-    return null;
-  }
+  if (recoverLogs.isEmpty())   return null;
   ExecutorCompletionService<RecoveryInfo> cs=new ExecutorCompletionService<RecoveryInfo>(recoveryExecutor);
-  LogReplayer replayer=new LogReplayer(newestLogOnStartup,false);
+  LogReplayer replayer=new LogReplayer(recoverLogs,false);
   versionInfo.blockUpdates();
   try {
     state=State.REPLAYING;

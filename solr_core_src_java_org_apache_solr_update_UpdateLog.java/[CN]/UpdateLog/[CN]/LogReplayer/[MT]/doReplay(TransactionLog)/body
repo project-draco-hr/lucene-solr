@@ -1,0 +1,133 @@
+{
+  try {
+    loglog.warn("Starting log replay " + translog + " active="+ activeLog+ " starting pos="+ recoveryInfo.positionOfStart);
+    tlogReader=translog.getReader(recoveryInfo.positionOfStart);
+    RunUpdateProcessorFactory runFac=new RunUpdateProcessorFactory();
+    DistributedUpdateProcessorFactory magicFac=new DistributedUpdateProcessorFactory();
+    runFac.init(new NamedList());
+    magicFac.init(new NamedList());
+    UpdateRequestProcessor proc=magicFac.getInstance(req,rsp,runFac.getInstance(req,rsp,null));
+    long commitVersion=0;
+    for (; ; ) {
+      Object o=null;
+      if (cancelApplyBufferUpdate)       break;
+      try {
+        if (testing_logReplayHook != null)         testing_logReplayHook.run();
+        o=null;
+        o=tlogReader.next();
+        if (o == null && activeLog) {
+          if (!finishing) {
+            versionInfo.blockUpdates();
+            finishing=true;
+            o=tlogReader.next();
+          }
+ else {
+          }
+        }
+      }
+ catch (      InterruptedException e) {
+        SolrException.log(log,e);
+      }
+catch (      IOException e) {
+        SolrException.log(log,e);
+      }
+catch (      Throwable e) {
+        SolrException.log(log,e);
+      }
+      if (o == null)       break;
+      try {
+        List entry=(List)o;
+        int oper=(Integer)entry.get(0);
+        long version=(Long)entry.get(1);
+switch (oper) {
+case UpdateLog.ADD:
+{
+            recoveryInfo.adds++;
+            SolrInputDocument sdoc=(SolrInputDocument)entry.get(entry.size() - 1);
+            AddUpdateCommand cmd=new AddUpdateCommand(req);
+            cmd.solrDoc=sdoc;
+            cmd.setVersion(version);
+            cmd.setFlags(UpdateCommand.REPLAY | UpdateCommand.IGNORE_AUTOCOMMIT);
+            if (debug)             log.debug("add " + cmd);
+            proc.processAdd(cmd);
+            break;
+          }
+case UpdateLog.DELETE:
+{
+          recoveryInfo.deletes++;
+          byte[] idBytes=(byte[])entry.get(2);
+          DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+          cmd.setIndexedId(new BytesRef(idBytes));
+          cmd.setVersion(version);
+          cmd.setFlags(UpdateCommand.REPLAY | UpdateCommand.IGNORE_AUTOCOMMIT);
+          if (debug)           log.debug("delete " + cmd);
+          proc.processDelete(cmd);
+          break;
+        }
+case UpdateLog.DELETE_BY_QUERY:
+{
+        recoveryInfo.deleteByQuery++;
+        String query=(String)entry.get(2);
+        DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+        cmd.query=query;
+        cmd.setVersion(version);
+        cmd.setFlags(UpdateCommand.REPLAY | UpdateCommand.IGNORE_AUTOCOMMIT);
+        if (debug)         log.debug("deleteByQuery " + cmd);
+        proc.processDelete(cmd);
+        break;
+      }
+case UpdateLog.COMMIT:
+{
+      commitVersion=version;
+      break;
+    }
+default :
+  throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unknown Operation! " + oper);
+}
+if (rsp.getException() != null) {
+loglog.error("REPLAY_ERR: Exception replaying log",rsp.getException());
+throw rsp.getException();
+}
+}
+ catch (IOException ex) {
+recoveryInfo.errors++;
+loglog.warn("REYPLAY_ERR: IOException reading log",ex);
+}
+catch (ClassCastException cl) {
+recoveryInfo.errors++;
+loglog.warn("REPLAY_ERR: Unexpected log entry or corrupt log.  Entry=" + o,cl);
+}
+catch (Throwable ex) {
+recoveryInfo.errors++;
+loglog.warn("REPLAY_ERR: Exception replaying log",ex);
+}
+}
+CommitUpdateCommand cmd=new CommitUpdateCommand(req,false);
+cmd.setVersion(commitVersion);
+cmd.softCommit=false;
+cmd.waitSearcher=true;
+cmd.setFlags(UpdateCommand.REPLAY);
+try {
+if (debug) log.debug("commit " + cmd);
+uhandler.commit(cmd);
+}
+ catch (IOException ex) {
+recoveryInfo.errors++;
+loglog.error("Replay exception: final commit.",ex);
+}
+if (!activeLog) {
+translog.writeCommit(cmd);
+}
+try {
+proc.finish();
+}
+ catch (IOException ex) {
+recoveryInfo.errors++;
+loglog.error("Replay exception: finish()",ex);
+}
+}
+  finally {
+if (tlogReader != null) tlogReader.close();
+translog.decref();
+}
+}
