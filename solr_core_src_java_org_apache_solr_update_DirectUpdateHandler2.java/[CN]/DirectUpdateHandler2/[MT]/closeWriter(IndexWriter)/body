@@ -1,6 +1,13 @@
 {
+  boolean clearRequestInfo=false;
   commitLock.lock();
   try {
+    SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
+    SolrQueryResponse rsp=new SolrQueryResponse();
+    if (SolrRequestInfo.getRequestInfo() == null) {
+      clearRequestInfo=true;
+      SolrRequestInfo.setRequestInfo(new SolrRequestInfo(req,rsp));
+    }
     if (!commitOnClose) {
       if (writer != null) {
         writer.rollback();
@@ -8,29 +15,37 @@
       if (ulog != null)       ulog.close(false);
       return;
     }
-    VersionInfo vinfo=ulog == null ? null : ulog.getVersionInfo();
-    if (vinfo != null) {
-      vinfo.blockUpdates();
+    boolean tryToCommit=writer != null && ulog != null && ulog.hasUncommittedChanges() && ulog.getState() == UpdateLog.State.ACTIVE;
+    try {
+      if (tryToCommit) {
+        CommitUpdateCommand cmd=new CommitUpdateCommand(req,false);
+        cmd.openSearcher=false;
+        cmd.waitSearcher=false;
+        cmd.softCommit=false;
+synchronized (this) {
+          ulog.preCommit(cmd);
+        }
+        final Map<String,String> commitData=new HashMap<String,String>();
+        commitData.put(SolrIndexWriter.COMMIT_TIME_MSEC_KEY,String.valueOf(System.currentTimeMillis()));
+        writer.commit(commitData);
+synchronized (this) {
+          ulog.postCommit(cmd);
+        }
+      }
+    }
+ catch (    Throwable th) {
+      log.error("Error in final commit",th);
     }
     try {
-      boolean succeeded=false;
-      try {
-        if (writer != null) {
-          writer.close();
-        }
-        succeeded=true;
-      }
-  finally {
-        if (ulog != null)         ulog.close(succeeded);
-      }
+      if (ulog != null)       ulog.close(false);
     }
-  finally {
-      if (vinfo != null) {
-        vinfo.unblockUpdates();
-      }
+ catch (    Throwable th) {
+      log.error("Error closing log files",th);
     }
+    if (writer != null)     writer.close();
   }
   finally {
     commitLock.unlock();
+    if (clearRequestInfo)     SolrRequestInfo.clearRequestInfo();
   }
 }
