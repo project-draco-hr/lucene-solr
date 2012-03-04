@@ -1,0 +1,70 @@
+{
+  if (VERBOSE) {
+    System.out.println("  pruneAndRescore startPos=" + startPos + " endPos="+ endPos+ " bestStartIDX="+ bestStartIDX);
+  }
+  for (int pos=endPos; pos > startPos; pos--) {
+    final Position posData=positions.get(pos);
+    if (VERBOSE) {
+      System.out.println("    back pos=" + pos);
+    }
+    for (int arcIDX=0; arcIDX < posData.count; arcIDX++) {
+      final int backPos=posData.backPos[arcIDX];
+      if (backPos >= startPos) {
+        positions.get(backPos).addForward(pos,arcIDX,posData.backID[arcIDX],posData.backType[arcIDX]);
+      }
+ else {
+        if (VERBOSE) {
+          System.out.println("      prune");
+        }
+      }
+    }
+    if (pos != startPos) {
+      posData.count=0;
+    }
+  }
+  for (int pos=startPos; pos < endPos; pos++) {
+    final Position posData=positions.get(pos);
+    if (VERBOSE) {
+      System.out.println("    forward pos=" + pos + " count="+ posData.forwardCount);
+    }
+    if (posData.count == 0) {
+      if (VERBOSE) {
+        System.out.println("      skip");
+      }
+      posData.forwardCount=0;
+      continue;
+    }
+    if (pos == startPos) {
+      final int rightID;
+      if (startPos == 0) {
+        rightID=0;
+      }
+ else {
+        rightID=getDict(posData.backType[bestStartIDX]).getRightId(posData.backID[bestStartIDX]);
+      }
+      final int pathCost=posData.costs[bestStartIDX];
+      for (int forwardArcIDX=0; forwardArcIDX < posData.forwardCount; forwardArcIDX++) {
+        final Type forwardType=posData.forwardType[forwardArcIDX];
+        final Dictionary dict2=getDict(forwardType);
+        final int wordID=posData.forwardID[forwardArcIDX];
+        final int toPos=posData.forwardPos[forwardArcIDX];
+        final int newCost=pathCost + dict2.getWordCost(wordID) + costs.get(rightID,dict2.getLeftId(wordID))+ computePenalty(pos,toPos - pos);
+        if (VERBOSE) {
+          System.out.println("      + " + forwardType + " word "+ new String(buffer.get(pos,toPos - pos))+ " toPos="+ toPos+ " cost="+ newCost+ " penalty="+ computePenalty(pos,toPos - pos)+ " toPos.idx="+ positions.get(toPos).count);
+        }
+        positions.get(toPos).add(newCost,dict2.getRightId(wordID),pos,bestStartIDX,wordID,forwardType);
+      }
+    }
+ else {
+      for (int forwardArcIDX=0; forwardArcIDX < posData.forwardCount; forwardArcIDX++) {
+        final Type forwardType=posData.forwardType[forwardArcIDX];
+        final int toPos=posData.forwardPos[forwardArcIDX];
+        if (VERBOSE) {
+          System.out.println("      + " + forwardType + " word "+ new String(buffer.get(pos,toPos - pos))+ " toPos="+ toPos);
+        }
+        add(getDict(forwardType),posData,toPos,posData.forwardID[forwardArcIDX],forwardType,true);
+      }
+    }
+    posData.forwardCount=0;
+  }
+}

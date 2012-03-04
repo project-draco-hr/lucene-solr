@@ -1,0 +1,153 @@
+{
+  if (VERBOSE) {
+    System.out.println("\nPARSE");
+  }
+  while (true) {
+    if (buffer.get(pos) == -1) {
+      break;
+    }
+    final Position posData=positions.get(pos);
+    final boolean isFrontier=positions.getNextPos() == pos + 1;
+    if (posData.count == 0) {
+      pos++;
+      if (VERBOSE) {
+        System.out.println("    no arcs in; skip");
+      }
+      continue;
+    }
+    if (pos > lastBackTracePos && posData.count == 1 && isFrontier) {
+      backtrace(posData,0);
+      posData.costs[0]=0;
+      if (pending.size() != 0) {
+        return;
+      }
+ else {
+      }
+    }
+    if (pos - lastBackTracePos >= MAX_BACKTRACE_GAP) {
+      int leastIDX=-1;
+      int leastCost=Integer.MAX_VALUE;
+      for (int idx=0; idx < posData.count; idx++) {
+        final int cost=posData.costs[idx];
+        if (cost < leastCost) {
+          leastCost=cost;
+          leastIDX=idx;
+        }
+      }
+      backtrace(posData,leastIDX);
+      Arrays.fill(posData.costs,0,posData.count,0);
+      if (pending.size() != 0) {
+        return;
+      }
+ else {
+      }
+    }
+    if (VERBOSE) {
+      System.out.println("\n  extend @ pos=" + pos + " char="+ (char)buffer.get(pos));
+    }
+    if (VERBOSE) {
+      System.out.println("    " + posData.count + " arcs in");
+    }
+    boolean anyMatches=false;
+    if (userFST != null) {
+      userFST.getFirstArc(arc);
+      int output=0;
+      for (int posAhead=posData.pos; ; posAhead++) {
+        final int ch=buffer.get(posAhead);
+        if (ch == -1) {
+          break;
+        }
+        if (userFST.findTargetArc(ch,arc,arc,posAhead == posData.pos,userFSTReader) == null) {
+          break;
+        }
+        output+=arc.output.intValue();
+        if (arc.isFinal()) {
+          if (VERBOSE) {
+            System.out.println("    USER word " + new String(buffer.get(pos,posAhead - pos + 1)) + " toPos="+ (posAhead + 1));
+          }
+          add(userDictionary,posData,posAhead + 1,output + arc.nextFinalOutput.intValue(),Type.USER,false);
+          anyMatches=true;
+        }
+      }
+    }
+    if (!anyMatches) {
+      fst.getFirstArc(arc);
+      int output=0;
+      for (int posAhead=posData.pos; ; posAhead++) {
+        final int ch=buffer.get(posAhead);
+        if (ch == -1) {
+          break;
+        }
+        if (fst.findTargetArc(ch,arc,arc,posAhead == posData.pos,fstReader) == null) {
+          break;
+        }
+        output+=arc.output.intValue();
+        if (arc.isFinal()) {
+          dictionary.lookupWordIds(output + arc.nextFinalOutput.intValue(),wordIdRef);
+          if (VERBOSE) {
+            System.out.println("    KNOWN word " + new String(buffer.get(pos,posAhead - pos + 1)) + " toPos="+ (posAhead + 1)+ " "+ wordIdRef.length+ " wordIDs");
+          }
+          for (int ofs=0; ofs < wordIdRef.length; ofs++) {
+            add(dictionary,posData,posAhead + 1,wordIdRef.ints[wordIdRef.offset + ofs],Type.KNOWN,false);
+            anyMatches=true;
+          }
+        }
+      }
+    }
+    if (!searchMode && unknownWordEndIndex > posData.pos) {
+      pos++;
+      continue;
+    }
+    final char firstCharacter=(char)buffer.get(pos);
+    if (!anyMatches || characterDefinition.isInvoke(firstCharacter)) {
+      final int characterId=characterDefinition.getCharacterClass(firstCharacter);
+      int unknownWordLength;
+      if (!characterDefinition.isGroup(firstCharacter)) {
+        unknownWordLength=1;
+      }
+ else {
+        unknownWordLength=1;
+        for (int posAhead=pos + 1; unknownWordLength < MAX_UNKNOWN_WORD_LENGTH; posAhead++) {
+          final int ch=buffer.get(posAhead);
+          if (ch == -1) {
+            break;
+          }
+          if (characterId == characterDefinition.getCharacterClass((char)ch)) {
+            unknownWordLength++;
+          }
+ else {
+            break;
+          }
+        }
+      }
+      unkDictionary.lookupWordIds(characterId,wordIdRef);
+      if (VERBOSE) {
+        System.out.println("    UNKNOWN word len=" + unknownWordLength + " "+ wordIdRef.length+ " wordIDs");
+      }
+      for (int ofs=0; ofs < wordIdRef.length; ofs++) {
+        add(unkDictionary,posData,posData.pos + unknownWordLength,wordIdRef.ints[wordIdRef.offset + ofs],Type.UNKNOWN,false);
+      }
+      unknownWordEndIndex=posData.pos + unknownWordLength;
+    }
+    pos++;
+  }
+  end=true;
+  if (pos > 0) {
+    final Position endPosData=positions.get(pos);
+    int leastCost=Integer.MAX_VALUE;
+    int leastIDX=-1;
+    if (VERBOSE) {
+      System.out.println("  end: " + endPosData.count + " nodes");
+    }
+    for (int idx=0; idx < endPosData.count; idx++) {
+      final int cost=endPosData.costs[idx] + costs.get(endPosData.lastRightID[idx],0);
+      if (cost < leastCost) {
+        leastCost=cost;
+        leastIDX=idx;
+      }
+    }
+    backtrace(endPosData,leastIDX);
+  }
+ else {
+  }
+}
