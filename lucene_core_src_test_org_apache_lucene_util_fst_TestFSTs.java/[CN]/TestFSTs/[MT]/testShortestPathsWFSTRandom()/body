@@ -1,0 +1,58 @@
+{
+  int numWords=atLeast(1000);
+  final TreeMap<String,TwoLongs> slowCompletor=new TreeMap<String,TwoLongs>();
+  final TreeSet<String> allPrefixes=new TreeSet<String>();
+  PairOutputs<Long,Long> outputs=new PairOutputs<Long,Long>(PositiveIntOutputs.getSingleton(true),PositiveIntOutputs.getSingleton(true));
+  final Builder<Pair<Long,Long>> builder=new Builder<Pair<Long,Long>>(FST.INPUT_TYPE.BYTE1,outputs);
+  final IntsRef scratch=new IntsRef();
+  for (int i=0; i < numWords; i++) {
+    String s;
+    while (true) {
+      s=_TestUtil.randomSimpleString(random);
+      if (!slowCompletor.containsKey(s)) {
+        break;
+      }
+    }
+    for (int j=1; j < s.length(); j++) {
+      allPrefixes.add(s.substring(0,j));
+    }
+    int weight=_TestUtil.nextInt(random,1,100);
+    int output=_TestUtil.nextInt(random,0,500);
+    slowCompletor.put(s,new TwoLongs(weight,output));
+  }
+  for (  Map.Entry<String,TwoLongs> e : slowCompletor.entrySet()) {
+    long weight=e.getValue().a;
+    long output=e.getValue().b;
+    builder.add(Util.toIntsRef(new BytesRef(e.getKey()),scratch),outputs.newPair(weight,output));
+  }
+  final FST<Pair<Long,Long>> fst=builder.finish();
+  BytesReader reader=fst.getBytesReader(0);
+  for (  String prefix : allPrefixes) {
+    Pair<Long,Long> prefixOutput=outputs.getNoOutput();
+    FST.Arc<Pair<Long,Long>> arc=fst.getFirstArc(new FST.Arc<Pair<Long,Long>>());
+    for (int idx=0; idx < prefix.length(); idx++) {
+      if (fst.findTargetArc((int)prefix.charAt(idx),arc,arc,reader) == null) {
+        fail();
+      }
+      prefixOutput=outputs.add(prefixOutput,arc.output);
+    }
+    final int topN=_TestUtil.nextInt(random,1,10);
+    Util.MinResult<Pair<Long,Long>>[] r=Util.shortestPaths(fst,arc,minPairWeightComparator,topN);
+    final List<Util.MinResult<Pair<Long,Long>>> matches=new ArrayList<Util.MinResult<Pair<Long,Long>>>();
+    for (    Map.Entry<String,TwoLongs> e : slowCompletor.entrySet()) {
+      if (e.getKey().startsWith(prefix)) {
+        matches.add(new Util.MinResult<Pair<Long,Long>>(Util.toIntsRef(new BytesRef(e.getKey().substring(prefix.length())),new IntsRef()),outputs.newPair(e.getValue().a - prefixOutput.output1,e.getValue().b - prefixOutput.output2),minPairWeightComparator));
+      }
+    }
+    assertTrue(matches.size() > 0);
+    Collections.sort(matches);
+    if (matches.size() > topN) {
+      matches.subList(topN,matches.size()).clear();
+    }
+    assertEquals(matches.size(),r.length);
+    for (int hit=0; hit < r.length; hit++) {
+      assertEquals(matches.get(hit).input,r[hit].input);
+      assertEquals(matches.get(hit).output,r[hit].output);
+    }
+  }
+}

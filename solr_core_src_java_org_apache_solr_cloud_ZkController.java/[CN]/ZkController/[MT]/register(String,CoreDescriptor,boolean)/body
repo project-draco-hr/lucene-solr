@@ -12,6 +12,19 @@
     log.info("Register shard - core:" + coreName + " address:"+ baseUrl+ " shardId:"+ shardId);
   }
   ZkNodeProps leaderProps=new ZkNodeProps(props);
+  try {
+    joinElection(desc);
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+  }
+catch (  KeeperException e) {
+    throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+  }
+catch (  IOException e) {
+    throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+  }
   String leaderUrl=getLeaderProps(collection,cloudDesc.getShardId()).getCoreUrl();
   String cloudStateLeader=zkStateReader.getLeaderUrl(collection,cloudDesc.getShardId(),30000);
   int tries=0;
@@ -30,13 +43,14 @@
   if (cc != null) {
     try {
       core=cc.getCore(desc.getName());
-      if (isLeader) {
-        UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
-        if (!core.isReloaded() && ulog != null) {
-          Future<UpdateLog.RecoveryInfo> recoveryFuture=core.getUpdateHandler().getUpdateLog().recoverFromLog();
-          if (recoveryFuture != null) {
-            recoveryFuture.get();
-          }
+      UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
+      if (!core.isReloaded() && ulog != null) {
+        Future<UpdateLog.RecoveryInfo> recoveryFuture=core.getUpdateHandler().getUpdateLog().recoverFromLog();
+        if (recoveryFuture != null) {
+          recoveryFuture.get();
+        }
+ else {
+          log.info("No LogReplay needed for core=" + core.getName() + " baseURL="+ baseUrl);
         }
       }
       boolean didRecovery=checkRecovery(coreName,desc,recoverReloadedCores,isLeader,cloudDesc,collection,coreZkNodeName,shardId,leaderProps,core,cc);

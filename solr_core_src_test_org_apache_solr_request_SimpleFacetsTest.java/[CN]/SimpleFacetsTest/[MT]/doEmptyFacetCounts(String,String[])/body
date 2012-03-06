@@ -1,0 +1,38 @@
+{
+  SchemaField sf=h.getCore().getSchema().getField(field);
+  String response=JQ(req("q","*:*"));
+  Map rsp=(Map)ObjectBuilder.fromJSON(response);
+  Long numFound=(Long)(((Map)rsp.get("response")).get("numFound"));
+  ModifiableSolrParams params=params("q","*:*","rows","0","facet","true","facet.field","{!key=myalias}" + field);
+  String[] methods={null,"fc","enum","fcs"};
+  if (sf.multiValued() || sf.getType().multiValuedFieldCache()) {
+    methods=new String[]{null,"fc","enum"};
+  }
+  prefixes=prefixes == null ? new String[]{null} : prefixes;
+  for (  String method : methods) {
+    if (method == null) {
+      params.remove("facet.method");
+    }
+ else {
+      params.set("facet.method",method);
+    }
+    for (    String prefix : prefixes) {
+      if (prefix == null) {
+        params.remove("facet.prefix");
+      }
+ else {
+        params.set("facet.prefix",prefix);
+      }
+      for (      String missing : new String[]{null,"true"}) {
+        if (missing == null) {
+          params.remove("facet.missing");
+        }
+ else {
+          params.set("facet.missing",missing);
+        }
+        String expected=missing == null ? "[]" : "[null," + numFound + "]";
+        assertJQ(req(params),"/facet_counts/facet_fields/myalias==" + expected);
+      }
+    }
+  }
+}

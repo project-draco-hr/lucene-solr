@@ -1,13 +1,33 @@
 {
-  List<SolrServer> collectionClients=new ArrayList<SolrServer>();
+  final List<SolrServer> collectionClients=new ArrayList<SolrServer>();
   otherCollectionClients.put(collection,collectionClients);
   int unique=0;
-  for (  SolrServer client : clients) {
-    CommonsHttpSolrServer server=new CommonsHttpSolrServer(((CommonsHttpSolrServer)client).getBaseURL());
-    Create createCmd=new Create();
-    createCmd.setCoreName(collection);
-    createCmd.setDataDir(dataDir.getAbsolutePath() + File.separator + collection+ unique++);
-    server.request(createCmd);
+  for (  final SolrServer client : clients) {
+    unique++;
+    final int frozeUnique=unique;
+    Callable call=new Callable(){
+      public Object call(){
+        CommonsHttpSolrServer server;
+        try {
+          server=new CommonsHttpSolrServer(((CommonsHttpSolrServer)client).getBaseURL());
+          Create createCmd=new Create();
+          createCmd.setCoreName(collection);
+          createCmd.setDataDir(dataDir.getAbsolutePath() + File.separator + collection+ frozeUnique);
+          server.request(createCmd);
+        }
+ catch (        Exception e) {
+          e.printStackTrace();
+        }
+        return null;
+      }
+    }
+;
     collectionClients.add(createNewSolrServer(collection,((CommonsHttpSolrServer)client).getBaseURL()));
+    pending.add(completionService.submit(call));
+    while (pending != null && pending.size() > 0) {
+      Future<Request> future=completionService.take();
+      if (future == null)       return;
+      pending.remove(future);
+    }
   }
 }

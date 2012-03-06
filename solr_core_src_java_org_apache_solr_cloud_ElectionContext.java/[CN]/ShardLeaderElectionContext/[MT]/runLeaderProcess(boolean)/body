@@ -1,0 +1,35 @@
+{
+  if (cc != null) {
+    String coreName=leaderProps.get(ZkStateReader.CORE_NAME_PROP);
+    SolrCore core=null;
+    try {
+      core=cc.getCore(coreName);
+      if (core == null) {
+        cancelElection();
+        throw new SolrException(ErrorCode.SERVER_ERROR,"Fatal Error, SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+      }
+      if (weAreReplacement && !shouldIBeLeader(leaderProps)) {
+        rejoinLeaderElection(leaderSeqPath,core);
+        return;
+      }
+      if (weAreReplacement) {
+        if (zkClient.exists(leaderPath,true)) {
+          zkClient.delete(leaderPath,-1,true);
+        }
+        boolean success=syncStrategy.sync(zkController,core,leaderProps);
+        if (!success && anyoneElseActive()) {
+          rejoinLeaderElection(leaderSeqPath,core);
+          return;
+        }
+      }
+      core.getUpdateHandler().getSolrCoreState().cancelRecovery();
+      zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
+    }
+  finally {
+      if (core != null) {
+        core.close();
+      }
+    }
+  }
+  super.runLeaderProcess(weAreReplacement);
+}

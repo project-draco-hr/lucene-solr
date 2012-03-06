@@ -86,16 +86,19 @@
             shardHandler1.submit(sreq,shard,params);
           }
         }
+        boolean tolerant=rb.req.getParams().getBool(ShardParams.SHARDS_TOLERANT,false);
         while (rb.outgoing.size() == 0) {
-          ShardResponse srsp=shardHandler1.takeCompletedOrError();
+          ShardResponse srsp=tolerant ? shardHandler1.takeCompletedIncludingErrors() : shardHandler1.takeCompletedOrError();
           if (srsp == null)           break;
           if (srsp.getException() != null) {
-            shardHandler1.cancelAll();
-            if (srsp.getException() instanceof SolrException) {
-              throw (SolrException)srsp.getException();
-            }
+            if (!tolerant) {
+              shardHandler1.cancelAll();
+              if (srsp.getException() instanceof SolrException) {
+                throw (SolrException)srsp.getException();
+              }
  else {
-              throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,srsp.getException());
+                throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,srsp.getException());
+              }
             }
           }
           rb.finished.add(srsp.getShardRequest());

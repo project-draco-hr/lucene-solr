@@ -26,13 +26,28 @@
       if (!fieldToReader.containsKey(fieldInfo.name)) {
         fieldInfos.add(fieldInfo);
         fieldToReader.put(fieldInfo.name,reader);
-        this.fields.addField(fieldInfo.name,reader.terms(fieldInfo.name));
+        if (fieldInfo.storeTermVector) {
+          tvFieldToReader.put(fieldInfo.name,reader);
+        }
       }
     }
   }
-  if (!closeSubReaders) {
-    for (    AtomicReader reader : completeReaderSet) {
+  for (  final AtomicReader reader : this.parallelReaders) {
+    final Fields readerFields=reader.fields();
+    if (readerFields != null) {
+      final FieldsEnum it=readerFields.iterator();
+      String name;
+      while ((name=it.next()) != null) {
+        if (fieldToReader.get(name) == reader) {
+          this.fields.addField(name,it.terms());
+        }
+      }
+    }
+  }
+  for (  AtomicReader reader : completeReaderSet) {
+    if (!closeSubReaders) {
       reader.incRef();
     }
+    reader.registerParentReader(this);
   }
 }

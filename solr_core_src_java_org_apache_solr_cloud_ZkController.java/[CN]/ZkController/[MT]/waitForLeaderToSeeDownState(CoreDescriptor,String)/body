@@ -2,16 +2,25 @@
   CloudDescriptor cloudDesc=descriptor.getCloudDescriptor();
   String collection=cloudDesc.getCollectionName();
   String shard=cloudDesc.getShardId();
-  ZkCoreNodeProps leaderProps;
-  try {
-    leaderProps=getLeaderProps(collection,shard);
-  }
- catch (  InterruptedException e) {
-    Thread.currentThread().interrupt();
-    throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
-  }
-catch (  KeeperException e) {
-    throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+  ZkCoreNodeProps leaderProps=null;
+  int retries=6;
+  for (int i=0; i < retries; i++) {
+    try {
+      leaderProps=getLeaderProps(collection,shard);
+      break;
+    }
+ catch (    Exception e) {
+      SolrException.log(log,"There was a problem finding the leader in zk",e);
+      try {
+        Thread.sleep(2000);
+      }
+ catch (      InterruptedException e1) {
+        Thread.currentThread().interrupt();
+      }
+      if (i == retries - 1) {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"There was a problem finding the leader in zk");
+      }
+    }
   }
   String leaderBaseUrl=leaderProps.getBaseUrl();
   String leaderCoreName=leaderProps.getCoreName();
@@ -30,14 +39,27 @@ catch (  KeeperException e) {
     WaitForState prepCmd=new WaitForState();
     prepCmd.setCoreName(leaderCoreName);
     prepCmd.setNodeName(getNodeName());
-    prepCmd.setCoreNodeName(shardZkNodeName);
+    prepCmd.setCoreNodeName(coreZkNodeName);
     prepCmd.setState(ZkStateReader.DOWN);
-    prepCmd.setCheckLive(false);
-    try {
-      server.request(prepCmd);
-    }
- catch (    Exception e) {
-      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"Could not talk to the leader",e);
+    prepCmd.setPauseFor(0);
+    retries=6;
+    for (int i=0; i < retries; i++) {
+      try {
+        server.request(prepCmd);
+        break;
+      }
+ catch (      Exception e) {
+        SolrException.log(log,"There was a problem making a request to the leader",e);
+        try {
+          Thread.sleep(2000);
+        }
+ catch (        InterruptedException e1) {
+          Thread.currentThread().interrupt();
+        }
+        if (i == retries - 1) {
+          throw new SolrException(ErrorCode.SERVER_ERROR,"There was a problem making a request to the leader");
+        }
+      }
     }
     server.shutdown();
   }
