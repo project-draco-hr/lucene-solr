@@ -1,0 +1,54 @@
+{
+  if (segmentFacetCounts != null) {
+    segmentResults.add(createSegmentResult());
+  }
+  reuse=null;
+  groupFieldTermsIndex=FieldCache.DEFAULT.getTermsIndex(context.reader(),groupField);
+  facetFieldDocTermOrds=FieldCache.DEFAULT.getDocTermOrds(context.reader(),facetField);
+  facetOrdTermsEnum=facetFieldDocTermOrds.getOrdTermsEnum(context.reader());
+  segmentFacetCounts=new int[facetFieldDocTermOrds.numTerms() + 1];
+  segmentTotalCount=0;
+  segmentGroupedFacetHits.clear();
+  for (  GroupedFacetHit groupedFacetHit : groupedFacetHits) {
+    int groupOrd=groupFieldTermsIndex.binarySearchLookup(groupedFacetHit.groupValue,spare);
+    if (groupOrd < 0) {
+      continue;
+    }
+    int facetOrd;
+    if (groupedFacetHit.facetValue != null) {
+      if (!facetOrdTermsEnum.seekExact(groupedFacetHit.facetValue,true)) {
+        continue;
+      }
+      facetOrd=(int)facetOrdTermsEnum.ord();
+    }
+ else {
+      facetOrd=facetFieldDocTermOrds.numTerms();
+    }
+    int segmentGroupedFacetsIndex=(groupOrd * (facetFieldDocTermOrds.numTerms() + 1)) + facetOrd;
+    segmentGroupedFacetHits.put(segmentGroupedFacetsIndex);
+  }
+  if (facetPrefix != null) {
+    TermsEnum.SeekStatus seekStatus=facetOrdTermsEnum.seekCeil(facetPrefix,true);
+    if (seekStatus != TermsEnum.SeekStatus.END) {
+      startFacetOrd=(int)facetOrdTermsEnum.ord();
+    }
+ else {
+      startFacetOrd=0;
+      endFacetOrd=0;
+      return;
+    }
+    BytesRef facetEndPrefix=BytesRef.deepCopyOf(facetPrefix);
+    facetEndPrefix.append(UnicodeUtil.BIG_TERM);
+    seekStatus=facetOrdTermsEnum.seekCeil(facetEndPrefix,true);
+    if (seekStatus != TermsEnum.SeekStatus.END) {
+      endFacetOrd=(int)facetOrdTermsEnum.ord();
+    }
+ else {
+      endFacetOrd=facetFieldDocTermOrds.numTerms();
+    }
+  }
+ else {
+    startFacetOrd=0;
+    endFacetOrd=facetFieldDocTermOrds.numTerms() + 1;
+  }
+}
