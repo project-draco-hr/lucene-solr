@@ -1,0 +1,22 @@
+{
+  GroupingSpecification groupingSpecification=rb.getGroupingSpec();
+  String groupField=groupingSpecification != null ? groupingSpecification.getFields()[0] : null;
+  if (groupField == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Specify the group.field as parameter or local parameter");
+  }
+  BytesRef prefixBR=prefix != null ? new BytesRef(prefix) : null;
+  TermGroupFacetCollector collector=TermGroupFacetCollector.createTermGroupFacetCollector(groupField,field,multiToken,prefixBR,128);
+  searcher.search(new MatchAllDocsQuery(),base.getTopFilter(),collector);
+  boolean orderByCount=sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY);
+  TermGroupFacetCollector.GroupedFacetResult result=collector.mergeSegmentResults(offset + limit,mincount,orderByCount);
+  NamedList<Integer> facetCounts=new NamedList<Integer>();
+  List<TermGroupFacetCollector.FacetEntry> scopedEntries=result.getFacetEntries(offset,limit);
+  for (  TermGroupFacetCollector.FacetEntry facetEntry : scopedEntries) {
+    String facetDisplayValue=facetEntry.getValue().utf8ToString();
+    facetCounts.add(facetDisplayValue,facetEntry.getCount());
+  }
+  if (missing) {
+    facetCounts.add(null,result.getTotalMissingCount());
+  }
+  return facetCounts;
+}
