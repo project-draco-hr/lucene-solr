@@ -1,0 +1,83 @@
+{
+  final FunctionValues amounts=amountValues.getValues(context,reader);
+  final FunctionValues currencies=currencyValues.getValues(context,reader);
+  return new FunctionValues(){
+    private final int MAX_CURRENCIES_TO_CACHE=256;
+    private final int[] fractionDigitCache=new int[MAX_CURRENCIES_TO_CACHE];
+    private final String[] currencyOrdToCurrencyCache=new String[MAX_CURRENCIES_TO_CACHE];
+    private final double[] exchangeRateCache=new double[MAX_CURRENCIES_TO_CACHE];
+    private int targetFractionDigits=-1;
+    private int targetCurrencyOrd=-1;
+    private boolean initializedCache;
+    private String getDocCurrencyCode(    int doc,    int currencyOrd){
+      if (currencyOrd < MAX_CURRENCIES_TO_CACHE) {
+        String currency=currencyOrdToCurrencyCache[currencyOrd];
+        if (currency == null) {
+          currencyOrdToCurrencyCache[currencyOrd]=currency=currencies.strVal(doc);
+        }
+        if (currency == null) {
+          currency=defaultCurrency;
+        }
+        if (targetCurrencyOrd == -1 && currency.equals(targetCurrencyCode)) {
+          targetCurrencyOrd=currencyOrd;
+        }
+        return currency;
+      }
+ else {
+        return currencies.strVal(doc);
+      }
+    }
+    public long longVal(    int doc){
+      if (!initializedCache) {
+        for (int i=0; i < fractionDigitCache.length; i++) {
+          fractionDigitCache[i]=-1;
+        }
+        initializedCache=true;
+      }
+      long amount=amounts.longVal(doc);
+      int currencyOrd=currencies.ordVal(doc);
+      if (currencyOrd == targetCurrencyOrd) {
+        return amount;
+      }
+      double exchangeRate;
+      int sourceFractionDigits;
+      if (targetFractionDigits == -1) {
+        targetFractionDigits=Currency.getInstance(targetCurrencyCode).getDefaultFractionDigits();
+      }
+      if (currencyOrd < MAX_CURRENCIES_TO_CACHE) {
+        exchangeRate=exchangeRateCache[currencyOrd];
+        if (exchangeRate <= 0.0) {
+          String sourceCurrencyCode=getDocCurrencyCode(doc,currencyOrd);
+          exchangeRate=exchangeRateCache[currencyOrd]=provider.getExchangeRate(sourceCurrencyCode,targetCurrencyCode);
+        }
+        sourceFractionDigits=fractionDigitCache[currencyOrd];
+        if (sourceFractionDigits == -1) {
+          String sourceCurrencyCode=getDocCurrencyCode(doc,currencyOrd);
+          sourceFractionDigits=fractionDigitCache[currencyOrd]=Currency.getInstance(sourceCurrencyCode).getDefaultFractionDigits();
+        }
+      }
+ else {
+        String sourceCurrencyCode=getDocCurrencyCode(doc,currencyOrd);
+        exchangeRate=provider.getExchangeRate(sourceCurrencyCode,targetCurrencyCode);
+        sourceFractionDigits=Currency.getInstance(sourceCurrencyCode).getDefaultFractionDigits();
+      }
+      return CurrencyValue.convertAmount(exchangeRate,sourceFractionDigits,amount,targetFractionDigits);
+    }
+    public int intVal(    int doc){
+      return (int)longVal(doc);
+    }
+    public double doubleVal(    int doc){
+      return (double)longVal(doc);
+    }
+    public float floatVal(    int doc){
+      return (float)longVal(doc);
+    }
+    public String strVal(    int doc){
+      return Long.toString(longVal(doc));
+    }
+    public String toString(    int doc){
+      return name() + '(' + amounts.toString(doc)+ ','+ currencies.toString(doc)+ ')';
+    }
+  }
+;
+}
