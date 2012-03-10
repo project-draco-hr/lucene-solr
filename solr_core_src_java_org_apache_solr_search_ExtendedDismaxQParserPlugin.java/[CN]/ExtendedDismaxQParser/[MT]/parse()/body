@@ -1,8 +1,9 @@
 {
   SolrParams localParams=getLocalParams();
   SolrParams params=getParams();
-  SolrParams solrParams=SolrParams.wrapDefaults(localParams,params);
+  solrParams=SolrParams.wrapDefaults(localParams,params);
   final String minShouldMatch=DisMaxQParser.parseMinShouldMatch(req.getSchema(),solrParams);
+  userFields=new UserFields(U.parseFieldBoosts(solrParams.getParams(DMP.UF)));
   queryFields=SolrPluginUtils.parseFieldBoosts(solrParams.getParams(DisMaxParams.QF));
   if (0 == queryFields.size()) {
     queryFields.put(req.getSchema().getDefaultSearchFieldName(),1.0f);
@@ -34,67 +35,47 @@
     String mainUserQuery=userQuery;
     ExtendedSolrQueryParser up=new ExtendedSolrQueryParser(this,IMPOSSIBLE_FIELD_NAME);
     up.addAlias(IMPOSSIBLE_FIELD_NAME,tiebreaker,queryFields);
+    addAliasesFromRequest(up,tiebreaker);
     up.setPhraseSlop(qslop);
     up.setAllowLeadingWildcard(true);
     List<Clause> clauses=null;
-    boolean specialSyntax=false;
     int numPluses=0;
     int numMinuses=0;
-    int numOptional=0;
-    int numAND=0;
     int numOR=0;
     int numNOT=0;
-    boolean sawLowerAnd=false;
-    boolean sawLowerOr=false;
     clauses=splitIntoClauses(userQuery,false);
     for (    Clause clause : clauses) {
-      if (!clause.isPhrase && clause.hasSpecialSyntax) {
-        specialSyntax=true;
-      }
       if (clause.must == '+')       numPluses++;
       if (clause.must == '-')       numMinuses++;
       if (clause.isBareWord()) {
         String s=clause.val;
-        if ("AND".equals(s)) {
-          numAND++;
-        }
- else         if ("OR".equals(s)) {
+        if ("OR".equals(s)) {
           numOR++;
         }
  else         if ("NOT".equals(s)) {
           numNOT++;
         }
- else         if (lowercaseOperators) {
-          if ("and".equals(s)) {
-            numAND++;
-            sawLowerAnd=true;
-          }
- else           if ("or".equals(s)) {
-            numOR++;
-            sawLowerOr=true;
-          }
+ else         if (lowercaseOperators && "or".equals(s)) {
+          numOR++;
         }
       }
     }
-    numOptional=clauses.size() - (numPluses + numMinuses);
-    if (sawLowerAnd || sawLowerOr) {
-      StringBuilder sb=new StringBuilder();
-      for (int i=0; i < clauses.size(); i++) {
-        Clause clause=clauses.get(i);
-        String s=clause.raw;
-        if (i > 0 && i + 1 < clauses.size()) {
-          if ("AND".equalsIgnoreCase(s)) {
-            s="AND";
-          }
- else           if ("OR".equalsIgnoreCase(s)) {
-            s="OR";
-          }
+    StringBuilder sb=new StringBuilder();
+    for (int i=0; i < clauses.size(); i++) {
+      Clause clause=clauses.get(i);
+      String s=clause.raw;
+      if (i > 0 && i + 1 < clauses.size()) {
+        if ("AND".equalsIgnoreCase(s)) {
+          s="AND";
         }
-        sb.append(s);
-        sb.append(' ');
+ else         if ("OR".equalsIgnoreCase(s)) {
+          s="OR";
+        }
       }
-      mainUserQuery=sb.toString();
+      sb.append(s);
+      sb.append(' ');
     }
+    mainUserQuery=sb.toString();
     boolean doMinMatched=(numOR + numNOT + numPluses+ numMinuses) == 0;
     try {
       up.setRemoveStopFilter(!stopwords);
@@ -114,7 +95,7 @@
       }
     }
     if (parsedUserQuery == null) {
-      StringBuilder sb=new StringBuilder();
+      sb=new StringBuilder();
       for (      Clause clause : clauses) {
         boolean doQuote=clause.isPhrase;
         String s=clause.val;
@@ -134,6 +115,10 @@
         sb.append(clause.val);
         if (doQuote) {
           sb.append('"');
+        }
+        if (clause.field != null) {
+          Float boost=userFields.getBoost(clause.field);
+          if (boost != null)           sb.append("^").append(boost);
         }
         sb.append(' ');
       }
