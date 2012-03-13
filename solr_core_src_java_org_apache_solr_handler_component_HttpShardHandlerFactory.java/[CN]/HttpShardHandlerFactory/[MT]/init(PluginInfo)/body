@@ -1,26 +1,22 @@
 {
-  if (info.initArgs != null) {
-    Object so=info.initArgs.get(INIT_SO_TIMEOUT);
-    if (so != null) {
-      soTimeout=(Integer)so;
-      log.info("Setting socketTimeout to: " + soTimeout);
-    }
-    Object urlScheme=info.initArgs.get(INIT_URL_SCHEME);
-    if (urlScheme != null) {
-      scheme=urlScheme + "://";
-      log.info("Setting urlScheme to: " + urlScheme);
-    }
-    Object co=info.initArgs.get(INIT_CONNECTION_TIMEOUT);
-    if (co != null) {
-      connectionTimeout=(Integer)co;
-      log.info("Setting shard-connection-timeout to: " + connectionTimeout);
-    }
-  }
+  NamedList args=info.initArgs;
+  this.soTimeout=getParameter(args,INIT_SO_TIMEOUT,0);
+  this.scheme=getParameter(args,INIT_URL_SCHEME,"http://");
+  this.scheme=(this.scheme.endsWith("://")) ? this.scheme : this.scheme + "://";
+  this.connectionTimeout=getParameter(args,INIT_CONNECTION_TIMEOUT,0);
+  this.maxConnectionsPerHost=getParameter(args,INIT_MAX_CONNECTION_PER_HOST,20);
+  this.corePoolSize=getParameter(args,INIT_CORE_POOL_SIZE,0);
+  this.maximumPoolSize=getParameter(args,INIT_MAX_POOL_SIZE,Integer.MAX_VALUE);
+  this.keepAliveTime=getParameter(args,MAX_THREAD_IDLE_TIME,5);
+  this.queueSize=getParameter(args,INIT_SIZE_OF_QUEUE,-1);
+  this.accessPolicy=getParameter(args,INIT_FAIRNESS_POLICY,false);
+  BlockingQueue<Runnable> blockingQueue=(this.queueSize == -1) ? new SynchronousQueue<Runnable>(this.accessPolicy) : new ArrayBlockingQueue<Runnable>(this.queueSize,this.accessPolicy);
+  this.commExecutor=new ThreadPoolExecutor(this.corePoolSize,this.maximumPoolSize,this.keepAliveTime,TimeUnit.SECONDS,blockingQueue,new DefaultSolrThreadFactory("httpShardExecutor"));
   mgr=new MultiThreadedHttpConnectionManager();
-  mgr.getParams().setDefaultMaxConnectionsPerHost(256);
+  mgr.getParams().setDefaultMaxConnectionsPerHost(this.maxConnectionsPerHost);
   mgr.getParams().setMaxTotalConnections(10000);
-  mgr.getParams().setConnectionTimeout(connectionTimeout);
-  mgr.getParams().setSoTimeout(soTimeout);
+  mgr.getParams().setConnectionTimeout(this.connectionTimeout);
+  mgr.getParams().setSoTimeout(this.soTimeout);
   client=new HttpClient(mgr);
   DefaultHttpMethodRetryHandler retryhandler=new DefaultHttpMethodRetryHandler(0,false);
   client.getParams().setParameter(HttpMethodParams.RETRY_HANDLER,retryhandler);
