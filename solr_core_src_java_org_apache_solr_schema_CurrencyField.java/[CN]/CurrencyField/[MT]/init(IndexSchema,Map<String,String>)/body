@@ -1,0 +1,44 @@
+{
+  super.init(schema,args);
+  this.schema=schema;
+  this.exchangeRateProviderClass=args.get(PARAM_RATE_PROVIDER_CLASS);
+  this.defaultCurrency=args.get(PARAM_DEFAULT_CURRENCY);
+  if (this.defaultCurrency == null) {
+    this.defaultCurrency=DEFAULT_DEFAULT_CURRENCY;
+  }
+  if (this.exchangeRateProviderClass == null) {
+    this.exchangeRateProviderClass=DEFAULT_RATE_PROVIDER_CLASS;
+  }
+  if (java.util.Currency.getInstance(this.defaultCurrency) == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid currency code " + this.defaultCurrency);
+  }
+  String precisionStepString=args.get(PARAM_PRECISION_STEP);
+  if (precisionStepString == null) {
+    precisionStepString=DEFAULT_PRECISION_STEP;
+  }
+  fieldTypeAmountRaw=new TrieLongField();
+  fieldTypeAmountRaw.setTypeName("amount_raw_type_tlong");
+  Map<String,String> map=new HashMap<String,String>(1);
+  map.put("precisionStep",precisionStepString);
+  fieldTypeAmountRaw.init(schema,map);
+  fieldTypeCurrency=new StrField();
+  fieldTypeCurrency.setTypeName("currency_type_string");
+  fieldTypeCurrency.init(schema,new HashMap<String,String>());
+  args.remove(PARAM_RATE_PROVIDER_CLASS);
+  args.remove(PARAM_DEFAULT_CURRENCY);
+  args.remove(PARAM_PRECISION_STEP);
+  try {
+    Class<?> c=Class.forName(exchangeRateProviderClass);
+    Object clazz=c.newInstance();
+    if (clazz instanceof ExchangeRateProvider) {
+      provider=(ExchangeRateProvider)clazz;
+      provider.init(args);
+    }
+ else {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"exchangeRateProvider " + exchangeRateProviderClass + " needs to implement ExchangeRateProvider");
+    }
+  }
+ catch (  Exception e) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Error instansiating exhange rate provider " + exchangeRateProviderClass + ". Please check your FieldType configuration",e);
+  }
+}

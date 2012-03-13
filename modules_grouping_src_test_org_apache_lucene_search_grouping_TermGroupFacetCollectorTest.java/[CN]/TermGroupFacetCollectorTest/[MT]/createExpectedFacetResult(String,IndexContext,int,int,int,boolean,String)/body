@@ -1,0 +1,62 @@
+{
+  Map<String,Set<String>> facetGroups=context.searchTermToFacetGroups.get(searchTerm);
+  if (facetGroups == null) {
+    facetGroups=new HashMap<String,Set<String>>();
+  }
+  int totalCount=0;
+  int totalMissCount=0;
+  Set<String> facetValues;
+  if (facetPrefix != null) {
+    facetValues=new HashSet<String>();
+    for (    String facetValue : context.facetValues) {
+      if (facetValue != null && facetValue.startsWith(facetPrefix)) {
+        facetValues.add(facetValue);
+      }
+    }
+  }
+ else {
+    facetValues=context.facetValues;
+  }
+  List<TermGroupFacetCollector.FacetEntry> entries=new ArrayList<TermGroupFacetCollector.FacetEntry>(facetGroups.size());
+  for (  String facetValue : facetValues) {
+    if (facetValue == null) {
+      continue;
+    }
+    Set<String> groups=facetGroups.get(facetValue);
+    int count=groups != null ? groups.size() : 0;
+    if (count >= minCount) {
+      entries.add(new TermGroupFacetCollector.FacetEntry(new BytesRef(facetValue),count));
+    }
+    totalCount+=count;
+  }
+  if (facetPrefix == null) {
+    Set<String> groups=facetGroups.get(null);
+    if (groups != null) {
+      totalMissCount=groups.size();
+    }
+  }
+  Collections.sort(entries,new Comparator<TermGroupFacetCollector.FacetEntry>(){
+    public int compare(    TermGroupFacetCollector.FacetEntry a,    TermGroupFacetCollector.FacetEntry b){
+      if (orderByCount) {
+        int cmp=b.getCount() - a.getCount();
+        if (cmp != 0) {
+          return cmp;
+        }
+      }
+      return a.getValue().compareTo(b.getValue());
+    }
+  }
+);
+  int endOffset=offset + limit;
+  List<TermGroupFacetCollector.FacetEntry> entriesResult;
+  if (offset >= entries.size()) {
+    entriesResult=Collections.emptyList();
+  }
+ else   if (endOffset >= entries.size()) {
+    entriesResult=entries.subList(offset,entries.size());
+  }
+ else {
+    entriesResult=entries.subList(offset,endOffset);
+  }
+  return new GroupedFacetResult(totalCount,totalMissCount,entriesResult);
+}
