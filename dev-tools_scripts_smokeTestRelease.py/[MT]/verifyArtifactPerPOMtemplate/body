@@ -1,0 +1,20 @@
+def verifyArtifactPerPOMtemplate(POMtemplates, artifacts, tmpDir, version):
+    "verify that each POM template's artifact is present in artifacts"
+    namespace = '{http://maven.apache.org/POM/4.0.0}'
+    xpathPlugin = '{0}build/{0}plugins/{0}plugin'.format(namespace)
+    xpathSkipConfiguration = '{0}configuration/{0}skip'.format(namespace)
+    for project in ('lucene', 'solr'):
+        for POMtemplate in POMtemplates[project]:
+            treeRoot = ET.parse(POMtemplate).getroot()
+            skipDeploy = False
+            for plugin in treeRoot.findall(xpathPlugin):
+                artifactId = plugin.find(('%sartifactId' % namespace)).text.strip()
+                if (artifactId == 'maven-deploy-plugin'):
+                    skip = plugin.find(xpathSkipConfiguration)
+                    if (skip is not None):
+                        skipDeploy = (skip.text.strip().lower() == 'true')
+            if (not skipDeploy):
+                (groupId, artifactId, packaging, POMversion) = getPOMcoordinate(treeRoot)
+                artifact = ('%s/maven/%s/%s/%s/%s-%s.%s' % (tmpDir, groupId.replace('.', '/'), artifactId, version, artifactId, version, packaging))
+                if ((artifact not in artifacts['lucene']) and (artifact not in artifacts['solr'])):
+                    raise RuntimeError(('Missing artifact %s' % artifact))

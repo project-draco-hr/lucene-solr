@@ -1,0 +1,44 @@
+def checkMaven(baseURL, tmpDir, version):
+    m = re.match('(\\d+)\\.(\\d+)', version)
+    releaseBranchText = ('lucene_solr_%s_%s/' % (m.group(1), m.group(2)))
+    branchesURL = 'http://svn.apache.org/repos/asf/lucene/dev/branches/'
+    releaseBranchSvnURL = None
+    branches = getDirEntries(branchesURL)
+    for (text, subURL) in branches:
+        if (text == releaseBranchText):
+            releaseBranchSvnURL = subURL
+    if (releaseBranchSvnURL is None):
+        raise RuntimeError(('Release branch %s%s not found' % (branchesURL, releaseBranchText)))
+    print '    download POM templates',
+    POMtemplates = defaultdict()
+    getPOMtemplates(POMtemplates, tmpDir, releaseBranchSvnURL)
+    print 
+    print '    download artifacts',
+    artifacts = {'lucene': [], 'solr': [], }
+    for project in ('lucene', 'solr'):
+        artifactsURL = ('%s/%s/maven/org/apache/%s' % (baseURL, project, project))
+        targetDir = ('%s/maven/org/apache/%s' % (tmpDir, project))
+        if (not os.path.exists(targetDir)):
+            os.makedirs(targetDir)
+        crawl(artifacts[project], artifactsURL, targetDir)
+    print 
+    print '    verify that each binary artifact has a deployed POM...'
+    verifyPOMperBinaryArtifact(artifacts, version)
+    print '    verify that there is an artifact for each POM template...'
+    verifyArtifactPerPOMtemplate(POMtemplates, artifacts, tmpDir, version)
+    print "    verify Maven artifacts' md5/sha1 digests..."
+    verifyMavenDigests(artifacts)
+    print '    verify that all non-Mavenized deps are deployed...'
+    nonMavenizedDeps = dict()
+    checkNonMavenizedDeps(nonMavenizedDeps, POMtemplates, artifacts, tmpDir, version, releaseBranchSvnURL)
+    print '    check for javadoc and sources artifacts...'
+    checkJavadocAndSourceArtifacts(nonMavenizedDeps, artifacts, version)
+    print "    verify deployed POMs' coordinates..."
+    verifyDeployedPOMsCoordinates(artifacts, version)
+    print '    verify maven artifact sigs',
+    verifyMavenSigs(baseURL, tmpDir, artifacts)
+    distributionFiles = getDistributionsForMavenChecks(tmpDir, version, baseURL)
+    print '    verify that non-Mavenized deps are same as in the binary distribution...'
+    checkIdenticalNonMavenizedDeps(distributionFiles, nonMavenizedDeps)
+    print '    verify that Maven artifacts are same as in the binary distribution...'
+    checkIdenticalMavenArtifacts(distributionFiles, nonMavenizedDeps, artifacts)
