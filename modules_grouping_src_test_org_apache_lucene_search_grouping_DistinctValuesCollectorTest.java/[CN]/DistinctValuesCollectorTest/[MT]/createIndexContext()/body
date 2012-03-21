@@ -1,0 +1,46 @@
+{
+  DocValues.Type[] dvTypes=new DocValues.Type[]{DocValues.Type.BYTES_VAR_STRAIGHT,DocValues.Type.BYTES_VAR_SORTED};
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random,dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random)).setMergePolicy(newLogMergePolicy()));
+  boolean canUseDV=!"Lucene3x".equals(w.w.getConfig().getCodec().getName());
+  DocValues.Type dvType=canUseDV ? dvTypes[random.nextInt(dvTypes.length)] : null;
+  int numDocs=86 + random.nextInt(1087) * RANDOM_MULTIPLIER;
+  String[] groupValues=new String[numDocs / 5];
+  String[] countValues=new String[numDocs / 10];
+  for (int i=0; i < groupValues.length; i++) {
+    groupValues[i]=generateRandomNonEmptyString();
+  }
+  for (int i=0; i < countValues.length; i++) {
+    countValues[i]=generateRandomNonEmptyString();
+  }
+  List<String> contentStrings=new ArrayList<String>();
+  Map<String,Map<String,Set<String>>> searchTermToGroupCounts=new HashMap<String,Map<String,Set<String>>>();
+  for (int i=1; i <= numDocs; i++) {
+    String groupValue=random.nextInt(23) == 14 ? null : groupValues[random.nextInt(groupValues.length)];
+    String countValue=random.nextInt(21) == 13 ? null : countValues[random.nextInt(countValues.length)];
+    String content="random" + random.nextInt(numDocs / 20);
+    Map<String,Set<String>> groupToCounts=searchTermToGroupCounts.get(content);
+    if (groupToCounts == null) {
+      searchTermToGroupCounts.put(content,groupToCounts=new LinkedHashMap<String,Set<String>>());
+      contentStrings.add(content);
+    }
+    Set<String> countsVals=groupToCounts.get(groupValue);
+    if (countsVals == null) {
+      groupToCounts.put(groupValue,countsVals=new HashSet<String>());
+    }
+    countsVals.add(countValue);
+    Document doc=new Document();
+    doc.add(new Field("id",String.format("%09d",i),StringField.TYPE_UNSTORED));
+    if (groupValue != null) {
+      addField(doc,groupField,groupValue,dvType);
+    }
+    if (countValue != null) {
+      addField(doc,countField,countValue,dvType);
+    }
+    doc.add(new Field("content",content,TextField.TYPE_UNSTORED));
+    w.addDocument(doc);
+  }
+  DirectoryReader reader=w.getReader();
+  w.close();
+  return new IndexContext(dir,reader,dvType,searchTermToGroupCounts,contentStrings.toArray(new String[contentStrings.size()]));
+}

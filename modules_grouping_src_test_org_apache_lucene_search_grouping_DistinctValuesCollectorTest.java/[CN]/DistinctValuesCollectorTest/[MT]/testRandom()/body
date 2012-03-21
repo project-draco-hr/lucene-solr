@@ -1,0 +1,41 @@
+{
+  int numberOfRuns=_TestUtil.nextInt(random,3,6);
+  for (int indexIter=0; indexIter < numberOfRuns; indexIter++) {
+    IndexContext context=createIndexContext();
+    for (int searchIter=0; searchIter < 100; searchIter++) {
+      final IndexSearcher searcher=newSearcher(context.indexReader);
+      boolean useDv=context.dvType != null && random.nextBoolean();
+      DocValues.Type dvType=useDv ? context.dvType : null;
+      String term=context.contentStrings[random.nextInt(context.contentStrings.length)];
+      Sort groupSort=new Sort(new SortField("id",SortField.Type.STRING));
+      int topN=1 + random.nextInt(10);
+      List<AbstractDistinctValuesCollector.GroupCount<Comparable<?>>> expectedResult=createExpectedResult(context,term,groupSort,topN);
+      AbstractFirstPassGroupingCollector<Comparable<?>> firstCollector=createRandomFirstPassCollector(dvType,groupSort,groupField,topN);
+      searcher.search(new TermQuery(new Term("content",term)),firstCollector);
+      AbstractDistinctValuesCollector<? extends AbstractDistinctValuesCollector.GroupCount<Comparable<?>>> distinctValuesCollector=createDistinctCountCollector(firstCollector,groupField,countField,dvType);
+      searcher.search(new TermQuery(new Term("content",term)),distinctValuesCollector);
+      @SuppressWarnings("unchecked") List<AbstractDistinctValuesCollector.GroupCount<Comparable<?>>> actualResult=(List<AbstractDistinctValuesCollector.GroupCount<Comparable<?>>>)distinctValuesCollector.getGroups();
+      if (VERBOSE) {
+        System.out.println("Index iter=" + indexIter);
+        System.out.println("Search iter=" + searchIter);
+        System.out.println("Collector class name=" + distinctValuesCollector.getClass().getName());
+      }
+      assertEquals(expectedResult.size(),actualResult.size());
+      for (int i=0; i < expectedResult.size(); i++) {
+        AbstractDistinctValuesCollector.GroupCount<Comparable<?>> expected=expectedResult.get(i);
+        AbstractDistinctValuesCollector.GroupCount<Comparable<?>> actual=actualResult.get(i);
+        assertValues(expected.groupValue,actual.groupValue);
+        assertEquals(expected.uniqueValues.size(),actual.uniqueValues.size());
+        List<Comparable<?>> expectedUniqueValues=new ArrayList<Comparable<?>>(expected.uniqueValues);
+        Collections.sort(expectedUniqueValues,nullComparator);
+        List<Comparable<?>> actualUniqueValues=new ArrayList<Comparable<?>>(actual.uniqueValues);
+        Collections.sort(actualUniqueValues,nullComparator);
+        for (int j=0; j < expected.uniqueValues.size(); j++) {
+          assertValues(expectedUniqueValues.get(j),actualUniqueValues.get(j));
+        }
+      }
+    }
+    context.indexReader.close();
+    context.directory.close();
+  }
+}
