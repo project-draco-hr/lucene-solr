@@ -1,0 +1,57 @@
+{
+  final IdentityHashSet<Object> seen=new IdentityHashSet<Object>();
+  final IdentityHashMap<Class<?>,ClassCache> classCache=new IdentityHashMap<Class<?>,ClassCache>();
+  final ArrayList<Object> stack=new ArrayList<Object>();
+  stack.add(root);
+  long totalSize=0;
+  while (!stack.isEmpty()) {
+    final Object ob=stack.remove(stack.size() - 1);
+    if (ob == null || seen.contains(ob)) {
+      continue;
+    }
+    seen.add(ob);
+    final Class<?> obClazz=ob.getClass();
+    if (obClazz.isArray()) {
+      long size=NUM_BYTES_ARRAY_HEADER;
+      final int len=Array.getLength(ob);
+      if (len > 0) {
+        Class<?> componentClazz=obClazz.getComponentType();
+        if (componentClazz.isPrimitive()) {
+          size+=(long)len * primitiveSizes.get(componentClazz);
+        }
+ else {
+          size+=(long)NUM_BYTES_OBJECT_REF * len;
+          for (int i=len; --i >= 0; ) {
+            final Object o=Array.get(ob,i);
+            if (o != null && !seen.contains(o)) {
+              stack.add(o);
+            }
+          }
+        }
+      }
+      totalSize+=alignObjectSize(size);
+    }
+ else {
+      try {
+        ClassCache cachedInfo=classCache.get(obClazz);
+        if (cachedInfo == null) {
+          classCache.put(obClazz,cachedInfo=createCacheEntry(obClazz));
+        }
+        for (        Field f : cachedInfo.referenceFields) {
+          final Object o=f.get(ob);
+          if (o != null && !seen.contains(o)) {
+            stack.add(o);
+          }
+        }
+        totalSize+=cachedInfo.alignedShallowInstanceSize;
+      }
+ catch (      IllegalAccessException e) {
+        throw new RuntimeException("Reflective field access failed?",e);
+      }
+    }
+  }
+  seen.clear();
+  stack.clear();
+  classCache.clear();
+  return totalSize;
+}
