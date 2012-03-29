@@ -1,0 +1,91 @@
+{
+  runnerLock.lock();
+  log.info("starting runner: {}",this);
+  HttpPost method=null;
+  HttpResponse response=null;
+  try {
+    while (!queue.isEmpty()) {
+      try {
+        final UpdateRequest updateRequest=queue.poll(250,TimeUnit.MILLISECONDS);
+        if (updateRequest == null)         break;
+        EntityTemplate template=new EntityTemplate(new ContentProducer(){
+          public void writeTo(          OutputStream out) throws IOException {
+            try {
+              if (ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType())) {
+                out.write("<stream>".getBytes("UTF-8"));
+              }
+              UpdateRequest req=updateRequest;
+              while (req != null) {
+                server.requestWriter.write(req,out);
+                if (ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType())) {
+                  SolrParams params=req.getParams();
+                  if (params != null) {
+                    String fmt=null;
+                    if (params.getBool(UpdateParams.OPTIMIZE,false)) {
+                      fmt="<optimize waitSearcher=\"%s\" waitFlush=\"%s\" />";
+                    }
+ else                     if (params.getBool(UpdateParams.COMMIT,false)) {
+                      fmt="<commit waitSearcher=\"%s\" waitFlush=\"%s\" />";
+                    }
+                    if (fmt != null) {
+                      byte[] content=String.format(fmt,params.getBool(UpdateParams.WAIT_SEARCHER,false) + "").getBytes("UTF-8");
+                      out.write(content);
+                    }
+                  }
+                }
+                out.flush();
+                req=queue.poll(250,TimeUnit.MILLISECONDS);
+              }
+              if (ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType())) {
+                out.write("</stream>".getBytes("UTF-8"));
+              }
+            }
+ catch (            InterruptedException e) {
+              e.printStackTrace();
+            }
+          }
+        }
+);
+        String path=ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType()) ? "/update" : "/update/javabin";
+        method=new HttpPost(server.getBaseURL() + path);
+        method.setEntity(template);
+        method.addHeader("User-Agent",HttpSolrServer.AGENT);
+        response=server.getHttpClient().execute(method);
+        int statusCode=response.getStatusLine().getStatusCode();
+        log.info("Status for: " + updateRequest.getDocuments().get(0).getFieldValue("id") + " is "+ statusCode);
+        if (statusCode != HttpStatus.SC_OK) {
+          StringBuilder msg=new StringBuilder();
+          msg.append(response.getStatusLine().getReasonPhrase());
+          msg.append("\n\n");
+          msg.append("\n\n");
+          msg.append("request: ").append(method.getURI());
+          handleError(new Exception(msg.toString()));
+        }
+      }
+  finally {
+        try {
+          if (response != null) {
+            response.getEntity().getContent().close();
+          }
+        }
+ catch (        Exception ex) {
+        }
+      }
+    }
+  }
+ catch (  Throwable e) {
+    handleError(e);
+  }
+ finally {
+synchronized (runners) {
+      if (runners.size() == 1 && queue.remainingCapacity() == 0) {
+        scheduler.execute(this);
+      }
+ else {
+        runners.remove(this);
+      }
+    }
+    log.info("finished: {}",this);
+    runnerLock.unlock();
+  }
+}

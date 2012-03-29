@@ -1,0 +1,129 @@
+{
+  HttpRequestBase method=null;
+  SolrParams params=request.getParams();
+  String path=requestWriter.getPath(request);
+  if (path == null || !path.startsWith("/")) {
+    path=DEFAULT_PATH;
+  }
+  ResponseParser parser=request.getResponseParser();
+  if (parser == null) {
+    parser=this.parser;
+  }
+  ModifiableSolrParams wparams=new ModifiableSolrParams(params);
+  wparams.set(CommonParams.WT,parser.getWriterType());
+  wparams.set(CommonParams.VERSION,parser.getVersion());
+  if (invariantParams != null) {
+    wparams.add(invariantParams);
+  }
+  params=wparams;
+  int tries=maxRetries + 1;
+  try {
+    while (tries-- > 0) {
+      Collection<ContentStream> streams=requestWriter.getContentStreams(request);
+      try {
+        if (SolrRequest.METHOD.GET == request.getMethod()) {
+          if (streams != null) {
+            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"GET can't send streams!");
+          }
+          method=new HttpGet(baseUrl + path + ClientUtils.toQueryString(params,false));
+        }
+ else         if (SolrRequest.METHOD.POST == request.getMethod()) {
+          String url=baseUrl + path;
+          MultipartEntity entity=new MultipartEntity(HttpMultipartMode.BROWSER_COMPATIBLE);
+          final HttpPost post=new HttpPost(url);
+          final Iterator<String> iter=params.getParameterNamesIterator();
+          if (iter.hasNext()) {
+            while (iter.hasNext()) {
+              final String name=iter.next();
+              final String[] vals=params.getParams(name);
+              if (vals != null) {
+                for (                String value : vals) {
+                  entity.addPart(name,new StringBody(value));
+                }
+              }
+            }
+          }
+          addParts(streams,entity);
+          post.setEntity(entity);
+          method=post;
+        }
+ else {
+          throw new SolrServerException("Unsupported method: " + request.getMethod());
+        }
+      }
+ catch (      RuntimeException r) {
+        if ((tries < 1)) {
+          throw r;
+        }
+      }
+    }
+  }
+ catch (  IOException ex) {
+    throw new SolrServerException("error reading streams",ex);
+  }
+  method.getParams().setParameter(ClientPNames.HANDLE_REDIRECTS,followRedirects);
+  method.addHeader("User-Agent",AGENT);
+  method.setHeader("Content-Charset",UTF_8);
+  method.setHeader("Accept-Charset",UTF_8);
+  InputStream respBody=null;
+  try {
+    final HttpResponse response=httpClient.execute(method);
+    int httpStatus=response.getStatusLine().getStatusCode();
+    String charset=EntityUtils.getContentCharSet(response.getEntity());
+    respBody=response.getEntity().getContent();
+switch (httpStatus) {
+case HttpStatus.SC_OK:
+case HttpStatus.SC_BAD_REQUEST:
+      break;
+case HttpStatus.SC_MOVED_PERMANENTLY:
+case HttpStatus.SC_MOVED_TEMPORARILY:
+    if (!followRedirects) {
+      throw new SolrServerException("Server at " + getBaseURL() + " sent back a redirect ("+ httpStatus+ ").");
+    }
+  break;
+case HttpStatus.SC_NOT_FOUND:
+throw new SolrServerException("Server at " + getBaseURL() + " was not found (404).");
+default :
+throw new SolrException(SolrException.ErrorCode.getErrorCode(httpStatus),"Server at " + getBaseURL() + " returned non ok status:"+ httpStatus+ ", message:"+ response.getStatusLine().getReasonPhrase());
+}
+NamedList<Object> rsp=processor.processResponse(respBody,charset);
+if (httpStatus != HttpStatus.SC_OK) {
+String reason=null;
+try {
+NamedList err=(NamedList)rsp.get("error");
+if (err != null) {
+reason=(String)err.get("msg");
+}
+}
+ catch (Exception ex) {
+}
+if (reason == null) {
+StringBuilder msg=new StringBuilder();
+msg.append(response.getStatusLine().getReasonPhrase());
+msg.append("\n\n");
+msg.append("request: " + method.getURI());
+reason=java.net.URLDecoder.decode(msg.toString(),UTF_8);
+}
+throw new SolrException(SolrException.ErrorCode.getErrorCode(httpStatus),reason);
+}
+return rsp;
+}
+ catch (ConnectException e) {
+throw new SolrServerException("Server refused connection at: " + getBaseURL(),e);
+}
+catch (SocketTimeoutException e) {
+throw new SolrServerException("Timeout occured while waiting response from server at: " + getBaseURL(),e);
+}
+catch (IOException e) {
+throw new SolrServerException("IOException occured when talking to server at: " + getBaseURL(),e);
+}
+ finally {
+if (respBody != null) {
+try {
+respBody.close();
+}
+ catch (Throwable t) {
+}
+}
+}
+}
