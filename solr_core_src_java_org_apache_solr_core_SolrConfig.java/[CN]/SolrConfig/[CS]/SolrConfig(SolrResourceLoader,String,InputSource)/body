@@ -2,14 +2,33 @@
   super(loader,name,is,"/config/");
   initLibs();
   luceneMatchVersion=getLuceneVersion("luceneMatchVersion");
-  defaultIndexConfig=new SolrIndexConfig(this,null,null);
-  mainIndexConfig=new SolrIndexConfig(this,"mainIndex",defaultIndexConfig);
-  reopenReaders=getBool("mainIndex/reopenReaders",true);
+  String indexConfigPrefix;
+  boolean hasDeprecatedIndexConfig=get("indexDefaults/text()",null) != null || get("mainIndex/text()",null) != null;
+  boolean hasNewIndexConfig=get("indexConfig/text()",null) != null;
+  if (hasDeprecatedIndexConfig) {
+    if (luceneMatchVersion.onOrAfter(Version.LUCENE_40)) {
+      throw new SolrException(ErrorCode.FORBIDDEN,"<indexDefaults> and <mainIndex> configuration sections are discontinued. Use <indexConfig> instead.");
+    }
+ else {
+      if (hasNewIndexConfig) {
+        throw new SolrException(ErrorCode.FORBIDDEN,"Cannot specify both <indexDefaults>, <mainIndex> and <indexConfig> at the same time. Please use <indexConfig> only.");
+      }
+      log.warn("<indexDefaults> and <mainIndex> configuration sections are deprecated and will fail for luceneMatchVersion=LUCENE_40 and later. Please use <indexConfig> instead.");
+      defaultIndexConfig=new SolrIndexConfig(this,"indexDefaults",null);
+      mainIndexConfig=new SolrIndexConfig(this,"mainIndex",defaultIndexConfig);
+      indexConfigPrefix="mainIndex";
+    }
+  }
+ else {
+    defaultIndexConfig=mainIndexConfig=null;
+    indexConfigPrefix="indexConfig";
+  }
+  indexConfig=new SolrIndexConfig(this,"indexConfig",mainIndexConfig);
+  reopenReaders=getBool(indexConfigPrefix + "/reopenReaders",true);
   booleanQueryMaxClauseCount=getInt("query/maxBooleanClauses",BooleanQuery.getMaxClauseCount());
   log.info("Using Lucene MatchVersion: " + luceneMatchVersion);
-  filtOptEnabled=getBool("query/boolTofilterOptimizer/@enabled",false);
-  filtOptCacheSize=getInt("query/boolTofilterOptimizer/@cacheSize",32);
-  filtOptThreshold=getFloat("query/boolTofilterOptimizer/@threshold",.05f);
+  if (get("query/boolTofilterOptimizer",null) != null)   log.warn("solrconfig.xml: <boolTofilterOptimizer> is currently not implemented and has no effect.");
+  if (get("query/HashDocSet",null) != null)   log.warn("solrconfig.xml: <HashDocSet> is deprecated and no longer recommended used.");
   useFilterForSortedQuery=getBool("query/useFilterForSortedQuery",false);
   queryResultWindowSize=Math.max(1,getInt("query/queryResultWindowSize",1));
   queryResultMaxDocsCached=getInt("query/queryResultMaxDocsCached",Integer.MAX_VALUE);
@@ -27,7 +46,7 @@
     conf=new CacheConfig(FastLRUCache.class,args,null);
   }
   fieldValueCacheConfig=conf;
-  unlockOnStartup=getBool("mainIndex/unlockOnStartup",false);
+  unlockOnStartup=getBool(indexConfigPrefix + "/unlockOnStartup",false);
   useColdSearcher=getBool("query/useColdSearcher",false);
   dataDir=get("dataDir",null);
   if (dataDir != null && dataDir.length() == 0)   dataDir=null;
@@ -53,7 +72,7 @@
   loadPluginInfo(QueryConverter.class,"queryConverter",true,true);
   loadPluginInfo(SolrEventListener.class,"//listener",false,true);
   loadPluginInfo(DirectoryFactory.class,"directoryFactory",false,true);
-  loadPluginInfo(IndexDeletionPolicy.class,"mainIndex/deletionPolicy",false,true);
+  loadPluginInfo(IndexDeletionPolicy.class,indexConfigPrefix + "/deletionPolicy",false,true);
   loadPluginInfo(CodecFactory.class,"mainIndex/codecFactory",false,false);
   loadPluginInfo(IndexReaderFactory.class,"indexReaderFactory",false,true);
   loadPluginInfo(UpdateRequestProcessorChain.class,"updateRequestProcessorChain",false,false);
