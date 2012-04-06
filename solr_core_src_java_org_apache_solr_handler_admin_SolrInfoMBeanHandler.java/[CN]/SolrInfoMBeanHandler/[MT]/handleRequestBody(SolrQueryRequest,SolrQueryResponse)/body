@@ -1,41 +1,24 @@
 {
-  SolrCore core=req.getCore();
-  NamedList<NamedList<NamedList<Object>>> cats=new NamedList<NamedList<NamedList<Object>>>();
-  rsp.add("solr-mbeans",cats);
-  String[] requestedCats=req.getParams().getParams("cat");
-  if (null == requestedCats || 0 == requestedCats.length) {
-    for (    SolrInfoMBean.Category cat : SolrInfoMBean.Category.values()) {
-      cats.add(cat.name(),new SimpleOrderedMap<NamedList<Object>>());
+  NamedList<NamedList<NamedList<Object>>> cats=getMBeanInfo(req);
+  if (req.getParams().getBool("diff",false)) {
+    ContentStream body=null;
+    try {
+      body=req.getContentStreams().iterator().next();
     }
+ catch (    Exception ex) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"missing content-stream for diff");
+    }
+    String content=IOUtils.toString(body.getReader());
+    NamedList<NamedList<NamedList<Object>>> ref=fromXML(content);
+    SolrQueryResponse wrap=new SolrQueryResponse();
+    wrap.add("solr-mbeans",cats);
+    cats=(NamedList<NamedList<NamedList<Object>>>)BinaryResponseWriter.getParsedResponse(req,wrap).get("solr-mbeans");
+    ref=normalize(ref);
+    cats=normalize(cats);
+    rsp.add("solr-mbeans",getDiff(ref,cats));
   }
  else {
-    for (    String catName : requestedCats) {
-      cats.add(catName,new SimpleOrderedMap<NamedList<Object>>());
-    }
-  }
-  Set<String> requestedKeys=arrayToSet(req.getParams().getParams("key"));
-  Map<String,SolrInfoMBean> reg=core.getInfoRegistry();
-  for (  Map.Entry<String,SolrInfoMBean> entry : reg.entrySet()) {
-    String key=entry.getKey();
-    SolrInfoMBean m=entry.getValue();
-    if (!(requestedKeys.isEmpty() || requestedKeys.contains(key)))     continue;
-    NamedList<NamedList<Object>> catInfo=cats.get(m.getCategory().name());
-    if (null == catInfo)     continue;
-    NamedList<Object> mBeanInfo=new SimpleOrderedMap<Object>();
-    mBeanInfo.add("class",m.getName());
-    mBeanInfo.add("version",m.getVersion());
-    mBeanInfo.add("description",m.getDescription());
-    mBeanInfo.add("src",m.getSource());
-    URL[] urls=m.getDocs();
-    if (urls != null) {
-      List<String> docs=new ArrayList<String>(urls.length);
-      for (      URL url : urls) {
-        docs.add(url.toExternalForm());
-      }
-      mBeanInfo.add("docs",docs);
-    }
-    if (req.getParams().getFieldBool(key,"stats",false))     mBeanInfo.add("stats",m.getStatistics());
-    catInfo.add(key,mBeanInfo);
+    rsp.add("solr-mbeans",cats);
   }
   rsp.setHttpCaching(false);
 }
