@@ -1,0 +1,36 @@
+def testSolrExample(unpackPath, javaPath, isSrc):
+    logFile = ('%s/solr-example.log' % unpackPath)
+    os.chdir('example')
+    print ('      start Solr instance (log=%s)...' % logFile)
+    env = {}
+    env.update(os.environ)
+    env['JAVA_HOME'] = javaPath
+    env['PATH'] = ('%s/bin:%s' % (javaPath, env['PATH']))
+    server = subprocess.Popen(['java', '-jar', 'start.jar'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+    startupEvent = threading.Event()
+    serverThread = threading.Thread(target=readSolrOutput, args=(server.stderr, startupEvent, logFile))
+    serverThread.setDaemon(True)
+    serverThread.start()
+    startupEvent.wait()
+    print '      startup done'
+    try:
+        print '      test utf8...'
+        run('sh ./exampledocs/test_utf8.sh', 'utf8.log')
+        print '      index example docs...'
+        run('sh ./exampledocs/post.sh ./exampledocs/*.xml', 'post-example-docs.log')
+        print '      run query...'
+        s = urllib2.urlopen('http://localhost:8983/solr/select/?q=video').read()
+        if (s.find('<result name="response" numFound="3" start="0">') == (-1)):
+            print ('FAILED: response is:\n%s' % s)
+            raise RuntimeError('query on solr example instance failed')
+    finally:
+        print '      stop server (SIGINT)...'
+        os.kill(server.pid, signal.SIGINT)
+        serverThread.join(10.0)
+        if serverThread.isAlive():
+            print "***WARNING***: Solr instance didn't respond to SIGINT; using SIGKILL now..."
+            os.kill(server.pid, signal.SIGKILL)
+            serverThread.join(10.0)
+            if serverThread.isAlive():
+                print "***WARNING***: Solr instance didn't respond to SIGKILL; ignoring..."
+    os.chdir('..')
