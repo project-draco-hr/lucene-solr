@@ -1,11 +1,14 @@
-def checkSigs(project, urlString, version, tmpDir):
+def checkSigs(project, urlString, version, tmpDir, isSigned):
     print '  test basics...'
     ents = getDirEntries(urlString)
     artifact = None
     keysURL = None
     changesURL = None
     mavenURL = None
-    expectedSigs = ['asc', 'md5', 'sha1']
+    expectedSigs = []
+    if isSigned:
+        expectedSigs.append('asc')
+    expectedSigs.extend(['md5', 'sha1'])
     artifacts = []
     for (text, subURL) in ents:
         if (text == 'KEYS'):
@@ -73,23 +76,24 @@ def checkSigs(project, urlString, version, tmpDir):
         print ('  download %s...' % artifact)
         download(artifact, urlString, tmpDir)
         verifyDigests(artifact, urlString, tmpDir)
-        print '    verify sig'
-        download((artifact + '.asc'), (urlString + '.asc'), tmpDir)
-        sigFile = ('%s/%s.asc' % (tmpDir, artifact))
-        artifactFile = ('%s/%s' % (tmpDir, artifact))
-        logFile = ('%s/%s.%s.gpg.verify.log' % (tmpDir, project, artifact))
-        run(('gpg --homedir %s --verify %s %s' % (gpgHomeDir, sigFile, artifactFile)), logFile)
-        f = open(logFile, 'rb')
-        for line in f.readlines():
-            if ((line.lower().find('warning') != (-1)) and (line.find('WARNING: This key is not certified with a trusted signature') == (-1))):
-                print ('      GPG: %s' % line.strip())
-        f.close()
-        run(('gpg --import %s' % keysFile), ('%s/%s.gpg.trust.import.log 2>&1' % (tmpDir, project)))
-        print '    verify trust'
-        logFile = ('%s/%s.%s.gpg.trust.log' % (tmpDir, project, artifact))
-        run(('gpg --verify %s %s' % (sigFile, artifactFile)), logFile)
-        f = open(logFile, 'rb')
-        for line in f.readlines():
-            if (line.lower().find('warning') != (-1)):
-                print ('      GPG: %s' % line.strip())
-        f.close()
+        if isSigned:
+            print '    verify sig'
+            download((artifact + '.asc'), (urlString + '.asc'), tmpDir)
+            sigFile = ('%s/%s.asc' % (tmpDir, artifact))
+            artifactFile = ('%s/%s' % (tmpDir, artifact))
+            logFile = ('%s/%s.%s.gpg.verify.log' % (tmpDir, project, artifact))
+            run(('gpg --homedir %s --verify %s %s' % (gpgHomeDir, sigFile, artifactFile)), logFile)
+            f = open(logFile, 'rb')
+            for line in f.readlines():
+                if ((line.lower().find('warning') != (-1)) and (line.find('WARNING: This key is not certified with a trusted signature') == (-1))):
+                    print ('      GPG: %s' % line.strip())
+            f.close()
+            run(('gpg --import %s' % keysFile), ('%s/%s.gpg.trust.import.log 2>&1' % (tmpDir, project)))
+            print '    verify trust'
+            logFile = ('%s/%s.%s.gpg.trust.log' % (tmpDir, project, artifact))
+            run(('gpg --verify %s %s' % (sigFile, artifactFile)), logFile)
+            f = open(logFile, 'rb')
+            for line in f.readlines():
+                if (line.lower().find('warning') != (-1)):
+                    print ('      GPG: %s' % line.strip())
+            f.close()
