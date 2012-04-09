@@ -3,19 +3,29 @@
   boolean success=false;
   while (!success) {
     try {
-      int idx=random.nextInt(tokenizers.size());
-      try {
-        Constructor<? extends Tokenizer> c=tokenizers.get(idx).getConstructor(Version.class,Reader.class);
-        spec.tokenizer=c.newInstance(TEST_VERSION_CURRENT,reader);
-      }
- catch (      NoSuchMethodException e) {
-        Constructor<? extends Tokenizer> c=tokenizers.get(idx).getConstructor(Reader.class);
-        spec.tokenizer=c.newInstance(reader);
-      }
-      spec.toString=tokenizers.get(idx).toString();
+      final Constructor<? extends Tokenizer> ctor=tokenizers.get(random.nextInt(tokenizers.size()));
+      final Object args[]=newTokenizerArgs(random,reader,ctor.getParameterTypes());
+      spec.tokenizer=ctor.newInstance(args);
+      spec.toString=ctor.getDeclaringClass().getName() + ("(" + Arrays.toString(args) + ")");
       success=true;
     }
- catch (    Exception e) {
+ catch (    InvocationTargetException ite) {
+      final Throwable cause=ite.getCause();
+      if (cause instanceof IllegalArgumentException || cause instanceof UnsupportedOperationException) {
+        if (VERBOSE) {
+          System.err.println("Ignoring IAE/UOE from ctor:");
+          cause.printStackTrace(System.err);
+        }
+      }
+ else {
+        Rethrow.rethrow(cause);
+      }
+    }
+catch (    IllegalAccessException iae) {
+      Rethrow.rethrow(iae);
+    }
+catch (    InstantiationException ie) {
+      Rethrow.rethrow(ie);
     }
   }
   return spec;

@@ -7,22 +7,33 @@
     boolean success=false;
     while (!success) {
       try {
-        int idx=random.nextInt(tokenfilters.size());
-        try {
-          Constructor<? extends TokenFilter> c=tokenfilters.get(idx).getConstructor(Version.class,TokenStream.class);
-          spec.stream=c.newInstance(TEST_VERSION_CURRENT,spec.stream);
-        }
- catch (        NoSuchMethodException e) {
-          Constructor<? extends TokenFilter> c=tokenfilters.get(idx).getConstructor(TokenStream.class);
-          spec.stream=c.newInstance(spec.stream);
-        }
+        final Constructor<? extends TokenFilter> ctor=tokenfilters.get(random.nextInt(tokenfilters.size()));
+        final Object args[]=newFilterArgs(random,spec.stream,ctor.getParameterTypes());
+        spec.stream=ctor.newInstance(args);
         if (descr.length() > 0) {
           descr.append(",");
         }
-        descr.append(tokenfilters.get(idx).toString());
+        descr.append(ctor.getDeclaringClass().getName());
+        descr.append("(" + Arrays.toString(args) + ")");
         success=true;
       }
- catch (      Exception e) {
+ catch (      InvocationTargetException ite) {
+        final Throwable cause=ite.getCause();
+        if (cause instanceof IllegalArgumentException || cause instanceof UnsupportedOperationException) {
+          if (VERBOSE) {
+            System.err.println("Ignoring IAE/UOE from ctor:");
+            cause.printStackTrace(System.err);
+          }
+        }
+ else {
+          Rethrow.rethrow(cause);
+        }
+      }
+catch (      IllegalAccessException iae) {
+        Rethrow.rethrow(iae);
+      }
+catch (      InstantiationException ie) {
+        Rethrow.rethrow(ie);
       }
     }
   }
