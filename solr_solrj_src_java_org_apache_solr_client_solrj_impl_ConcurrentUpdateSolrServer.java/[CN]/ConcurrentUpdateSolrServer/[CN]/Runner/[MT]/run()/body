@@ -8,16 +8,23 @@
       try {
         final UpdateRequest updateRequest=queue.poll(250,TimeUnit.MILLISECONDS);
         if (updateRequest == null)         break;
+        final boolean isXml=ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType());
+        final ModifiableSolrParams origParams=new ModifiableSolrParams(updateRequest.getParams());
         EntityTemplate template=new EntityTemplate(new ContentProducer(){
           public void writeTo(          OutputStream out) throws IOException {
             try {
-              if (ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType())) {
+              if (isXml) {
                 out.write("<stream>".getBytes("UTF-8"));
               }
               UpdateRequest req=updateRequest;
               while (req != null) {
+                SolrParams currentParams=new ModifiableSolrParams(req.getParams());
+                if (!origParams.toNamedList().equals(currentParams.toNamedList())) {
+                  queue.add(req);
+                  break;
+                }
                 server.requestWriter.write(req,out);
-                if (ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType())) {
+                if (isXml) {
                   SolrParams params=req.getParams();
                   if (params != null) {
                     String fmt=null;
@@ -36,7 +43,7 @@
                 out.flush();
                 req=queue.poll(250,TimeUnit.MILLISECONDS);
               }
-              if (ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType())) {
+              if (isXml) {
                 out.write("</stream>".getBytes("UTF-8"));
               }
             }
@@ -46,8 +53,11 @@
           }
         }
 );
-        String path=ClientUtils.TEXT_XML.equals(server.requestWriter.getUpdateContentType()) ? "/update" : "/update/javabin";
-        method=new HttpPost(server.getBaseURL() + path);
+        ModifiableSolrParams requestParams=new ModifiableSolrParams(origParams);
+        requestParams.set(CommonParams.WT,server.parser.getWriterType());
+        requestParams.set(CommonParams.VERSION,server.parser.getVersion());
+        final String path=isXml ? "/update" : "/update/javabin";
+        method=new HttpPost(server.getBaseURL() + path + ClientUtils.toQueryString(requestParams,false));
         method.setEntity(template);
         method.addHeader("User-Agent",HttpSolrServer.AGENT);
         response=server.getHttpClient().execute(method);
