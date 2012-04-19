@@ -1,0 +1,194 @@
+{
+  ParseResult res=new ParseResult();
+  StringBuilder sb=new StringBuilder();
+  char[] buf=new char[128];
+  int cnt;
+  while ((cnt=reader.read(buf)) > 0) {
+    sb.append(buf,0,cnt);
+  }
+  String val=sb.toString();
+  if (val.length() == 0) {
+    return res;
+  }
+  int idx=val.indexOf(' ');
+  if (idx == -1) {
+    throw new IOException("Missing VERSION token");
+  }
+  String version=val.substring(0,idx);
+  if (!VERSION.equals(version)) {
+    throw new IOException("Unknown VERSION " + version);
+  }
+  val=val.substring(idx + 1);
+  int tsStart=0;
+  boolean hasStored=false;
+  StringBuilder storedBuf=new StringBuilder();
+  if (val.charAt(0) == '=') {
+    hasStored=true;
+    if (val.length() > 1) {
+      for (int i=1; i < val.length(); i++) {
+        char c=val.charAt(i);
+        if (c == '\\') {
+          if (i < val.length() - 1) {
+            c=val.charAt(++i);
+            if (c == '=') {
+              storedBuf.append('=');
+            }
+ else {
+              storedBuf.append('\\');
+              storedBuf.append(c);
+              continue;
+            }
+          }
+ else {
+            storedBuf.append(c);
+            continue;
+          }
+        }
+ else         if (c == '=') {
+          tsStart=i + 1;
+          break;
+        }
+ else {
+          storedBuf.append(c);
+        }
+      }
+      if (tsStart == 0) {
+        throw new IOException("Missing end marker of stored part");
+      }
+    }
+ else {
+      throw new IOException("Unexpected end of stored field");
+    }
+  }
+  if (hasStored) {
+    res.str=storedBuf.toString();
+  }
+  Tok tok=new Tok();
+  StringBuilder attName=new StringBuilder();
+  StringBuilder attVal=new StringBuilder();
+  S s=S.UNDEF;
+  int lastPos=0;
+  for (int i=tsStart; i < val.length(); i++) {
+    char c=val.charAt(i);
+    if (c == ' ') {
+switch (s) {
+case VALUE:
+        if (attVal.length() == 0) {
+          throw new IOException("Unexpected character '" + c + "' at position "+ i+ " - empty value of attribute.");
+        }
+      if (attName.length() > 0) {
+        tok.attr.put(attName.toString(),attVal.toString());
+      }
+    break;
+case NAME:
+  if (attName.length() > 0) {
+    throw new IOException("Unexpected character '" + c + "' at position "+ i+ " - missing attribute value.");
+  }
+ else {
+  }
+break;
+case TOKEN:
+case UNDEF:
+}
+attName.setLength(0);
+attVal.setLength(0);
+if (!tok.isEmpty() || s == S.NAME) {
+AttributeSource.State state=createState(parent,tok,lastPos);
+if (state != null) res.states.add(state.clone());
+}
+s=S.UNDEF;
+tok.reset();
+lastPos++;
+continue;
+}
+StringBuilder tgt=null;
+switch (s) {
+case TOKEN:
+tgt=tok.token;
+break;
+case NAME:
+tgt=attName;
+break;
+case VALUE:
+tgt=attVal;
+break;
+case UNDEF:
+tgt=tok.token;
+s=S.TOKEN;
+}
+if (c == '\\') {
+if (s == S.TOKEN) lastPos++;
+if (i >= val.length() - 1) {
+tgt.append(c);
+continue;
+}
+ else {
+c=val.charAt(++i);
+switch (c) {
+case '\\':
+case '=':
+case ',':
+case ' ':
+tgt.append(c);
+break;
+case 'n':
+tgt.append('\n');
+break;
+case 'r':
+tgt.append('\r');
+break;
+case 't':
+tgt.append('\t');
+break;
+default :
+tgt.append('\\');
+tgt.append(c);
+lastPos++;
+}
+}
+}
+ else {
+if (c == ',') {
+if (s == S.TOKEN) {
+s=S.NAME;
+}
+ else if (s == S.VALUE) {
+if (attVal.length() == 0) {
+throw new IOException("Unexpected character '" + c + "' at position "+ i+ " - empty value of attribute.");
+}
+if (attName.length() > 0 && attVal.length() > 0) {
+tok.attr.put(attName.toString(),attVal.toString());
+}
+attName.setLength(0);
+attVal.setLength(0);
+s=S.NAME;
+}
+ else {
+throw new IOException("Unexpected character '" + c + "' at position "+ i+ " - missing attribute value.");
+}
+}
+ else if (c == '=') {
+if (s == S.NAME) {
+s=S.VALUE;
+}
+ else {
+throw new IOException("Unexpected character '" + c + "' at position "+ i+ " - empty value of attribute.");
+}
+}
+ else {
+tgt.append(c);
+if (s == S.TOKEN) lastPos++;
+}
+}
+}
+if (!tok.isEmpty() || s == S.NAME || s == S.VALUE) {
+if (s == S.VALUE) {
+if (attName.length() > 0 && attVal.length() > 0) {
+tok.attr.put(attName.toString(),attVal.toString());
+}
+}
+AttributeSource.State state=createState(parent,tok,lastPos);
+if (state != null) res.states.add(state.clone());
+}
+return res;
+}

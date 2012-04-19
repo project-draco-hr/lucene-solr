@@ -1,0 +1,145 @@
+{
+  ParseResult res=new ParseResult();
+  StringBuilder sb=new StringBuilder();
+  char[] buf=new char[128];
+  int cnt;
+  while ((cnt=reader.read(buf)) > 0) {
+    sb.append(buf,0,cnt);
+  }
+  String val=sb.toString();
+  if (val.length() == 0) {
+    return res;
+  }
+  Object o=ObjectBuilder.fromJSON(val);
+  if (!(o instanceof Map)) {
+    throw new IOException("Invalid JSON type " + o.getClass().getName() + ", expected Map");
+  }
+  Map<String,Object> map=(Map<String,Object>)o;
+  String version=(String)map.get(VERSION_KEY);
+  if (version == null) {
+    throw new IOException("Missing VERSION key");
+  }
+  if (!VERSION.equals(version)) {
+    throw new IOException("Unknown VERSION '" + version + "', expected "+ VERSION);
+  }
+  if (map.containsKey(STRING_KEY) && map.containsKey(BINARY_KEY)) {
+    throw new IOException("Field cannot have both stringValue and binaryValue");
+  }
+  res.str=(String)map.get(STRING_KEY);
+  String bin=(String)map.get(BINARY_KEY);
+  if (bin != null) {
+    byte[] data=Base64.base64ToByteArray(bin);
+    res.bin=data;
+  }
+  List<Object> tokens=(List<Object>)map.get(TOKENS_KEY);
+  if (tokens == null) {
+    return res;
+  }
+  int tokenStart=0;
+  int tokenEnd=0;
+  parent.clearAttributes();
+  for (  Object ot : tokens) {
+    tokenStart=tokenEnd + 1;
+    Map<String,Object> tok=(Map<String,Object>)ot;
+    boolean hasOffsetStart=false;
+    boolean hasOffsetEnd=false;
+    int len=-1;
+    for (    Entry<String,Object> e : tok.entrySet()) {
+      String key=e.getKey();
+      if (key.equals(TOKEN_KEY)) {
+        CharTermAttribute catt=parent.addAttribute(CharTermAttribute.class);
+        String str=String.valueOf(e.getValue());
+        catt.append(str);
+        len=str.length();
+      }
+ else       if (key.equals(OFFSET_START_KEY)) {
+        Object obj=e.getValue();
+        hasOffsetStart=true;
+        if (obj instanceof Number) {
+          tokenStart=((Number)obj).intValue();
+        }
+ else {
+          try {
+            tokenStart=Integer.parseInt(String.valueOf(obj));
+          }
+ catch (          NumberFormatException nfe) {
+            LOG.warn("Invalid " + OFFSET_START_KEY + " attribute, skipped: '"+ obj+ "'");
+            hasOffsetStart=false;
+          }
+        }
+      }
+ else       if (key.equals(OFFSET_END_KEY)) {
+        hasOffsetEnd=true;
+        Object obj=e.getValue();
+        if (obj instanceof Number) {
+          tokenEnd=((Number)obj).intValue();
+        }
+ else {
+          try {
+            tokenEnd=Integer.parseInt(String.valueOf(obj));
+          }
+ catch (          NumberFormatException nfe) {
+            LOG.warn("Invalid " + OFFSET_END_KEY + " attribute, skipped: '"+ obj+ "'");
+            hasOffsetEnd=false;
+          }
+        }
+      }
+ else       if (key.equals(POSINCR_KEY)) {
+        Object obj=e.getValue();
+        int posIncr=1;
+        if (obj instanceof Number) {
+          posIncr=((Number)obj).intValue();
+        }
+ else {
+          try {
+            posIncr=Integer.parseInt(String.valueOf(obj));
+          }
+ catch (          NumberFormatException nfe) {
+            LOG.warn("Invalid " + POSINCR_KEY + " attribute, skipped: '"+ obj+ "'");
+          }
+        }
+        PositionIncrementAttribute patt=parent.addAttribute(PositionIncrementAttribute.class);
+        patt.setPositionIncrement(posIncr);
+      }
+ else       if (key.equals(PAYLOAD_KEY)) {
+        String str=String.valueOf(e.getValue());
+        if (str.length() > 0) {
+          byte[] data=Base64.base64ToByteArray(str);
+          PayloadAttribute p=parent.addAttribute(PayloadAttribute.class);
+          if (data != null && data.length > 0) {
+            p.setPayload(new Payload(data));
+          }
+        }
+      }
+ else       if (key.equals(FLAGS_KEY)) {
+        try {
+          int f=Integer.parseInt(String.valueOf(e.getValue()),16);
+          FlagsAttribute flags=parent.addAttribute(FlagsAttribute.class);
+          flags.setFlags(f);
+        }
+ catch (        NumberFormatException nfe) {
+          LOG.warn("Invalid " + FLAGS_KEY + " attribute, skipped: '"+ e.getValue()+ "'");
+        }
+      }
+ else       if (key.equals(TYPE_KEY)) {
+        TypeAttribute tattr=parent.addAttribute(TypeAttribute.class);
+        tattr.setType(String.valueOf(e.getValue()));
+      }
+ else {
+        LOG.warn("Unknown attribute, skipped: " + e.getKey() + "="+ e.getValue());
+      }
+    }
+    OffsetAttribute offset=parent.addAttribute(OffsetAttribute.class);
+    if (!hasOffsetEnd && len > -1) {
+      tokenEnd=tokenStart + len;
+    }
+    offset.setOffset(tokenStart,tokenEnd);
+    if (!hasOffsetStart) {
+      tokenStart=tokenEnd + 1;
+    }
+    State state=parent.captureState();
+    res.states.add(state.clone());
+    parent.clearAttributes();
+  }
+  return res;
+}

@@ -1,0 +1,76 @@
+{
+  Map<String,Object> map=new HashMap<String,Object>();
+  map.put(VERSION_KEY,VERSION);
+  if (f.fieldType().stored()) {
+    String stringValue=f.stringValue();
+    if (stringValue != null) {
+      map.put(STRING_KEY,stringValue);
+    }
+    BytesRef binaryValue=f.binaryValue();
+    if (binaryValue != null) {
+      map.put(BINARY_KEY,Base64.byteArrayToBase64(binaryValue.bytes,binaryValue.offset,binaryValue.length));
+    }
+  }
+  TokenStream ts=f.tokenStreamValue();
+  if (ts != null) {
+    List<Map<String,Object>> tokens=new LinkedList<Map<String,Object>>();
+    while (ts.incrementToken()) {
+      Iterator<Class<? extends Attribute>> it=ts.getAttributeClassesIterator();
+      String cTerm=null;
+      String tTerm=null;
+      Map<String,Object> tok=new TreeMap<String,Object>();
+      while (it.hasNext()) {
+        Class<? extends Attribute> cl=it.next();
+        if (!ts.hasAttribute(cl)) {
+          continue;
+        }
+        Attribute att=ts.getAttribute(cl);
+        if (cl.isAssignableFrom(CharTermAttribute.class)) {
+          CharTermAttribute catt=(CharTermAttribute)att;
+          cTerm=new String(catt.buffer(),0,catt.length());
+        }
+ else         if (cl.isAssignableFrom(TermToBytesRefAttribute.class)) {
+          TermToBytesRefAttribute tatt=(TermToBytesRefAttribute)att;
+          tTerm=tatt.getBytesRef().utf8ToString();
+        }
+ else {
+          if (cl.isAssignableFrom(FlagsAttribute.class)) {
+            tok.put(FLAGS_KEY,Integer.toHexString(((FlagsAttribute)att).getFlags()));
+          }
+ else           if (cl.isAssignableFrom(OffsetAttribute.class)) {
+            tok.put(OFFSET_START_KEY,((OffsetAttribute)att).startOffset());
+            tok.put(OFFSET_END_KEY,((OffsetAttribute)att).endOffset());
+          }
+ else           if (cl.isAssignableFrom(PayloadAttribute.class)) {
+            Payload p=((PayloadAttribute)att).getPayload();
+            if (p != null && p.length() > 0) {
+              tok.put(PAYLOAD_KEY,Base64.byteArrayToBase64(p.getData(),p.getOffset(),p.length()));
+            }
+          }
+ else           if (cl.isAssignableFrom(PositionIncrementAttribute.class)) {
+            tok.put(POSINCR_KEY,((PositionIncrementAttribute)att).getPositionIncrement());
+          }
+ else           if (cl.isAssignableFrom(TypeAttribute.class)) {
+            tok.put(TYPE_KEY,((TypeAttribute)att).type());
+          }
+ else {
+            tok.put(cl.getName(),att.toString());
+          }
+        }
+      }
+      String term=null;
+      if (cTerm != null) {
+        term=cTerm;
+      }
+ else {
+        term=tTerm;
+      }
+      if (term != null && term.length() > 0) {
+        tok.put(TOKEN_KEY,term);
+      }
+      tokens.add(tok);
+    }
+    map.put(TOKENS_KEY,tokens);
+  }
+  return JSONUtil.toJSON(map,-1);
+}

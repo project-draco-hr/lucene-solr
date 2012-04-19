@@ -1,0 +1,90 @@
+{
+  StringBuilder sb=new StringBuilder();
+  sb.append(VERSION + " ");
+  if (f.fieldType().stored()) {
+    String s=f.stringValue();
+    if (s != null) {
+      s=s.replaceAll("=","\\=");
+      sb.append('=');
+      sb.append(s);
+      sb.append('=');
+    }
+  }
+  TokenStream ts=f.tokenStreamValue();
+  if (ts != null) {
+    StringBuilder tok=new StringBuilder();
+    boolean next=false;
+    while (ts.incrementToken()) {
+      if (next) {
+        sb.append(' ');
+      }
+ else {
+        next=true;
+      }
+      tok.setLength(0);
+      Iterator<Class<? extends Attribute>> it=ts.getAttributeClassesIterator();
+      String cTerm=null;
+      String tTerm=null;
+      while (it.hasNext()) {
+        Class<? extends Attribute> cl=it.next();
+        if (!ts.hasAttribute(cl)) {
+          continue;
+        }
+        Attribute att=ts.getAttribute(cl);
+        if (cl.isAssignableFrom(CharTermAttribute.class)) {
+          CharTermAttribute catt=(CharTermAttribute)att;
+          cTerm=escape(catt.buffer(),catt.length());
+        }
+ else         if (cl.isAssignableFrom(TermToBytesRefAttribute.class)) {
+          TermToBytesRefAttribute tatt=(TermToBytesRefAttribute)att;
+          char[] tTermChars=tatt.getBytesRef().utf8ToString().toCharArray();
+          tTerm=escape(tTermChars,tTermChars.length);
+        }
+ else {
+          if (tok.length() > 0)           tok.append(',');
+          if (cl.isAssignableFrom(FlagsAttribute.class)) {
+            tok.append("f=" + Integer.toHexString(((FlagsAttribute)att).getFlags()));
+          }
+ else           if (cl.isAssignableFrom(OffsetAttribute.class)) {
+            tok.append("s=" + ((OffsetAttribute)att).startOffset() + ",e="+ ((OffsetAttribute)att).endOffset());
+          }
+ else           if (cl.isAssignableFrom(PayloadAttribute.class)) {
+            Payload p=((PayloadAttribute)att).getPayload();
+            if (p != null && p.length() > 0) {
+              tok.append("p=" + bytesToHex(p.getData(),p.getOffset(),p.length()));
+            }
+ else             if (tok.length() > 0) {
+              tok.setLength(tok.length() - 1);
+            }
+          }
+ else           if (cl.isAssignableFrom(PositionIncrementAttribute.class)) {
+            tok.append("i=" + ((PositionIncrementAttribute)att).getPositionIncrement());
+          }
+ else           if (cl.isAssignableFrom(TypeAttribute.class)) {
+            tok.append("y=" + escape(((TypeAttribute)att).type()));
+          }
+ else {
+            tok.append(cl.getName() + "=" + escape(att.toString()));
+          }
+        }
+      }
+      String term=null;
+      if (cTerm != null) {
+        term=cTerm;
+      }
+ else {
+        term=tTerm;
+      }
+      if (term != null && term.length() > 0) {
+        if (tok.length() > 0) {
+          tok.insert(0,term + ",");
+        }
+ else {
+          tok.insert(0,term);
+        }
+      }
+      sb.append(tok);
+    }
+  }
+  return sb.toString();
+}
