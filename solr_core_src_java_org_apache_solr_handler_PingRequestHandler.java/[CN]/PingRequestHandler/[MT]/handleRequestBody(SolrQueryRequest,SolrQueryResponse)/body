@@ -1,29 +1,45 @@
 {
   SolrParams params=req.getParams();
   SolrCore core=req.getCore();
-  String healthcheck=core.getSolrConfig().get("admin/healthcheck/text()",null);
-  if (healthcheck != null && !new File(healthcheck).exists()) {
-    throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"Service disabled");
+  healthcheck=core.getSolrConfig().get("admin/healthcheck/text()",null);
+  String actionParam=params.get("action");
+  ACTIONS action=null;
+  if (actionParam == null) {
+    action=ACTIONS.PING;
   }
-  String qt=params.get(CommonParams.QT);
-  SolrRequestHandler handler=core.getRequestHandler(qt);
-  if (handler == null) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown RequestHandler (qt): " + qt);
+ else {
+    try {
+      action=ACTIONS.valueOf(actionParam.toUpperCase());
+    }
+ catch (    IllegalArgumentException iae) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown action: " + actionParam);
+    }
   }
-  if (handler instanceof PingRequestHandler) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cannot execute the PingRequestHandler recursively");
-  }
-  Throwable ex=null;
-  try {
-    SolrQueryResponse pingrsp=new SolrQueryResponse();
-    core.execute(handler,req,pingrsp);
-    ex=pingrsp.getException();
-  }
- catch (  Throwable th) {
-    ex=th;
-  }
-  if (ex != null) {
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Ping query caused exception: " + ex.getMessage(),ex);
-  }
-  rsp.add("status","OK");
+switch (action) {
+case PING:
+    if (healthcheck != null && !new File(healthcheck).exists()) {
+      throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"Service disabled");
+    }
+  handlePing(req,rsp);
+break;
+case ENABLE:
+handleEnable(healthcheck,true);
+break;
+case DISABLE:
+handleEnable(healthcheck,false);
+break;
+case STATUS:
+if (healthcheck == null) {
+SolrException e=new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"healthcheck not configured");
+rsp.setException(e);
+}
+ else {
+if (new File(healthcheck).exists()) {
+rsp.add("status","enabled");
+}
+ else {
+rsp.add("status","disabled");
+}
+}
+}
 }
