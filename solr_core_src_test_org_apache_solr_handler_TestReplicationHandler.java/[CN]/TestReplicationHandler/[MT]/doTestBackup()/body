@@ -5,6 +5,7 @@
   if (random().nextBoolean()) {
     configFile="solrconfig-master1-keepOneBackup.xml";
     addNumberToKeepInRequest=false;
+    backupKeepParamName=ReplicationHandler.NUMBER_BACKUPS_TO_KEEP_INIT_PARAM;
   }
   masterJetty.stop();
   master.copyConfigFile(CONF_DIR + configFile,"solrconfig.xml");
@@ -14,24 +15,6 @@
   masterClient.deleteByQuery("*:*");
   for (int i=0; i < nDocs; i++)   index(masterClient,"id",i,"name","name = " + i);
   masterClient.commit();
-  boolean checkOnCommit=random().nextBoolean();
-  if (!addNumberToKeepInRequest && checkOnCommit) {
-    Thread.sleep(1000);
-    masterClient.commit();
-    File[] files=new File(master.getDataDir()).listFiles(new FilenameFilter(){
-      public boolean accept(      File dir,      String name){
-        if (name.startsWith("snapshot")) {
-          return true;
-        }
-        return false;
-      }
-    }
-);
-    assertEquals(1,files.length);
-    for (    File f : files) {
-      AbstractSolrTestCase.recurseDelete(f);
-    }
-  }
 class BackupThread extends Thread {
     volatile String fail=null;
     final boolean addNumberToKeepInRequest;
@@ -97,60 +80,58 @@ class CheckStatus extends Thread {
     }
   }
   ;
-  if (!checkOnCommit) {
-    File[] snapDir=new File[2];
-    String firstBackupTimestamp=null;
-    for (int i=0; i < 2; i++) {
-      BackupThread backupThread=new BackupThread(addNumberToKeepInRequest,backupKeepParamName);
-      backupThread.start();
-      File dataDir=new File(master.getDataDir());
-      int waitCnt=0;
-      CheckStatus checkStatus=new CheckStatus(firstBackupTimestamp);
-      while (true) {
-        checkStatus.run();
-        if (checkStatus.fail != null) {
-          fail(checkStatus.fail);
-        }
-        if (checkStatus.success) {
-          if (i == 0) {
-            firstBackupTimestamp=checkStatus.backupTimestamp;
-            Thread.sleep(1000);
-          }
-          break;
-        }
-        Thread.sleep(200);
-        if (waitCnt == 10) {
-          fail("Backup success not detected:" + checkStatus.response);
-        }
-        waitCnt++;
+  File[] snapDir=new File[2];
+  String firstBackupTimestamp=null;
+  for (int i=0; i < 2; i++) {
+    BackupThread backupThread=new BackupThread(addNumberToKeepInRequest,backupKeepParamName);
+    backupThread.start();
+    File dataDir=new File(master.getDataDir());
+    int waitCnt=0;
+    CheckStatus checkStatus=new CheckStatus(firstBackupTimestamp);
+    while (true) {
+      checkStatus.run();
+      if (checkStatus.fail != null) {
+        fail(checkStatus.fail);
       }
-      if (backupThread.fail != null) {
-        fail(backupThread.fail);
-      }
-      File[] files=dataDir.listFiles(new FilenameFilter(){
-        public boolean accept(        File dir,        String name){
-          if (name.startsWith("snapshot")) {
-            return true;
-          }
-          return false;
+      if (checkStatus.success) {
+        if (i == 0) {
+          firstBackupTimestamp=checkStatus.backupTimestamp;
+          Thread.sleep(1000);
         }
+        break;
       }
+      Thread.sleep(200);
+      if (waitCnt == 10) {
+        fail("Backup success not detected:" + checkStatus.response);
+      }
+      waitCnt++;
+    }
+    if (backupThread.fail != null) {
+      fail(backupThread.fail);
+    }
+    File[] files=dataDir.listFiles(new FilenameFilter(){
+      public boolean accept(      File dir,      String name){
+        if (name.startsWith("snapshot")) {
+          return true;
+        }
+        return false;
+      }
+    }
 );
-      assertEquals(1,files.length);
-      snapDir[i]=files[0];
-      Directory dir=new SimpleFSDirectory(snapDir[i].getAbsoluteFile());
-      IndexReader reader=IndexReader.open(dir);
-      IndexSearcher searcher=new IndexSearcher(reader);
-      TopDocs hits=searcher.search(new MatchAllDocsQuery(),1);
-      assertEquals(nDocs,hits.totalHits);
-      reader.close();
-      dir.close();
-    }
-    if (snapDir[0].exists()) {
-      fail("The first backup should have been cleaned up because " + backupKeepParamName + " was set to 1.");
-    }
-    for (int i=0; i < snapDir.length; i++) {
-      AbstractSolrTestCase.recurseDelete(snapDir[i]);
-    }
+    assertEquals(1,files.length);
+    snapDir[i]=files[0];
+    Directory dir=new SimpleFSDirectory(snapDir[i].getAbsoluteFile());
+    IndexReader reader=IndexReader.open(dir);
+    IndexSearcher searcher=new IndexSearcher(reader);
+    TopDocs hits=searcher.search(new MatchAllDocsQuery(),1);
+    assertEquals(nDocs,hits.totalHits);
+    reader.close();
+    dir.close();
+  }
+  if (snapDir[0].exists()) {
+    fail("The first backup should have been cleaned up because " + backupKeepParamName + " was set to 1.");
+  }
+  for (int i=0; i < snapDir.length; i++) {
+    AbstractSolrTestCase.recurseDelete(snapDir[i]);
   }
 }
