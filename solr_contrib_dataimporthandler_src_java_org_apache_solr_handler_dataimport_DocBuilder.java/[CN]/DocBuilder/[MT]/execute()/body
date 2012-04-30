@@ -1,7 +1,8 @@
 {
+  List<EntityProcessorWrapper> epwList=null;
   try {
     dataImporter.store(DataImporter.STATUS_MSGS,statusMessages);
-    document=dataImporter.getConfig().document;
+    config=dataImporter.getConfig();
     final AtomicLong startTime=new AtomicLong(System.currentTimeMillis());
     statusMessages.put(TIME_ELAPSED,new Object(){
       @Override public String toString(){
@@ -13,22 +14,26 @@
     statusMessages.put(DataImporter.MSG.TOTAL_ROWS_EXECUTED,importStatistics.rowsCount);
     statusMessages.put(DataImporter.MSG.TOTAL_DOC_PROCESSED,importStatistics.docCount);
     statusMessages.put(DataImporter.MSG.TOTAL_DOCS_SKIPPED,importStatistics.skipDocCount);
-    List<String> entities=requestParameters.entities;
-    if (document.onImportStart != null) {
-      invokeEventListener(document.onImportStart);
+    List<String> entities=reqParams.getEntitiesToRun();
+    if (config.getOnImportStart() != null) {
+      invokeEventListener(config.getOnImportStart());
     }
     AtomicBoolean fullCleanDone=new AtomicBoolean(false);
     Properties lastIndexTimeProps=new Properties();
     lastIndexTimeProps.setProperty(LAST_INDEX_KEY,DataImporter.DATE_TIME_FORMAT.get().format(dataImporter.getIndexStartTime()));
-    for (    DataConfig.Entity e : document.entities) {
-      if (entities != null && !entities.contains(e.name))       continue;
-      lastIndexTimeProps.setProperty(e.name + "." + LAST_INDEX_KEY,DataImporter.DATE_TIME_FORMAT.get().format(new Date()));
-      root=e;
-      String delQuery=e.allAttributes.get("preImportDeleteQuery");
+    epwList=new ArrayList<EntityProcessorWrapper>(config.getEntities().size());
+    for (    Entity e : config.getEntities()) {
+      epwList.add(getEntityProcessorWrapper(e));
+    }
+    for (    EntityProcessorWrapper epw : epwList) {
+      if (entities != null && !entities.contains(epw.getEntity().getName()))       continue;
+      lastIndexTimeProps.setProperty(epw.getEntity().getName() + "." + LAST_INDEX_KEY,DataImporter.DATE_TIME_FORMAT.get().format(new Date()));
+      currentEntityProcessorWrapper=epw;
+      String delQuery=epw.getEntity().getAllAttributes().get("preImportDeleteQuery");
       if (dataImporter.getStatus() == DataImporter.Status.RUNNING_DELTA_DUMP) {
         cleanByQuery(delQuery,fullCleanDone);
         doDelta();
-        delQuery=e.allAttributes.get("postImportDeleteQuery");
+        delQuery=epw.getEntity().getAllAttributes().get("postImportDeleteQuery");
         if (delQuery != null) {
           fullCleanDone.set(false);
           cleanByQuery(delQuery,fullCleanDone);
@@ -37,7 +42,7 @@
  else {
         cleanByQuery(delQuery,fullCleanDone);
         doFullDump();
-        delQuery=e.allAttributes.get("postImportDeleteQuery");
+        delQuery=epw.getEntity().getAllAttributes().get("postImportDeleteQuery");
         if (delQuery != null) {
           fullCleanDone.set(false);
           cleanByQuery(delQuery,fullCleanDone);
@@ -50,7 +55,7 @@
       rollback();
     }
  else {
-      if (!requestParameters.clean) {
+      if (!reqParams.isClean()) {
         if (importStatistics.docCount.get() > 0 || importStatistics.deletedDocCount.get() > 0) {
           finish(lastIndexTimeProps);
         }
@@ -58,8 +63,8 @@
  else {
         finish(lastIndexTimeProps);
       }
-      if (document.onImportEnd != null) {
-        invokeEventListener(document.onImportEnd);
+      if (config.getOnImportEnd() != null) {
+        invokeEventListener(config.getOnImportEnd());
       }
     }
     statusMessages.remove(TIME_ELAPSED);
@@ -75,8 +80,11 @@
     if (writer != null) {
       writer.close();
     }
-    if (requestParameters.debug) {
-      requestParameters.debugVerboseOutput=getDebugLogger().output;
+    if (epwList != null) {
+      closeEntityProcessorWrappers(epwList);
+    }
+    if (reqParams.isDebug()) {
+      reqParams.getDebugInfo().debugVerboseOutput=getDebugLogger().output;
     }
   }
 }

@@ -1,15 +1,16 @@
 {
   rsp.setHttpCaching(false);
-  SolrParams params=req.getParams();
-  DataImporter.RequestParams requestParams=new DataImporter.RequestParams(getParamsMap(params));
-  String command=requestParams.command;
+  ContentStream contentStream=null;
   Iterable<ContentStream> streams=req.getContentStreams();
   if (streams != null) {
     for (    ContentStream stream : streams) {
-      requestParams.contentStream=stream;
+      contentStream=stream;
       break;
     }
   }
+  SolrParams params=req.getParams();
+  RequestInfo requestParams=new RequestInfo(getParamsMap(params),contentStream);
+  String command=requestParams.getCommand();
   if (DataImporter.SHOW_CONF_CMD.equals(command)) {
     ModifiableSolrParams rawParams=new ModifiableSolrParams(req.getParams());
     rawParams.set(CommonParams.WT,"raw");
@@ -22,12 +23,12 @@
   rsp.add("initArgs",initArgs);
   String message="";
   if (command != null)   rsp.add("command",command);
-  if (requestParams.debug && (importer == null || !importer.isBusy())) {
+  if (requestParams.isDebug() && (importer == null || !importer.isBusy())) {
     importer=null;
-    if (requestParams.dataConfig != null) {
+    if (requestParams.getDataConfig() != null) {
       try {
         processConfiguration((NamedList)initArgs.get("defaults"));
-        importer=new DataImporter(new InputSource(new StringReader(requestParams.dataConfig)),req.getCore(),dataSources,coreScopeSession,myName);
+        importer=new DataImporter(new InputSource(new StringReader(requestParams.getDataConfig())),req.getCore(),dataSources,coreScopeSession,myName);
       }
  catch (      RuntimeException e) {
         rsp.add("exception",DebugLogger.getStacktraceString(e));
@@ -56,23 +57,21 @@
       UpdateRequestProcessor processor=processorChain.createProcessor(req,rsp);
       SolrResourceLoader loader=req.getCore().getResourceLoader();
       SolrWriter sw=getSolrWriter(processor,loader,requestParams,req);
-      if (requestParams.debug) {
+      if (requestParams.isDebug()) {
         if (debugEnabled) {
           importer.runCmd(requestParams,sw);
           rsp.add("mode","debug");
-          rsp.add("documents",requestParams.debugDocuments);
-          if (requestParams.debugVerboseOutput != null) {
-            rsp.add("verbose-output",requestParams.debugVerboseOutput);
+          rsp.add("documents",requestParams.getDebugInfo().debugDocuments);
+          if (requestParams.getDebugInfo().debugVerboseOutput != null) {
+            rsp.add("verbose-output",requestParams.getDebugInfo().debugVerboseOutput);
           }
-          requestParams.debugDocuments=new ArrayList<SolrInputDocument>(0);
-          requestParams.debugVerboseOutput=null;
         }
  else {
           message=DataImporter.MSG.DEBUG_NOT_ENABLED;
         }
       }
  else {
-        if (requestParams.contentStream == null && !requestParams.syncMode) {
+        if (requestParams.getContentStream() == null && !requestParams.isSyncMode()) {
           importer.runAsync(requestParams,sw);
         }
  else {
