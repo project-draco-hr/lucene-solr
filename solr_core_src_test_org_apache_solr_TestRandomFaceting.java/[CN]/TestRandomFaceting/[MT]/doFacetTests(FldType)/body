@@ -1,0 +1,68 @@
+{
+  SolrQueryRequest req=req();
+  try {
+    Random rand=random();
+    boolean validate=validateResponses;
+    ModifiableSolrParams params=params("facet","true","wt","json","indent","true","omitHeader","true");
+    params.add("q","*:*","rows","0");
+    params.add("rows","0");
+    SchemaField sf=req.getSchema().getField(ftype.fname);
+    boolean multiValued=sf.getType().multiValuedFieldCache();
+    int offset=0;
+    if (rand.nextInt(100) < 20) {
+      if (rand.nextBoolean()) {
+        offset=rand.nextInt(100) < 10 ? rand.nextInt(indexSize * 2) : rand.nextInt(indexSize / 3 + 1);
+      }
+      params.add("facet.offset",Integer.toString(offset));
+    }
+    int limit=100;
+    if (rand.nextInt(100) < 20) {
+      if (rand.nextBoolean()) {
+        limit=rand.nextInt(100) < 10 ? rand.nextInt(indexSize / 2 + 1) : rand.nextInt(indexSize * 2);
+      }
+      params.add("facet.limit",Integer.toString(limit));
+    }
+    if (rand.nextBoolean()) {
+      params.add("facet.sort",rand.nextBoolean() ? "index" : "count");
+    }
+    if ((ftype.vals instanceof SVal) && rand.nextInt(100) < 20) {
+      String prefix=ftype.createValue().toString();
+      if (rand.nextInt(100) < 5)       prefix=_TestUtil.randomUnicodeString(rand);
+ else       if (rand.nextInt(100) < 10)       prefix=Character.toString((char)rand.nextInt(256));
+ else       if (prefix.length() > 0)       prefix=prefix.substring(0,rand.nextInt(prefix.length()));
+      params.add("facet.prefix",prefix);
+    }
+    if (rand.nextInt(100) < 10) {
+      params.add("facet.mincount",Integer.toString(rand.nextInt(5)));
+    }
+    if (rand.nextInt(100) < 20) {
+      params.add("facet.missing","true");
+    }
+    String key=ftype.fname;
+    String facet_field=ftype.fname;
+    if (random().nextBoolean()) {
+      key="alternate_key";
+      facet_field="{!key=" + key + "}"+ ftype.fname;
+    }
+    params.set("facet.field",facet_field);
+    List<String> methods=multiValued ? multiValuedMethods : singleValuedMethods;
+    List<String> responses=new ArrayList<String>(methods.size());
+    for (    String method : methods) {
+      params.set("facet.method",method);
+      String strResponse=h.query(req(params));
+      responses.add(strResponse);
+    }
+    if (validate) {
+      for (int i=1; i < methods.size(); i++) {
+        String err=JSONTestUtil.match("/",responses.get(i),responses.get(0),0.0);
+        if (err != null) {
+          log.error("ERROR: mismatch facet response: " + err + "\n expected ="+ responses.get(0)+ "\n response = "+ responses.get(i)+ "\n request = "+ params);
+          fail(err);
+        }
+      }
+    }
+  }
+  finally {
+    req.close();
+  }
+}
