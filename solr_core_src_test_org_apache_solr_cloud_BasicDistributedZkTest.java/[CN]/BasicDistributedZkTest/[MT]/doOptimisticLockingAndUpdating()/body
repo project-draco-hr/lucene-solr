@@ -1,0 +1,31 @@
+{
+  SolrInputDocument sd=sdoc("id",1000,"_version_",-1);
+  indexDoc(sd);
+  ignoreException("version conflict");
+  for (  SolrServer client : clients) {
+    try {
+      client.add(sd);
+      fail();
+    }
+ catch (    SolrException e) {
+      assertEquals(409,e.code());
+    }
+  }
+  unIgnoreException("version conflict");
+  sd=sdoc("id",1000,"foo_i",5);
+  clients.get(0).add(sd);
+  List<Integer> expected=new ArrayList<Integer>();
+  int val=0;
+  for (  SolrServer client : clients) {
+    val+=10;
+    client.add(sdoc("id",1000,"val_i",map("add",val),"foo_i",val));
+    expected.add(val);
+  }
+  QueryRequest qr=new QueryRequest(params("qt","/get","id","1000"));
+  for (  SolrServer client : clients) {
+    val+=10;
+    NamedList rsp=client.request(qr);
+    String match=JSONTestUtil.matchObj("/val_i",rsp.get("doc"),expected);
+    if (match != null)     throw new RuntimeException(match);
+  }
+}

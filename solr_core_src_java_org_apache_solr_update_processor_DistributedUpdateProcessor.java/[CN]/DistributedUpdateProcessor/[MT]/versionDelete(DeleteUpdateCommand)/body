@@ -10,6 +10,7 @@
     String versionOnUpdateS=req.getParams().get(VERSION_FIELD);
     versionOnUpdate=versionOnUpdateS == null ? 0 : Long.parseLong(versionOnUpdateS);
   }
+  long signedVersionOnUpdate=versionOnUpdate;
   versionOnUpdate=Math.abs(versionOnUpdate);
   boolean isReplay=(cmd.getFlags() & UpdateCommand.REPLAY) != 0;
   boolean leaderLogic=isLeader && !isReplay;
@@ -23,6 +24,15 @@ synchronized (bucket) {
       if (versionsStored) {
         long bucketVersion=bucket.highest;
         if (leaderLogic) {
+          if (signedVersionOnUpdate != 0) {
+            Long lastVersion=vinfo.lookupVersion(cmd.getIndexedId());
+            long foundVersion=lastVersion == null ? -1 : lastVersion;
+            if ((signedVersionOnUpdate == foundVersion) || (signedVersionOnUpdate < 0 && foundVersion < 0) || (signedVersionOnUpdate == 1 && foundVersion > 0)) {
+            }
+ else {
+              throw new SolrException(ErrorCode.CONFLICT,"version conflict for " + cmd.getId() + " expected="+ signedVersionOnUpdate+ " actual="+ foundVersion);
+            }
+          }
           long version=vinfo.getNewClock();
           cmd.setVersion(-version);
           bucket.updateHighest(version);
