@@ -1,0 +1,46 @@
+{
+  UpdateRequest update=null;
+  JavaBinUpdateRequestCodec.StreamingUpdateHandler handler=new JavaBinUpdateRequestCodec.StreamingUpdateHandler(){
+    private AddUpdateCommand addCmd=null;
+    @Override public void update(    SolrInputDocument document,    UpdateRequest updateRequest){
+      if (document == null) {
+        try {
+          RequestHandlerUtils.handleCommit(req,processor,updateRequest.getParams(),false);
+          RequestHandlerUtils.handleRollback(req,processor,updateRequest.getParams(),false);
+        }
+ catch (        IOException e) {
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"ERROR handling commit/rollback");
+        }
+        return;
+      }
+      if (addCmd == null) {
+        addCmd=getAddCommand(req,updateRequest.getParams());
+      }
+      addCmd.solrDoc=document;
+      try {
+        processor.processAdd(addCmd);
+        addCmd.clear();
+      }
+ catch (      IOException e) {
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"ERROR adding document " + document);
+      }
+    }
+  }
+;
+  FastInputStream in=FastInputStream.wrap(stream);
+  for (; ; ) {
+    try {
+      update=new JavaBinUpdateRequestCodec().unmarshal(in,handler);
+    }
+ catch (    EOFException e) {
+      break;
+    }
+catch (    Exception e) {
+      log.error("Exception while processing update request",e);
+      break;
+    }
+    if (update.getDeleteById() != null || update.getDeleteQuery() != null) {
+      delete(req,update,processor);
+    }
+  }
+}

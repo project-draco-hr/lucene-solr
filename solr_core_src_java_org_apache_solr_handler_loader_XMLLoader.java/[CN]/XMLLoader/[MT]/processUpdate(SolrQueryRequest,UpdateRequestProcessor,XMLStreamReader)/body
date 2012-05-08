@@ -1,0 +1,68 @@
+{
+  AddUpdateCommand addCmd=null;
+  SolrParams params=req.getParams();
+  while (true) {
+    int event=parser.next();
+switch (event) {
+case XMLStreamConstants.END_DOCUMENT:
+      parser.close();
+    return;
+case XMLStreamConstants.START_ELEMENT:
+  String currTag=parser.getLocalName();
+if (currTag.equals(UpdateRequestHandler.ADD)) {
+  log.trace("SolrCore.update(add)");
+  addCmd=new AddUpdateCommand(req);
+  addCmd.commitWithin=params.getInt(UpdateParams.COMMIT_WITHIN,-1);
+  addCmd.overwrite=params.getBool(UpdateParams.OVERWRITE,true);
+  for (int i=0; i < parser.getAttributeCount(); i++) {
+    String attrName=parser.getAttributeLocalName(i);
+    String attrVal=parser.getAttributeValue(i);
+    if (UpdateRequestHandler.OVERWRITE.equals(attrName)) {
+      addCmd.overwrite=StrUtils.parseBoolean(attrVal);
+    }
+ else     if (UpdateRequestHandler.COMMIT_WITHIN.equals(attrName)) {
+      addCmd.commitWithin=Integer.parseInt(attrVal);
+    }
+ else {
+      log.warn("Unknown attribute id in add:" + attrName);
+    }
+  }
+}
+ else if ("doc".equals(currTag)) {
+  if (addCmd != null) {
+    log.trace("adding doc...");
+    addCmd.clear();
+    addCmd.solrDoc=readDoc(parser);
+    processor.processAdd(addCmd);
+  }
+ else {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unexpected <doc> tag without an <add> tag surrounding it.");
+  }
+}
+ else if (UpdateRequestHandler.COMMIT.equals(currTag) || UpdateRequestHandler.OPTIMIZE.equals(currTag)) {
+  log.trace("parsing " + currTag);
+  CommitUpdateCommand cmd=new CommitUpdateCommand(req,UpdateRequestHandler.OPTIMIZE.equals(currTag));
+  ModifiableSolrParams mp=new ModifiableSolrParams();
+  for (int i=0; i < parser.getAttributeCount(); i++) {
+    String attrName=parser.getAttributeLocalName(i);
+    String attrVal=parser.getAttributeValue(i);
+    mp.set(attrName,attrVal);
+  }
+  RequestHandlerUtils.validateCommitParams(mp);
+  SolrParams p=SolrParams.wrapDefaults(mp,req.getParams());
+  RequestHandlerUtils.updateCommit(cmd,p);
+  processor.processCommit(cmd);
+}
+ else if (UpdateRequestHandler.ROLLBACK.equals(currTag)) {
+  log.trace("parsing " + currTag);
+  RollbackUpdateCommand cmd=new RollbackUpdateCommand(req);
+  processor.processRollback(cmd);
+}
+ else if (UpdateRequestHandler.DELETE.equals(currTag)) {
+  log.trace("parsing delete");
+  processDelete(req,processor,parser);
+}
+break;
+}
+}
+}
