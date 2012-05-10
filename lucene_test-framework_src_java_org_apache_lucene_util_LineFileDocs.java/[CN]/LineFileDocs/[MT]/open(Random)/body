@@ -1,12 +1,23 @@
 {
   InputStream is=getClass().getResourceAsStream(path);
+  boolean needSkip=true;
+  long size=0L;
   if (is == null) {
-    is=new FileInputStream(path);
-  }
-  File file=new File(path);
-  long size;
-  if (file.exists()) {
-    size=file.length();
+    File file=new File(path);
+    if (path.endsWith(".gz")) {
+      is=new FileInputStream(file);
+    }
+ else {
+      size=file.length();
+      final long seekTo=randomSeekPos(random,size);
+      final FileChannel channel=new RandomAccessFile(path,"r").getChannel();
+      if (LuceneTestCase.VERBOSE) {
+        System.out.println("TEST: LineFileDocs: file seek to fp=" + seekTo + " on open");
+      }
+      channel.position(seekTo);
+      is=Channels.newInputStream(channel);
+      needSkip=false;
+    }
   }
  else {
     size=is.available();
@@ -15,20 +26,19 @@
     is=new GZIPInputStream(is);
     size*=2.8;
   }
-  if (path.equals("europarl.lines.txt.gz")) {
-    size=15129506L;
-  }
- else   if (path.equals("/home/hudson/lucene-data/enwiki.random.lines.txt.gz")) {
-    size=3038178822L;
-  }
-  if (random != null && size > 3) {
-    final long seekTo=(random.nextLong() & Long.MAX_VALUE) % (size / 3);
+  if (needSkip) {
+    final long skipTo=randomSeekPos(random,size);
     if (LuceneTestCase.VERBOSE) {
-      System.out.println("TEST: LineFileDocs: seek to fp=" + seekTo + " on open");
+      System.out.println("TEST: LineFileDocs: stream skip to fp=" + skipTo + " on open");
     }
-    is.skip(seekTo);
-    CharsetDecoder decoder=Charset.forName("UTF-8").newDecoder().onMalformedInput(CodingErrorAction.IGNORE).onUnmappableCharacter(CodingErrorAction.IGNORE);
-    reader=new BufferedReader(new InputStreamReader(is,decoder),BUFFER_SIZE);
-    reader.readLine();
+    is.skip(skipTo);
   }
+  int b;
+  do {
+    b=is.read();
+  }
+ while (b >= 0 && b != 13 && b != 10);
+  CharsetDecoder decoder=Charset.forName("UTF-8").newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT);
+  reader=new BufferedReader(new InputStreamReader(is,decoder),BUFFER_SIZE);
+  reader.readLine();
 }
