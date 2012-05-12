@@ -1,97 +1,34 @@
 {
-  int valuesPerIndex=10;
-  List<Type> values=Arrays.asList(Type.values());
-  Collections.shuffle(values,random());
-  Type first=values.get(0);
-  Type second=values.get(1);
-  Directory d_1=newDirectory();
-  IndexWriter w_1=new IndexWriter(d_1,writerConfig(random().nextBoolean()));
-  indexValues(w_1,valuesPerIndex,first,values,false,7);
-  w_1.commit();
-  assertEquals(valuesPerIndex,w_1.maxDoc());
-  _TestUtil.checkIndex(d_1);
-  Directory d_2=newDirectory();
-  IndexWriter w_2=new IndexWriter(d_2,writerConfig(random().nextBoolean()));
-  indexValues(w_2,valuesPerIndex,second,values,false,7);
-  w_2.commit();
-  assertEquals(valuesPerIndex,w_2.maxDoc());
-  _TestUtil.checkIndex(d_2);
-  Directory target=newDirectory();
-  IndexWriter w=new IndexWriter(target,writerConfig(random().nextBoolean()));
-  DirectoryReader r_1=DirectoryReader.open(w_1,true);
-  DirectoryReader r_2=DirectoryReader.open(w_2,true);
-  if (random().nextBoolean()) {
-    w.addIndexes(d_1,d_2);
-  }
- else {
-    w.addIndexes(r_1,r_2);
-  }
-  w.forceMerge(1,true);
-  w.commit();
-  _TestUtil.checkIndex(target);
-  assertEquals(valuesPerIndex * 2,w.maxDoc());
-  DirectoryReader merged=DirectoryReader.open(w,true);
-  Source source_1=getSource(getDocValues(r_1,first.name()));
-  Source source_2=getSource(getDocValues(r_2,second.name()));
-  Source source_1_merged=getSource(getDocValues(merged,first.name()));
-  Source source_2_merged=getSource(getDocValues(merged,second.name()));
-  for (int i=0; i < r_1.maxDoc(); i++) {
-switch (first) {
-case BYTES_FIXED_DEREF:
-case BYTES_FIXED_STRAIGHT:
-case BYTES_VAR_DEREF:
-case BYTES_VAR_STRAIGHT:
-case BYTES_FIXED_SORTED:
-case BYTES_VAR_SORTED:
-      assertEquals(source_1.getBytes(i,new BytesRef()),source_1_merged.getBytes(i,new BytesRef()));
-    break;
-case FIXED_INTS_16:
-case FIXED_INTS_32:
-case FIXED_INTS_64:
-case FIXED_INTS_8:
-case VAR_INTS:
-  assertEquals(source_1.getInt(i),source_1_merged.getInt(i));
-break;
-case FLOAT_32:
-case FLOAT_64:
-assertEquals(source_1.getFloat(i),source_1_merged.getFloat(i),0.0d);
-break;
-default :
-fail("unkonwn " + first);
-}
-}
-for (int i=r_1.maxDoc(); i < merged.maxDoc(); i++) {
-switch (second) {
-case BYTES_FIXED_DEREF:
-case BYTES_FIXED_STRAIGHT:
-case BYTES_VAR_DEREF:
-case BYTES_VAR_STRAIGHT:
-case BYTES_FIXED_SORTED:
-case BYTES_VAR_SORTED:
-assertEquals(source_2.getBytes(i - r_1.maxDoc(),new BytesRef()),source_2_merged.getBytes(i,new BytesRef()));
-break;
-case FIXED_INTS_16:
-case FIXED_INTS_32:
-case FIXED_INTS_64:
-case FIXED_INTS_8:
-case VAR_INTS:
-assertEquals(source_2.getInt(i - r_1.maxDoc()),source_2_merged.getInt(i));
-break;
-case FLOAT_32:
-case FLOAT_64:
-assertEquals(source_2.getFloat(i - r_1.maxDoc()),source_2_merged.getFloat(i),0.0d);
-break;
-default :
-fail("unkonwn " + first);
-}
-}
-r_1.close();
-r_2.close();
-merged.close();
-w_1.close(true);
-w_2.close(true);
-w.close(true);
-d_1.close();
-d_2.close();
-target.close();
+  Directory d1=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),d1);
+  Document doc=new Document();
+  doc.add(newField("id","1",StringField.TYPE_STORED));
+  doc.add(new PackedLongDocValuesField("dv",1));
+  w.addDocument(doc);
+  IndexReader r1=w.getReader();
+  w.close();
+  Directory d2=newDirectory();
+  w=new RandomIndexWriter(random(),d2);
+  doc=new Document();
+  doc.add(newField("id","2",StringField.TYPE_STORED));
+  doc.add(new PackedLongDocValuesField("dv",2));
+  w.addDocument(doc);
+  IndexReader r2=w.getReader();
+  w.close();
+  Directory d3=newDirectory();
+  w=new RandomIndexWriter(random(),d3);
+  w.addIndexes(SlowCompositeReaderWrapper.wrap(r1),SlowCompositeReaderWrapper.wrap(r2));
+  r1.close();
+  d1.close();
+  r2.close();
+  d2.close();
+  w.forceMerge(1);
+  DirectoryReader r3=w.getReader();
+  w.close();
+  AtomicReader sr=getOnlySegmentReader(r3);
+  assertEquals(2,sr.numDocs());
+  DocValues docValues=sr.docValues("dv");
+  assertNotNull(docValues);
+  r3.close();
+  d3.close();
 }
