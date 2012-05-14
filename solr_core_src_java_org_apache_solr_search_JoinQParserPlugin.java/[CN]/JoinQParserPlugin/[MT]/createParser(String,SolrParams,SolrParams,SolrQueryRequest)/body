@@ -5,8 +5,27 @@
       String fromIndex=getParam("fromIndex");
       String toField=getParam("to");
       String v=localParams.get("v");
-      QParser fromQueryParser=subQuery(v,null);
-      Query fromQuery=fromQueryParser.getQuery();
+      Query fromQuery;
+      if (fromIndex != null) {
+        CoreContainer container=req.getCore().getCoreDescriptor().getCoreContainer();
+        final SolrCore fromCore=container.getCore(fromIndex);
+        if (fromCore == null) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cross-core join: no such core " + fromIndex);
+        }
+        LocalSolrQueryRequest otherReq=new LocalSolrQueryRequest(fromCore,params);
+        try {
+          QParser parser=QParser.getParser(v,"lucene",otherReq);
+          fromQuery=parser.getQuery();
+        }
+  finally {
+          otherReq.close();
+          fromCore.close();
+        }
+      }
+ else {
+        QParser fromQueryParser=subQuery(v,null);
+        fromQuery=fromQueryParser.getQuery();
+      }
       JoinQuery jq=new JoinQuery(fromField,toField,fromIndex,fromQuery);
       return jq;
     }
