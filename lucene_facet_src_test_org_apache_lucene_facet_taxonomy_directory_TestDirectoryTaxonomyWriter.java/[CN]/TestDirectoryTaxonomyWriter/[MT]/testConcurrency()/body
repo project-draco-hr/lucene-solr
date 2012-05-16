@@ -1,0 +1,38 @@
+{
+  int ncats=atLeast(100000);
+  final int range=ncats * 3;
+  final AtomicInteger numCats=new AtomicInteger(ncats);
+  Directory dir=newDirectory();
+  final ConcurrentHashMap<Integer,Integer> values=new ConcurrentHashMap<Integer,Integer>();
+  TaxonomyWriterCache cache=random().nextBoolean() ? new Cl2oTaxonomyWriterCache(1024,0.15f,3) : new LruTaxonomyWriterCache(ncats / 10);
+  final DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(dir,OpenMode.CREATE,cache);
+  Thread[] addThreads=new Thread[atLeast(4)];
+  for (int z=0; z < addThreads.length; z++) {
+    addThreads[z]=new Thread(){
+      @Override public void run(){
+        Random random=random();
+        while (numCats.decrementAndGet() > 0) {
+          try {
+            int value=random.nextInt(range);
+            tw.addCategory(new CategoryPath("a",Integer.toString(value)));
+            values.put(value,value);
+          }
+ catch (          IOException e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
+    }
+;
+  }
+  for (  Thread t : addThreads)   t.start();
+  for (  Thread t : addThreads)   t.join();
+  tw.close();
+  DirectoryTaxonomyReader dtr=new DirectoryTaxonomyReader(dir);
+  assertEquals(values.size() + 2,dtr.getSize());
+  for (  Integer value : values.keySet()) {
+    assertTrue("category not found a/" + value,dtr.getOrdinal(new CategoryPath("a",value.toString())) > 0);
+  }
+  dtr.close();
+  dir.close();
+}
