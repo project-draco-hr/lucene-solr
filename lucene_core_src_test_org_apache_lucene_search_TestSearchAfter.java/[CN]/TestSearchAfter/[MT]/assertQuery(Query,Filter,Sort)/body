@@ -1,0 +1,50 @@
+{
+  int maxDoc=searcher.getIndexReader().maxDoc();
+  TopDocs all;
+  int pageSize=_TestUtil.nextInt(random(),1,maxDoc * 2);
+  if (VERBOSE) {
+    System.out.println("\nassertQuery: query=" + query + " filter="+ filter+ " sort="+ sort+ " pageSize="+ pageSize);
+  }
+  final boolean doMaxScore=random().nextBoolean();
+  if (sort == null) {
+    all=searcher.search(query,filter,maxDoc);
+  }
+ else   if (sort == Sort.RELEVANCE) {
+    all=searcher.search(query,filter,maxDoc,sort,true,doMaxScore);
+  }
+ else {
+    all=searcher.search(query,filter,maxDoc,sort);
+  }
+  if (VERBOSE) {
+    System.out.println("  all.totalHits=" + all.totalHits);
+  }
+  int pageStart=0;
+  ScoreDoc lastBottom=null;
+  while (pageStart < all.totalHits) {
+    TopDocs paged;
+    if (sort == null) {
+      if (VERBOSE) {
+        System.out.println("  iter lastBottom=" + lastBottom);
+      }
+      paged=searcher.searchAfter(lastBottom,query,filter,pageSize);
+    }
+ else {
+      if (VERBOSE) {
+        System.out.println("  iter lastBottom=" + lastBottom + (lastBottom == null ? "" : " fields=" + Arrays.toString(((FieldDoc)lastBottom).fields)));
+      }
+      if (sort == Sort.RELEVANCE) {
+        paged=searcher.searchAfter(lastBottom,query,filter,pageSize,sort,true,doMaxScore);
+      }
+ else {
+        paged=searcher.searchAfter(lastBottom,query,filter,pageSize,sort);
+      }
+    }
+    if (paged.scoreDocs.length == 0) {
+      break;
+    }
+    assertPage(pageStart,all,paged);
+    pageStart+=paged.scoreDocs.length;
+    lastBottom=paged.scoreDocs[paged.scoreDocs.length - 1];
+  }
+  assertEquals(all.scoreDocs.length,pageStart);
+}
