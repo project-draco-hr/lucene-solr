@@ -1,0 +1,64 @@
+{
+  final DocumentsWriterStallControl ctrl=new DocumentsWriterStallControl();
+  SimpleMemCtrl memCtrl=new SimpleMemCtrl();
+  memCtrl.limit=1000;
+  memCtrl.netBytes=1;
+  ctrl.updateStalled(memCtrl);
+  final AtomicBoolean stop=new AtomicBoolean(false);
+  final AtomicBoolean checkPoint=new AtomicBoolean(true);
+  int numStallers=atLeast(1);
+  int numReleasers=atLeast(1);
+  int numWaiters=atLeast(1);
+  final CountDownLatch[] latches=new CountDownLatch[]{new CountDownLatch(numStallers + numReleasers),new CountDownLatch(1),new CountDownLatch(numWaiters)};
+  Thread[] threads=new Thread[numReleasers + numStallers + numWaiters];
+  List<Throwable> exceptions=Collections.synchronizedList(new ArrayList<Throwable>());
+  for (int i=0; i < numReleasers; i++) {
+    threads[i]=new Updater(stop,checkPoint,ctrl,latches,true,exceptions);
+  }
+  for (int i=numReleasers; i < numReleasers + numStallers; i++) {
+    threads[i]=new Updater(stop,checkPoint,ctrl,latches,false,exceptions);
+  }
+  for (int i=numReleasers + numStallers; i < numReleasers + numStallers + numWaiters; i++) {
+    threads[i]=new Waiter(stop,checkPoint,ctrl,latches,exceptions);
+  }
+  start(threads);
+  int iters=atLeast(20000);
+  for (int i=0; i < iters; i++) {
+    if (checkPoint.get()) {
+      latches[0].await(5,TimeUnit.SECONDS);
+      if (!exceptions.isEmpty()) {
+        for (        Throwable throwable : exceptions) {
+          throwable.printStackTrace();
+        }
+        fail("got exceptions in threads");
+      }
+      if (!ctrl.anyStalledThreads()) {
+        assertTrue("control claims no stalled threads but waiter seems to be blocked",latches[2].await(3,TimeUnit.SECONDS));
+      }
+      checkPoint.set(false);
+      latches[1].countDown();
+    }
+    assertFalse(checkPoint.get());
+    if (random().nextInt(2) == 0) {
+      latches[0]=new CountDownLatch(numStallers + numReleasers);
+      latches[1]=new CountDownLatch(1);
+      latches[2]=new CountDownLatch(numWaiters);
+      checkPoint.set(true);
+    }
+  }
+  stop.set(true);
+  memCtrl.limit=1000;
+  memCtrl.netBytes=1;
+  ctrl.updateStalled(memCtrl);
+  if (checkPoint.get()) {
+    latches[1].countDown();
+  }
+  for (int i=0; i < threads.length; i++) {
+    threads[i].join(2000);
+    if (threads[i].isAlive() && threads[i] instanceof Waiter) {
+      if (threads[i].getState() == Thread.State.WAITING) {
+        fail("waiter is not released - anyThreadsStalled: " + ctrl.anyStalledThreads());
+      }
+    }
+  }
+}
