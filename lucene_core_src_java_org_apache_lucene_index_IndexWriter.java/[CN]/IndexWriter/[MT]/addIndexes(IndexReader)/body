@@ -11,13 +11,16 @@
       numDocs+=indexReader.numDocs();
     }
     final IOContext context=new IOContext(new MergeInfo(numDocs,-1,true,-1));
-    SegmentMerger merger=new SegmentMerger(infoStream,directory,config.getTermIndexInterval(),mergedName,MergeState.CheckAbort.NONE,payloadProcessorProvider,new FieldInfos.Builder(globalFieldNumberMap),codec,context);
+    TrackingDirectoryWrapper trackingDir=new TrackingDirectoryWrapper(directory);
+    SegmentMerger merger=new SegmentMerger(infoStream,trackingDir,config.getTermIndexInterval(),mergedName,MergeState.CheckAbort.NONE,payloadProcessorProvider,new FieldInfos.Builder(globalFieldNumberMap),codec,context);
     for (    IndexReader reader : readers) {
       merger.add(reader);
     }
     MergeState mergeState=merger.merge();
     int docCount=mergeState.mergedDocCount;
     SegmentInfo info=new SegmentInfo(directory,Constants.LUCENE_MAIN_VERSION,mergedName,docCount,-1,mergedName,false,null,false,0,codec,null);
+    info.setFiles(new HashSet<String>(trackingDir.getCreatedFiles()));
+    trackingDir.getCreatedFiles().clear();
     setDiagnostics(info,"addIndexes(IndexReader...)");
     boolean useCompoundFile;
 synchronized (this) {
@@ -29,14 +32,16 @@ synchronized (this) {
       useCompoundFile=mergePolicy.useCompoundFile(segmentInfos,info);
     }
     if (useCompoundFile) {
-      createCompoundFile(infoStream,directory,IndexFileNames.segmentFileName(mergedName,"",IndexFileNames.COMPOUND_FILE_EXTENSION),MergeState.CheckAbort.NONE,info,context);
+      Collection<String> filesToDelete=info.files();
+      createCompoundFile(infoStream,directory,MergeState.CheckAbort.NONE,info,context);
 synchronized (this) {
-        deleter.deleteNewFiles(info.files());
+        deleter.deleteNewFiles(filesToDelete);
       }
       info.setUseCompoundFile(true);
     }
-    codec.segmentInfosFormat().getSegmentInfosWriter().write(directory,info,mergeState.fieldInfos,context);
+    codec.segmentInfosFormat().getSegmentInfosWriter().write(trackingDir,info,mergeState.fieldInfos,context);
     info.clearFilesCache();
+    info.getFiles().addAll(trackingDir.getCreatedFiles());
 synchronized (this) {
       if (stopMerges) {
         deleter.deleteNewFiles(info.files());
