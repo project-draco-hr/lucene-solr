@@ -1,0 +1,40 @@
+{
+  final DocumentsWriterStallControl ctrl=new DocumentsWriterStallControl();
+  SimpleMemCtrl memCtrl=new SimpleMemCtrl();
+  memCtrl.limit=1000;
+  memCtrl.netBytes=1;
+  ctrl.updateStalled(memCtrl);
+  Thread[] stallThreads=new Thread[atLeast(3)];
+  for (int i=0; i < stallThreads.length; i++) {
+    final int threadId=i;
+    stallThreads[i]=new Thread(){
+      public void run(){
+        int baseBytes=threadId % 2 == 0 ? 500 : 700;
+        SimpleMemCtrl memCtrl=new SimpleMemCtrl();
+        memCtrl.limit=1000;
+        memCtrl.netBytes=1;
+        int iters=atLeast(1000);
+        for (int j=0; j < iters; j++) {
+          memCtrl.netBytes=baseBytes + random().nextInt(1000);
+          ctrl.updateStalled(memCtrl);
+          if (random().nextInt(5) == 0) {
+            ctrl.waitIfStalled();
+          }
+        }
+      }
+    }
+;
+  }
+  start(stallThreads);
+  long time=System.currentTimeMillis();
+  while ((System.currentTimeMillis() - time) < 100 * 1000 && !terminated(stallThreads)) {
+    ctrl.updateStalled(memCtrl);
+    if (random().nextBoolean()) {
+      Thread.yield();
+    }
+ else {
+      Thread.sleep(1);
+    }
+  }
+  join(stallThreads,100);
+}

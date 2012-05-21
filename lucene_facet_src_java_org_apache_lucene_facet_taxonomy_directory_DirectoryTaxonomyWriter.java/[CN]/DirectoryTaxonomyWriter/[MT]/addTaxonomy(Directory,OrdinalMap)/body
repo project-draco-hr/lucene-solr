@@ -1,0 +1,33 @@
+{
+  ensureOpen();
+  DirectoryReader r=DirectoryReader.open(taxoDir);
+  try {
+    final int size=r.numDocs();
+    final OrdinalMap ordinalMap=map;
+    ordinalMap.setSize(size);
+    CategoryPath cp=new CategoryPath();
+    int base=0;
+    TermsEnum te=null;
+    DocsEnum docs=null;
+    for (    AtomicReader ar : r.getSequentialSubReaders()) {
+      Terms terms=ar.terms(Consts.FULL);
+      te=terms.iterator(te);
+      while (te.next() != null) {
+        String value=te.term().utf8ToString();
+        cp.clear();
+        cp.add(value,Consts.DEFAULT_DELIMITER);
+        int ordinal=findCategory(cp);
+        if (ordinal < 0) {
+          ordinal=addCategory(cp);
+        }
+        docs=te.docs(null,docs,false);
+        ordinalMap.addMapping(docs.nextDoc() + base,ordinal);
+      }
+      base+=ar.maxDoc();
+    }
+    ordinalMap.addDone();
+  }
+  finally {
+    r.close();
+  }
+}

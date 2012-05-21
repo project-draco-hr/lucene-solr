@@ -6,9 +6,11 @@
       String toField=getParam("to");
       String v=localParams.get("v");
       Query fromQuery;
-      if (fromIndex != null) {
+      long fromCoreOpenTime=0;
+      if (fromIndex != null && !fromIndex.equals(req.getCore().getCoreDescriptor().getName())) {
         CoreContainer container=req.getCore().getCoreDescriptor().getCoreContainer();
         final SolrCore fromCore=container.getCore(fromIndex);
+        RefCounted<SolrIndexSearcher> fromHolder=null;
         if (fromCore == null) {
           throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cross-core join: no such core " + fromIndex);
         }
@@ -16,10 +18,13 @@
         try {
           QParser parser=QParser.getParser(v,"lucene",otherReq);
           fromQuery=parser.getQuery();
+          fromHolder=fromCore.getRegisteredSearcher();
+          if (fromHolder != null)           fromCoreOpenTime=fromHolder.get().getOpenTime();
         }
   finally {
           otherReq.close();
           fromCore.close();
+          if (fromHolder != null)           fromHolder.decref();
         }
       }
  else {
@@ -27,6 +32,7 @@
         fromQuery=fromQueryParser.getQuery();
       }
       JoinQuery jq=new JoinQuery(fromField,toField,fromIndex,fromQuery);
+      jq.fromCoreOpenTime=fromCoreOpenTime;
       return jq;
     }
   }

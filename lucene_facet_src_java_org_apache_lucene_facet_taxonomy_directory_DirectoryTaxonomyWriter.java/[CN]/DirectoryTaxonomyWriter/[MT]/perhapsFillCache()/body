@@ -7,25 +7,28 @@
   }
   alreadyCalledFillCache=true;
   if (reader == null) {
-    reader=openReader();
+    openInternalReader();
   }
   if (!cache.hasRoom(reader.numDocs())) {
     return false;
   }
   CategoryPath cp=new CategoryPath();
-  Terms terms=MultiFields.getTerms(reader,Consts.FULL);
-  if (terms != null) {
-    TermsEnum termsEnum=terms.iterator(null);
-    Bits liveDocs=MultiFields.getLiveDocs(reader);
-    DocsEnum docsEnum=null;
-    while (termsEnum.next() != null) {
-      BytesRef t=termsEnum.term();
-      docsEnum=termsEnum.docs(liveDocs,docsEnum,false);
-      docsEnum.nextDoc();
-      cp.clear();
-      cp.add(t.utf8ToString(),delimiter);
-      cache.put(cp,docsEnum.docID());
+  TermsEnum termsEnum=null;
+  DocsEnum docsEnum=null;
+  int base=0;
+  for (  AtomicReader r : reader.getSequentialSubReaders()) {
+    Terms terms=r.terms(Consts.FULL);
+    if (terms != null) {
+      termsEnum=terms.iterator(termsEnum);
+      while (termsEnum.next() != null) {
+        BytesRef t=termsEnum.term();
+        cp.clear();
+        cp.add(t.utf8ToString(),delimiter);
+        docsEnum=termsEnum.docs(null,docsEnum,false);
+        cache.put(cp,docsEnum.nextDoc() + base);
+      }
     }
+    base+=r.maxDoc();
   }
   cacheIsComplete=true;
   reader.close();

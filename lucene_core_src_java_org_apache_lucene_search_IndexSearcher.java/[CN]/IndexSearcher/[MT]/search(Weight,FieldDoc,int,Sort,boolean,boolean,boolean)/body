@@ -1,0 +1,24 @@
+{
+  if (sort == null)   throw new NullPointerException();
+  if (executor == null) {
+    return search(leafContexts,weight,after,nDocs,sort,fillFields,doDocScores,doMaxScore);
+  }
+ else {
+    final TopFieldCollector topCollector=TopFieldCollector.create(sort,nDocs,after,fillFields,doDocScores,doMaxScore,false);
+    final Lock lock=new ReentrantLock();
+    final ExecutionHelper<TopFieldDocs> runner=new ExecutionHelper<TopFieldDocs>(executor);
+    for (int i=0; i < leafSlices.length; i++) {
+      runner.submit(new SearcherCallableWithSort(lock,this,leafSlices[i],weight,after,nDocs,topCollector,sort,doDocScores,doMaxScore));
+    }
+    int totalHits=0;
+    float maxScore=Float.NEGATIVE_INFINITY;
+    for (    final TopFieldDocs topFieldDocs : runner) {
+      if (topFieldDocs.totalHits != 0) {
+        totalHits+=topFieldDocs.totalHits;
+        maxScore=Math.max(maxScore,topFieldDocs.getMaxScore());
+      }
+    }
+    final TopFieldDocs topDocs=(TopFieldDocs)topCollector.topDocs();
+    return new TopFieldDocs(totalHits,topDocs.scoreDocs,topDocs.fields,topDocs.getMaxScore());
+  }
+}

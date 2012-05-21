@@ -1,0 +1,38 @@
+{
+  final int numCategories=atLeast(5000);
+  Directory src=newDirectory();
+  DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(src);
+  for (int i=0; i < numCategories; i++) {
+    tw.addCategory(new CategoryPath("a",Integer.toString(i)));
+  }
+  tw.close();
+  Directory dest=newDirectory();
+  final DirectoryTaxonomyWriter destTW=new DirectoryTaxonomyWriter(dest);
+  Thread t=new Thread(){
+    @Override public void run(){
+      for (int i=0; i < numCategories; i++) {
+        try {
+          destTW.addCategory(new CategoryPath("a",Integer.toString(i)));
+        }
+ catch (        IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+  }
+;
+  t.start();
+  OrdinalMap map=new MemoryOrdinalMap();
+  destTW.addTaxonomy(src,map);
+  t.join();
+  destTW.close();
+  DirectoryTaxonomyReader dtr=new DirectoryTaxonomyReader(dest);
+  assertEquals(numCategories + 2,dtr.getSize());
+  HashSet<CategoryPath> categories=new HashSet<CategoryPath>();
+  for (int i=1; i < dtr.getSize(); i++) {
+    CategoryPath cat=dtr.getPath(i);
+    assertTrue("category " + cat + " already existed",categories.add(cat));
+  }
+  dtr.close();
+  IOUtils.close(src,dest);
+}
