@@ -16,8 +16,8 @@
   String oldSegs=null;
   boolean foundNonNullVersion=false;
   Comparator<String> versionComparator=StringHelper.getVersionComparator();
-  for (  SegmentInfo si : sis) {
-    String version=si.getVersion();
+  for (  SegmentInfoPerCommit si : sis) {
+    String version=si.info.getVersion();
     if (version == null) {
       oldSegs="pre-3.1";
     }
@@ -99,42 +99,44 @@
   result.newSegments.clear();
   result.maxSegmentName=-1;
   for (int i=0; i < numSegments; i++) {
-    final SegmentInfo info=sis.info(i);
-    int segmentName=Integer.parseInt(info.name.substring(1),Character.MAX_RADIX);
+    final SegmentInfoPerCommit info=sis.info(i);
+    int segmentName=Integer.parseInt(info.info.name.substring(1),Character.MAX_RADIX);
     if (segmentName > result.maxSegmentName) {
       result.maxSegmentName=segmentName;
     }
-    if (onlySegments != null && !onlySegments.contains(info.name))     continue;
+    if (onlySegments != null && !onlySegments.contains(info.info.name)) {
+      continue;
+    }
     Status.SegmentInfoStatus segInfoStat=new Status.SegmentInfoStatus();
     result.segmentInfos.add(segInfoStat);
-    msg("  " + (1 + i) + " of "+ numSegments+ ": name="+ info.name+ " docCount="+ info.docCount);
-    segInfoStat.name=info.name;
-    segInfoStat.docCount=info.docCount;
-    int toLoseDocCount=info.docCount;
+    msg("  " + (1 + i) + " of "+ numSegments+ ": name="+ info.info.name+ " docCount="+ info.info.docCount);
+    segInfoStat.name=info.info.name;
+    segInfoStat.docCount=info.info.docCount;
+    int toLoseDocCount=info.info.docCount;
     SegmentReader reader=null;
     try {
-      final Codec codec=info.getCodec();
+      final Codec codec=info.info.getCodec();
       msg("    codec=" + codec);
       segInfoStat.codec=codec;
-      msg("    compound=" + info.getUseCompoundFile());
-      segInfoStat.compound=info.getUseCompoundFile();
-      msg("    numFiles=" + info.files().size());
-      segInfoStat.numFiles=info.files().size();
+      msg("    compound=" + info.info.getUseCompoundFile());
+      segInfoStat.compound=info.info.getUseCompoundFile();
+      msg("    numFiles=" + info.info.files().size());
+      segInfoStat.numFiles=info.info.files().size();
       segInfoStat.sizeMB=info.sizeInBytes() / (1024. * 1024.);
       msg("    size (MB)=" + nf.format(segInfoStat.sizeMB));
-      Map<String,String> diagnostics=info.getDiagnostics();
+      Map<String,String> diagnostics=info.info.getDiagnostics();
       segInfoStat.diagnostics=diagnostics;
       if (diagnostics.size() > 0) {
         msg("    diagnostics = " + diagnostics);
       }
-      final int docStoreOffset=info.getDocStoreOffset();
+      final int docStoreOffset=info.info.getDocStoreOffset();
       if (docStoreOffset != -1) {
         msg("    docStoreOffset=" + docStoreOffset);
         segInfoStat.docStoreOffset=docStoreOffset;
-        msg("    docStoreSegment=" + info.getDocStoreSegment());
-        segInfoStat.docStoreSegment=info.getDocStoreSegment();
-        msg("    docStoreIsCompoundFile=" + info.getDocStoreIsCompoundFile());
-        segInfoStat.docStoreCompoundFile=info.getDocStoreIsCompoundFile();
+        msg("    docStoreSegment=" + info.info.getDocStoreSegment());
+        segInfoStat.docStoreSegment=info.info.getDocStoreSegment();
+        msg("    docStoreIsCompoundFile=" + info.info.getDocStoreIsCompoundFile());
+        segInfoStat.docStoreCompoundFile=info.info.getDocStoreIsCompoundFile();
       }
       if (info.hasDeletions()) {
         msg("    no deletions");
@@ -151,14 +153,14 @@
       final int numDocs=reader.numDocs();
       toLoseDocCount=numDocs;
       if (reader.hasDeletions()) {
-        if (reader.numDocs() != info.docCount - info.getDelCount()) {
-          throw new RuntimeException("delete count mismatch: info=" + (info.docCount - info.getDelCount()) + " vs reader="+ reader.numDocs());
+        if (reader.numDocs() != info.info.docCount - info.getDelCount()) {
+          throw new RuntimeException("delete count mismatch: info=" + (info.info.docCount - info.getDelCount()) + " vs reader="+ reader.numDocs());
         }
-        if ((info.docCount - reader.numDocs()) > reader.maxDoc()) {
-          throw new RuntimeException("too many deleted docs: maxDoc()=" + reader.maxDoc() + " vs del count="+ (info.docCount - reader.numDocs()));
+        if ((info.info.docCount - reader.numDocs()) > reader.maxDoc()) {
+          throw new RuntimeException("too many deleted docs: maxDoc()=" + reader.maxDoc() + " vs del count="+ (info.info.docCount - reader.numDocs()));
         }
-        if (info.docCount - numDocs != info.getDelCount()) {
-          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.docCount - numDocs));
+        if (info.info.docCount - numDocs != info.getDelCount()) {
+          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.info.docCount - numDocs));
         }
         Bits liveDocs=reader.getLiveDocs();
         if (liveDocs == null) {
@@ -175,12 +177,12 @@
             throw new RuntimeException("liveDocs count mismatch: info=" + numDocs + ", vs bits="+ numLive);
           }
         }
-        segInfoStat.numDeleted=info.docCount - numDocs;
+        segInfoStat.numDeleted=info.info.docCount - numDocs;
         msg("OK [" + (segInfoStat.numDeleted) + " deleted docs]");
       }
  else {
         if (info.getDelCount() != 0) {
-          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.docCount - numDocs));
+          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.info.docCount - numDocs));
         }
         Bits liveDocs=reader.getLiveDocs();
         if (liveDocs != null) {
@@ -192,7 +194,9 @@
         }
         msg("OK");
       }
-      if (reader.maxDoc() != info.docCount)       throw new RuntimeException("SegmentReader.maxDoc() " + reader.maxDoc() + " != SegmentInfos.docCount "+ info.docCount);
+      if (reader.maxDoc() != info.info.docCount) {
+        throw new RuntimeException("SegmentReader.maxDoc() " + reader.maxDoc() + " != SegmentInfos.docCount "+ info.info.docCount);
+      }
       if (infoStream != null) {
         infoStream.print("    test: fields..............");
       }
