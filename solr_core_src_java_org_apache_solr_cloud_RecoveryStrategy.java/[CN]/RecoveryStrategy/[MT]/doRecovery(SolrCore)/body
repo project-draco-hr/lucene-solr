@@ -8,31 +8,34 @@
     recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
     return;
   }
-  List<Long> startingRecentVersions;
-  UpdateLog.RecentUpdates startingRecentUpdates=ulog.getRecentUpdates();
+  List<Long> recentVersions;
+  UpdateLog.RecentUpdates recentUpdates=ulog.getRecentUpdates();
   try {
-    startingRecentVersions=startingRecentUpdates.getVersions(ulog.numRecordsToKeep);
+    recentVersions=recentUpdates.getVersions(ulog.numRecordsToKeep);
   }
   finally {
-    startingRecentUpdates.close();
+    recentUpdates.close();
   }
-  List<Long> reallyStartingVersions=ulog.getStartingVersions();
-  if (reallyStartingVersions != null && recoveringAfterStartup) {
+  List<Long> startingVersions=ulog.getStartingVersions();
+  if (startingVersions != null && recoveringAfterStartup) {
     int oldIdx=0;
-    long firstStartingVersion=reallyStartingVersions.size() > 0 ? reallyStartingVersions.get(0) : 0;
-    for (; oldIdx < startingRecentVersions.size(); oldIdx++) {
-      if (startingRecentVersions.get(oldIdx) == firstStartingVersion)       break;
+    long firstStartingVersion=startingVersions.size() > 0 ? startingVersions.get(0) : 0;
+    for (; oldIdx < recentVersions.size(); oldIdx++) {
+      if (recentVersions.get(oldIdx) == firstStartingVersion)       break;
     }
     if (oldIdx > 0) {
       log.info("####### Found new versions added after startup: num=" + oldIdx);
-      log.info("###### currentVersions=" + startingRecentVersions);
+      log.info("###### currentVersions=" + recentVersions);
     }
-    log.info("###### startupVersions=" + reallyStartingVersions);
-  }
-  if (recoveringAfterStartup) {
-    startingRecentVersions=reallyStartingVersions;
+    log.info("###### startupVersions=" + startingVersions);
   }
   boolean firstTime=true;
+  if (recoveringAfterStartup) {
+    recentVersions=startingVersions;
+    if ((ulog.getStartingOperation() & UpdateLog.FLAG_GAP) != 0) {
+      firstTime=false;
+    }
+  }
   while (!successfulRecovery && !close && !isInterrupted()) {
     try {
       zkController.publish(core.getCoreDescriptor(),ZkStateReader.RECOVERING);
@@ -46,7 +49,7 @@
         firstTime=false;
         log.info("Attempting to PeerSync from " + leaderUrl + " recoveringAfterStartup="+ recoveringAfterStartup);
         PeerSync peerSync=new PeerSync(core,Collections.singletonList(leaderUrl),ulog.numRecordsToKeep);
-        peerSync.setStartingVersions(startingRecentVersions);
+        peerSync.setStartingVersions(recentVersions);
         boolean syncSuccess=peerSync.sync();
         if (syncSuccess) {
           SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
