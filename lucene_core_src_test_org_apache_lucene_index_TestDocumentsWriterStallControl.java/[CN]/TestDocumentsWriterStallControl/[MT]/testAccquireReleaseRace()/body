@@ -3,6 +3,7 @@
   SimpleMemCtrl memCtrl=new SimpleMemCtrl();
   memCtrl.limit=1000;
   memCtrl.netBytes=1;
+  memCtrl.flushBytes=0;
   ctrl.updateStalled(memCtrl);
   final AtomicBoolean stop=new AtomicBoolean(false);
   final AtomicBoolean checkPoint=new AtomicBoolean(true);
@@ -25,7 +26,7 @@
   int iters=atLeast(20000);
   for (int i=0; i < iters; i++) {
     if (checkPoint.get()) {
-      latches[0].await(5,TimeUnit.SECONDS);
+      assertTrue("timed out waiting for update threads - deadlock?",latches[0].await(10,TimeUnit.SECONDS));
       if (!exceptions.isEmpty()) {
         for (        Throwable throwable : exceptions) {
           throwable.printStackTrace();
@@ -33,7 +34,7 @@
         fail("got exceptions in threads");
       }
       if (!ctrl.anyStalledThreads()) {
-        assertTrue("control claims no stalled threads but waiter seems to be blocked",latches[2].await(3,TimeUnit.SECONDS));
+        assertTrue("control claims no stalled threads but waiter seems to be blocked",latches[2].await(10,TimeUnit.SECONDS));
       }
       checkPoint.set(false);
       latches[1].countDown();
@@ -47,13 +48,12 @@
     }
   }
   stop.set(true);
-  memCtrl.limit=1000;
-  memCtrl.netBytes=1;
-  ctrl.updateStalled(memCtrl);
-  if (checkPoint.get()) {
-    latches[1].countDown();
-  }
+  latches[1].countDown();
   for (int i=0; i < threads.length; i++) {
+    memCtrl.limit=1000;
+    memCtrl.netBytes=1;
+    memCtrl.flushBytes=0;
+    ctrl.updateStalled(memCtrl);
     threads[i].join(2000);
     if (threads[i].isAlive() && threads[i] instanceof Waiter) {
       if (threads[i].getState() == Thread.State.WAITING) {
