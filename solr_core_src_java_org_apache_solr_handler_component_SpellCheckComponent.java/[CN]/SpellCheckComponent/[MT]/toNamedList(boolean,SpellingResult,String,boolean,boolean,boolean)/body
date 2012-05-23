@@ -2,19 +2,22 @@
   NamedList result=new NamedList();
   Map<Token,LinkedHashMap<String,Integer>> suggestions=spellingResult.getSuggestions();
   boolean hasFreqInfo=spellingResult.hasTokenFrequencyInfo();
-  boolean isCorrectlySpelled=false;
-  int numSuggestions=0;
-  for (  LinkedHashMap<String,Integer> theSuggestion : suggestions.values()) {
-    if (theSuggestion.size() > 0) {
-      numSuggestions++;
-    }
-  }
-  if (numSuggestions > 0) {
-    isCorrectlySpelled=true;
-  }
+  boolean hasSuggestions=false;
+  boolean hasZeroFrequencyToken=false;
   for (  Map.Entry<Token,LinkedHashMap<String,Integer>> entry : suggestions.entrySet()) {
     Token inputToken=entry.getKey();
-    Map<String,Integer> theSuggestions=entry.getValue();
+    String tokenString=new String(inputToken.buffer(),0,inputToken.length());
+    Map<String,Integer> theSuggestions=new LinkedHashMap<String,Integer>(entry.getValue());
+    Iterator<String> sugIter=theSuggestions.keySet().iterator();
+    while (sugIter.hasNext()) {
+      String sug=sugIter.next();
+      if (sug.equals(tokenString)) {
+        sugIter.remove();
+      }
+    }
+    if (theSuggestions.size() > 0) {
+      hasSuggestions=true;
+    }
     if (theSuggestions != null && (theSuggestions.size() > 0 || shardRequest)) {
       SimpleOrderedMap suggestionList=new SimpleOrderedMap();
       suggestionList.add("numFound",theSuggestions.size());
@@ -35,16 +38,16 @@
         suggestionList.add("suggestion",theSuggestions.keySet());
       }
       if (hasFreqInfo) {
-        isCorrectlySpelled=isCorrectlySpelled && spellingResult.getTokenFrequency(inputToken) > 0;
+        int tokenFrequency=spellingResult.getTokenFrequency(inputToken);
+        if (tokenFrequency == 0) {
+          hasZeroFrequencyToken=true;
+        }
       }
-      result.add(new String(inputToken.buffer(),0,inputToken.length()),suggestionList);
+      result.add(tokenString,suggestionList);
     }
   }
-  if (hasFreqInfo) {
-    result.add("correctlySpelled",isCorrectlySpelled);
-  }
- else   if (extendedResults && suggestions.size() == 0) {
-    result.add("correctlySpelled",true);
+  if (extendedResults) {
+    result.add("correctlySpelled",correctlySpelled);
   }
   return result;
 }
