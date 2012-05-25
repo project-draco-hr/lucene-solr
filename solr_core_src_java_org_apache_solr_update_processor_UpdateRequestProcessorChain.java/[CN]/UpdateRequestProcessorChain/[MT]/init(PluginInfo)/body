@@ -1,7 +1,28 @@
 {
-  List<UpdateRequestProcessorFactory> list=solrCore.initPlugins(info.getChildren("processor"),UpdateRequestProcessorFactory.class,null);
+  final String infomsg="updateRequestProcessorChain \"" + (null != info.name ? info.name : "") + "\""+ (info.isDefault() ? " (default)" : "");
+  List<UpdateRequestProcessorFactory> list=new ArrayList(solrCore.initPlugins(info.getChildren("processor"),UpdateRequestProcessorFactory.class,null));
   if (list.isEmpty()) {
-    throw new RuntimeException("updateRequestProcessorChain require at least one processor");
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,infomsg + " require at least one processor");
+  }
+  int numDistrib=0;
+  int runIndex=-1;
+  for (int i=list.size() - 1; 0 <= i; i--) {
+    UpdateRequestProcessorFactory factory=list.get(i);
+    if (factory instanceof DistributingUpdateProcessorFactory) {
+      numDistrib++;
+    }
+    if (factory instanceof RunUpdateProcessorFactory) {
+      runIndex=i;
+    }
+  }
+  if (1 < numDistrib) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,infomsg + " may not contain more then one " + "instance of DistributingUpdateProcessorFactory");
+  }
+  if (0 <= runIndex && 0 == numDistrib) {
+    DistributedUpdateProcessorFactory distrib=new DistributedUpdateProcessorFactory();
+    distrib.init(new NamedList());
+    list.add(runIndex,distrib);
+    log.info("inserting DistributedUpdateProcessorFactory into " + infomsg);
   }
   chain=list.toArray(new UpdateRequestProcessorFactory[list.size()]);
 }

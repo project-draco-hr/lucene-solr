@@ -1,19 +1,19 @@
 {
   if (!zkEnabled) {
-    isLeader=!req.getParams().getBool(SEEN_LEADER,false);
+    isLeader=getNonZkLeaderAssumption(req);
   }
  else {
     zkCheck();
   }
-  int dbqlevel=req.getParams().getInt(DELETE_BY_QUERY_LEVEL,1);
-  if (zkEnabled && dbqlevel == 1) {
+  DistribPhase phase=DistribPhase.parseParam(req.getParams().get(DISTRIB_UPDATE_PARAM));
+  if (zkEnabled && DistribPhase.NONE == phase) {
     boolean leaderForAnyShard=false;
     Map<String,Slice> slices=zkController.getCloudState().getSlices(collection);
     if (slices == null) {
       throw new SolrException(ErrorCode.BAD_REQUEST,"Cannot find collection:" + collection + " in "+ zkController.getCloudState().getCollections());
     }
     ModifiableSolrParams params=new ModifiableSolrParams(req.getParams());
-    params.set(DELETE_BY_QUERY_LEVEL,2);
+    params.set(DISTRIB_UPDATE_PARAM,DistribPhase.TOLEADER.toString());
     List<Node> leaders=new ArrayList<Node>(slices.size());
     for (    Map.Entry<String,Slice> sliceEntry : slices.entrySet()) {
       String sliceName=sliceEntry.getKey();
@@ -41,10 +41,10 @@
     if (!leaderForAnyShard) {
       return;
     }
-    dbqlevel=2;
+    phase=DistribPhase.TOLEADER;
   }
   List<Node> replicas=null;
-  if (zkEnabled && dbqlevel == 2) {
+  if (zkEnabled && DistribPhase.TOLEADER == phase) {
     replicas=setupRequest();
   }
   if (vinfo == null) {
@@ -86,9 +86,8 @@
   }
   if (leaderLogic && replicas != null) {
     ModifiableSolrParams params=new ModifiableSolrParams(req.getParams());
-    params.set(DELETE_BY_QUERY_LEVEL,3);
     params.set(VERSION_FIELD,Long.toString(cmd.getVersion()));
-    params.set(SEEN_LEADER,"true");
+    params.set(DISTRIB_UPDATE_PARAM,DistribPhase.FROMLEADER.toString());
     cmdDistrib.distribDelete(cmd,replicas,params);
     cmdDistrib.finish();
   }
