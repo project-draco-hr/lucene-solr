@@ -11,36 +11,43 @@
       numDocs+=indexReader.numDocs();
     }
     final IOContext context=new IOContext(new MergeInfo(numDocs,-1,true,-1));
-    SegmentMerger merger=new SegmentMerger(infoStream,directory,config.getTermIndexInterval(),mergedName,MergeState.CheckAbort.NONE,payloadProcessorProvider,new FieldInfos(globalFieldNumberMap),codec,context);
-    for (    IndexReader reader : readers)     merger.add(reader);
+    TrackingDirectoryWrapper trackingDir=new TrackingDirectoryWrapper(directory);
+    SegmentInfo info=new SegmentInfo(directory,Constants.LUCENE_MAIN_VERSION,mergedName,-1,false,codec,null,null);
+    SegmentMerger merger=new SegmentMerger(info,infoStream,trackingDir,config.getTermIndexInterval(),MergeState.CheckAbort.NONE,payloadProcessorProvider,globalFieldNumberMap,context);
+    for (    IndexReader reader : readers) {
+      merger.add(reader);
+    }
     MergeState mergeState=merger.merge();
-    int docCount=mergeState.mergedDocCount;
-    final FieldInfos fieldInfos=mergeState.fieldInfos;
-    SegmentInfo info=new SegmentInfo(mergedName,docCount,directory,false,codec,fieldInfos);
+    SegmentInfoPerCommit infoPerCommit=new SegmentInfoPerCommit(info,0,-1L);
+    info.setFiles(new HashSet<String>(trackingDir.getCreatedFiles()));
+    trackingDir.getCreatedFiles().clear();
     setDiagnostics(info,"addIndexes(IndexReader...)");
     boolean useCompoundFile;
 synchronized (this) {
       if (stopMerges) {
-        deleter.deleteNewFiles(info.files());
+        deleter.deleteNewFiles(infoPerCommit.files());
         return;
       }
       ensureOpen();
-      useCompoundFile=mergePolicy.useCompoundFile(segmentInfos,info);
+      useCompoundFile=mergePolicy.useCompoundFile(segmentInfos,infoPerCommit);
     }
     if (useCompoundFile) {
-      createCompoundFile(directory,IndexFileNames.segmentFileName(mergedName,"",IndexFileNames.COMPOUND_FILE_EXTENSION),MergeState.CheckAbort.NONE,info,context);
+      Collection<String> filesToDelete=infoPerCommit.files();
+      createCompoundFile(infoStream,directory,MergeState.CheckAbort.NONE,info,context);
 synchronized (this) {
-        deleter.deleteNewFiles(info.files());
+        deleter.deleteNewFiles(filesToDelete);
       }
       info.setUseCompoundFile(true);
     }
+    codec.segmentInfoFormat().getSegmentInfosWriter().write(trackingDir,info,mergeState.fieldInfos,context);
+    info.addFiles(trackingDir.getCreatedFiles());
 synchronized (this) {
       if (stopMerges) {
         deleter.deleteNewFiles(info.files());
         return;
       }
       ensureOpen();
-      segmentInfos.add(info);
+      segmentInfos.add(infoPerCommit);
       checkpoint();
     }
   }
