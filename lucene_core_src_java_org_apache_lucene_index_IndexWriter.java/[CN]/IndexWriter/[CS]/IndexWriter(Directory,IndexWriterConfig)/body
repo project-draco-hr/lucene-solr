@@ -1,19 +1,23 @@
 {
+  if (conf.inUseByIndexWriter.get()) {
+    throw new IllegalStateException("the provided IndexWriterConfig was previously used by a different IndexWriter; please make a new one instead");
+  }
   config=conf.clone();
+  config.inUseByIndexWriter.set(true);
   directory=d;
-  analyzer=conf.getAnalyzer();
-  infoStream=conf.getInfoStream();
-  mergePolicy=conf.getMergePolicy();
+  analyzer=config.getAnalyzer();
+  infoStream=config.getInfoStream();
+  mergePolicy=config.getMergePolicy();
   mergePolicy.setIndexWriter(this);
-  mergeScheduler=conf.getMergeScheduler();
-  codec=conf.getCodec();
+  mergeScheduler=config.getMergeScheduler();
+  codec=config.getCodec();
   bufferedDeletesStream=new BufferedDeletesStream(infoStream);
-  poolReaders=conf.getReaderPooling();
+  poolReaders=config.getReaderPooling();
   writeLock=directory.makeLock(WRITE_LOCK_NAME);
-  if (!writeLock.obtain(conf.getWriteLockTimeout()))   throw new LockObtainFailedException("Index locked for write: " + writeLock);
+  if (!writeLock.obtain(config.getWriteLockTimeout()))   throw new LockObtainFailedException("Index locked for write: " + writeLock);
   boolean success=false;
   try {
-    OpenMode mode=conf.getOpenMode();
+    OpenMode mode=config.getOpenMode();
     boolean create;
     if (mode == OpenMode.CREATE) {
       create=true;
@@ -37,7 +41,7 @@
     }
  else {
       segmentInfos.read(directory);
-      IndexCommit commit=conf.getIndexCommit();
+      IndexCommit commit=config.getIndexCommit();
       if (commit != null) {
         if (commit.getDirectory() != directory)         throw new IllegalArgumentException("IndexCommit's directory doesn't match my directory");
         SegmentInfos oldInfos=new SegmentInfos();
@@ -54,7 +58,7 @@
     globalFieldNumberMap=getFieldNumberMap();
     docWriter=new DocumentsWriter(codec,config,directory,this,globalFieldNumberMap,bufferedDeletesStream);
 synchronized (this) {
-      deleter=new IndexFileDeleter(directory,conf.getIndexDeletionPolicy(),segmentInfos,infoStream,this);
+      deleter=new IndexFileDeleter(directory,config.getIndexDeletionPolicy(),segmentInfos,infoStream,this);
     }
     if (deleter.startingCommitDeleted) {
       changeCount++;
