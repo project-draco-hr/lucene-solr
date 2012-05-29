@@ -18,33 +18,41 @@
       boolean from=context.randomFrom[r];
       String randomValue=context.randomUniqueValues[r];
       FixedBitSet expectedResult=createExpectedResult(randomValue,from,indexSearcher.getIndexReader(),context);
-      Query actualQuery=new TermQuery(new Term("value",randomValue));
+      final Query actualQuery=new TermQuery(new Term("value",randomValue));
       if (VERBOSE) {
         System.out.println("actualQuery=" + actualQuery);
       }
-      Query joinQuery;
+      final ScoreMode scoreMode=ScoreMode.values()[random().nextInt(ScoreMode.values().length)];
+      if (VERBOSE) {
+        System.out.println("scoreMode=" + scoreMode);
+      }
+      final Query joinQuery;
       if (from) {
-        joinQuery=JoinUtil.createJoinQuery("from",multipleValuesPerDocument,"to",actualQuery,indexSearcher);
+        joinQuery=JoinUtil.createJoinQuery("from",multipleValuesPerDocument,"to",actualQuery,indexSearcher,scoreMode);
       }
  else {
-        joinQuery=JoinUtil.createJoinQuery("to",multipleValuesPerDocument,"from",actualQuery,indexSearcher);
+        joinQuery=JoinUtil.createJoinQuery("to",multipleValuesPerDocument,"from",actualQuery,indexSearcher,scoreMode);
       }
       if (VERBOSE) {
         System.out.println("joinQuery=" + joinQuery);
       }
       final FixedBitSet actualResult=new FixedBitSet(indexSearcher.getIndexReader().maxDoc());
+      final TopScoreDocCollector topScoreDocCollector=TopScoreDocCollector.create(10,false);
       indexSearcher.search(joinQuery,new Collector(){
         int docBase;
         public void collect(        int doc) throws IOException {
           actualResult.set(doc + docBase);
+          topScoreDocCollector.collect(doc);
         }
         public void setNextReader(        AtomicReaderContext context) throws IOException {
           docBase=context.docBase;
+          topScoreDocCollector.setNextReader(context);
         }
         public void setScorer(        Scorer scorer) throws IOException {
+          topScoreDocCollector.setScorer(scorer);
         }
         public boolean acceptsDocsOutOfOrder(){
-          return true;
+          return topScoreDocCollector.acceptsDocsOutOfOrder();
         }
       }
 );
@@ -61,6 +69,24 @@
         }
       }
       assertEquals(expectedResult,actualResult);
+      TopDocs expectedTopDocs=createExpectedTopDocs(randomValue,from,scoreMode,context);
+      TopDocs actualTopDocs=topScoreDocCollector.topDocs();
+      assertEquals(expectedTopDocs.totalHits,actualTopDocs.totalHits);
+      assertEquals(expectedTopDocs.scoreDocs.length,actualTopDocs.scoreDocs.length);
+      if (scoreMode == ScoreMode.None) {
+        continue;
+      }
+      assertEquals(expectedTopDocs.getMaxScore(),actualTopDocs.getMaxScore(),0.0f);
+      for (int i=0; i < expectedTopDocs.scoreDocs.length; i++) {
+        if (VERBOSE) {
+          System.out.printf("Expected doc: %d | Actual doc: %d\n",expectedTopDocs.scoreDocs[i].doc,actualTopDocs.scoreDocs[i].doc);
+          System.out.printf("Expected score: %f | Actual score: %f\n",expectedTopDocs.scoreDocs[i].score,actualTopDocs.scoreDocs[i].score);
+        }
+        assertEquals(expectedTopDocs.scoreDocs[i].doc,actualTopDocs.scoreDocs[i].doc);
+        assertEquals(expectedTopDocs.scoreDocs[i].score,actualTopDocs.scoreDocs[i].score,0.0f);
+        Explanation explanation=indexSearcher.explain(joinQuery,expectedTopDocs.scoreDocs[i].doc);
+        assertEquals(expectedTopDocs.scoreDocs[i].score,explanation.getValue(),0.0f);
+      }
     }
     topLevelReader.close();
     dir.close();

@@ -1,0 +1,38 @@
+{
+  final Weight originalWeight=originalQuery.createWeight(searcher);
+  return new Weight(){
+    private TermsEnum segmentTermsEnum;
+    public Explanation explain(    AtomicReaderContext context,    int doc) throws IOException {
+      SVInnerScorer scorer=(SVInnerScorer)scorer(context,true,false,context.reader().getLiveDocs());
+      if (scorer != null) {
+        if (scorer.advance(doc) == doc) {
+          return scorer.explain();
+        }
+      }
+      return new ComplexExplanation(false,0.0f,"Not a match");
+    }
+    public Query getQuery(){
+      return TermsIncludingScoreQuery.this;
+    }
+    public float getValueForNormalization() throws IOException {
+      return originalWeight.getValueForNormalization() * TermsIncludingScoreQuery.this.getBoost() * TermsIncludingScoreQuery.this.getBoost();
+    }
+    public void normalize(    float norm,    float topLevelBoost){
+      originalWeight.normalize(norm,topLevelBoost * TermsIncludingScoreQuery.this.getBoost());
+    }
+    public Scorer scorer(    AtomicReaderContext context,    boolean scoreDocsInOrder,    boolean topScorer,    Bits acceptDocs) throws IOException {
+      Terms terms=context.reader().terms(field);
+      if (terms == null) {
+        return null;
+      }
+      segmentTermsEnum=terms.iterator(segmentTermsEnum);
+      if (multipleValuesPerDocument) {
+        return new MVInnerScorer(this,acceptDocs,segmentTermsEnum,context.reader().maxDoc());
+      }
+ else {
+        return new SVInnerScorer(this,acceptDocs,segmentTermsEnum);
+      }
+    }
+  }
+;
+}
