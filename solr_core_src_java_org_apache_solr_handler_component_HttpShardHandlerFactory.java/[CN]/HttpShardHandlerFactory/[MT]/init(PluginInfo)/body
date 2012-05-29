@@ -1,28 +1,26 @@
 {
   NamedList args=info.initArgs;
-  this.soTimeout=getParameter(args,INIT_SO_TIMEOUT,0);
+  this.soTimeout=getParameter(args,HttpClientUtil.PROP_SO_TIMEOUT,soTimeout);
   this.scheme=getParameter(args,INIT_URL_SCHEME,"http://");
   this.scheme=(this.scheme.endsWith("://")) ? this.scheme : this.scheme + "://";
-  this.connectionTimeout=getParameter(args,INIT_CONNECTION_TIMEOUT,0);
-  this.maxConnectionsPerHost=getParameter(args,INIT_MAX_CONNECTION_PER_HOST,20);
-  this.corePoolSize=getParameter(args,INIT_CORE_POOL_SIZE,0);
-  this.maximumPoolSize=getParameter(args,INIT_MAX_POOL_SIZE,Integer.MAX_VALUE);
-  this.keepAliveTime=getParameter(args,MAX_THREAD_IDLE_TIME,5);
-  this.queueSize=getParameter(args,INIT_SIZE_OF_QUEUE,-1);
-  this.accessPolicy=getParameter(args,INIT_FAIRNESS_POLICY,false);
+  this.connectionTimeout=getParameter(args,HttpClientUtil.PROP_CONNECTION_TIMEOUT,connectionTimeout);
+  this.maxConnectionsPerHost=getParameter(args,HttpClientUtil.PROP_MAX_CONNECTIONS_PER_HOST,maxConnectionsPerHost);
+  this.corePoolSize=getParameter(args,INIT_CORE_POOL_SIZE,corePoolSize);
+  this.maximumPoolSize=getParameter(args,INIT_MAX_POOL_SIZE,maximumPoolSize);
+  this.keepAliveTime=getParameter(args,MAX_THREAD_IDLE_TIME,keepAliveTime);
+  this.queueSize=getParameter(args,INIT_SIZE_OF_QUEUE,queueSize);
+  this.accessPolicy=getParameter(args,INIT_FAIRNESS_POLICY,accessPolicy);
   BlockingQueue<Runnable> blockingQueue=(this.queueSize == -1) ? new SynchronousQueue<Runnable>(this.accessPolicy) : new ArrayBlockingQueue<Runnable>(this.queueSize,this.accessPolicy);
   this.commExecutor=new ThreadPoolExecutor(this.corePoolSize,this.maximumPoolSize,this.keepAliveTime,TimeUnit.SECONDS,blockingQueue,new DefaultSolrThreadFactory("httpShardExecutor"));
-  mgr=new ThreadSafeClientConnManager();
-  mgr.setDefaultMaxPerRoute(256);
-  mgr.setMaxTotal(10000);
-  DefaultHttpClient client=new DefaultHttpClient(mgr);
-  client.getParams().setIntParameter(CoreConnectionPNames.CONNECTION_TIMEOUT,connectionTimeout);
-  client.getParams().setIntParameter(CoreConnectionPNames.SO_TIMEOUT,soTimeout);
-  DefaultHttpRequestRetryHandler retryhandler=new DefaultHttpRequestRetryHandler(0,false);
-  client.setHttpRequestRetryHandler(retryhandler);
-  this.client=client;
+  ModifiableSolrParams clientParams=new ModifiableSolrParams();
+  clientParams.set(HttpClientUtil.PROP_MAX_CONNECTIONS_PER_HOST,maxConnectionsPerHost);
+  clientParams.set(HttpClientUtil.PROP_MAX_CONNECTIONS,10000);
+  clientParams.set(HttpClientUtil.PROP_SO_TIMEOUT,soTimeout);
+  clientParams.set(HttpClientUtil.PROP_CONNECTION_TIMEOUT,connectionTimeout);
+  clientParams.set(HttpClientUtil.PROP_USE_RETRY,false);
+  this.defaultClient=HttpClientUtil.createClient(clientParams);
   try {
-    loadbalancer=new LBHttpSolrServer(client);
+    loadbalancer=new LBHttpSolrServer(defaultClient);
   }
  catch (  MalformedURLException e) {
     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
