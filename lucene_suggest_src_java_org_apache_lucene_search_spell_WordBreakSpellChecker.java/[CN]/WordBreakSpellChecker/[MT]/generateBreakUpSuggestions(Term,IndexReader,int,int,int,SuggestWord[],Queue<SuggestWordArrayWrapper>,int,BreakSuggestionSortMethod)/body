@@ -1,0 +1,36 @@
+{
+  int termLength=term.bytes().length;
+  int useMinBreakWordLength=minBreakWordLength;
+  if (useMinBreakWordLength < 1) {
+    useMinBreakWordLength=1;
+  }
+  if (termLength <= (useMinBreakWordLength * 2)) {
+    return 0;
+  }
+  int thisTimeEvaluations=0;
+  BytesRef termBytes=term.bytes().clone();
+  for (int i=useMinBreakWordLength; i < (termLength - useMinBreakWordLength); i++) {
+    SuggestWord leftWord=generateSuggestWord(ir,termBytes,0,i,term.field());
+    if (leftWord.freq >= useMinSuggestionFrequency) {
+      SuggestWord rightWord=generateSuggestWord(ir,termBytes,i,termLength - i,term.field());
+      if (rightWord.freq >= useMinSuggestionFrequency) {
+        SuggestWordArrayWrapper suggestion=new SuggestWordArrayWrapper(newSuggestion(prefix,leftWord,rightWord));
+        suggestions.offer(suggestion);
+        if (suggestions.size() > maxSuggestions) {
+          suggestions.poll();
+        }
+      }
+      int newNumberBreaks=numberBreaks + 1;
+      if (newNumberBreaks <= maxChanges) {
+        int evaluations=generateBreakUpSuggestions(new Term(term.field(),rightWord.string),ir,newNumberBreaks,maxSuggestions,useMinSuggestionFrequency,newPrefix(prefix,leftWord),suggestions,totalEvaluations,sortMethod);
+        totalEvaluations+=evaluations;
+      }
+    }
+    thisTimeEvaluations++;
+    totalEvaluations++;
+    if (totalEvaluations >= maxEvaluations) {
+      break;
+    }
+  }
+  return thisTimeEvaluations;
+}

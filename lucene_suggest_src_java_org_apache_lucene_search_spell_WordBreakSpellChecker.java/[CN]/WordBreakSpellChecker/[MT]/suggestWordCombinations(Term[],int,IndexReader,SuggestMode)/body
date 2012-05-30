@@ -1,0 +1,82 @@
+{
+  if (maxSuggestions < 1) {
+    return new CombineSuggestion[0];
+  }
+  int[] origFreqs=null;
+  if (suggestMode != SuggestMode.SUGGEST_ALWAYS) {
+    origFreqs=new int[terms.length];
+    for (int i=0; i < terms.length; i++) {
+      origFreqs[i]=ir.docFreq(terms[i]);
+    }
+  }
+  int queueInitialCapacity=maxSuggestions > 10 ? 10 : maxSuggestions;
+  Comparator<CombineSuggestionWrapper> queueComparator=new CombinationsThenFreqComparator();
+  Queue<CombineSuggestionWrapper> suggestions=new PriorityQueue<CombineSuggestionWrapper>(queueInitialCapacity,queueComparator);
+  int thisTimeEvaluations=0;
+  BytesRef reuse=new BytesRef();
+  for (int i=0; i < terms.length - 1; i++) {
+    if (terms[i].equals(SEPARATOR_TERM)) {
+      continue;
+    }
+    int byteLength=terms[i].bytes().length;
+    if (byteLength > maxCombineWordLength) {
+      continue;
+    }
+    reuse.grow(byteLength);
+    reuse.length=byteLength;
+    System.arraycopy(terms[i].bytes().bytes,terms[i].bytes().offset,reuse.bytes,0,byteLength);
+    int maxFreq=0;
+    int minFreq=Integer.MAX_VALUE;
+    if (origFreqs != null) {
+      maxFreq=origFreqs[i];
+      minFreq=origFreqs[i];
+    }
+    for (int j=i + 1; j < terms.length && j - i <= maxChanges; j++) {
+      if (terms[j].equals(SEPARATOR_TERM)) {
+        break;
+      }
+      byteLength+=terms[j].bytes().length;
+      if (byteLength > maxCombineWordLength) {
+        break;
+      }
+      if (origFreqs != null) {
+        maxFreq=Math.max(maxFreq,origFreqs[j]);
+        minFreq=Math.min(minFreq,origFreqs[j]);
+      }
+      reuse.grow(byteLength);
+      System.arraycopy(terms[j].bytes().bytes,terms[j].bytes().offset,reuse.bytes,reuse.length,terms[j].bytes().length);
+      reuse.length=byteLength;
+      Term combinedTerm=new Term(terms[0].field(),reuse);
+      int combinedTermFreq=ir.docFreq(combinedTerm);
+      if (suggestMode != SuggestMode.SUGGEST_MORE_POPULAR || combinedTermFreq >= maxFreq) {
+        if (suggestMode != SuggestMode.SUGGEST_WHEN_NOT_IN_INDEX || minFreq == 0) {
+          if (combinedTermFreq >= minSuggestionFrequency) {
+            int[] origIndexes=new int[j - i + 1];
+            origIndexes[0]=i;
+            for (int k=1; k < origIndexes.length; k++) {
+              origIndexes[k]=i + k;
+            }
+            SuggestWord word=new SuggestWord();
+            word.freq=combinedTermFreq;
+            word.score=origIndexes.length - 1;
+            word.string=combinedTerm.text();
+            CombineSuggestionWrapper suggestion=new CombineSuggestionWrapper(new CombineSuggestion(word,origIndexes),(origIndexes.length - 1));
+            suggestions.offer(suggestion);
+            if (suggestions.size() > maxSuggestions) {
+              suggestions.poll();
+            }
+          }
+        }
+      }
+      thisTimeEvaluations++;
+      if (thisTimeEvaluations == maxEvaluations) {
+        break;
+      }
+    }
+  }
+  CombineSuggestion[] combineSuggestions=new CombineSuggestion[suggestions.size()];
+  for (int i=suggestions.size() - 1; i >= 0; i--) {
+    combineSuggestions[i]=suggestions.remove().combineSuggestion;
+  }
+  return combineSuggestions;
+}
