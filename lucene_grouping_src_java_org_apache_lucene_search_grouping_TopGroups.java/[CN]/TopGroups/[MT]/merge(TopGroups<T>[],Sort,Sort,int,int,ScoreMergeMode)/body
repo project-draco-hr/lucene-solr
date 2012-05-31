@@ -21,10 +21,12 @@
   }
   @SuppressWarnings({"unchecked","rawtypes"}) final GroupDocs<T>[] mergedGroupDocs=new GroupDocs[numGroups];
   final TopDocs[] shardTopDocs=new TopDocs[shardGroups.length];
+  float totalMaxScore=Float.MIN_VALUE;
   for (int groupIDX=0; groupIDX < numGroups; groupIDX++) {
     final T groupValue=shardGroups[0].groups[groupIDX].groupValue;
     float maxScore=Float.MIN_VALUE;
     int totalHits=0;
+    double scoreSum=0.0;
     for (int shardIDX=0; shardIDX < shardGroups.length; shardIDX++) {
       final TopGroups<T> shard=shardGroups[shardIDX];
       final GroupDocs<?> shardGroupDocs=shard.groups[groupIDX];
@@ -39,6 +41,7 @@
       shardTopDocs[shardIDX]=new TopDocs(shardGroupDocs.totalHits,shardGroupDocs.scoreDocs,shardGroupDocs.maxScore);
       maxScore=Math.max(maxScore,shardGroupDocs.maxScore);
       totalHits+=shardGroupDocs.totalHits;
+      scoreSum+=shardGroupDocs.score;
     }
     final TopDocs mergedTopDocs=TopDocs.merge(docSort,docOffset + docTopN,shardTopDocs);
     final ScoreDoc[] mergedScoreDocs;
@@ -52,13 +55,33 @@
       mergedScoreDocs=new ScoreDoc[mergedTopDocs.scoreDocs.length - docOffset];
       System.arraycopy(mergedTopDocs.scoreDocs,docOffset,mergedScoreDocs,0,mergedTopDocs.scoreDocs.length - docOffset);
     }
-    mergedGroupDocs[groupIDX]=new GroupDocs<T>(maxScore,totalHits,mergedScoreDocs,groupValue,shardGroups[0].groups[groupIDX].groupSortValues);
-  }
-  if (totalGroupCount != null) {
-    TopGroups<T> result=new TopGroups<T>(groupSort.getSort(),docSort == null ? null : docSort.getSort(),totalHitCount,totalGroupedHitCount,mergedGroupDocs);
-    return new TopGroups<T>(result,totalGroupCount);
+    final float groupScore;
+switch (scoreMergeMode) {
+case None:
+      groupScore=Float.NaN;
+    break;
+case Avg:
+  if (totalHits > 0) {
+    groupScore=(float)(scoreSum / totalHits);
   }
  else {
-    return new TopGroups<T>(groupSort.getSort(),docSort == null ? null : docSort.getSort(),totalHitCount,totalGroupedHitCount,mergedGroupDocs);
+    groupScore=Float.NaN;
   }
+break;
+case Total:
+groupScore=(float)scoreSum;
+break;
+default :
+throw new IllegalArgumentException("can't handle ScoreMergeMode " + scoreMergeMode);
+}
+mergedGroupDocs[groupIDX]=new GroupDocs<T>(groupScore,maxScore,totalHits,mergedScoreDocs,groupValue,shardGroups[0].groups[groupIDX].groupSortValues);
+totalMaxScore=Math.max(totalMaxScore,maxScore);
+}
+if (totalGroupCount != null) {
+TopGroups<T> result=new TopGroups<T>(groupSort.getSort(),docSort == null ? null : docSort.getSort(),totalHitCount,totalGroupedHitCount,mergedGroupDocs,totalMaxScore);
+return new TopGroups<T>(result,totalGroupCount);
+}
+ else {
+return new TopGroups<T>(groupSort.getSort(),docSort == null ? null : docSort.getSort(),totalHitCount,totalGroupedHitCount,mergedGroupDocs,totalMaxScore);
+}
 }
