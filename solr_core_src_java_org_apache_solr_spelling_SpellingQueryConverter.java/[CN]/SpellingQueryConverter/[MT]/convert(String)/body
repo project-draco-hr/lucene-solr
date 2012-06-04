@@ -4,14 +4,55 @@
   }
   Collection<Token> result=new ArrayList<Token>();
   Matcher matcher=QUERY_REGEX.matcher(original);
-  while (matcher.find()) {
-    String word=matcher.group(0);
-    if (word.equals("AND") == false && word.equals("OR") == false) {
-      try {
-        analyze(result,new StringReader(word),matcher.start());
-      }
- catch (      IOException e) {
-      }
+  String nextWord=null;
+  int nextStartIndex=0;
+  String lastBooleanOp=null;
+  while (nextWord != null || matcher.find()) {
+    String word=null;
+    int startIndex=0;
+    if (nextWord != null) {
+      word=nextWord;
+      startIndex=nextStartIndex;
+      nextWord=null;
+    }
+ else {
+      word=matcher.group(0);
+      startIndex=matcher.start();
+    }
+    if (matcher.find()) {
+      nextWord=matcher.group(0);
+      nextStartIndex=matcher.start();
+    }
+    if ("AND".equals(word) || "OR".equals(word) || "NOT".equals(word)) {
+      lastBooleanOp=word;
+      continue;
+    }
+    if ("AND".equals(nextWord) && original.length() > nextStartIndex + 7 && original.substring(nextStartIndex,nextStartIndex + 7).equals("AND NOT")) {
+      nextWord="NOT";
+    }
+    int flagValue=0;
+    if (word.charAt(0) == '-' || (startIndex > 0 && original.charAt(startIndex - 1) == '-')) {
+      flagValue=PROHIBITED_TERM_FLAG;
+    }
+ else     if (word.charAt(0) == '+' || (startIndex > 0 && original.charAt(startIndex - 1) == '+')) {
+      flagValue=REQUIRED_TERM_FLAG;
+    }
+ else     if (nextWord != null && lastBooleanOp != null && !nextWord.equals(lastBooleanOp) && ("AND".equals(nextWord) || "OR".equals(nextWord) || "NOT".equals(nextWord))) {
+      flagValue=TERM_PRECEDES_NEW_BOOLEAN_OPERATOR_FLAG;
+    }
+ else     if (nextWord != null && lastBooleanOp == null && !nextWord.equals(lastBooleanOp) && ("NOT".equals(nextWord))) {
+      flagValue=TERM_PRECEDES_NEW_BOOLEAN_OPERATOR_FLAG;
+    }
+    try {
+      analyze(result,new StringReader(word),startIndex,flagValue);
+    }
+ catch (    IOException e) {
+    }
+  }
+  if (lastBooleanOp != null) {
+    for (    Token t : result) {
+      int f=t.getFlags();
+      t.setFlags(f|=QueryConverter.TERM_IN_BOOLEAN_QUERY_FLAG);
     }
   }
   return result;

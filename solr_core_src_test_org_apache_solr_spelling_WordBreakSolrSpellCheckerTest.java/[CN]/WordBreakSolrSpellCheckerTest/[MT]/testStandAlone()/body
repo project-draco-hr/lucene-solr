@@ -1,0 +1,70 @@
+{
+  SolrCore core=h.getCore();
+  WordBreakSolrSpellChecker checker=new WordBreakSolrSpellChecker();
+  NamedList<String> params=new NamedList<String>();
+  params.add("field","lowerfilt");
+  params.add(WordBreakSolrSpellChecker.PARAM_BREAK_WORDS,"true");
+  params.add(WordBreakSolrSpellChecker.PARAM_COMBINE_WORDS,"true");
+  params.add(WordBreakSolrSpellChecker.PARAM_MAX_CHANGES,"10");
+  checker.init(params,core);
+  RefCounted<SolrIndexSearcher> searcher=core.getSearcher();
+  QueryConverter qc=new SpellingQueryConverter();
+  qc.setAnalyzer(new MockAnalyzer(random()));
+  Collection<Token> tokens=qc.convert("paintable pine apple good ness");
+  SpellingOptions spellOpts=new SpellingOptions(tokens,searcher.get().getIndexReader(),10);
+  SpellingResult result=checker.getSuggestions(spellOpts);
+  searcher.decref();
+  assertTrue(result != null && result.getSuggestions() != null);
+  assertTrue(result.getSuggestions().size() == 6);
+  for (  Map.Entry<Token,LinkedHashMap<String,Integer>> s : result.getSuggestions().entrySet()) {
+    Token orig=s.getKey();
+    String[] corr=s.getValue().keySet().toArray(new String[0]);
+    if (orig.toString().equals("paintable")) {
+      assertTrue(orig.startOffset() == 0);
+      assertTrue(orig.endOffset() == 9);
+      assertTrue(orig.length() == 9);
+      assertTrue(corr.length == 3);
+      assertTrue(corr[0].equals("paint able"));
+      assertTrue(corr[1].equals("pain table"));
+      assertTrue(corr[2].equals("pa in table"));
+    }
+ else     if (orig.toString().equals("pine apple")) {
+      assertTrue(orig.startOffset() == 10);
+      assertTrue(orig.endOffset() == 20);
+      assertTrue(orig.length() == 10);
+      assertTrue(corr.length == 1);
+      assertTrue(corr[0].equals("pineapple"));
+    }
+ else     if (orig.toString().equals("paintable pine")) {
+      assertTrue(orig.startOffset() == 0);
+      assertTrue(orig.endOffset() == 14);
+      assertTrue(orig.length() == 14);
+      assertTrue(corr.length == 1);
+      assertTrue(corr[0].equals("paintablepine"));
+    }
+ else     if (orig.toString().equals("good ness")) {
+      assertTrue(orig.startOffset() == 21);
+      assertTrue(orig.endOffset() == 30);
+      assertTrue(orig.length() == 9);
+      assertTrue(corr.length == 1);
+      assertTrue(corr[0].equals("goodness"));
+    }
+ else     if (orig.toString().equals("pine apple good ness")) {
+      assertTrue(orig.startOffset() == 10);
+      assertTrue(orig.endOffset() == 30);
+      assertTrue(orig.length() == 20);
+      assertTrue(corr.length == 1);
+      assertTrue(corr[0].equals("pineapplegoodness"));
+    }
+ else     if (orig.toString().equals("pine")) {
+      assertTrue(orig.startOffset() == 10);
+      assertTrue(orig.endOffset() == 14);
+      assertTrue(orig.length() == 4);
+      assertTrue(corr.length == 1);
+      assertTrue(corr[0].equals("pi ne"));
+    }
+ else {
+      fail("Unexpected original result: " + orig);
+    }
+  }
+}

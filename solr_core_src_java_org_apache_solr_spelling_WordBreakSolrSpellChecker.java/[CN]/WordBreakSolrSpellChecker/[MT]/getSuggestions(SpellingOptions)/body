@@ -1,0 +1,109 @@
+{
+  IndexReader ir=options.reader;
+  int numSuggestions=options.count;
+  StringBuilder sb=new StringBuilder();
+  Token[] tokenArr=options.tokens.toArray(new Token[options.tokens.size()]);
+  List<Term> termArr=new ArrayList<Term>(options.tokens.size() + 2);
+  List<ResultEntry> breakSuggestionList=new ArrayList<ResultEntry>();
+  boolean lastOneProhibited=false;
+  boolean lastOneRequired=false;
+  boolean lastOneprocedesNewBooleanOp=false;
+  for (int i=0; i < tokenArr.length; i++) {
+    boolean prohibited=(tokenArr[i].getFlags() & QueryConverter.PROHIBITED_TERM_FLAG) == QueryConverter.PROHIBITED_TERM_FLAG;
+    boolean required=(tokenArr[i].getFlags() & QueryConverter.REQUIRED_TERM_FLAG) == QueryConverter.REQUIRED_TERM_FLAG;
+    boolean procedesNewBooleanOp=(tokenArr[i].getFlags() & QueryConverter.TERM_PRECEDES_NEW_BOOLEAN_OPERATOR_FLAG) == QueryConverter.TERM_PRECEDES_NEW_BOOLEAN_OPERATOR_FLAG;
+    if (i > 0 && (prohibited != lastOneProhibited || required != lastOneRequired || lastOneprocedesNewBooleanOp)) {
+      termArr.add(WordBreakSpellChecker.SEPARATOR_TERM);
+    }
+    lastOneProhibited=prohibited;
+    lastOneRequired=required;
+    lastOneprocedesNewBooleanOp=procedesNewBooleanOp;
+    Term thisTerm=new Term(field,tokenArr[i].toString());
+    termArr.add(thisTerm);
+    if (breakWords) {
+      SuggestWord[][] breakSuggestions=wbsp.suggestWordBreaks(thisTerm,numSuggestions,ir,options.suggestMode,sortMethod);
+      for (      SuggestWord[] breakSuggestion : breakSuggestions) {
+        sb.delete(0,sb.length());
+        boolean firstOne=true;
+        int freq=0;
+        for (        SuggestWord word : breakSuggestion) {
+          if (!firstOne) {
+            sb.append(" ");
+          }
+          firstOne=false;
+          sb.append(word.string);
+          if (sortMethod == BreakSuggestionSortMethod.NUM_CHANGES_THEN_MAX_FREQUENCY) {
+            freq=Math.max(freq,word.freq);
+          }
+ else {
+            freq+=word.freq;
+          }
+        }
+        breakSuggestionList.add(new ResultEntry(tokenArr[i],sb.toString(),freq));
+      }
+    }
+  }
+  List<ResultEntry> combineSuggestionList=Collections.emptyList();
+  CombineSuggestion[] combineSuggestions=wbsp.suggestWordCombinations(termArr.toArray(new Term[termArr.size()]),numSuggestions,ir,options.suggestMode);
+  if (combineWords) {
+    combineSuggestionList=new ArrayList<ResultEntry>(combineSuggestions.length);
+    for (    CombineSuggestion cs : combineSuggestions) {
+      int firstTermIndex=cs.originalTermIndexes[0];
+      int lastTermIndex=cs.originalTermIndexes[cs.originalTermIndexes.length - 1];
+      sb.delete(0,sb.length());
+      for (int i=firstTermIndex; i <= lastTermIndex; i++) {
+        if (i > firstTermIndex) {
+          sb.append(" ");
+        }
+        sb.append(tokenArr[i].toString());
+      }
+      Token token=new Token(sb.toString(),tokenArr[firstTermIndex].startOffset(),tokenArr[lastTermIndex].endOffset());
+      combineSuggestionList.add(new ResultEntry(token,cs.suggestion.string,cs.suggestion.freq));
+    }
+  }
+  SpellingResult result=new SpellingResult();
+  Iterator<ResultEntry> breakIter=breakSuggestionList.iterator();
+  Iterator<ResultEntry> combineIter=combineSuggestionList.iterator();
+  ResultEntry lastBreak=breakIter.hasNext() ? breakIter.next() : null;
+  ResultEntry lastCombine=combineIter.hasNext() ? combineIter.next() : null;
+  int breakCount=0;
+  int combineCount=0;
+  while (lastBreak != null || lastCombine != null) {
+    if (lastBreak == null) {
+      result.add(lastCombine.token,lastCombine.suggestion,lastCombine.freq);
+      lastCombine=null;
+    }
+ else     if (lastCombine == null) {
+      result.add(lastBreak.token,lastBreak.suggestion,lastBreak.freq);
+      lastBreak=null;
+    }
+ else     if (lastBreak.freq < lastCombine.freq) {
+      result.add(lastCombine.token,lastCombine.suggestion,lastCombine.freq);
+      lastCombine=null;
+    }
+ else     if (lastCombine.freq < lastBreak.freq) {
+      result.add(lastBreak.token,lastBreak.suggestion,lastBreak.freq);
+      lastBreak=null;
+    }
+ else     if (breakCount >= combineCount) {
+      result.add(lastCombine.token,lastCombine.suggestion,lastCombine.freq);
+      lastCombine=null;
+    }
+ else {
+      result.add(lastBreak.token,lastBreak.suggestion,lastBreak.freq);
+      lastBreak=null;
+    }
+    if (result.getSuggestions().size() > numSuggestions) {
+      break;
+    }
+    if (lastBreak == null && breakIter.hasNext()) {
+      lastBreak=breakIter.next();
+      breakCount++;
+    }
+    if (lastCombine == null && combineIter.hasNext()) {
+      lastCombine=combineIter.next();
+      combineCount++;
+    }
+  }
+  return result;
+}
