@@ -7,11 +7,20 @@
       try {
         Request sreq=future.get();
         if (sreq.rspCode != 0) {
-          if (sreq.retries < MAX_RETRIES_ON_FORWARD && sreq.node.checkRetry()) {
+          boolean isRetry=sreq.node.checkRetry();
+          boolean doRetry=false;
+          int rspCode=sreq.rspCode;
+          if (isRetry && (rspCode == 404 || rspCode == 403 || rspCode == 503 || rspCode == 500)) {
+            doRetry=true;
+          }
+          if (isRetry && sreq.exception instanceof IOException) {
+            doRetry=true;
+          }
+          if (isRetry && sreq.retries < MAX_RETRIES_ON_FORWARD && doRetry) {
             sreq.retries++;
             sreq.rspCode=0;
             sreq.exception=null;
-            SolrException.log(SolrCmdDistributor.log,"forwarding update to " + sreq.node.getUrl() + " failed - retrying ... ");
+            SolrException.log(SolrCmdDistributor.log,"forwarding update to " + sreq.node.getUrl() + " failed - retrying ... ",null);
             Thread.sleep(500);
             submit(sreq);
             checkResponses(block);
