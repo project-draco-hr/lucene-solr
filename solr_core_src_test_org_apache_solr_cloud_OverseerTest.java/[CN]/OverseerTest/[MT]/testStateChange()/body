@@ -10,47 +10,22 @@
     AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
     AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
     zkClient.makePath("/live_nodes",true);
-    String nodePath=ZkStateReader.LIVE_NODES_ZKNODE + "/" + "node1";
-    zkClient.makePath(nodePath,CreateMode.EPHEMERAL,true);
     reader=new ZkStateReader(zkClient);
     reader.createClusterStateWatchersAndUpdate();
-    Overseer.createClientNodes(zkClient,"node1");
     overseerClient=electNewOverseer(server.getZkAddress());
-    HashMap<String,String> coreProps=new HashMap<String,String>();
-    coreProps.put(ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr");
-    coreProps.put(ZkStateReader.NODE_NAME_PROP,"node1");
-    coreProps.put(ZkStateReader.CORE_NAME_PROP,"core1");
-    coreProps.put(ZkStateReader.ROLES_PROP,"");
-    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING);
-    CoreState state=new CoreState("core1","collection1",coreProps,2);
-    nodePath="/node_states/node1";
-    try {
-      zkClient.makePath(nodePath,CreateMode.EPHEMERAL,true);
-    }
- catch (    KeeperException ke) {
-      if (ke.code() != Code.NODEEXISTS) {
-        throw ke;
-      }
-    }
-    zkClient.setData(nodePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    DistributedQueue q=Overseer.getInQueue(zkClient);
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,"state",ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr",ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.COLLECTION_PROP,"collection1",ZkStateReader.CORE_NAME_PROP,"core1",ZkStateReader.ROLES_PROP,"",ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING);
+    q.offer(ZkStateReader.toJSON(m));
     waitForCollections(reader,"collection1");
     assertEquals(reader.getCloudState().toString(),ZkStateReader.RECOVERING,reader.getCloudState().getSlice("collection1","shard1").getShards().get("node1_core1").get(ZkStateReader.STATE_PROP));
-    coreProps.put(ZkStateReader.STATE_PROP,ZkStateReader.ACTIVE);
-    coreProps.put(ZkStateReader.SHARD_ID_PROP,"shard1");
-    state=new CoreState("core1","collection1",coreProps,2);
-    zkClient.setData(nodePath,ZkStateReader.toJSON(new CoreState[]{state}),true);
+    m=new ZkNodeProps(Overseer.QUEUE_OPERATION,"state",ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr",ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.COLLECTION_PROP,"collection1",ZkStateReader.CORE_NAME_PROP,"core1",ZkStateReader.ROLES_PROP,"",ZkStateReader.STATE_PROP,ZkStateReader.ACTIVE);
+    q.offer(ZkStateReader.toJSON(m));
     verifyStatus(reader,ZkStateReader.ACTIVE);
   }
   finally {
-    if (zkClient != null) {
-      zkClient.close();
-    }
-    if (overseerClient != null) {
-      overseerClient.close();
-    }
-    if (reader != null) {
-      reader.close();
-    }
+    close(zkClient);
+    close(overseerClient);
+    close(reader);
     server.shutdown();
   }
 }

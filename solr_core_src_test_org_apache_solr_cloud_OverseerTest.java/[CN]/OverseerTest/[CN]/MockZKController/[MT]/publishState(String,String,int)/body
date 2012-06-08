@@ -1,24 +1,18 @@
 {
   if (stateName == null) {
-    coreStates.remove(coreName);
     ElectionContext ec=electionContext.remove(coreName);
     if (ec != null) {
       ec.cancelElection();
     }
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,"deletecore",ZkStateReader.NODE_NAME_PROP,nodeName,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.COLLECTION_PROP,collection);
+    DistributedQueue q=Overseer.getInQueue(zkClient);
+    q.offer(ZkStateReader.toJSON(m));
   }
  else {
-    HashMap<String,String> coreProps=new HashMap<String,String>();
-    coreProps.put(ZkStateReader.STATE_PROP,stateName);
-    coreProps.put(ZkStateReader.NODE_NAME_PROP,nodeName);
-    coreProps.put(ZkStateReader.CORE_NAME_PROP,coreName);
-    coreProps.put(ZkStateReader.COLLECTION_PROP,collection);
-    coreProps.put(ZkStateReader.BASE_URL_PROP,"http://" + nodeName + "/solr/");
-    CoreState state=new CoreState(coreName,collection,coreProps,numShards);
-    coreStates.remove(coreName);
-    coreStates.put(coreName,state);
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,"state",ZkStateReader.STATE_PROP,stateName,ZkStateReader.NODE_NAME_PROP,nodeName,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.NUM_SHARDS_PROP,Integer.toString(numShards),ZkStateReader.BASE_URL_PROP,"http://" + nodeName + "/solr/");
+    DistributedQueue q=Overseer.getInQueue(zkClient);
+    q.offer(ZkStateReader.toJSON(m));
   }
-  final String statePath=Overseer.STATES_NODE + "/" + nodeName;
-  zkClient.setData(statePath,ZkStateReader.toJSON(coreStates.values().toArray(new CoreState[coreStates.size()])),true);
   for (int i=0; i < 30; i++) {
     String shardId=getShardId(coreName);
     if (shardId != null) {
