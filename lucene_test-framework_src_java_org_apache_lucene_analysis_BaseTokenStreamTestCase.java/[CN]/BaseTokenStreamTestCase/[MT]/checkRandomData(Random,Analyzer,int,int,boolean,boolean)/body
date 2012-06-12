@@ -1,26 +1,44 @@
 {
   long seed=random.nextLong();
   boolean useCharFilter=random.nextBoolean();
-  checkRandomData(new Random(seed),a,iterations,maxWordLength,useCharFilter,simple,offsetsAreCorrect);
-  int numThreads=_TestUtil.nextInt(random,2,4);
-  AnalysisThread threads[]=new AnalysisThread[numThreads];
-  for (int i=0; i < threads.length; i++) {
-    threads[i]=new AnalysisThread(seed,a,iterations,maxWordLength,useCharFilter,simple,offsetsAreCorrect);
+  Directory dir=null;
+  RandomIndexWriter iw=null;
+  if (rarely(random)) {
+    dir=newFSDirectory(_TestUtil.getTempDir("bttc"));
+    iw=new RandomIndexWriter(new Random(seed),dir,a);
   }
-  for (int i=0; i < threads.length; i++) {
-    threads[i].start();
-  }
-  for (int i=0; i < threads.length; i++) {
-    try {
-      threads[i].join();
+  boolean success=false;
+  try {
+    checkRandomData(new Random(seed),a,iterations,maxWordLength,useCharFilter,simple,offsetsAreCorrect,iw);
+    int numThreads=_TestUtil.nextInt(random,2,4);
+    AnalysisThread threads[]=new AnalysisThread[numThreads];
+    for (int i=0; i < threads.length; i++) {
+      threads[i]=new AnalysisThread(seed,a,iterations,maxWordLength,useCharFilter,simple,offsetsAreCorrect,iw);
     }
- catch (    InterruptedException e) {
-      throw new RuntimeException(e);
+    for (int i=0; i < threads.length; i++) {
+      threads[i].start();
     }
+    for (int i=0; i < threads.length; i++) {
+      try {
+        threads[i].join();
+      }
+ catch (      InterruptedException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    for (int i=0; i < threads.length; i++) {
+      if (threads[i].failed) {
+        throw new RuntimeException("some thread(s) failed");
+      }
+    }
+    success=true;
   }
-  for (int i=0; i < threads.length; i++) {
-    if (threads[i].failed) {
-      throw new RuntimeException("some thread(s) failed");
+  finally {
+    if (success) {
+      IOUtils.close(iw,dir);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(iw,dir);
     }
   }
 }
