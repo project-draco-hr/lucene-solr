@@ -28,4 +28,34 @@ catch (  Throwable t) {
     t.printStackTrace();
     Assert.fail("should have thrown a SolrException! not: " + t);
   }
+  SolrInputDocument doc=new SolrInputDocument();
+  doc.addField("id","DOCID",1.0f);
+  doc.addField("id","DOCID2",1.0f);
+  doc.addField("name","hello",1.0f);
+  if (server instanceof HttpSolrServer) {
+    try {
+      server.add(doc);
+      fail("Should throw exception!");
+    }
+ catch (    SolrException ex) {
+      assertEquals(400,ex.code());
+      assertTrue(ex.getMessage().indexOf("contains multiple values for uniqueKey") > 0);
+    }
+catch (    Throwable t) {
+      Assert.fail("should have thrown a SolrException! not: " + t);
+    }
+  }
+ else   if (server instanceof ConcurrentUpdateSolrServer) {
+    ConcurrentUpdateSolrServer cs=(ConcurrentUpdateSolrServer)server;
+    Field field=cs.getClass().getDeclaredField("lastError");
+    field.setAccessible(true);
+    field.set(cs,null);
+    cs.add(doc);
+    cs.blockUntilFinished();
+    Throwable lastError=(Throwable)field.get(cs);
+    assertNotNull("Should throw exception!",lastError);
+  }
+ else {
+    log.info("Ignorig update test for client:" + server.getClass().getName());
+  }
 }
