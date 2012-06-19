@@ -1,11 +1,11 @@
 {
   CompletionService<SegFacet> completionService=new ExecutorCompletionService<SegFacet>(executor);
   baseSet=docs.getTopFilter();
-  final AtomicReaderContext[] leaves=searcher.getTopReaderContext().leaves();
+  final List<AtomicReaderContext> leaves=searcher.getTopReaderContext().leaves();
   LinkedList<Callable<SegFacet>> pending=new LinkedList<Callable<SegFacet>>();
   int threads=nThreads <= 0 ? Integer.MAX_VALUE : nThreads;
-  for (int i=0; i < leaves.length; i++) {
-    final SegFacet segFacet=new SegFacet(leaves[i]);
+  for (  final AtomicReaderContext leave : leaves) {
+    final SegFacet segFacet=new SegFacet(leave);
     Callable<SegFacet> task=new Callable<SegFacet>(){
       public SegFacet call() throws Exception {
         segFacet.countTerms();
@@ -20,7 +20,7 @@
       pending.add(task);
     }
   }
-  PriorityQueue<SegFacet> queue=new PriorityQueue<SegFacet>(leaves.length){
+  PriorityQueue<SegFacet> queue=new PriorityQueue<SegFacet>(leaves.size()){
     @Override protected boolean lessThan(    SegFacet a,    SegFacet b){
       return a.tempBR.compareTo(b.tempBR) < 0;
     }
@@ -28,7 +28,7 @@
 ;
   boolean hasMissingCount=false;
   int missingCount=0;
-  for (int i=0; i < leaves.length; i++) {
+  for (int i=0, c=leaves.size(); i < c; i++) {
     SegFacet seg=null;
     try {
       Future<SegFacet> future=completionService.take();
