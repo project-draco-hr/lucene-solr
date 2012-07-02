@@ -1,68 +1,93 @@
 {
   int num=atLeast(5);
   for (int iter=0; iter < num; iter++) {
-    for (int nbits=1; nbits < 63; nbits++) {
+    for (int nbits=1; nbits <= 64; nbits++) {
       final long maxValue=PackedInts.maxValue(nbits);
       final int valueCount=100 + random().nextInt(500);
       final Directory d=newDirectory();
       IndexOutput out=d.createOutput("out.bin",newIOContext(random()));
-      PackedInts.Writer w=PackedInts.getWriter(out,valueCount,nbits,random().nextFloat() * PackedInts.FASTEST);
+      PackedInts.Writer w=PackedInts.getWriter(out,valueCount,nbits,random().nextFloat());
+      final long startFp=out.getFilePointer();
+      final int actualValueCount=random().nextBoolean() ? valueCount : _TestUtil.nextInt(random(),0,valueCount);
       final long[] values=new long[valueCount];
-      for (int i=0; i < valueCount; i++) {
+      for (int i=0; i < actualValueCount; i++) {
         values[i]=_TestUtil.nextLong(random(),0,maxValue);
         w.add(values[i]);
       }
       w.finish();
       final long fp=out.getFilePointer();
       out.close();
+      assertEquals(0,(fp - startFp) % 8);
+      final long bytes;
+switch (w.getFormat()) {
+case PackedInts.PACKED:
+        bytes=(long)Math.ceil((double)valueCount * w.bitsPerValue / 64) << 3;
+      break;
+case PackedInts.PACKED_SINGLE_BLOCK:
+    final int valuesPerBlock=64 / w.bitsPerValue;
+  bytes=(long)Math.ceil((double)valueCount / valuesPerBlock) << 3;
+break;
+default :
+bytes=-1;
+}
+assertEquals(bytes,fp - startFp);
 {
-        IndexInput in=d.openInput("out.bin",newIOContext(random()));
-        PackedInts.Reader r=PackedInts.getReader(in);
-        assertEquals(fp,in.getFilePointer());
-        for (int i=0; i < valueCount; i++) {
-          assertEquals("index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ r.getClass().getSimpleName(),values[i],r.get(i));
-        }
-        in.close();
-      }
+IndexInput in=d.openInput("out.bin",newIOContext(random()));
+CodecUtil.checkHeader(in,PackedInts.CODEC_NAME,PackedInts.VERSION_START,PackedInts.VERSION_CURRENT);
+assertEquals(w.bitsPerValue,in.readVInt());
+assertEquals(valueCount,in.readVInt());
+assertEquals(w.getFormat(),in.readVInt());
+assertEquals(startFp,in.getFilePointer());
+in.close();
+}
 {
-        IndexInput in=d.openInput("out.bin",newIOContext(random()));
-        PackedInts.ReaderIterator r=PackedInts.getReaderIterator(in);
-        for (int i=0; i < valueCount; i++) {
-          assertEquals("index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ r.getClass().getSimpleName(),values[i],r.next());
-        }
-        assertEquals(fp,in.getFilePointer());
-        in.close();
-      }
+IndexInput in=d.openInput("out.bin",newIOContext(random()));
+PackedInts.Reader r=PackedInts.getReader(in);
+assertEquals(fp,in.getFilePointer());
+for (int i=0; i < valueCount; i++) {
+assertEquals("index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ r.getClass().getSimpleName(),values[i],r.get(i));
+}
+in.close();
+}
 {
-        IndexInput in=d.openInput("out.bin",newIOContext(random()));
-        PackedInts.ReaderIterator intsEnum=PackedInts.getReaderIterator(in);
-        for (int i=0; i < valueCount; i+=1 + ((valueCount - i) <= 20 ? random().nextInt(valueCount - i) : random().nextInt(20))) {
-          final String msg="index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ intsEnum.getClass().getSimpleName();
-          if (i - intsEnum.ord() == 1 && random().nextBoolean()) {
-            assertEquals(msg,values[i],intsEnum.next());
-          }
+IndexInput in=d.openInput("out.bin",newIOContext(random()));
+PackedInts.ReaderIterator r=PackedInts.getReaderIterator(in);
+for (int i=0; i < valueCount; i++) {
+assertEquals("index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ r.getClass().getSimpleName(),values[i],r.next());
+}
+assertEquals(fp,in.getFilePointer());
+in.close();
+}
+{
+IndexInput in=d.openInput("out.bin",newIOContext(random()));
+PackedInts.ReaderIterator intsEnum=PackedInts.getReaderIterator(in);
+for (int i=0; i < valueCount; i+=1 + ((valueCount - i) <= 20 ? random().nextInt(valueCount - i) : random().nextInt(20))) {
+final String msg="index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ intsEnum.getClass().getSimpleName();
+if (i - intsEnum.ord() == 1 && random().nextBoolean()) {
+assertEquals(msg,values[i],intsEnum.next());
+}
  else {
-            assertEquals(msg,values[i],intsEnum.advance(i));
-          }
-          assertEquals(msg,i,intsEnum.ord());
-        }
-        if (intsEnum.ord() < valueCount - 1)         assertEquals(values[valueCount - 1],intsEnum.advance(valueCount - 1));
-        assertEquals(valueCount - 1,intsEnum.ord());
-        assertEquals(fp,in.getFilePointer());
-        in.close();
-      }
+assertEquals(msg,values[i],intsEnum.advance(i));
+}
+assertEquals(msg,i,intsEnum.ord());
+}
+if (intsEnum.ord() < valueCount - 1) assertEquals(values[valueCount - 1],intsEnum.advance(valueCount - 1));
+assertEquals(valueCount - 1,intsEnum.ord());
+assertEquals(fp,in.getFilePointer());
+in.close();
+}
 {
-        IndexInput in=d.openInput("out.bin",newIOContext(random()));
-        PackedInts.Reader intsEnum=PackedInts.getDirectReader(in);
-        for (int i=0; i < valueCount; i++) {
-          final String msg="index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ intsEnum.getClass().getSimpleName();
-          final int index=random().nextInt(valueCount);
-          long value=intsEnum.get(index);
-          assertEquals(msg,value,values[index]);
-        }
-        in.close();
-      }
-      d.close();
-    }
-  }
+IndexInput in=d.openInput("out.bin",newIOContext(random()));
+PackedInts.Reader intsEnum=PackedInts.getDirectReader(in);
+for (int i=0; i < valueCount; i++) {
+final String msg="index=" + i + " valueCount="+ valueCount+ " nbits="+ nbits+ " for "+ intsEnum.getClass().getSimpleName();
+final int index=random().nextInt(valueCount);
+long value=intsEnum.get(index);
+assertEquals(msg,value,values[index]);
+}
+in.close();
+}
+d.close();
+}
+}
 }
