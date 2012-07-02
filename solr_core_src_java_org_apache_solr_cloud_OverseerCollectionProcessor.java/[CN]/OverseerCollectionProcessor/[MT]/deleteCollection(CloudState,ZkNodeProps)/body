@@ -1,15 +1,11 @@
 {
-  SolrParams params=req.getParams();
-  final ModifiableSolrParams newParams=new ModifiableSolrParams(params);
-  newParams.remove("action");
-  SolrParams required=params.required();
-  final String subAction=required.get("subAction");
-  String collection=required.get("collection");
-  newParams.set(CoreAdminParams.ACTION,subAction);
-  SolrCore core=req.getCore();
-  ZkController zkController=core.getCoreDescriptor().getCoreContainer().getZkController();
-  CloudState cloudState=zkController.getCloudState();
-  Map<String,Slice> slices=cloudState.getCollectionStates().get(collection);
+  String name=message.get("name");
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set(CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString());
+  Map<String,Slice> slices=cloudState.getCollectionStates().get(name);
+  if (slices == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Could not find collection:" + name);
+  }
   for (  Map.Entry<String,Slice> entry : slices.entrySet()) {
     Slice slice=entry.getValue();
     Map<String,ZkNodeProps> shards=slice.getShards();
@@ -17,28 +13,35 @@
     for (    Map.Entry<String,ZkNodeProps> shardEntry : shardEntries) {
       final ZkNodeProps node=shardEntry.getValue();
       if (cloudState.liveNodesContain(node.get(ZkStateReader.NODE_NAME_PROP))) {
-        newParams.set(CoreAdminParams.CORE,node.get(ZkStateReader.CORE_NAME_PROP));
+        params.set(CoreAdminParams.CORE,name);
+        params.set(CoreAdminParams.DELETE_INSTANCE_DIR,true);
         String replica=node.get(ZkStateReader.BASE_URL_PROP);
         ShardRequest sreq=new ShardRequest();
-        newParams.set("qt","/admin/cores");
+        params.set("qt",adminPath);
         sreq.purpose=1;
         if (replica.startsWith("http://"))         replica=replica.substring(7);
         sreq.shards=new String[]{replica};
         sreq.actualShards=sreq.shards;
-        sreq.params=newParams;
+        sreq.params=params;
         shardHandler.submit(sreq,replica,sreq.params);
       }
     }
   }
+  int failed=0;
   ShardResponse srsp;
   do {
     srsp=shardHandler.takeCompletedOrError();
     if (srsp != null) {
       Throwable e=srsp.getException();
       if (e != null) {
+        failed++;
         log.error("Error talking to shard: " + srsp.getShard(),e);
       }
     }
   }
  while (srsp != null);
+  if (failed > 0) {
+    return false;
+  }
+  return true;
 }

@@ -13,7 +13,17 @@
   zkClient=new SolrZkClient(zkServerAddress,zkClientTimeout,zkClientConnectTimeout,new OnReconnect(){
     public void command(){
       try {
-        ElectionContext context=new OverseerElectionContext(getNodeName(),zkStateReader);
+        ShardHandler shardHandler;
+        String adminPath;
+        if (cc == null) {
+          shardHandler=new HttpShardHandlerFactory().getShardHandler();
+          adminPath="/admin/cores";
+        }
+ else {
+          shardHandler=cc.getShardHandlerFactory().getShardHandler();
+          adminPath=cc.getAdminPath();
+        }
+        ElectionContext context=new OverseerElectionContext(shardHandler,adminPath,getNodeName(),zkStateReader);
         overseerElector.joinElection(context);
         zkStateReader.createClusterStateWatchersAndUpdate();
         List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
@@ -47,7 +57,8 @@ catch (      Exception e) {
     }
   }
 );
-  this.overseerStatusQueue=Overseer.getInQueue(zkClient);
+  this.overseerJobQueue=Overseer.getInQueue(zkClient);
+  this.overseerCollectionQueue=Overseer.getCollectionQueue(zkClient);
   cmdExecutor=new ZkCmdExecutor();
   leaderElector=new LeaderElector(zkClient);
   zkStateReader=new ZkStateReader(zkClient);

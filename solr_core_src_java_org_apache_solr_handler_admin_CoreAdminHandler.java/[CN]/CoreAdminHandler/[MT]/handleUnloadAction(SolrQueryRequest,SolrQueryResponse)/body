@@ -2,46 +2,85 @@
   SolrParams params=req.getParams();
   String cname=params.get(CoreAdminParams.CORE);
   SolrCore core=coreContainer.remove(cname);
-  if (core == null) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core exists '" + cname + "'");
-  }
+  try {
+    if (core == null) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core exists '" + cname + "'");
+    }
  else {
-    if (coreContainer.getZkController() != null) {
-      log.info("Unregistering core " + cname + " from cloudstate.");
-      try {
-        coreContainer.getZkController().unregister(cname,core.getCoreDescriptor().getCloudDescriptor());
-      }
- catch (      InterruptedException e) {
-        Thread.currentThread().interrupt();
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not unregister core " + cname + " from cloudstate: "+ e.getMessage(),e);
-      }
-catch (      KeeperException e) {
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not unregister core " + cname + " from cloudstate: "+ e.getMessage(),e);
+      if (coreContainer.getZkController() != null) {
+        log.info("Unregistering core " + core.getName() + " from cloudstate.");
+        try {
+          coreContainer.getZkController().unregister(cname,core.getCoreDescriptor().getCloudDescriptor());
+        }
+ catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not unregister core " + cname + " from cloudstate: "+ e.getMessage(),e);
+        }
+catch (        KeeperException e) {
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not unregister core " + cname + " from cloudstate: "+ e.getMessage(),e);
+        }
       }
     }
-  }
-  if (params.getBool(CoreAdminParams.DELETE_INDEX,false)) {
-    core.addCloseHook(new CloseHook(){
-      @Override public void preClose(      SolrCore core){
+    if (params.getBool(CoreAdminParams.DELETE_INDEX,false)) {
+      core.addCloseHook(new CloseHook(){
+        @Override public void preClose(        SolrCore core){
+        }
+        @Override public void postClose(        SolrCore core){
+          File dataDir=new File(core.getIndexDir());
+          File[] files=dataDir.listFiles();
+          if (files != null) {
+            for (            File file : files) {
+              if (!file.delete()) {
+                log.error(file.getAbsolutePath() + " could not be deleted on core unload");
+              }
+            }
+            if (!dataDir.delete())             log.error(dataDir.getAbsolutePath() + " could not be deleted on core unload");
+          }
+ else {
+            log.error(dataDir.getAbsolutePath() + " could not be deleted on core unload");
+          }
+        }
       }
-      @Override public void postClose(      SolrCore core){
-        File dataDir=new File(core.getIndexDir());
-        File[] files=dataDir.listFiles();
-        if (files != null) {
-          for (          File file : files) {
-            if (!file.delete()) {
-              log.error(file.getAbsolutePath() + " could not be deleted on core unload");
+);
+    }
+    if (params.getBool(CoreAdminParams.DELETE_DATA_DIR,false)) {
+      core.addCloseHook(new CloseHook(){
+        @Override public void preClose(        SolrCore core){
+        }
+        @Override public void postClose(        SolrCore core){
+          File dataDir=new File(core.getDataDir());
+          try {
+            FileUtils.deleteDirectory(dataDir);
+          }
+ catch (          IOException e) {
+            SolrException.log(log,"Failed to delete data dir for core:" + core.getName() + " dir:"+ dataDir.getAbsolutePath());
+          }
+        }
+      }
+);
+    }
+    if (params.getBool(CoreAdminParams.DELETE_INSTANCE_DIR,false)) {
+      core.addCloseHook(new CloseHook(){
+        @Override public void preClose(        SolrCore core){
+        }
+        @Override public void postClose(        SolrCore core){
+          CoreDescriptor cd=core.getCoreDescriptor();
+          if (cd != null) {
+            File instanceDir=new File(cd.getInstanceDir());
+            try {
+              FileUtils.deleteDirectory(instanceDir);
+            }
+ catch (            IOException e) {
+              SolrException.log(log,"Failed to delete instance dir for core:" + core.getName() + " dir:"+ instanceDir.getAbsolutePath());
             }
           }
-          if (!dataDir.delete())           log.error(dataDir.getAbsolutePath() + " could not be deleted on core unload");
-        }
- else {
-          log.error(dataDir.getAbsolutePath() + " could not be deleted on core unload");
         }
       }
-    }
 );
+    }
   }
-  core.close();
+  finally {
+    if (core != null)     core.close();
+  }
   return coreContainer.isPersistent();
 }
