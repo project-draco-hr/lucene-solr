@@ -4,7 +4,7 @@
   final int commitPercent=5 + random().nextInt(20);
   final int softCommitPercent=30 + random().nextInt(75);
   final int deletePercent=4 + random().nextInt(25);
-  final int deleteByQueryPercent=0;
+  final int deleteByQueryPercent=1 + random().nextInt(7);
   final int ndocs=5 + (random().nextBoolean() ? random().nextInt(25) : random().nextInt(200));
   int nWriteThreads=5 + random().nextInt(25);
   final int maxConcurrentCommits=nWriteThreads;
@@ -84,6 +84,18 @@ synchronized (model) {
               verbose("deleting id",id,"val=",nextVal,"version",version,"DONE");
             }
  else             if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
+              verbose("deleteByQuery id",id,"val=",nextVal,"version",version);
+              Long returnedVersion=deleteByQueryAndGetVersion("id:" + Integer.toString(id),params("_version_",Long.toString(-version),DISTRIB_UPDATE_PARAM,FROM_LEADER));
+              if (returnedVersion != null) {
+                assertEquals(-version,returnedVersion.longValue());
+              }
+synchronized (model) {
+                DocInfo currInfo=model.get(id);
+                if (Math.abs(version) > Math.abs(currInfo.version)) {
+                  model.put(id,new DocInfo(version,-nextVal));
+                }
+              }
+              verbose("deleteByQuery id",id,"val=",nextVal,"version",version,"DONE");
             }
  else {
               verbose("adding id",id,"val=",nextVal,"version",version);
@@ -108,6 +120,7 @@ synchronized (model) {
         }
  catch (        Throwable e) {
           operations.set(-1L);
+          log.error("",e);
           throw new RuntimeException(e);
         }
       }
@@ -160,6 +173,7 @@ synchronized (TestRealTimeGet.this) {
         }
  catch (        Throwable e) {
           operations.set(-1L);
+          log.error("",e);
           throw new RuntimeException(e);
         }
       }

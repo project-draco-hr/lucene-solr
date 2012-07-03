@@ -3,26 +3,15 @@
   deleteByQueryCommandsCumulative.incrementAndGet();
   boolean madeIt=false;
   try {
-    Query q;
-    try {
-      QParser parser=QParser.getParser(cmd.query,"lucene",cmd.req);
-      q=parser.getQuery();
-      q=QueryUtils.makeQueryable(q);
-      if ((cmd.getFlags() & UpdateCommand.PEER_SYNC) != 0) {
-        BooleanQuery bq=new BooleanQuery();
-        bq.add(q,Occur.MUST);
-        SchemaField sf=core.getSchema().getField(VersionInfo.VERSION_FIELD);
-        ValueSource vs=sf.getType().getValueSource(sf,null);
-        ValueSourceRangeFilter filt=new ValueSourceRangeFilter(vs,null,Long.toString(Math.abs(cmd.version)),true,true);
-        FunctionRangeQuery range=new FunctionRangeQuery(filt);
-        bq.add(range,Occur.MUST);
-        q=bq;
+    Query q=getQuery(cmd);
+    boolean delAll=MatchAllDocsQuery.class == q.getClass();
+    if (delAll && cmd.getVersion() == -Long.MAX_VALUE) {
+synchronized (this) {
+        deleteAll();
+        ulog.deleteAll();
+        return;
       }
     }
- catch (    ParseException e) {
-      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
-    }
-    boolean delAll=MatchAllDocsQuery.class == q.getClass();
 synchronized (this) {
       if (delAll) {
         deleteAll();

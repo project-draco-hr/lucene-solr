@@ -8,29 +8,51 @@
   }
   try {
     if (cmd.overwrite) {
-      Term updateTerm;
-      Term idTerm=new Term(idField.getName(),cmd.getIndexedId());
-      boolean del=false;
-      if (cmd.updateTerm == null) {
-        updateTerm=idTerm;
+      List<UpdateLog.DBQ> deletesAfter=null;
+      if (ulog != null && cmd.version > 0) {
+        deletesAfter=ulog.getDBQNewer(cmd.version);
+      }
+      if (deletesAfter != null) {
+        List<Query> dbqList=new ArrayList<Query>(deletesAfter.size());
+        for (        UpdateLog.DBQ dbq : deletesAfter) {
+          try {
+            DeleteUpdateCommand tmpDel=new DeleteUpdateCommand(cmd.req);
+            tmpDel.query=dbq.q;
+            tmpDel.version=-dbq.version;
+            dbqList.add(getQuery(tmpDel));
+          }
+ catch (          Exception e) {
+            log.error("Exception parsing reordered query : " + dbq,e);
+          }
+        }
+        addAndDelete(cmd,dbqList);
       }
  else {
-        del=true;
-        updateTerm=cmd.updateTerm;
-      }
-      Document luceneDocument=cmd.getLuceneDocument();
-      writer.updateDocument(updateTerm,luceneDocument);
-      if (del) {
-        BooleanQuery bq=new BooleanQuery();
-        bq.add(new BooleanClause(new TermQuery(updateTerm),Occur.MUST_NOT));
-        bq.add(new BooleanClause(new TermQuery(idTerm),Occur.MUST));
-        writer.deleteDocuments(bq);
+        Term updateTerm;
+        Term idTerm=new Term(idField.getName(),cmd.getIndexedId());
+        boolean del=false;
+        if (cmd.updateTerm == null) {
+          updateTerm=idTerm;
+        }
+ else {
+          del=true;
+          updateTerm=cmd.updateTerm;
+        }
+        Document luceneDocument=cmd.getLuceneDocument();
+        writer.updateDocument(updateTerm,luceneDocument);
+        if (del) {
+          BooleanQuery bq=new BooleanQuery();
+          bq.add(new BooleanClause(new TermQuery(updateTerm),Occur.MUST_NOT));
+          bq.add(new BooleanClause(new TermQuery(idTerm),Occur.MUST));
+          writer.deleteDocuments(bq);
+        }
+        if (ulog != null)         ulog.add(cmd);
       }
     }
  else {
       writer.addDocument(cmd.getLuceneDocument());
+      if (ulog != null)       ulog.add(cmd);
     }
-    if (ulog != null)     ulog.add(cmd);
     if ((cmd.getFlags() & UpdateCommand.IGNORE_AUTOCOMMIT) == 0) {
       commitTracker.addedDocument(-1);
       softCommitTracker.addedDocument(cmd.commitWithin);
