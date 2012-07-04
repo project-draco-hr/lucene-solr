@@ -1,0 +1,60 @@
+def packed64(bpv, f):
+    blocks = bpv
+    values = ((blocks * 64) / bpv)
+    while (((blocks % 2) == 0) and ((values % 2) == 0)):
+        blocks /= 2
+        values /= 2
+    assert ((values * bpv) == (64 * blocks)), ('%d values, %d blocks, %d bits per value' % (values, blocks, bpv))
+    mask = ((1 << bpv) - 1)
+    f.write(('  static final class Packed64BulkOperation%d extends BulkOperation {\n\n' % bpv))
+    f.write('    public int blocks() {\n')
+    f.write(('      return %d;\n' % blocks))
+    f.write('    }\n\n')
+    f.write('    public int values() {\n')
+    f.write(('      return %d;\n' % values))
+    f.write('    }\n\n')
+    if (bpv == 64):
+        f.write('    public void get(long[] blocks, int bi, long[] values, int vi, int iterations) {\n      System.arraycopy(blocks, bi, values, vi, iterations);\n    }\n\n    public void set(long[] blocks, int bi, long[] values, int vi, int iterations) {\n      System.arraycopy(values, bi, blocks, vi, iterations);\n    }\n  }\n')
+        return
+    f.write('    public void get(long[] blocks, int bi, long[] values, int vi, int iterations) {\n')
+    f.write('      assert bi + iterations * blocks() <= blocks.length;\n')
+    f.write('      assert vi + iterations * values() <= values.length;\n')
+    f.write('      for (int i = 0; i < iterations; ++i) {\n')
+    for i in xrange(0, values):
+        block_offset = ((i * bpv) / 64)
+        bit_offset = ((i * bpv) % 64)
+        if (bit_offset == 0):
+            f.write(('        final long block%d = blocks[bi++];\n' % block_offset))
+            f.write(('        values[vi++] = block%d >>> %d;\n' % (block_offset, (64 - bpv))))
+        elif ((bit_offset + bpv) == 64):
+            f.write(('        values[vi++] = block%d & %dL;\n' % (block_offset, mask)))
+        elif ((bit_offset + bpv) < 64):
+            f.write(('        values[vi++] = (block%d >>> %d) & %dL;\n' % (block_offset, ((64 - bit_offset) - bpv), mask)))
+        else:
+            mask1 = ((1 << (64 - bit_offset)) - 1)
+            shift1 = ((bit_offset + bpv) - 64)
+            shift2 = (64 - shift1)
+            f.write(('        final long block%d = blocks[bi++];\n' % (block_offset + 1)))
+            f.write(('        values[vi++] = ((block%d & %dL) << %d) | (block%d >>> %d);\n' % (block_offset, mask1, shift1, (block_offset + 1), shift2)))
+    f.write('      }\n')
+    f.write('    }\n\n')
+    f.write('    public void set(long[] blocks, int bi, long[] values, int vi, int iterations) {\n')
+    f.write('      assert bi + iterations * blocks() <= blocks.length;\n')
+    f.write('      assert vi + iterations * values() <= values.length;\n')
+    f.write('      for (int i = 0; i < iterations; ++i) {\n')
+    for i in xrange(0, values):
+        block_offset = ((i * bpv) / 64)
+        bit_offset = ((i * bpv) % 64)
+        if (bit_offset == 0):
+            f.write(('        blocks[bi++] = (values[vi++] << %d)' % (64 - bpv)))
+        elif ((bit_offset + bpv) == 64):
+            f.write(' | values[vi++];\n')
+        elif ((bit_offset + bpv) < 64):
+            f.write((' | (values[vi++] << %d)' % ((64 - bit_offset) - bpv)))
+        else:
+            right_bits = ((bit_offset + bpv) - 64)
+            f.write((' | (values[vi] >>> %d);\n' % right_bits))
+            f.write(('        blocks[bi++] = (values[vi++] << %d)' % (64 - right_bits)))
+    f.write('      }\n')
+    f.write('    }\n')
+    f.write('  }\n\n')
