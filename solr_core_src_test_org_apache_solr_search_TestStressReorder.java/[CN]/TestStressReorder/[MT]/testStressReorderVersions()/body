@@ -4,9 +4,7 @@
   final int commitPercent=5 + random().nextInt(20);
   final int softCommitPercent=30 + random().nextInt(75);
   final int deletePercent=4 + random().nextInt(25);
-  final int deleteByQueryPercent=1 + random().nextInt(5);
-  final int optimisticPercent=1 + random().nextInt(50);
-  final int optimisticCorrectPercent=25 + random().nextInt(70);
+  final int deleteByQueryPercent=0;
   final int ndocs=5 + (random().nextBoolean() ? random().nextInt(25) : random().nextInt(200));
   int nWriteThreads=5 + random().nextInt(25);
   final int maxConcurrentCommits=nWriteThreads;
@@ -16,6 +14,7 @@
   initModel(ndocs);
   final AtomicInteger numCommitting=new AtomicInteger();
   List<Thread> threads=new ArrayList<Thread>();
+  final AtomicLong testVersion=new AtomicLong(0);
   for (int i=0; i < nWriteThreads; i++) {
     Thread thread=new Thread("WRITER" + i){
       Random rand=new Random(random().nextInt());
@@ -27,7 +26,7 @@
               if (numCommitting.incrementAndGet() <= maxConcurrentCommits) {
                 Map<Integer,DocInfo> newCommittedModel;
                 long version;
-synchronized (TestRealTimeGet.this) {
+synchronized (TestStressReorder.this) {
                   newCommittedModel=new HashMap<Integer,DocInfo>(model);
                   version=snapshotCount++;
                 }
@@ -41,7 +40,7 @@ synchronized (TestRealTimeGet.this) {
                   assertU(commit());
                   verbose("hardCommit end");
                 }
-synchronized (TestRealTimeGet.this) {
+synchronized (TestStressReorder.this) {
                   if (version >= committedModelClock) {
                     if (VERBOSE) {
                       verbose("installing new committedModel version=" + committedModelClock);
@@ -54,8 +53,13 @@ synchronized (TestRealTimeGet.this) {
               numCommitting.decrementAndGet();
               continue;
             }
-            int id=rand.nextInt(ndocs);
-            Object sync=syncArr[id];
+            int id;
+            if (rand.nextBoolean()) {
+              id=rand.nextInt(ndocs);
+            }
+ else {
+              id=lastId;
+            }
             boolean before=rand.nextBoolean();
             if (before) {
               lastId=id;
@@ -63,34 +67,42 @@ synchronized (TestRealTimeGet.this) {
             DocInfo info=model.get(id);
             long val=info.val;
             long nextVal=Math.abs(val) + 1;
+            long version=testVersion.incrementAndGet();
+            if (rand.nextBoolean())             Thread.yield();
             if (oper < commitPercent + deletePercent) {
-              verbose("deleting id",id,"val=",nextVal);
-              Long version=deleteAndGetVersion(Integer.toString(id),null);
-              assertTrue(version < 0);
+              verbose("deleting id",id,"val=",nextVal,"version",version);
+              Long returnedVersion=deleteAndGetVersion(Integer.toString(id),params("_version_",Long.toString(-version),DISTRIB_UPDATE_PARAM,FROM_LEADER));
+              if (returnedVersion != null) {
+                assertEquals(-version,returnedVersion.longValue());
+              }
 synchronized (model) {
                 DocInfo currInfo=model.get(id);
                 if (Math.abs(version) > Math.abs(currInfo.version)) {
                   model.put(id,new DocInfo(version,-nextVal));
                 }
               }
-              verbose("deleting id",id,"val=",nextVal,"DONE");
+              verbose("deleting id",id,"val=",nextVal,"version",version,"DONE");
             }
  else             if (oper < commitPercent + deletePercent + deleteByQueryPercent) {
-              verbose("deleteByQyery id",id,"val=",nextVal);
-              Long version=deleteByQueryAndGetVersion("id:" + Integer.toString(id),null);
-              assertTrue(version < 0);
+              verbose("deleteByQuery id",id,"val=",nextVal,"version",version);
+              Long returnedVersion=deleteByQueryAndGetVersion("id:" + Integer.toString(id),params("_version_",Long.toString(-version),DISTRIB_UPDATE_PARAM,FROM_LEADER));
+              if (returnedVersion != null) {
+                assertEquals(-version,returnedVersion.longValue());
+              }
 synchronized (model) {
                 DocInfo currInfo=model.get(id);
                 if (Math.abs(version) > Math.abs(currInfo.version)) {
                   model.put(id,new DocInfo(version,-nextVal));
                 }
               }
-              verbose("deleteByQyery id",id,"val=",nextVal,"DONE");
+              verbose("deleteByQuery id",id,"val=",nextVal,"version",version,"DONE");
             }
  else {
-              verbose("adding id",id,"val=",nextVal);
-              Long version=addAndGetVersion(sdoc("id",Integer.toString(id),field,Long.toString(nextVal)),null);
-              assertTrue(version > 0);
+              verbose("adding id",id,"val=",nextVal,"version",version);
+              Long returnedVersion=addAndGetVersion(sdoc("id",Integer.toString(id),field,Long.toString(nextVal),"_version_",Long.toString(version)),params(DISTRIB_UPDATE_PARAM,FROM_LEADER));
+              if (returnedVersion != null) {
+                assertEquals(version,returnedVersion.longValue());
+              }
 synchronized (model) {
                 DocInfo currInfo=model.get(id);
                 if (version > currInfo.version) {
@@ -98,7 +110,7 @@ synchronized (model) {
                 }
               }
               if (VERBOSE) {
-                verbose("adding id",id,"val=",nextVal,"DONE");
+                verbose("adding id",id,"val=",nextVal,"version",version,"DONE");
               }
             }
             if (!before) {
@@ -108,6 +120,7 @@ synchronized (model) {
         }
  catch (        Throwable e) {
           operations.set(-1L);
+          log.error("",e);
           throw new RuntimeException(e);
         }
       }
@@ -128,7 +141,7 @@ synchronized (model) {
               info=model.get(id);
             }
  else {
-synchronized (TestRealTimeGet.this) {
+synchronized (TestStressReorder.this) {
                 info=committedModel.get(id);
               }
             }
@@ -152,7 +165,7 @@ synchronized (TestRealTimeGet.this) {
               long foundVal=(Long)(((Map)doclist.get(0)).get(field));
               long foundVer=(Long)(((Map)doclist.get(0)).get("_version_"));
               if (foundVer < Math.abs(info.version) || (foundVer == info.version && foundVal != info.val)) {
-                verbose("ERROR, id=",id,"found=",response,"model",info);
+                log.error("ERROR, id=" + id + " found="+ response+ " model"+ info);
                 assertTrue(false);
               }
             }
@@ -160,6 +173,7 @@ synchronized (TestRealTimeGet.this) {
         }
  catch (        Throwable e) {
           operations.set(-1L);
+          log.error("",e);
           throw new RuntimeException(e);
         }
       }
