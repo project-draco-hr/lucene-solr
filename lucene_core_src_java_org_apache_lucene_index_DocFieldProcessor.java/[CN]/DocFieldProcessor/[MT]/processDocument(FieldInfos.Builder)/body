@@ -3,7 +3,7 @@
   fieldsWriter.startDocument();
   fieldCount=0;
   final int thisFieldGen=fieldGen++;
-  for (  IndexableField field : docState.doc) {
+  for (  IndexableField field : docState.doc.indexableFields()) {
     final String fieldName=field.name();
     final int hashPos=fieldName.hashCode() & hashMask;
     DocFieldProcessorPerField fp=fieldHash[hashPos];
@@ -35,15 +35,20 @@
       fp.lastGen=thisFieldGen;
     }
     fp.addField(field);
-    if (field.fieldType().stored()) {
-      fieldsWriter.addField(field,fp.fieldInfo);
+  }
+  for (  StorableField field : docState.doc.storableFields()) {
+    final String fieldName=field.name();
+    final int hashPos=fieldName.hashCode() & hashMask;
+    DocFieldProcessorPerField fp=fieldHash[hashPos];
+    while (fp != null && !fp.fieldInfo.name.equals(fieldName)) {
+      fp=fp.next;
     }
     final DocValues.Type dvType=field.fieldType().docValueType();
     if (dvType != null) {
       DocValuesConsumerHolder docValuesConsumer=docValuesConsumer(dvType,docState,fp.fieldInfo);
       DocValuesConsumer consumer=docValuesConsumer.docValuesConsumer;
       if (docValuesConsumer.compatibility == null) {
-        consumer.add(docState.docID,field);
+        consumer.add(docState.docID,(StorableField)field);
         docValuesConsumer.compatibility=new TypeCompatibility(dvType,consumer.getValueSize());
       }
  else       if (docValuesConsumer.compatibility.isCompatible(dvType,TypePromoter.getValueSize(dvType,field.binaryValue()))) {
