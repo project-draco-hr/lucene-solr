@@ -1,0 +1,52 @@
+{
+  AntClassLoader loader=null;
+  try {
+    if (classpath != null) {
+      classpath.setProject(getProject());
+      loader=getProject().createClassLoader(classpath);
+    }
+    classFiles.setProject(getProject());
+    try {
+      @SuppressWarnings("unchecked") Iterator<Resource> iter=(Iterator<Resource>)apiSignatures.iterator();
+      while (iter.hasNext()) {
+        final Resource r=iter.next();
+        if (!r.isExists()) {
+          throw new BuildException("Resource does not exist: " + r.getName());
+        }
+        if (r instanceof StringResource) {
+          parseApiFile(loader,new StringReader(((StringResource)r).getValue()));
+        }
+ else {
+          parseApiFile(loader,new InputStreamReader(r.getInputStream(),"UTF-8"));
+        }
+      }
+    }
+ catch (    IOException ioe) {
+      throw new BuildException("IO problem while reading files with API signatures.",ioe);
+    }
+    long start=System.currentTimeMillis();
+    int checked=0;
+    int errors=0;
+    @SuppressWarnings("unchecked") Iterator<Resource> iter=(Iterator<Resource>)classFiles.iterator();
+    while (iter.hasNext()) {
+      final Resource r=iter.next();
+      if (!r.isExists()) {
+        throw new BuildException("Class file does not exist: " + r.getName());
+      }
+      try {
+        errors+=checkClass(r);
+      }
+ catch (      IOException ioe) {
+        throw new BuildException("IO problem while reading class file " + r.getName(),ioe);
+      }
+      checked++;
+    }
+    log(String.format(Locale.ENGLISH,"Scanned %d class file(s) for forbidden method invocations (in %.2fs), %d error(s).",checked,(System.currentTimeMillis() - start) / 1000.0,errors),errors > 0 ? Project.MSG_ERR : Project.MSG_INFO);
+    if (errors > 0) {
+      throw new BuildException("Check for forbidden method calls failed, see log.");
+    }
+  }
+  finally {
+    if (loader != null)     loader.cleanup();
+  }
+}
