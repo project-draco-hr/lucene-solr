@@ -1,9 +1,14 @@
 {
-  AntClassLoader loader=null;
+  AntClassLoader antLoader=null;
   try {
+    final ClassLoader loader;
     if (classpath != null) {
       classpath.setProject(getProject());
-      loader=getProject().createClassLoader(classpath);
+      loader=antLoader=getProject().createClassLoader(ClassLoader.getSystemClassLoader(),classpath);
+      antLoader.setParentFirst(false);
+    }
+ else {
+      loader=ClassLoader.getSystemClassLoader();
     }
     classFiles.setProject(getProject());
     apiSignatures.setProject(getProject());
@@ -18,9 +23,11 @@
           throw new BuildException("Resource does not exist: " + r);
         }
         if (r instanceof StringResource) {
+          log("Reading inline API signatures...",Project.MSG_INFO);
           parseApiFile(loader,new StringReader(((StringResource)r).getValue()));
         }
  else {
+          log("Reading API signatures: " + r,Project.MSG_INFO);
           parseApiFile(loader,new InputStreamReader(r.getInputStream(),"UTF-8"));
         }
       }
@@ -31,32 +38,33 @@
     if (forbiddenMethods.isEmpty() && forbiddenClasses.isEmpty()) {
       throw new BuildException("No API signatures found; use apiFile=, <apiFileSet/>, or inner text to define those!");
     }
-    long start=System.currentTimeMillis();
-    int checked=0;
-    int errors=0;
-    @SuppressWarnings("unchecked") Iterator<Resource> iter=(Iterator<Resource>)classFiles.iterator();
-    if (!iter.hasNext()) {
-      throw new BuildException("There is no <fileset/> given or the fileset does not contain any class files to check.");
-    }
-    while (iter.hasNext()) {
-      final Resource r=iter.next();
-      if (!r.isExists()) {
-        throw new BuildException("Class file does not exist: " + r);
-      }
-      try {
-        errors+=checkClass(r);
-      }
- catch (      IOException ioe) {
-        throw new BuildException("IO problem while reading class file " + r,ioe);
-      }
-      checked++;
-    }
-    log(String.format(Locale.ROOT,"Scanned %d class file(s) for forbidden API invocations (in %.2fs), %d error(s).",checked,(System.currentTimeMillis() - start) / 1000.0,errors),errors > 0 ? Project.MSG_ERR : Project.MSG_INFO);
-    if (errors > 0) {
-      throw new BuildException("Check for forbidden API calls failed, see log.");
-    }
   }
   finally {
-    if (loader != null)     loader.cleanup();
+    if (antLoader != null)     antLoader.cleanup();
+    antLoader=null;
+  }
+  long start=System.currentTimeMillis();
+  int checked=0;
+  int errors=0;
+  @SuppressWarnings("unchecked") Iterator<Resource> iter=(Iterator<Resource>)classFiles.iterator();
+  if (!iter.hasNext()) {
+    throw new BuildException("There is no <fileset/> given or the fileset does not contain any class files to check.");
+  }
+  while (iter.hasNext()) {
+    final Resource r=iter.next();
+    if (!r.isExists()) {
+      throw new BuildException("Class file does not exist: " + r);
+    }
+    try {
+      errors+=checkClass(r);
+    }
+ catch (    IOException ioe) {
+      throw new BuildException("IO problem while reading class file " + r,ioe);
+    }
+    checked++;
+  }
+  log(String.format(Locale.ROOT,"Scanned %d class file(s) for forbidden API invocations (in %.2fs), %d error(s).",checked,(System.currentTimeMillis() - start) / 1000.0,errors),errors > 0 ? Project.MSG_ERR : Project.MSG_INFO);
+  if (errors > 0) {
+    throw new BuildException("Check for forbidden API calls failed, see log.");
   }
 }

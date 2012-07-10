@@ -13,15 +13,25 @@
       @Override public MethodVisitor visitMethod(      int access,      String name,      String desc,      String signature,      String[] exceptions){
         return new MethodVisitor(Opcodes.ASM4){
           private int lineNo=-1;
-          @Override public void visitMethodInsn(          int opcode,          String owner,          String name,          String desc){
-            boolean found=false;
-            String printout=forbiddenClasses.get(owner);
+          private boolean checkClassUse(          String owner){
+            final String printout=forbiddenClasses.get(owner);
             if (printout != null) {
-              found=true;
               log("Forbidden class use: " + printout,Project.MSG_ERR);
+              return true;
             }
- else {
-              printout=forbiddenMethods.get(owner + '\000' + new Method(name,desc));
+            return false;
+          }
+          private void reportSourceAndLine(){
+            final StringBuilder sb=new StringBuilder("  in ").append(className);
+            if (source != null && lineNo >= 0) {
+              new Formatter(sb,Locale.ROOT).format(" (%s:%d)",source,lineNo).flush();
+            }
+            log(sb.toString(),Project.MSG_ERR);
+          }
+          @Override public void visitMethodInsn(          int opcode,          String owner,          String name,          String desc){
+            boolean found=checkClassUse(owner);
+            if (!found) {
+              final String printout=forbiddenMethods.get(owner + '\000' + new Method(name,desc));
               if (printout != null) {
                 found=true;
                 log("Forbidden method invocation: " + printout,Project.MSG_ERR);
@@ -29,11 +39,21 @@
             }
             if (found) {
               violations[0]++;
-              final StringBuilder sb=new StringBuilder("  in ").append(className);
-              if (source != null && lineNo >= 0) {
-                new Formatter(sb,Locale.ROOT).format(" (%s:%d)",source,lineNo).flush();
+              reportSourceAndLine();
+            }
+          }
+          @Override public void visitFieldInsn(          int opcode,          String owner,          String name,          String desc){
+            boolean found=checkClassUse(owner);
+            if (!found) {
+              final String printout=forbiddenFields.get(owner + '\000' + name);
+              if (printout != null) {
+                found=true;
+                log("Forbidden field access: " + printout,Project.MSG_ERR);
               }
-              log(sb.toString(),Project.MSG_ERR);
+            }
+            if (found) {
+              violations[0]++;
+              reportSourceAndLine();
             }
           }
           @Override public void visitLineNumber(          int lineNo,          Label start){
