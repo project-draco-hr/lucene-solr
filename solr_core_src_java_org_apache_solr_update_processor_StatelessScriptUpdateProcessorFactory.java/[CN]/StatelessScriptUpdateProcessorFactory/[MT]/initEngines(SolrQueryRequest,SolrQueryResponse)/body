@@ -1,0 +1,47 @@
+{
+  List<EngineInfo> scriptEngines=new ArrayList<EngineInfo>();
+  ScriptEngineManager scriptEngineManager=new ScriptEngineManager(resourceLoader.getClassLoader());
+  scriptEngineManager.put("logger",log);
+  scriptEngineManager.put("req",req);
+  scriptEngineManager.put("rsp",rsp);
+  if (params != null) {
+    scriptEngineManager.put("params",params);
+  }
+  for (  ScriptFile scriptFile : scriptFiles) {
+    ScriptEngine engine=null;
+    if (null != engineName) {
+      engine=scriptEngineManager.getEngineByName(engineName);
+      if (engine == null) {
+        String details=getSupportedEngines(scriptEngineManager,false);
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No ScriptEngine found by name: " + engineName + (null != details ? " -- supported names: " + details : ""));
+      }
+    }
+ else {
+      engine=scriptEngineManager.getEngineByExtension(scriptFile.getExtension());
+      if (engine == null) {
+        String details=getSupportedEngines(scriptEngineManager,true);
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No ScriptEngine found by file extension: " + scriptFile.getFileName() + (null != details ? " -- supported extensions: " + details : ""));
+      }
+    }
+    if (!(engine instanceof Invocable)) {
+      String msg="Engine " + ((null != engineName) ? engineName : ("for script " + scriptFile.getFileName())) + " does not support function invocation (via Invocable): "+ engine.getClass().toString()+ " ("+ engine.getFactory().getEngineName()+ ")";
+      log.error(msg);
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg);
+    }
+    if (scriptEngineCustomizer != null) {
+      scriptEngineCustomizer.customize(engine);
+    }
+    scriptEngines.add(new EngineInfo((Invocable)engine,scriptFile));
+    Reader scriptSrc=scriptFile.openReader(resourceLoader);
+    try {
+      engine.eval(scriptSrc);
+    }
+ catch (    ScriptException e) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unable to evaluate script: " + scriptFile.getFileName(),e);
+    }
+ finally {
+      IOUtils.closeQuietly(scriptSrc);
+    }
+  }
+  return scriptEngines;
+}

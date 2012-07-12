@@ -1,0 +1,40 @@
+{
+  SolrCore core=h.getCore();
+  for (  final String chain : new String[]{"dual-scripts-arr","dual-scripts-strs"}) {
+    UpdateRequestProcessorChain chained=core.getUpdateProcessingChain(chain);
+    final StatelessScriptUpdateProcessorFactory factory=((StatelessScriptUpdateProcessorFactory)chained.getFactories()[0]);
+    final List<String> functionMessages=new ArrayList<String>();
+    ScriptEngineCustomizer customizer=new ScriptEngineCustomizer(){
+      public void customize(      ScriptEngine engine){
+        engine.put("testCase",StatelessScriptUpdateProcessorFactoryTest.this);
+        engine.put("functionMessages",functionMessages);
+      }
+    }
+;
+    factory.setScriptEngineCustomizer(customizer);
+    assertNotNull(chained);
+    SolrInputDocument d=processAdd(chain,doc(f("id","2"),f("name"," foo "),f("subject","bar")));
+    assertEquals(chain + " didn't add Double field",42.3d,d.getFieldValue("script_added_d"));
+    assertEquals(chain + " didn't add integer field",new Integer(42),d.getFieldValue("script_added_i"));
+    processCommit("run-no-scripts");
+    assertQ(chain + ": couldn't find doc by id",req("q","id:2"),"//result[@numFound=1]");
+    processDeleteById(chain,"2");
+    processCommit(chain);
+    assertEquals(chain,6,functionMessages.size());
+    assertTrue(chain,functionMessages.contains("processAdd0"));
+    assertTrue(chain,functionMessages.contains("processAdd1"));
+    assertTrue(chain + ": script order doesn't match conf order",functionMessages.indexOf("processAdd0") < functionMessages.indexOf("processAdd1"));
+    assertTrue(chain,functionMessages.contains("processDelete0"));
+    assertTrue(chain,functionMessages.contains("processDelete1"));
+    assertTrue(chain + ": script order doesn't match conf order",functionMessages.indexOf("processDelete0") < functionMessages.indexOf("processDelete1"));
+    assertTrue(chain,functionMessages.contains("processCommit0"));
+    assertTrue(chain,functionMessages.contains("processCommit1"));
+    assertTrue(chain + ": script order doesn't match conf order",functionMessages.indexOf("processCommit0") < functionMessages.indexOf("processCommit1"));
+    finish(chain);
+    assertEquals(chain,8,functionMessages.size());
+    assertTrue(chain,functionMessages.contains("finish0"));
+    assertTrue(chain,functionMessages.contains("finish1"));
+    assertTrue(chain + ": script order doesn't match conf order",functionMessages.indexOf("finish0") < functionMessages.indexOf("finish1"));
+    assertQ(chain + ": found deleted doc",req("q","id:2"),"//result[@numFound=0]");
+  }
+}
