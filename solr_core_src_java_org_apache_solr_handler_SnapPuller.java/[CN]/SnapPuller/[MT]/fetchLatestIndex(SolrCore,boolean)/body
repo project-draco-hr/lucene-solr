@@ -59,9 +59,9 @@
     LOG.info("Starting download to " + tmpIndexDir + " fullCopy="+ isFullCopyNeeded);
     successfulInstall=false;
     boolean deleteTmpIdxDir=true;
-    File indexDir=null;
+    final File indexDir=new File(core.getIndexDir());
+    Directory oldDirectory=null;
     try {
-      indexDir=new File(core.getIndexDir());
       downloadIndexFiles(isFullCopyNeeded,tmpIndexDir,latestGeneration);
       LOG.info("Total time taken for download : " + ((System.currentTimeMillis() - replicationStartTime) / 1000) + " secs");
       Collection<Map<String,Object>> modifiedConfFiles=getModifiedConfFiles(confFilesToDownload);
@@ -85,14 +85,35 @@
         if (isFullCopyNeeded) {
           successfulInstall=modifyIndexProps(tmpIndexDir.getName());
           deleteTmpIdxDir=false;
+          RefCounted<IndexWriter> iw=core.getUpdateHandler().getSolrCoreState().getIndexWriter(core);
+          try {
+            oldDirectory=iw.get().getDirectory();
+          }
+  finally {
+            iw.decref();
+          }
         }
  else {
           successfulInstall=copyIndexFiles(tmpIndexDir,indexDir);
         }
         if (successfulInstall) {
           logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
-          doCommit();
         }
+      }
+      if (isFullCopyNeeded) {
+        core.getDirectoryFactory().addCloseListener(oldDirectory,new CloseListener(){
+          @Override public void onClose(){
+            LOG.info("removing old index directory " + indexDir);
+            delTree(indexDir);
+          }
+        }
+);
+      }
+      if (successfulInstall) {
+        if (isFullCopyNeeded) {
+          core.getDirectoryFactory().doneWithDirectory(oldDirectory);
+        }
+        doCommit();
       }
       replicationStartTime=0;
       return successfulInstall;
@@ -114,10 +135,6 @@ catch (    Exception e) {
       if (deleteTmpIdxDir) {
         LOG.info("removing temporary index download directory " + tmpIndexDir);
         delTree(tmpIndexDir);
-      }
- else {
-        LOG.info("removing old index directory " + indexDir);
-        delTree(indexDir);
       }
     }
   }
