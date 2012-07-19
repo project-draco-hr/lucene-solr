@@ -1,0 +1,244 @@
+{
+  if (VERBOSE) {
+    System.out.println("  verifyEnum: options=" + options + " maxIndexOptions="+ maxIndexOptions);
+  }
+  Bits liveDocs;
+  Map<String,Map<BytesRef,List<Posting>>> fieldsToUse;
+  if (options.contains(Option.LIVE_DOCS) && random().nextBoolean()) {
+    liveDocs=globalLiveDocs;
+    fieldsToUse=fieldsLive;
+    if (VERBOSE) {
+      System.out.println("  use liveDocs");
+    }
+  }
+ else {
+    liveDocs=null;
+    fieldsToUse=fields;
+    if (VERBOSE) {
+      System.out.println("  no liveDocs");
+    }
+  }
+  FieldInfo fieldInfo=currentFieldInfos.fieldInfo(field);
+  assertEquals(fields.get(field).get(term).size(),termsEnum.docFreq());
+  List<Posting> expected=fieldsToUse.get(field).get(term);
+  boolean allowFreqs=fieldInfo.getIndexOptions().compareTo(IndexOptions.DOCS_AND_FREQS) >= 0 && maxIndexOptions.compareTo(IndexOptions.DOCS_AND_FREQS) >= 0;
+  boolean doCheckFreqs=allowFreqs && random().nextInt(3) <= 2;
+  boolean allowPositions=fieldInfo.getIndexOptions().compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0 && maxIndexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0;
+  boolean doCheckPositions=allowPositions && random().nextInt(3) <= 2;
+  boolean allowOffsets=fieldInfo.getIndexOptions().compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS) >= 0 && maxIndexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS) >= 0;
+  boolean doCheckOffsets=allowOffsets && random().nextInt(3) <= 2;
+  boolean doCheckPayloads=options.contains(Option.PAYLOADS) && allowPositions && fieldInfo.hasPayloads();
+  DocsEnum prevDocsEnum=null;
+  DocsEnum docsEnum;
+  DocsAndPositionsEnum docsAndPositionsEnum;
+  if (!doCheckPositions) {
+    if (allowPositions && random().nextInt(10) == 7) {
+      if (VERBOSE) {
+        System.out.println("  get DocsAndPositionsEnum (but we won't check positions)");
+      }
+      if (options.contains(Option.REUSE_ENUMS) && random().nextInt(10) < 9) {
+        prevDocsEnum=threadState.reuseDocsAndPositionsEnum;
+      }
+      threadState.reuseDocsAndPositionsEnum=termsEnum.docsAndPositions(liveDocs,(DocsAndPositionsEnum)prevDocsEnum,false);
+      docsEnum=threadState.reuseDocsAndPositionsEnum;
+      docsAndPositionsEnum=threadState.reuseDocsAndPositionsEnum;
+    }
+ else {
+      if (VERBOSE) {
+        System.out.println("  get DocsEnum");
+      }
+      if (options.contains(Option.REUSE_ENUMS) && random().nextInt(10) < 9) {
+        prevDocsEnum=threadState.reuseDocsEnum;
+      }
+      threadState.reuseDocsEnum=termsEnum.docs(liveDocs,prevDocsEnum,doCheckFreqs);
+      docsEnum=threadState.reuseDocsEnum;
+      docsAndPositionsEnum=null;
+    }
+  }
+ else {
+    if (VERBOSE) {
+      System.out.println("  get DocsAndPositionsEnum");
+    }
+    if (options.contains(Option.REUSE_ENUMS) && random().nextInt(10) < 9) {
+      prevDocsEnum=threadState.reuseDocsAndPositionsEnum;
+    }
+    threadState.reuseDocsAndPositionsEnum=termsEnum.docsAndPositions(liveDocs,(DocsAndPositionsEnum)prevDocsEnum,doCheckOffsets);
+    docsEnum=threadState.reuseDocsAndPositionsEnum;
+    docsAndPositionsEnum=threadState.reuseDocsAndPositionsEnum;
+  }
+  assertNotNull(docsEnum);
+  int initialDocID=docsEnum.docID();
+  assertTrue(initialDocID == -1 || initialDocID == DocsEnum.NO_MORE_DOCS);
+  if (VERBOSE) {
+    if (prevDocsEnum == null) {
+      System.out.println("  got enum=" + docsEnum);
+    }
+ else     if (prevDocsEnum == docsEnum) {
+      System.out.println("  got reuse enum=" + docsEnum);
+    }
+ else {
+      System.out.println("  got enum=" + docsEnum + " (reuse of "+ prevDocsEnum+ " failed)");
+    }
+  }
+  int stopAt;
+  if (options.contains(Option.PARTIAL_DOC_CONSUME) && expected.size() > 1 && random().nextInt(10) == 7) {
+    stopAt=random().nextInt(expected.size() - 1);
+    if (VERBOSE) {
+      System.out.println("  will not consume all docs (" + stopAt + " vs "+ expected.size()+ ")");
+    }
+  }
+ else {
+    stopAt=expected.size();
+    if (VERBOSE) {
+      System.out.println("  consume all docs");
+    }
+  }
+  double skipChance=random().nextDouble();
+  int numSkips=expected.size() < 3 ? 1 : _TestUtil.nextInt(random(),1,Math.min(20,expected.size() / 3));
+  int skipInc=expected.size() / numSkips;
+  int skipDocInc=(1 + maxDocID) / numSkips;
+  boolean doAllSkipping=options.contains(Option.SKIPPING) && random().nextInt(7) == 1;
+  double freqAskChance=random().nextDouble();
+  double payloadCheckChance=random().nextDouble();
+  double offsetCheckChance=random().nextDouble();
+  if (VERBOSE) {
+    if (options.contains(Option.SKIPPING)) {
+      System.out.println("  skipChance=" + skipChance + " numSkips="+ numSkips);
+    }
+ else {
+      System.out.println("  no skipping");
+    }
+    if (doCheckFreqs) {
+      System.out.println("  freqAskChance=" + freqAskChance);
+    }
+    if (doCheckPayloads) {
+      System.out.println("  payloadCheckChance=" + payloadCheckChance);
+    }
+    if (doCheckOffsets) {
+      System.out.println("  offsetCheckChance=" + offsetCheckChance);
+    }
+  }
+  int nextPosting=0;
+  while (nextPosting <= stopAt) {
+    if (nextPosting == stopAt) {
+      if (stopAt == expected.size()) {
+        assertEquals(DocsEnum.NO_MORE_DOCS,docsEnum.nextDoc());
+        assertEquals(DocsEnum.NO_MORE_DOCS,docsEnum.docID());
+      }
+      break;
+    }
+    Posting posting;
+    if (options.contains(Option.SKIPPING) && (doAllSkipping || random().nextDouble() <= skipChance)) {
+      int targetDocID=-1;
+      if (nextPosting < stopAt && random().nextBoolean()) {
+        nextPosting=_TestUtil.nextInt(random(),nextPosting,nextPosting + skipInc);
+      }
+ else {
+        Posting target=new Posting();
+        target.docID=_TestUtil.nextInt(random(),expected.get(nextPosting).docID,expected.get(nextPosting).docID + skipDocInc);
+        targetDocID=target.docID;
+        int loc=Collections.binarySearch(expected.subList(nextPosting,expected.size()),target);
+        if (loc < 0) {
+          loc=-loc - 1;
+        }
+        nextPosting=nextPosting + loc;
+      }
+      if (nextPosting >= stopAt) {
+        int target=random().nextBoolean() ? (maxDocID + 1) : DocsEnum.NO_MORE_DOCS;
+        if (VERBOSE) {
+          System.out.println("  now advance to end (target=" + target + ")");
+        }
+        assertEquals(DocsEnum.NO_MORE_DOCS,docsEnum.advance(target));
+        break;
+      }
+ else {
+        posting=expected.get(nextPosting++);
+        if (VERBOSE) {
+          if (targetDocID != -1) {
+            System.out.println("  now advance to random target=" + targetDocID + " ("+ nextPosting+ " of "+ stopAt+ ")");
+          }
+ else {
+            System.out.println("  now advance to known-exists target=" + posting.docID + " ("+ nextPosting+ " of "+ stopAt+ ")");
+          }
+        }
+        int docID=docsEnum.advance(targetDocID != -1 ? targetDocID : posting.docID);
+        assertEquals(posting.docID,docID);
+      }
+    }
+ else {
+      posting=expected.get(nextPosting++);
+      if (VERBOSE) {
+        System.out.println("  now nextDoc to " + posting.docID + " ("+ nextPosting+ " of "+ stopAt+ ")");
+      }
+      int docID=docsEnum.nextDoc();
+      assertEquals(posting.docID,docID);
+    }
+    if (doCheckFreqs && random().nextDouble() <= freqAskChance) {
+      if (VERBOSE) {
+        System.out.println("    now freq()=" + posting.positions.size());
+      }
+      int freq=docsEnum.freq();
+      assertEquals(posting.positions.size(),freq);
+    }
+    if (doCheckPositions) {
+      int freq=docsEnum.freq();
+      int numPosToConsume;
+      if (options.contains(Option.PARTIAL_POS_CONSUME) && random().nextInt(5) == 1) {
+        numPosToConsume=random().nextInt(freq);
+      }
+ else {
+        numPosToConsume=freq;
+      }
+      for (int i=0; i < numPosToConsume; i++) {
+        Position position=posting.positions.get(i);
+        if (VERBOSE) {
+          System.out.println("    now nextPosition to " + position.position);
+        }
+        assertEquals(position.position,docsAndPositionsEnum.nextPosition());
+        if (doCheckPayloads) {
+          if (random().nextDouble() <= payloadCheckChance) {
+            if (VERBOSE) {
+              System.out.println("      now check payload length=" + (position.payload == null ? 0 : position.payload.length));
+            }
+            if (position.payload == null || position.payload.length == 0) {
+              assertFalse(docsAndPositionsEnum.hasPayload());
+            }
+ else {
+              assertTrue(docsAndPositionsEnum.hasPayload());
+              BytesRef payload=docsAndPositionsEnum.getPayload();
+              assertFalse(docsAndPositionsEnum.hasPayload());
+              assertNotNull(payload);
+              assertEquals(position.payload.length,payload.length);
+              for (int byteUpto=0; byteUpto < position.payload.length; byteUpto++) {
+                assertEquals(position.payload[byteUpto],payload.bytes[payload.offset + byteUpto]);
+              }
+            }
+          }
+ else {
+            if (VERBOSE) {
+              System.out.println("      skip check payload length=" + (position.payload == null ? 0 : position.payload.length));
+            }
+          }
+        }
+        if (doCheckOffsets) {
+          if (random().nextDouble() <= offsetCheckChance) {
+            if (VERBOSE) {
+              System.out.println("      now check offsets: startOff=" + position.startOffset + " endOffset="+ position.endOffset);
+            }
+            assertEquals(position.startOffset,docsAndPositionsEnum.startOffset());
+            assertEquals(position.endOffset,docsAndPositionsEnum.endOffset());
+          }
+ else {
+            if (VERBOSE) {
+              System.out.println("      skip check offsets");
+            }
+          }
+        }
+ else {
+          assertEquals(-1,docsAndPositionsEnum.startOffset());
+          assertEquals(-1,docsAndPositionsEnum.endOffset());
+        }
+      }
+    }
+  }
+}
