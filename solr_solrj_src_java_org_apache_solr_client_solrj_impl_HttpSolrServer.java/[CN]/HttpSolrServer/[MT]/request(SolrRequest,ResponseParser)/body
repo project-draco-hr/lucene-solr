@@ -12,8 +12,10 @@
     parser=this.parser;
   }
   ModifiableSolrParams wparams=new ModifiableSolrParams(params);
-  wparams.set(CommonParams.WT,parser.getWriterType());
-  wparams.set(CommonParams.VERSION,parser.getVersion());
+  if (parser != null) {
+    wparams.set(CommonParams.WT,parser.getWriterType());
+    wparams.set(CommonParams.VERSION,parser.getVersion());
+  }
   if (invariantParams != null) {
     wparams.add(invariantParams);
   }
@@ -132,7 +134,6 @@
   try {
     final HttpResponse response=httpClient.execute(method);
     int httpStatus=response.getStatusLine().getStatusCode();
-    String charset=EntityUtils.getContentCharSet(response.getEntity());
     respBody=response.getEntity().getContent();
 switch (httpStatus) {
 case HttpStatus.SC_OK:
@@ -145,18 +146,22 @@ case HttpStatus.SC_MOVED_TEMPORARILY:
       throw new SolrServerException("Server at " + getBaseURL() + " sent back a redirect ("+ httpStatus+ ").");
     }
   break;
-case HttpStatus.SC_NOT_FOUND:
-throw new SolrServerException("Server at " + getBaseURL() + " was not found (404).");
 default :
 throw new SolrException(SolrException.ErrorCode.getErrorCode(httpStatus),"Server at " + getBaseURL() + " returned non ok status:"+ httpStatus+ ", message:"+ response.getStatusLine().getReasonPhrase());
 }
+if (processor == null) {
+NamedList<Object> rsp=new NamedList<Object>();
+rsp.add("stream",respBody);
+return rsp;
+}
+String charset=EntityUtils.getContentCharSet(response.getEntity());
 NamedList<Object> rsp=processor.processResponse(respBody,charset);
 if (httpStatus != HttpStatus.SC_OK) {
 String reason=null;
 try {
 NamedList err=(NamedList)rsp.get("error");
 if (err != null) {
-reason=(String)err.get("msg");
+  reason=(String)err.get("msg");
 }
 }
  catch (Exception ex) {
@@ -182,7 +187,7 @@ catch (IOException e) {
 throw new SolrServerException("IOException occured when talking to server at: " + getBaseURL(),e);
 }
  finally {
-if (respBody != null) {
+if (respBody != null && processor != null) {
 try {
 respBody.close();
 }

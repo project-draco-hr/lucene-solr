@@ -1,0 +1,62 @@
+{
+  String numReplicasString=message.get("numReplicas");
+  int numReplicas;
+  try {
+    numReplicas=numReplicasString == null ? 0 : Integer.parseInt(numReplicasString);
+  }
+ catch (  Exception ex) {
+    SolrException.log(log,"Could not parse numReplicas",ex);
+    return false;
+  }
+  String numShardsString=message.get("numShards");
+  int numShards;
+  try {
+    numShards=numShardsString == null ? 0 : Integer.parseInt(numShardsString);
+  }
+ catch (  Exception ex) {
+    SolrException.log(log,"Could not parse numShards",ex);
+    return false;
+  }
+  String name=message.get("name");
+  String configName=message.get("collection.configName");
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
+  Set<String> nodes=cloudState.getLiveNodes();
+  List<String> nodeList=new ArrayList<String>(nodes.size());
+  nodeList.addAll(nodes);
+  Collections.shuffle(nodeList);
+  int numNodes=numShards * (numReplicas + 1);
+  List<String> createOnNodes=nodeList.subList(0,Math.min(nodeList.size(),numNodes));
+  log.info("Create collection " + name + " on "+ createOnNodes);
+  for (  String replica : createOnNodes) {
+    replica=replica.replaceAll("_","/");
+    params.set(CoreAdminParams.NAME,name);
+    params.set("collection.configName",configName);
+    params.set("numShards",numShards);
+    ShardRequest sreq=new ShardRequest();
+    params.set("qt",adminPath);
+    sreq.purpose=1;
+    if (replica.startsWith("http://"))     replica=replica.substring(7);
+    sreq.shards=new String[]{replica};
+    sreq.actualShards=sreq.shards;
+    sreq.params=params;
+    shardHandler.submit(sreq,replica,sreq.params);
+  }
+  int failed=0;
+  ShardResponse srsp;
+  do {
+    srsp=shardHandler.takeCompletedOrError();
+    if (srsp != null) {
+      Throwable e=srsp.getException();
+      if (e != null) {
+        failed++;
+        log.error("Error talking to shard: " + srsp.getShard(),e);
+      }
+    }
+  }
+ while (srsp != null);
+  if (failed > 0) {
+    return false;
+  }
+  return true;
+}

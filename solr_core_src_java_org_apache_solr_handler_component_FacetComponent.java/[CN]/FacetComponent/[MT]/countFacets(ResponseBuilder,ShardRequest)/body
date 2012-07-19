@@ -2,7 +2,16 @@
   FacetInfo fi=rb._facetInfo;
   for (  ShardResponse srsp : sreq.responses) {
     int shardNum=rb.getShardNum(srsp.getShard());
-    NamedList facet_counts=(NamedList)srsp.getSolrResponse().getResponse().get("facet_counts");
+    NamedList facet_counts=null;
+    try {
+      facet_counts=(NamedList)srsp.getSolrResponse().getResponse().get("facet_counts");
+    }
+ catch (    Exception ex) {
+      if (rb.req.getParams().getBool(ShardParams.SHARDS_TOLERANT,false)) {
+        continue;
+      }
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Unable to read facet info for shard: " + srsp.getShard(),ex);
+    }
     NamedList facet_queries=(NamedList)facet_counts.get("facet_queries");
     if (facet_queries != null) {
       for (int i=0; i < facet_queries.size(); i++) {
@@ -82,7 +91,7 @@
         long maxCount=sfc.count;
         for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
           OpenBitSet obs=dff.counted[shardNum];
-          if (!obs.get(sfc.termNum)) {
+          if (obs != null && !obs.get(sfc.termNum)) {
             maxCount+=dff.maxPossible(sfc,shardNum);
           }
         }
@@ -93,7 +102,7 @@
       if (needRefinement) {
         for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
           OpenBitSet obs=dff.counted[shardNum];
-          if (!obs.get(sfc.termNum) && dff.maxPossible(sfc,shardNum) > 0) {
+          if (obs != null && !obs.get(sfc.termNum) && dff.maxPossible(sfc,shardNum) > 0) {
             dff.needRefinements=true;
             List<String> lst=dff._toRefine[shardNum];
             if (lst == null) {

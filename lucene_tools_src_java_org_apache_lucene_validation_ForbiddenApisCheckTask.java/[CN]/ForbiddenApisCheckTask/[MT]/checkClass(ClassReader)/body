@@ -1,0 +1,110 @@
+{
+  final int[] violations=new int[1];
+  reader.accept(new ClassVisitor(Opcodes.ASM4){
+    final String className=Type.getObjectType(reader.getClassName()).getClassName();
+    String source=null;
+    @Override public void visitSource(    String source,    String debug){
+      this.source=source;
+    }
+    @Override public MethodVisitor visitMethod(    int access,    String name,    String desc,    String signature,    String[] exceptions){
+      return new MethodVisitor(Opcodes.ASM4){
+        private int lineNo=-1;
+        private ClassSignatureLookup lookupRelatedClass(        String internalName){
+          ClassSignatureLookup c=classesToCheck.get(internalName);
+          if (c == null)           try {
+            c=getClassFromClassLoader(internalName);
+          }
+ catch (          BuildException be) {
+            c=null;
+          }
+          return c;
+        }
+        private boolean checkClassUse(        String owner){
+          final String printout=forbiddenClasses.get(owner);
+          if (printout != null) {
+            log("Forbidden class use: " + printout,Project.MSG_ERR);
+            return true;
+          }
+          return false;
+        }
+        private boolean checkMethodAccess(        String owner,        Method method){
+          if (checkClassUse(owner)) {
+            return true;
+          }
+          final String printout=forbiddenMethods.get(owner + '\000' + method);
+          if (printout != null) {
+            log("Forbidden method invocation: " + printout,Project.MSG_ERR);
+            return true;
+          }
+          final ClassSignatureLookup c=lookupRelatedClass(owner);
+          if (c != null && !c.methods.contains(method)) {
+            final String superName=c.reader.getSuperName();
+            if (superName != null && checkMethodAccess(superName,method)) {
+              return true;
+            }
+            final String[] interfaces=c.reader.getInterfaces();
+            if (interfaces != null) {
+              for (              String intf : interfaces) {
+                if (intf != null && checkMethodAccess(intf,method)) {
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        }
+        private boolean checkFieldAccess(        String owner,        String field){
+          if (checkClassUse(owner)) {
+            return true;
+          }
+          final String printout=forbiddenFields.get(owner + '\000' + field);
+          if (printout != null) {
+            log("Forbidden field access: " + printout,Project.MSG_ERR);
+            return true;
+          }
+          final ClassSignatureLookup c=lookupRelatedClass(owner);
+          if (c != null && !c.fields.contains(field)) {
+            final String superName=c.reader.getSuperName();
+            if (superName != null && checkFieldAccess(superName,field)) {
+              return true;
+            }
+            final String[] interfaces=c.reader.getInterfaces();
+            if (interfaces != null) {
+              for (              String intf : interfaces) {
+                if (intf != null && checkFieldAccess(intf,field)) {
+                  return true;
+                }
+              }
+            }
+          }
+          return false;
+        }
+        @Override public void visitMethodInsn(        int opcode,        String owner,        String name,        String desc){
+          if (checkMethodAccess(owner,new Method(name,desc))) {
+            violations[0]++;
+            reportSourceAndLine();
+          }
+        }
+        @Override public void visitFieldInsn(        int opcode,        String owner,        String name,        String desc){
+          if (checkFieldAccess(owner,name)) {
+            violations[0]++;
+            reportSourceAndLine();
+          }
+        }
+        private void reportSourceAndLine(){
+          final StringBuilder sb=new StringBuilder("  in ").append(className);
+          if (source != null && lineNo >= 0) {
+            new Formatter(sb,Locale.ROOT).format(" (%s:%d)",source,lineNo).flush();
+          }
+          log(sb.toString(),Project.MSG_ERR);
+        }
+        @Override public void visitLineNumber(        int lineNo,        Label start){
+          this.lineNo=lineNo;
+        }
+      }
+;
+    }
+  }
+,ClassReader.SKIP_FRAMES);
+  return violations[0];
+}

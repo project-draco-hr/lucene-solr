@@ -1,0 +1,34 @@
+HEADER = '// This file has been automatically generated, DO NOT EDIT\n\npackage org.apache.lucene.util.packed;\n\n/*\n * Licensed to the Apache Software Foundation (ASF) under one or more\n * contributor license agreements.  See the NOTICE file distributed with\n * this work for additional information regarding copyright ownership.\n * The ASF licenses this file to You under the Apache License, Version 2.0\n * (the "License"); you may not use this file except in compliance with\n * the License.  You may obtain a copy of the License at\n *\n *     http://www.apache.org/licenses/LICENSE-2.0\n *\n * Unless required by applicable law or agreed to in writing, software\n * distributed under the License is distributed on an "AS IS" BASIS,\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\n * See the License for the specific language governing permissions and\n * limitations under the License.\n */\n\nimport org.apache.lucene.store.DataInput;\nimport org.apache.lucene.util.RamUsageEstimator;\n\nimport java.io.IOException;\nimport java.util.Arrays;\n\n'
+TYPES = {8: 'byte', 16: 'short', }
+MASKS = {8: ' & 0xFFL', 16: ' & 0xFFFFL', 32: ' & 0xFFFFFFFFL', 64: '', }
+CASTS = {8: '(byte) ', 16: '(short) ', 32: '(int) ', 64: '', }
+if (__name__ == '__main__'):
+    for bpv in TYPES.keys():
+        type
+        f = open(('Packed%dThreeBlocks.java' % bpv), 'w')
+        f.write(HEADER)
+        f.write(('/**\n * Packs integers into 3 %ss (%d bits per value).\n * @lucene.internal\n */\n' % (TYPES[bpv], (bpv * 3))))
+        f.write(('final class Packed%dThreeBlocks extends PackedInts.MutableImpl {\n' % bpv))
+        f.write(('  final %s[] blocks;\n\n' % TYPES[bpv]))
+        f.write('  public static final int MAX_SIZE = Integer.MAX_VALUE / 3;\n\n')
+        f.write(('  Packed%dThreeBlocks(int valueCount) {\n' % bpv))
+        f.write(('    super(valueCount, %d);\n' % (bpv * 3)))
+        f.write('    if (valueCount > MAX_SIZE) {\n')
+        f.write('      throw new ArrayIndexOutOfBoundsException("MAX_SIZE exceeded");\n')
+        f.write('    }\n')
+        f.write(('    blocks = new %s[valueCount * 3];\n' % TYPES[bpv]))
+        f.write('  }\n\n')
+        f.write(('  Packed%dThreeBlocks(DataInput in, int valueCount) throws IOException {\n' % bpv))
+        f.write('    this(valueCount);\n')
+        f.write('    for (int i = 0; i < 3 * valueCount; ++i) {\n')
+        f.write(('      blocks[i] = in.read%s();\n' % TYPES[bpv].title()))
+        f.write('    }\n')
+        f.write(('    final int mod = blocks.length %% %d;\n' % (64 / bpv)))
+        f.write('    if (mod != 0) {\n')
+        f.write(('      for (int i = mod; i < %d; ++i) {\n' % (64 / bpv)))
+        f.write(('         in.read%s();\n' % TYPES[bpv].title()))
+        f.write('      }\n')
+        f.write('    }\n')
+        f.write('  }\n')
+        f.write(('\n  @Override\n  public long get(int index) {\n    final int o = index * 3;\n    return (blocks[o]%s) << %d | (blocks[o+1]%s) << %d | (blocks[o+2]%s);\n  }\n\n  @Override\n  public int get(int index, long[] arr, int off, int len) {\n    assert len > 0 : "len must be > 0 (got " + len + ")";\n    assert index >= 0 && index < valueCount;\n    assert off + len <= arr.length;\n\n    final int gets = Math.min(valueCount - index, len);\n    for (int i = index * 3, end = (index + gets) * 3; i < end; i+=3) {\n      arr[off++] = (blocks[i]%s) << %d | (blocks[i+1]%s) << %d | (blocks[i+2]%s);\n    }\n    return gets;\n  }\n\n  @Override\n  public void set(int index, long value) {\n    final int o = index * 3;\n    blocks[o] = %s(value >>> %d);\n    blocks[o+1] = %s(value >>> %d);\n    blocks[o+2] = %svalue;\n  }\n\n  @Override\n  public int set(int index, long[] arr, int off, int len) {\n    assert len > 0 : "len must be > 0 (got " + len + ")";\n    assert index >= 0 && index < valueCount;\n    assert off + len <= arr.length;\n\n    final int sets = Math.min(valueCount - index, len);\n    for (int i = off, o = index * 3, end = off + sets; i < end; ++i) {\n      final long value = arr[i];\n      blocks[o++] = %s(value >>> %d);\n      blocks[o++] = %s(value >>> %d);\n      blocks[o++] = %svalue;\n    }\n    return sets;\n  }\n\n  @Override\n  public void fill(int fromIndex, int toIndex, long val) {\n    final %s block1 = %s(val >>> %d);\n    final %s block2 = %s(val >>> %d);\n    final %s block3 = %sval;\n    for (int i = fromIndex * 3, end = toIndex * 3; i < end; i += 3) {\n      blocks[i] = block1;\n      blocks[i+1] = block2;\n      blocks[i+2] = block3;\n    }\n  }\n\n  @Override\n  public void clear() {\n    Arrays.fill(blocks, %s0);\n  }\n\n  public long ramBytesUsed() {\n    return RamUsageEstimator.sizeOf(blocks);\n  }\n\n  @Override\n  public String toString() {\n    return getClass().getSimpleName() + "(bitsPerValue=" + bitsPerValue\n        + ", size=" + size() + ", elements.length=" + blocks.length + ")";\n  }\n}\n' % (MASKS[bpv], (2 * bpv), MASKS[bpv], bpv, MASKS[bpv], MASKS[bpv], (2 * bpv), MASKS[bpv], bpv, MASKS[bpv], CASTS[bpv], (2 * bpv), CASTS[bpv], bpv, CASTS[bpv], CASTS[bpv], (2 * bpv), CASTS[bpv], bpv, CASTS[bpv], TYPES[bpv], CASTS[bpv], (2 * bpv), TYPES[bpv], CASTS[bpv], bpv, TYPES[bpv], CASTS[bpv], CASTS[bpv])))
+        f.close()

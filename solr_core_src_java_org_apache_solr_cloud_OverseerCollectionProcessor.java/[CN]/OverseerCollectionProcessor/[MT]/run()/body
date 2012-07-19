@@ -1,0 +1,27 @@
+{
+  log.info("Process current queue of collection creations");
+  while (amILeader()) {
+    try {
+      byte[] head=workQueue.peek(true);
+      final ZkNodeProps message=ZkNodeProps.load(head);
+      final String operation=message.get(QUEUE_OPERATION);
+      boolean success=processMessage(message,operation);
+      if (!success) {
+        SolrException.log(log,"Collection creation of " + message.get("name") + " failed");
+      }
+      workQueue.remove();
+    }
+ catch (    KeeperException e) {
+      if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+        log.warn("Overseer cannot talk to ZK");
+        return;
+      }
+      SolrException.log(log,"",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return;
+    }
+  }
+}

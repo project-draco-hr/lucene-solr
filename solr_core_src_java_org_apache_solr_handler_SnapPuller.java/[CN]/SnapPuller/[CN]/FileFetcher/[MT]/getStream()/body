@@ -1,34 +1,38 @@
 {
-  post=new HttpPost(masterUrl);
-  List<BasicNameValuePair> formparams=new ArrayList<BasicNameValuePair>();
-  formparams.add(new BasicNameValuePair(COMMAND,CMD_GET_FILE));
-  formparams.add(new BasicNameValuePair(GENERATION,indexGen.toString()));
+  SolrServer s=new HttpSolrServer(masterUrl,myHttpClient,null);
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set(COMMAND,CMD_GET_FILE);
+  params.set(GENERATION,Long.toString(indexGen));
+  params.set(CommonParams.QT,"/replication");
   if (isConf) {
-    formparams.add(new BasicNameValuePair(CONF_FILE_SHORT,fileName));
+    params.set(CONF_FILE_SHORT,fileName);
   }
  else {
-    formparams.add(new BasicNameValuePair(FILE,fileName));
+    params.set(FILE,fileName);
   }
   if (useInternal) {
-    formparams.add(new BasicNameValuePair(COMPRESSION,"true"));
+    params.set(COMPRESSION,"internal");
   }
-  if (useExternal) {
-    formparams.add(new BasicNameValuePair("Accept-Encoding","gzip,deflate"));
+  if (this.includeChecksum) {
+    params.set(CHECKSUM,true);
   }
-  if (this.includeChecksum)   formparams.add(new BasicNameValuePair(CHECKSUM,"true"));
-  formparams.add(new BasicNameValuePair("wt",FILE_STREAM));
+  params.set(CommonParams.WT,FILE_STREAM);
   if (bytesDownloaded > 0) {
-    formparams.add(new BasicNameValuePair(OFFSET,"" + bytesDownloaded));
+    params.set(OFFSET,Long.toString(bytesDownloaded));
   }
-  UrlEncodedFormEntity entity=new UrlEncodedFormEntity(formparams,"UTF-8");
-  post.setEntity(entity);
-  HttpResponse response=myHttpClient.execute(post);
-  InputStream is=response.getEntity().getContent();
-  if (useInternal) {
-    is=new InflaterInputStream(is);
+  NamedList response;
+  InputStream is=null;
+  try {
+    QueryRequest req=new QueryRequest(params);
+    response=s.request(req);
+    is=(InputStream)response.get("stream");
+    if (useInternal) {
+      is=new InflaterInputStream(is);
+    }
+    return new FastInputStream(is);
   }
- else   if (useExternal) {
-    is=checkCompressed(post,is);
+ catch (  Throwable t) {
+    IOUtils.closeQuietly(is);
+    throw new IOException("Could not download file '" + fileName + "'",t);
   }
-  return new FastInputStream(is);
 }

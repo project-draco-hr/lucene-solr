@@ -1,0 +1,41 @@
+{
+  long timeoutAt=System.currentTimeMillis() + 60000;
+  boolean found=false;
+  boolean sliceMatch=false;
+  while (System.currentTimeMillis() < timeoutAt) {
+    solrj.getZkStateReader().updateCloudState(true);
+    CloudState cloudState=solrj.getZkStateReader().getCloudState();
+    Map<String,Map<String,Slice>> collections=cloudState.getCollectionStates();
+    if (collections.containsKey(collectionName)) {
+      Map<String,Slice> slices=collections.get(collectionName);
+      if (slices.size() == expectedSlices) {
+        sliceMatch=true;
+        found=true;
+        Iterator<Entry<String,Slice>> it=slices.entrySet().iterator();
+        while (it.hasNext()) {
+          Entry<String,Slice> sliceEntry=it.next();
+          Map<String,ZkNodeProps> sliceShards=sliceEntry.getValue().getShards();
+          Iterator<Entry<String,ZkNodeProps>> shardIt=sliceShards.entrySet().iterator();
+          while (shardIt.hasNext()) {
+            Entry<String,ZkNodeProps> shardEntry=shardIt.next();
+            if (!shardEntry.getValue().get(ZkStateReader.STATE_PROP).equals(ZkStateReader.ACTIVE)) {
+              found=false;
+              break;
+            }
+          }
+        }
+        if (found)         break;
+      }
+    }
+    Thread.sleep(100);
+  }
+  if (!found) {
+    printLayout();
+    if (!sliceMatch) {
+      fail("Could not find new " + expectedSlices + " slice collection called "+ collectionName);
+    }
+ else {
+      fail("Found expected # of slices, but some nodes are not active for collection called " + collectionName);
+    }
+  }
+}
