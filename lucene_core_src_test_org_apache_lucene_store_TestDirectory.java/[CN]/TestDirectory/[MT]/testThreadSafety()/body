@@ -1,0 +1,72 @@
+{
+  final BaseDirectoryWrapper dir=newDirectory();
+  dir.setCheckIndexOnClose(false);
+  if (dir instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir).setThrottling(Throttling.NEVER);
+  }
+  if (VERBOSE) {
+    System.out.println(dir);
+  }
+class TheThread extends Thread {
+    private String name;
+    public TheThread(    String name){
+      this.name=name;
+    }
+    public void run(){
+      for (int i=0; i < 3000; i++) {
+        String fileName=this.name + i;
+        try {
+          IndexOutput output=dir.createOutput(fileName,newIOContext(random()));
+          output.close();
+          assertTrue(dir.fileExists(fileName));
+        }
+ catch (        IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+  }
+  ;
+class TheThread2 extends Thread {
+    private String name;
+    public TheThread2(    String name){
+      this.name=name;
+    }
+    public void run(){
+      for (int i=0; i < 10000; i++) {
+        try {
+          String[] files=dir.listAll();
+          for (          String file : files) {
+            try {
+              IndexInput input=dir.openInput(file,newIOContext(random()));
+              input.close();
+            }
+ catch (            FileNotFoundException e) {
+            }
+catch (            IOException e) {
+              if (e.getMessage().contains("still open for writing")) {
+              }
+ else {
+                throw new RuntimeException(e);
+              }
+            }
+            if (random().nextBoolean()) {
+              break;
+            }
+          }
+        }
+ catch (        IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+  }
+  ;
+  TheThread theThread=new TheThread("t1");
+  TheThread2 theThread2=new TheThread2("t2");
+  theThread.start();
+  theThread2.start();
+  theThread.join();
+  theThread2.join();
+  dir.close();
+}
