@@ -1,0 +1,31 @@
+def p64_decode(bpv, bits, values):
+    typ = get_type(bits)
+    buf = (typ.title() + 'Buffer')
+    (cast_start, cast_end) = casts(typ)
+    f.write(('    public void decode(LongBuffer blocks, %s values, int iterations) {\n' % buf))
+    if (bits < bpv):
+        f.write('      throw new UnsupportedOperationException();\n')
+        f.write('    }\n\n')
+        return
+    f.write('      assert blocks.position() + iterations * blocks() <= blocks.limit();\n')
+    f.write('      assert values.position() + iterations * values() <= values.limit();\n')
+    f.write('      for (int i = 0; i < iterations; ++i) {\n')
+    mask = ((1 << bpv) - 1)
+    for i in xrange(0, values):
+        block_offset = ((i * bpv) / 64)
+        bit_offset = ((i * bpv) % 64)
+        if (bit_offset == 0):
+            f.write(('        final long block%d = blocks.get();\n' % block_offset))
+            f.write(('        values.put(%sblock%d >>> %d%s);\n' % (cast_start, block_offset, (64 - bpv), cast_end)))
+        elif ((bit_offset + bpv) == 64):
+            f.write(('        values.put(%sblock%d & %dL%s);\n' % (cast_start, block_offset, mask, cast_end)))
+        elif ((bit_offset + bpv) < 64):
+            f.write(('        values.put(%s(block%d >>> %d) & %dL%s);\n' % (cast_start, block_offset, ((64 - bit_offset) - bpv), mask, cast_end)))
+        else:
+            mask1 = ((1 << (64 - bit_offset)) - 1)
+            shift1 = ((bit_offset + bpv) - 64)
+            shift2 = (64 - shift1)
+            f.write(('        final long block%d = blocks.get();\n' % (block_offset + 1)))
+            f.write(('        values.put(%s((block%d & %dL) << %d) | (block%d >>> %d)%s);\n' % (cast_start, block_offset, mask1, shift1, (block_offset + 1), shift2, cast_end)))
+    f.write('      }\n')
+    f.write('    }\n\n')
