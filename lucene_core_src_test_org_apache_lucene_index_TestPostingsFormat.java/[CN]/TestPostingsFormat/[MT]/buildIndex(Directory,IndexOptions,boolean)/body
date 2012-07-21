@@ -4,10 +4,19 @@
   if (VERBOSE) {
     System.out.println("\nTEST: now build index");
   }
+  int maxIndexOptionNoOffsets=Arrays.asList(IndexOptions.values()).indexOf(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS);
   FieldInfo[] newFieldInfoArray=new FieldInfo[fields.size()];
   for (int fieldUpto=0; fieldUpto < fields.size(); fieldUpto++) {
     FieldInfo oldFieldInfo=fieldInfos.fieldInfo(fieldUpto);
-    IndexOptions indexOptions=IndexOptions.values()[random().nextInt(1 + maxIndexOption)];
+    String pf=_TestUtil.getPostingsFormat(oldFieldInfo.name);
+    int fieldMaxIndexOption;
+    if (doesntSupportOffsets.contains(pf)) {
+      fieldMaxIndexOption=Math.min(maxIndexOptionNoOffsets,maxIndexOption);
+    }
+ else {
+      fieldMaxIndexOption=maxIndexOption;
+    }
+    IndexOptions indexOptions=IndexOptions.values()[random().nextInt(1 + fieldMaxIndexOption)];
     boolean doPayloads=indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0 && allowPayloads;
     newFieldInfoArray[fieldUpto]=new FieldInfo(oldFieldInfo.name,true,fieldUpto,false,false,doPayloads,indexOptions,null,DocValues.Type.FIXED_INTS_8,null);
   }
@@ -18,10 +27,10 @@
     String field=fieldEnt.getKey();
     Map<BytesRef,List<Posting>> terms=fieldEnt.getValue();
     FieldInfo fieldInfo=newFieldInfos.fieldInfo(field);
-    if (VERBOSE) {
-      System.out.println("field=" + field);
-    }
     IndexOptions indexOptions=fieldInfo.getIndexOptions();
+    if (VERBOSE) {
+      System.out.println("field=" + field + " indexOtions="+ indexOptions);
+    }
     boolean doFreq=indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS) >= 0;
     boolean doPos=indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0;
     boolean doPayloads=indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0 && allowPayloads;
@@ -64,6 +73,7 @@
  else {
           totalTF++;
         }
+        postingsConsumer.finishDoc();
         docCount++;
       }
       termsConsumer.finishTerm(term,new TermStats(postings.size(),totalTF));
