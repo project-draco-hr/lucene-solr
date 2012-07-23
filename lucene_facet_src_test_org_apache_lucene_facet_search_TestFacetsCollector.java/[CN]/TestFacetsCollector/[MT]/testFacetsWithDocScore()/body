@@ -1,0 +1,28 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  TaxonomyWriter taxonomyWriter=new DirectoryTaxonomyWriter(taxoDir);
+  IndexWriter iw=new IndexWriter(indexDir,new IndexWriterConfig(TEST_VERSION_CURRENT,new KeywordAnalyzer()));
+  CategoryDocumentBuilder cdb=new CategoryDocumentBuilder(taxonomyWriter);
+  Iterable<CategoryPath> cats=Arrays.asList(new CategoryPath("a"));
+  for (int i=atLeast(2000); i > 0; --i) {
+    Document doc=new Document();
+    doc.add(new StringField("f","v",Store.NO));
+    cdb.setCategoryPaths(cats);
+    iw.addDocument(cdb.build(doc));
+  }
+  taxonomyWriter.close();
+  iw.close();
+  FacetSearchParams sParams=new FacetSearchParams();
+  sParams.addFacetRequest(new ScoreFacetRequest(new CategoryPath("a"),10));
+  DirectoryReader r=DirectoryReader.open(indexDir);
+  DirectoryTaxonomyReader taxo=new DirectoryTaxonomyReader(taxoDir);
+  FacetsCollector fc=new FacetsCollector(sParams,r,taxo);
+  TopScoreDocCollector topDocs=TopScoreDocCollector.create(10,false);
+  new IndexSearcher(r).search(new MatchAllDocsQuery(),MultiCollector.wrap(fc,topDocs));
+  List<FacetResult> res=fc.getFacetResults();
+  double value=res.get(0).getFacetResultNode().getValue();
+  double expected=topDocs.topDocs().getMaxScore() * r.numDocs();
+  assertEquals(expected,value,1E-10);
+  IOUtils.close(taxo,taxoDir,r,indexDir);
+}
