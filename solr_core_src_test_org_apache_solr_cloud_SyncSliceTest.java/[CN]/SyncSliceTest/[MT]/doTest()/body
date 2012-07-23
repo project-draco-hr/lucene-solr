@@ -28,7 +28,22 @@
   skipServers=new ArrayList<String>();
   skipServers.add(shardToJetty.get("shard1").get(random().nextInt(shardCount)).url + "/");
   indexDoc(skipServers,id,4,i1,50,tlong,50,t1,"to come to the aid of their country.");
-  chaosMonkey.killJetty(shardToLeaderJetty.get("shard1").jetty);
+  JettySolrRunner leaderJetty=shardToLeaderJetty.get("shard1").jetty;
+  SolrServer leaderClient=shardToLeaderClient.get("shard1");
+  Set<JettySolrRunner> jetties=new HashSet<JettySolrRunner>();
+  for (int i=0; i < shardCount; i++) {
+    jetties.add(shardToJetty.get("shard1").get(i).jetty);
+  }
+  jetties.remove(leaderJetty);
+  chaosMonkey.killJetty(leaderJetty);
+  JettySolrRunner upJetty=jetties.iterator().next();
+  int tries=0;
+  while (((SolrDispatchFilter)upJetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader().getCloudState().liveNodesContain(clientToInfo.get(new CloudSolrServerClient(leaderClient)).get(ZkStateReader.NODE_NAME_PROP))) {
+    if (tries++ == 120) {
+      fail("Shard still reported as live in zk");
+    }
+    Thread.sleep(1000);
+  }
   waitForThingsToLevelOut();
   checkShardConsistency(false,true);
   cloudClientDocs=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
