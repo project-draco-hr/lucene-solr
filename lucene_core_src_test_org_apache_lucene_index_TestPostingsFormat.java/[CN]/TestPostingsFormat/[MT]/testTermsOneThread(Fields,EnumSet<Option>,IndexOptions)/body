@@ -1,0 +1,54 @@
+{
+  ThreadState threadState=new ThreadState();
+  List<TermState> termStates=new ArrayList<TermState>();
+  List<FieldAndTerm> termStateTerms=new ArrayList<FieldAndTerm>();
+  Collections.shuffle(allTerms,random());
+  int upto=0;
+  while (upto < allTerms.size()) {
+    boolean useTermState=termStates.size() != 0 && random().nextInt(5) == 1;
+    FieldAndTerm fieldAndTerm;
+    TermsEnum termsEnum;
+    TermState termState=null;
+    if (!useTermState) {
+      fieldAndTerm=allTerms.get(upto++);
+      if (VERBOSE) {
+        System.out.println("\nTEST: seek to term=" + fieldAndTerm.field + ":"+ fieldAndTerm.term.utf8ToString());
+      }
+    }
+ else {
+      int idx=random().nextInt(termStates.size());
+      fieldAndTerm=termStateTerms.get(idx);
+      if (VERBOSE) {
+        System.out.println("\nTEST: seek using TermState to term=" + fieldAndTerm.field + ":"+ fieldAndTerm.term.utf8ToString());
+      }
+      termState=termStates.get(idx);
+    }
+    Terms terms=fieldsSource.terms(fieldAndTerm.field);
+    assertNotNull(terms);
+    termsEnum=terms.iterator(null);
+    if (!useTermState) {
+      assertTrue(termsEnum.seekExact(fieldAndTerm.term,true));
+    }
+ else {
+      termsEnum.seekExact(fieldAndTerm.term,termState);
+    }
+    boolean savedTermState=false;
+    if (options.contains(Option.TERM_STATE) && !useTermState && random().nextInt(5) == 1) {
+      termStates.add(termsEnum.termState());
+      termStateTerms.add(fieldAndTerm);
+      savedTermState=true;
+    }
+    verifyEnum(threadState,fieldAndTerm.field,fieldAndTerm.term,termsEnum,maxIndexOptions,options);
+    if (options.contains(Option.TERM_STATE) && !useTermState && !savedTermState&& random().nextInt(5) == 1) {
+      termStates.add(termsEnum.termState());
+      termStateTerms.add(fieldAndTerm);
+      useTermState=true;
+    }
+    if (random().nextInt(10) == 7) {
+      if (VERBOSE) {
+        System.out.println("TEST: try enum again on same term");
+      }
+      verifyEnum(threadState,fieldAndTerm.field,fieldAndTerm.term,termsEnum,maxIndexOptions,options);
+    }
+  }
+}
