@@ -4,7 +4,7 @@
   commit();
   long deadShardCount=shardToClient.get(SHARD2).get(0).query(query).getResults().getNumFound();
   query("q","*:*","sort","n_tl1 desc");
-  JettySolrRunner deadShard=chaosMonkey.stopShard(SHARD2,0);
+  CloudJettyRunner deadShard=chaosMonkey.stopShard(SHARD2,0);
   cloudClient.connect();
   int tries=0;
   while (cloudClient.getZkStateReader().getCloudState().liveNodesContain(clientToInfo.get(new CloudSolrServerClient(shardToClient.get(SHARD2).get(0))).get(ZkStateReader.NODE_NAME_PROP))) {
@@ -14,7 +14,7 @@
     Thread.sleep(1000);
   }
   try {
-    index_specific(shardToClient.get(SHARD2).get(0),id,999,i1,107,t1,"specific doc!");
+    index_specific(deadShard.client.solrClient,id,999,i1,107,t1,"specific doc!");
     fail("This server should be down and this update should have failed");
   }
  catch (  SolrServerException e) {
@@ -59,12 +59,12 @@
       }
     }
   }
-  deadShard.start(true);
+  ChaosMonkey.start(deadShard.jetty);
   Thread.sleep(1500);
   waitForRecoveriesToFinish(false);
   deadShardCount=shardToClient.get(SHARD2).get(0).query(query).getResults().getNumFound();
   checkShardConsistency(true,false);
-  deadShard=chaosMonkey.stopShard(SHARD2,0);
+  chaosMonkey.stopJetty(deadShard);
   for (int i=0; i < 226; i++) {
     doc=new SolrInputDocument();
     doc.addField("id",2000 + i);
@@ -74,7 +74,8 @@
     ureq.process(cloudClient);
   }
   commit();
-  deadShard.start(true);
+  Thread.sleep(1500);
+  ChaosMonkey.start(deadShard.jetty);
   Thread.sleep(1500);
   waitForRecoveriesToFinish(false);
   checkShardConsistency(true,false);
