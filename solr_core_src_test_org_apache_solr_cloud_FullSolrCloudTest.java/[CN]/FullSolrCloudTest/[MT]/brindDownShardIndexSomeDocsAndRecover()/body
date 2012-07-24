@@ -2,12 +2,12 @@
   SolrQuery query=new SolrQuery("*:*");
   query.set("distrib",false);
   commit();
-  long deadShardCount=shardToClient.get(SHARD2).get(0).query(query).getResults().getNumFound();
+  long deadShardCount=shardToJetty.get(SHARD2).get(0).client.solrClient.query(query).getResults().getNumFound();
   query("q","*:*","sort","n_tl1 desc");
   CloudJettyRunner deadShard=chaosMonkey.stopShard(SHARD2,0);
   cloudClient.connect();
   int tries=0;
-  while (cloudClient.getZkStateReader().getCloudState().liveNodesContain(clientToInfo.get(new CloudSolrServerClient(shardToClient.get(SHARD2).get(0))).get(ZkStateReader.NODE_NAME_PROP))) {
+  while (cloudClient.getZkStateReader().getCloudState().liveNodesContain(shardToJetty.get(SHARD2).get(0).info.get(ZkStateReader.NODE_NAME_PROP))) {
     if (tries++ == 60) {
       fail("Shard still reported as live in zk");
     }
@@ -22,14 +22,14 @@
   commit();
   query("q","*:*","sort","n_tl1 desc");
   tries=0;
-  while (((SolrDispatchFilter)shardToJetty.get(SHARD2).get(1).jetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader().getCloudState().liveNodesContain(clientToInfo.get(new CloudSolrServerClient(shardToClient.get(SHARD2).get(0))).get(ZkStateReader.NODE_NAME_PROP))) {
+  while (((SolrDispatchFilter)shardToJetty.get(SHARD2).get(1).jetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader().getCloudState().liveNodesContain(shardToJetty.get(SHARD2).get(0).info.get(ZkStateReader.NODE_NAME_PROP))) {
     if (tries++ == 120) {
       fail("Shard still reported as live in zk");
     }
     Thread.sleep(1000);
   }
   long numFound1=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
-  index_specific(shardToClient.get(SHARD2).get(1),id,1000,i1,108,t1,"specific doc!");
+  index_specific(shardToJetty.get(SHARD2).get(1).client.solrClient,id,1000,i1,108,t1,"specific doc!");
   commit();
   checkShardConsistency(true,false);
   query("q","*:*","sort","n_tl1 desc");
@@ -62,7 +62,7 @@
   ChaosMonkey.start(deadShard.jetty);
   Thread.sleep(1500);
   waitForRecoveriesToFinish(false);
-  deadShardCount=shardToClient.get(SHARD2).get(0).query(query).getResults().getNumFound();
+  deadShardCount=shardToJetty.get(SHARD2).get(0).client.solrClient.query(query).getResults().getNumFound();
   checkShardConsistency(true,false);
   chaosMonkey.stopJetty(deadShard);
   for (int i=0; i < 226; i++) {
