@@ -1,0 +1,64 @@
+{
+  final FileInputStream stream=new FileInputStream(file);
+  final InputStreamReader reader=new InputStreamReader(stream,"UTF-8");
+  final BufferedReader bufferedReader=new BufferedReader(reader);
+  StringBuilder builder=new StringBuilder();
+  String line;
+  boolean verbatim=false;
+  boolean modified=false;
+  int lineNum=0;
+  try {
+    while (null != (line=bufferedReader.readLine())) {
+      ++lineNum;
+      if (VERBATIM_RULE_LINE_PATTERN.matcher(line).matches()) {
+        verbatim=true;
+        builder.append(line).append("\n");
+      }
+ else {
+        Matcher ruleMatcher=RULE_LINE_PATTERN.matcher(line);
+        if (ruleMatcher.matches()) {
+          verbatim=false;
+          builder.append(line).append("\n");
+          try {
+            String leftHandSide=ruleMatcher.group(1).trim();
+            String rightHandSide=ruleMatcher.group(2).trim();
+            expandSingleRule(builder,leftHandSide,rightHandSide);
+          }
+ catch (          IllegalArgumentException e) {
+            System.err.println("ERROR in " + file.getName() + " line #"+ lineNum+ ":");
+            e.printStackTrace(System.err);
+            System.exit(1);
+          }
+          modified=true;
+        }
+ else {
+          if (BLANK_OR_COMMENT_LINE_PATTERN.matcher(line).matches()) {
+            builder.append(line).append("\n");
+          }
+ else {
+            if (verbatim) {
+              builder.append(line).append("\n");
+            }
+ else {
+              modified=true;
+            }
+          }
+        }
+      }
+    }
+  }
+  finally {
+    bufferedReader.close();
+  }
+  if (modified) {
+    System.err.println("Expanding rules in and overwriting " + file.getName());
+    final FileOutputStream out=new FileOutputStream(file,false);
+    Writer writer=new OutputStreamWriter(out,"UTF-8");
+    try {
+      writer.write(builder.toString());
+    }
+  finally {
+      writer.close();
+    }
+  }
+}
