@@ -1,0 +1,98 @@
+{
+  Map<String,Exception> failures=null;
+  Collection<String> cores=null;
+  Exception fail=null;
+  init("bad_flow");
+  File solrXml=new File(solrHome,"solr.xml");
+  FileUtils.write(solrXml,BAD_SOLR_XML,IOUtils.CHARSET_UTF_8.toString());
+  FileUtils.copyFile(getFile("solr/collection1/conf/solrconfig-basic.xml"),FileUtils.getFile(solrHome,"col_ok","conf","solrconfig.xml"));
+  FileUtils.copyFile(getFile("solr/collection1/conf/schema-minimal.xml"),FileUtils.getFile(solrHome,"col_ok","conf","schema.xml"));
+  ignoreException(Pattern.quote("DummyMergePolicy"));
+  FileUtils.copyFile(getFile("solr/collection1/conf/bad-mp-solrconfig.xml"),FileUtils.getFile(solrHome,"col_bad","conf","solrconfig.xml"));
+  FileUtils.copyFile(getFile("solr/collection1/conf/schema-minimal.xml"),FileUtils.getFile(solrHome,"col_bad","conf","schema.xml"));
+  cc.load(solrHome.getAbsolutePath(),solrXml);
+  cores=cc.getCoreNames();
+  assertNotNull("core names is null",cores);
+  assertEquals("wrong number of cores",1,cores.size());
+  assertTrue("col_ok not found",cores.contains("col_ok"));
+  failures=cc.getCoreInitFailures();
+  assertNotNull("core failures is a null map",failures);
+  assertEquals("wrong number of core failures",1,failures.size());
+  fail=failures.get("col_bad");
+  assertNotNull("null failure for test core",fail);
+  assertTrue("init failure doesn't mention problem: " + fail.getMessage(),0 < fail.getMessage().indexOf("DummyMergePolicy"));
+  FileUtils.copyFile(getFile("solr/collection1/conf/solrconfig-basic.xml"),FileUtils.getFile(solrHome,"col_bad","conf","solrconfig.xml"));
+  final CoreDescriptor fixed=new CoreDescriptor(cc,"col_bad","col_bad");
+  cc.register("col_bad",cc.create(fixed),false);
+  cores=cc.getCoreNames();
+  assertNotNull("core names is null",cores);
+  assertEquals("wrong number of cores",2,cores.size());
+  assertTrue("col_ok not found",cores.contains("col_ok"));
+  assertTrue("col_bad not found",cores.contains("col_bad"));
+  failures=cc.getCoreInitFailures();
+  assertNotNull("core failures is a null map",failures);
+  assertEquals("wrong number of core failures",0,failures.size());
+  final CoreDescriptor bogus=new CoreDescriptor(cc,"bogus","bogus_path");
+  try {
+    cc.create(bogus);
+    fail("bogus inst dir failed to trigger exception from create");
+  }
+ catch (  Exception e) {
+    assertTrue("init exception doesn't mention bogus dir: " + e.getMessage(),0 < e.getMessage().indexOf("bogus_path"));
+  }
+  cores=cc.getCoreNames();
+  assertNotNull("core names is null",cores);
+  assertEquals("wrong number of cores",2,cores.size());
+  assertTrue("col_ok not found",cores.contains("col_ok"));
+  assertTrue("col_bad not found",cores.contains("col_bad"));
+  failures=cc.getCoreInitFailures();
+  assertNotNull("core failures is a null map",failures);
+  assertEquals("wrong number of core failures",1,failures.size());
+  fail=failures.get("bogus");
+  assertNotNull("null failure for test core",fail);
+  assertTrue("init failure doesn't mention problem: " + fail.getMessage(),0 < fail.getMessage().indexOf("bogus_path"));
+  cc.register("bogus",cc.getCore("col_ok"),false);
+  cores=cc.getCoreNames();
+  assertNotNull("core names is null",cores);
+  assertEquals("wrong number of cores",3,cores.size());
+  assertTrue("col_ok not found",cores.contains("col_ok"));
+  assertTrue("col_bad not found",cores.contains("col_bad"));
+  assertTrue("bogus not found",cores.contains("bogus"));
+  failures=cc.getCoreInitFailures();
+  assertNotNull("core failures is a null map",failures);
+  assertEquals("wrong number of core failures",0,failures.size());
+  final long col_bad_old_start=getCoreStartTime(cc,"col_bad");
+  FileUtils.write(FileUtils.getFile(solrHome,"col_bad","conf","solrconfig.xml"),"This is giberish, not valid XML <",IOUtils.CHARSET_UTF_8.toString());
+  try {
+    cc.reload("col_bad");
+    fail("corrupd solrconfig.xml failed to trigger exception from reload");
+  }
+ catch (  Exception e) {
+    assertTrue("reload exception doesn't mention bad prolog: " + e.getMessage(),0 < e.getMessage().indexOf("prolog"));
+  }
+  assertEquals("Failed core reload should not have changed start time",col_bad_old_start,getCoreStartTime(cc,"col_bad"));
+  cores=cc.getCoreNames();
+  assertNotNull("core names is null",cores);
+  assertEquals("wrong number of cores",3,cores.size());
+  assertTrue("col_ok not found",cores.contains("col_ok"));
+  assertTrue("col_bad not found",cores.contains("col_bad"));
+  assertTrue("bogus not found",cores.contains("bogus"));
+  failures=cc.getCoreInitFailures();
+  assertNotNull("core failures is a null map",failures);
+  assertEquals("wrong number of core failures",1,failures.size());
+  fail=failures.get("col_bad");
+  assertNotNull("null failure for test core",fail);
+  assertTrue("init failure doesn't mention problem: " + fail.getMessage(),0 < fail.getMessage().indexOf("prolog"));
+  FileUtils.copyFile(getFile("solr/collection1/conf/solrconfig-basic.xml"),FileUtils.getFile(solrHome,"col_bad","conf","solrconfig.xml"));
+  cc.reload("col_bad");
+  assertTrue("Core reload should have changed start time",col_bad_old_start < getCoreStartTime(cc,"col_bad"));
+  cores=cc.getCoreNames();
+  assertNotNull("core names is null",cores);
+  assertEquals("wrong number of cores",3,cores.size());
+  assertTrue("col_ok not found",cores.contains("col_ok"));
+  assertTrue("col_bad not found",cores.contains("col_bad"));
+  assertTrue("bogus not found",cores.contains("bogus"));
+  failures=cc.getCoreInitFailures();
+  assertNotNull("core failures is a null map",failures);
+  assertEquals("wrong number of core failures",0,failures.size());
+}
