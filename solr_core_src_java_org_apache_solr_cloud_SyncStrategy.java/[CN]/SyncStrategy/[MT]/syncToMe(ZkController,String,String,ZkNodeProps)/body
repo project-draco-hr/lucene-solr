@@ -1,13 +1,14 @@
 {
   List<ZkCoreNodeProps> nodes=zkController.getZkStateReader().getReplicaProps(collection,shardId,leaderProps.get(ZkStateReader.NODE_NAME_PROP),leaderProps.get(ZkStateReader.CORE_NAME_PROP),ZkStateReader.ACTIVE);
   if (nodes == null) {
+    log.info(ZkCoreNodeProps.getCoreUrl(leaderProps) + " has no replicas");
     return;
   }
   ZkCoreNodeProps zkLeader=new ZkCoreNodeProps(leaderProps);
   for (  ZkCoreNodeProps node : nodes) {
     try {
-      log.info("try and ask " + node.getCoreUrl() + " to sync");
-      requestSync(node.getCoreUrl(),zkLeader.getCoreUrl(),node.getCoreName());
+      log.info(ZkCoreNodeProps.getCoreUrl(leaderProps) + ": try and ask " + node.getCoreUrl()+ " to sync");
+      requestSync(node.getBaseUrl(),node.getCoreUrl(),zkLeader.getCoreUrl(),node.getCoreName());
     }
  catch (    Exception e) {
       SolrException.log(log,"Error syncing replica to leader",e);
@@ -17,22 +18,20 @@
     ShardResponse srsp=shardHandler.takeCompletedOrError();
     if (srsp == null)     break;
     boolean success=handleResponse(srsp);
+    if (srsp.getException() != null) {
+      SolrException.log(log,"Sync request error: " + srsp.getException());
+    }
     if (!success) {
       try {
-        log.info("Sync failed - asking replica to recover.");
-        RequestRecovery recoverRequestCmd=new RequestRecovery();
-        recoverRequestCmd.setAction(CoreAdminAction.REQUESTRECOVERY);
-        recoverRequestCmd.setCoreName(((SyncShardRequest)srsp.getShardRequest()).coreName);
-        HttpSolrServer server=new HttpSolrServer(srsp.getShardAddress());
-        server.setConnectionTimeout(45000);
-        server.setSoTimeout(45000);
-        server.request(recoverRequestCmd);
+        log.info(ZkCoreNodeProps.getCoreUrl(leaderProps) + ": Sync failed - asking replica (" + srsp.getShardAddress()+ ") to recover.");
+        requestRecovery(((ShardCoreRequest)srsp.getShardRequest()).baseUrl,((ShardCoreRequest)srsp.getShardRequest()).coreName);
       }
  catch (      Exception e) {
-        log.info("Could not tell a replica to recover",e);
+        SolrException.log(log,ZkCoreNodeProps.getCoreUrl(leaderProps) + ": Could not tell a replica to recover",e);
       }
-      shardHandler.cancelAll();
-      break;
+    }
+ else {
+      log.info(ZkCoreNodeProps.getCoreUrl(leaderProps) + ": " + " sync completed with "+ srsp.getShardAddress());
     }
   }
 }
