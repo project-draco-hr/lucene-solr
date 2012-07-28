@@ -1,0 +1,72 @@
+{
+  SolrInputDocument sdoc=cmd.getSolrInputDocument();
+  boolean update=false;
+  for (  SolrInputField sif : sdoc.values()) {
+    if (sif.getValue() instanceof Map) {
+      update=true;
+      break;
+    }
+  }
+  if (!update)   return false;
+  BytesRef id=cmd.getIndexedId();
+  SolrInputDocument oldDoc=RealTimeGetComponent.getInputDocument(cmd.getReq().getCore(),id);
+  if (oldDoc == null) {
+    if (versionOnUpdate <= 0) {
+      oldDoc=new SolrInputDocument();
+    }
+ else {
+      throw new SolrException(ErrorCode.CONFLICT,"Document not found for update.  id=" + cmd.getPrintableId());
+    }
+  }
+ else {
+    oldDoc.remove(VERSION_FIELD);
+  }
+  for (  SolrInputField sif : sdoc.values()) {
+    Object val=sif.getValue();
+    if (val instanceof Map) {
+      for (      Entry<String,Object> entry : ((Map<String,Object>)val).entrySet()) {
+        String key=entry.getKey();
+        Object fieldVal=entry.getValue();
+        if ("add".equals(key)) {
+          oldDoc.addField(sif.getName(),fieldVal,sif.getBoost());
+        }
+ else         if ("set".equals(key)) {
+          oldDoc.setField(sif.getName(),fieldVal,sif.getBoost());
+        }
+ else         if ("inc".equals(key)) {
+          SolrInputField numericField=oldDoc.get(sif.getName());
+          if (numericField == null) {
+            oldDoc.setField(sif.getName(),fieldVal,sif.getBoost());
+          }
+ else {
+            String oldValS=numericField.getFirstValue().toString();
+            SchemaField sf=cmd.getReq().getSchema().getField(sif.getName());
+            BytesRef term=new BytesRef();
+            sf.getType().readableToIndexed(oldValS,term);
+            Object oldVal=sf.getType().toObject(sf,term);
+            String fieldValS=fieldVal.toString();
+            Number result;
+            if (oldVal instanceof Long) {
+              result=((Long)oldVal).longValue() + Long.parseLong(fieldValS);
+            }
+ else             if (oldVal instanceof Float) {
+              result=((Float)oldVal).floatValue() + Float.parseFloat(fieldValS);
+            }
+ else             if (oldVal instanceof Double) {
+              result=((Double)oldVal).doubleValue() + Double.parseDouble(fieldValS);
+            }
+ else {
+              result=((Integer)oldVal).intValue() + Integer.parseInt(fieldValS);
+            }
+            oldDoc.setField(sif.getName(),result,sif.getBoost());
+          }
+        }
+      }
+    }
+ else {
+      oldDoc.put(sif.getName(),sif);
+    }
+  }
+  cmd.solrDoc=oldDoc;
+  return true;
+}

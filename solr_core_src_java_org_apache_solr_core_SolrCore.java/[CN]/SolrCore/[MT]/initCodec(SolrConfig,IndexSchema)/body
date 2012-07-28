@@ -6,7 +6,24 @@
     factory.init(info.initArgs);
   }
  else {
-    factory=new DefaultCodecFactory();
+    factory=new CodecFactory(){
+      @Override public Codec getCodec(){
+        return Codec.getDefault();
+      }
+    }
+;
   }
-  return factory.create(schema);
+  if (factory instanceof SchemaAware) {
+    ((SchemaAware)factory).inform(schema);
+  }
+ else {
+    for (    FieldType ft : schema.getFieldTypes().values()) {
+      if (null != ft.getPostingsFormat()) {
+        String msg="FieldType '" + ft.getTypeName() + "' is configured with a postings format, but the codec does not support it: "+ factory.getClass();
+        log.error(msg);
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg);
+      }
+    }
+  }
+  return factory.getCodec();
 }

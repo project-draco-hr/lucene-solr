@@ -1,0 +1,149 @@
+{
+  final int numFields=_TestUtil.nextInt(random(),1,5);
+  if (VERBOSE) {
+    System.out.println("TEST: " + numFields + " fields");
+  }
+  FieldInfo[] fieldInfoArray=new FieldInfo[numFields];
+  int fieldUpto=0;
+  int numMediumTerms=0;
+  int numBigTerms=0;
+  int numManyPositions=0;
+  while (fieldUpto < numFields) {
+    String field=_TestUtil.randomSimpleString(random());
+    if (fields.containsKey(field)) {
+      continue;
+    }
+    boolean fieldHasPayloads=random().nextBoolean();
+    fieldInfoArray[fieldUpto]=new FieldInfo(field,true,fieldUpto,false,false,fieldHasPayloads,IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS,null,DocValues.Type.FIXED_INTS_8,null);
+    fieldUpto++;
+    Map<BytesRef,List<Posting>> postings=new TreeMap<BytesRef,List<Posting>>();
+    fields.put(field,postings);
+    Set<String> seenTerms=new HashSet<String>();
+    final int numTerms=4;
+    for (int termUpto=0; termUpto < numTerms; termUpto++) {
+      String term=_TestUtil.randomSimpleString(random());
+      if (seenTerms.contains(term)) {
+        continue;
+      }
+      seenTerms.add(term);
+      int numDocs;
+      if (random().nextInt(10) == 3 && numBigTerms < 3) {
+        numDocs=_TestUtil.nextInt(random(),50000,70000);
+        numBigTerms++;
+        term="big_" + term;
+      }
+ else       if (random().nextInt(10) == 3 && numMediumTerms < 10) {
+        numDocs=atLeast(3000);
+        numMediumTerms++;
+        term="medium_" + term;
+      }
+ else {
+        numDocs=_TestUtil.nextInt(random(),1,40);
+        term="low_" + term;
+      }
+      numDocs*=RANDOM_MULTIPLIER;
+      List<Posting> termPostings=new ArrayList<Posting>();
+      postings.put(new BytesRef(term),termPostings);
+      int docID=0;
+      int maxDocSpacing=_TestUtil.nextInt(random(),1,100);
+      int payloadSize;
+      if (!fieldHasPayloads) {
+        payloadSize=0;
+      }
+ else       if (random().nextInt(10) == 7) {
+        payloadSize=random().nextInt(50);
+      }
+ else {
+        payloadSize=random().nextInt(10);
+      }
+      boolean fixedPayloads=random().nextBoolean();
+      for (int docUpto=0; docUpto < numDocs; docUpto++) {
+        if (docUpto == 0 && random().nextBoolean()) {
+        }
+ else         if (maxDocSpacing == 1) {
+          docID++;
+        }
+ else {
+          docID+=_TestUtil.nextInt(random(),1,maxDocSpacing);
+        }
+        Posting posting=new Posting();
+        posting.docID=docID;
+        maxDocID=Math.max(docID,maxDocID);
+        posting.positions=new ArrayList<Position>();
+        termPostings.add(posting);
+        int freq;
+        if (random().nextInt(30) == 17 && numManyPositions < 10) {
+          freq=_TestUtil.nextInt(random(),1,1000);
+          numManyPositions++;
+        }
+ else {
+          freq=_TestUtil.nextInt(random(),1,20);
+        }
+        int pos=0;
+        int offset=0;
+        int posSpacing=_TestUtil.nextInt(random(),1,100);
+        for (int posUpto=0; posUpto < freq; posUpto++) {
+          if (posUpto == 0 && random().nextBoolean()) {
+          }
+ else           if (posSpacing == 1) {
+            pos++;
+          }
+ else {
+            pos+=_TestUtil.nextInt(random(),1,posSpacing);
+          }
+          Position position=new Position();
+          posting.positions.add(position);
+          position.position=pos;
+          if (payloadSize != 0) {
+            if (fixedPayloads) {
+              position.payload=new byte[payloadSize];
+            }
+ else {
+              int thisPayloadSize=random().nextInt(payloadSize);
+              if (thisPayloadSize != 0) {
+                position.payload=new byte[thisPayloadSize];
+              }
+            }
+          }
+          if (position.payload != null) {
+            random().nextBytes(position.payload);
+          }
+          position.startOffset=offset + random().nextInt(5);
+          position.endOffset=position.startOffset + random().nextInt(10);
+          offset=position.endOffset;
+        }
+      }
+    }
+  }
+  fieldInfos=new FieldInfos(fieldInfoArray);
+  globalLiveDocs=new FixedBitSet(1 + maxDocID);
+  double liveRatio=random().nextDouble();
+  for (int i=0; i < 1 + maxDocID; i++) {
+    if (random().nextDouble() <= liveRatio) {
+      globalLiveDocs.set(i);
+    }
+  }
+  for (  Map.Entry<String,Map<BytesRef,List<Posting>>> fieldEnt : fields.entrySet()) {
+    Map<BytesRef,List<Posting>> postingsLive=new TreeMap<BytesRef,List<Posting>>();
+    fieldsLive.put(fieldEnt.getKey(),postingsLive);
+    for (    Map.Entry<BytesRef,List<Posting>> termEnt : fieldEnt.getValue().entrySet()) {
+      List<Posting> termPostingsLive=new ArrayList<Posting>();
+      postingsLive.put(termEnt.getKey(),termPostingsLive);
+      for (      Posting posting : termEnt.getValue()) {
+        if (globalLiveDocs.get(posting.docID)) {
+          termPostingsLive.add(posting);
+        }
+      }
+    }
+  }
+  allTerms=new ArrayList<FieldAndTerm>();
+  for (  Map.Entry<String,Map<BytesRef,List<Posting>>> fieldEnt : fields.entrySet()) {
+    String field=fieldEnt.getKey();
+    for (    Map.Entry<BytesRef,List<Posting>> termEnt : fieldEnt.getValue().entrySet()) {
+      allTerms.add(new FieldAndTerm(field,termEnt.getKey()));
+    }
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: done init postings; maxDocID=" + maxDocID + "; "+ allTerms.size()+ " total terms, across "+ fieldInfos.size()+ " fields");
+  }
+}

@@ -1,0 +1,51 @@
+{
+  URL icuTagsURL=new URL(ICU_SVN_TAG_URL + "/");
+  URL icuReleaseTagURL=new URL(icuTagsURL,ICU_RELEASE_TAG + "/");
+  URL norm2url=new URL(icuReleaseTagURL,ICU_DATA_NORM2_PATH + "/");
+  System.err.print("Downloading " + NFKC_TXT + " ... ");
+  download(new URL(norm2url,NFKC_TXT),NFKC_TXT);
+  System.err.println("done.");
+  System.err.print("Downloading " + NFKC_CF_TXT + " ... ");
+  download(new URL(norm2url,NFKC_CF_TXT),NFKC_CF_TXT);
+  System.err.println("done.");
+  System.err.print("Downloading " + NFKC_CF_TXT + " and making diacritic rules one-way ... ");
+  URLConnection connection=openConnection(new URL(norm2url,NFC_TXT));
+  BufferedReader reader=new BufferedReader(new InputStreamReader(connection.getInputStream(),"UTF-8"));
+  Writer writer=new OutputStreamWriter(new FileOutputStream(NFC_TXT),"UTF-8");
+  try {
+    String line;
+    while (null != (line=reader.readLine())) {
+      Matcher matcher=ROUND_TRIP_MAPPING_LINE_PATTERN.matcher(line);
+      if (matcher.matches()) {
+        final String leftHandSide=matcher.group(1);
+        final String rightHandSide=matcher.group(2).trim();
+        List<String> diacritics=new ArrayList<String>();
+        for (        String outputCodePoint : rightHandSide.split("\\s+")) {
+          int ch=Integer.parseInt(outputCodePoint,16);
+          if (UCharacter.hasBinaryProperty(ch,UProperty.DIACRITIC) || (ch >= 0x653 && ch <= 0x656)) {
+            diacritics.add(outputCodePoint);
+          }
+        }
+        if (!diacritics.isEmpty()) {
+          StringBuilder replacementLine=new StringBuilder();
+          replacementLine.append(leftHandSide).append(">").append(rightHandSide);
+          replacementLine.append("  # one-way: diacritic");
+          if (diacritics.size() > 1) {
+            replacementLine.append("s");
+          }
+          for (          String diacritic : diacritics) {
+            replacementLine.append(" ").append(diacritic);
+          }
+          line=replacementLine.toString();
+        }
+      }
+      writer.write(line);
+      writer.write("\n");
+    }
+  }
+  finally {
+    reader.close();
+    writer.close();
+  }
+  System.err.println("done.");
+}

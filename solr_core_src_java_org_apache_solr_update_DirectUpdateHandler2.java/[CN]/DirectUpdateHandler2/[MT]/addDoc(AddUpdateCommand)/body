@@ -1,73 +1,79 @@
 {
-  IndexWriter writer=solrCoreState.getIndexWriter(core);
-  addCommands.incrementAndGet();
-  addCommandsCumulative.incrementAndGet();
   int rc=-1;
-  if (idField == null) {
-    cmd.overwrite=false;
-  }
+  RefCounted<IndexWriter> iw=solrCoreState.getIndexWriter(core);
   try {
-    if (cmd.overwrite) {
-      List<UpdateLog.DBQ> deletesAfter=null;
-      if (ulog != null && cmd.version > 0) {
-        deletesAfter=ulog.getDBQNewer(cmd.version);
-      }
-      if (deletesAfter != null) {
-        log.info("Reordered DBQs detected.  Update=" + cmd + " DBQs="+ deletesAfter);
-        List<Query> dbqList=new ArrayList<Query>(deletesAfter.size());
-        for (        UpdateLog.DBQ dbq : deletesAfter) {
-          try {
-            DeleteUpdateCommand tmpDel=new DeleteUpdateCommand(cmd.req);
-            tmpDel.query=dbq.q;
-            tmpDel.version=-dbq.version;
-            dbqList.add(getQuery(tmpDel));
-          }
- catch (          Exception e) {
-            log.error("Exception parsing reordered query : " + dbq,e);
-          }
+    IndexWriter writer=iw.get();
+    addCommands.incrementAndGet();
+    addCommandsCumulative.incrementAndGet();
+    if (idField == null) {
+      cmd.overwrite=false;
+    }
+    try {
+      if (cmd.overwrite) {
+        List<UpdateLog.DBQ> deletesAfter=null;
+        if (ulog != null && cmd.version > 0) {
+          deletesAfter=ulog.getDBQNewer(cmd.version);
         }
-        addAndDelete(cmd,dbqList);
+        if (deletesAfter != null) {
+          log.info("Reordered DBQs detected.  Update=" + cmd + " DBQs="+ deletesAfter);
+          List<Query> dbqList=new ArrayList<Query>(deletesAfter.size());
+          for (          UpdateLog.DBQ dbq : deletesAfter) {
+            try {
+              DeleteUpdateCommand tmpDel=new DeleteUpdateCommand(cmd.req);
+              tmpDel.query=dbq.q;
+              tmpDel.version=-dbq.version;
+              dbqList.add(getQuery(tmpDel));
+            }
+ catch (            Exception e) {
+              log.error("Exception parsing reordered query : " + dbq,e);
+            }
+          }
+          addAndDelete(cmd,dbqList);
+        }
+ else {
+          Term updateTerm;
+          Term idTerm=new Term(idField.getName(),cmd.getIndexedId());
+          boolean del=false;
+          if (cmd.updateTerm == null) {
+            updateTerm=idTerm;
+          }
+ else {
+            del=true;
+            updateTerm=cmd.updateTerm;
+          }
+          Document luceneDocument=cmd.getLuceneDocument();
+          writer.updateDocument(updateTerm,luceneDocument,schema.getAnalyzer());
+          if (del) {
+            BooleanQuery bq=new BooleanQuery();
+            bq.add(new BooleanClause(new TermQuery(updateTerm),Occur.MUST_NOT));
+            bq.add(new BooleanClause(new TermQuery(idTerm),Occur.MUST));
+            writer.deleteDocuments(bq);
+          }
+          if (ulog != null)           ulog.add(cmd);
+        }
       }
  else {
-        Term updateTerm;
-        Term idTerm=new Term(idField.getName(),cmd.getIndexedId());
-        boolean del=false;
-        if (cmd.updateTerm == null) {
-          updateTerm=idTerm;
-        }
- else {
-          del=true;
-          updateTerm=cmd.updateTerm;
-        }
-        Document luceneDocument=cmd.getLuceneDocument();
-        writer.updateDocument(updateTerm,luceneDocument,schema.getAnalyzer());
-        if (del) {
-          BooleanQuery bq=new BooleanQuery();
-          bq.add(new BooleanClause(new TermQuery(updateTerm),Occur.MUST_NOT));
-          bq.add(new BooleanClause(new TermQuery(idTerm),Occur.MUST));
-          writer.deleteDocuments(bq);
-        }
+        writer.addDocument(cmd.getLuceneDocument(),schema.getAnalyzer());
         if (ulog != null)         ulog.add(cmd);
       }
+      if ((cmd.getFlags() & UpdateCommand.IGNORE_AUTOCOMMIT) == 0) {
+        commitTracker.addedDocument(-1);
+        softCommitTracker.addedDocument(cmd.commitWithin);
+      }
+      rc=1;
     }
+  finally {
+      if (rc != 1) {
+        numErrors.incrementAndGet();
+        numErrorsCumulative.incrementAndGet();
+      }
  else {
-      writer.addDocument(cmd.getLuceneDocument(),schema.getAnalyzer());
-      if (ulog != null)       ulog.add(cmd);
+        numDocsPending.incrementAndGet();
+      }
     }
-    if ((cmd.getFlags() & UpdateCommand.IGNORE_AUTOCOMMIT) == 0) {
-      commitTracker.addedDocument(-1);
-      softCommitTracker.addedDocument(cmd.commitWithin);
-    }
-    rc=1;
   }
   finally {
-    if (rc != 1) {
-      numErrors.incrementAndGet();
-      numErrorsCumulative.incrementAndGet();
-    }
- else {
-      numDocsPending.incrementAndGet();
-    }
+    iw.decref();
   }
   return rc;
 }

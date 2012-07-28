@@ -3,7 +3,6 @@
     prepareCommit(cmd);
     return;
   }
-  IndexWriter writer=solrCoreState.getIndexWriter(core);
   if (cmd.optimize) {
     optimizeCommands.incrementAndGet();
   }
@@ -27,37 +26,44 @@
     if (!cmd.softCommit && (cmd.openSearcher || !commitTracker.getOpenSearcher())) {
       commitTracker.cancelPendingCommit();
     }
-    if (cmd.optimize) {
-      writer.forceMerge(cmd.maxOptimizeSegments);
-    }
- else     if (cmd.expungeDeletes) {
-      writer.forceMergeDeletes();
-    }
-    if (!cmd.softCommit) {
-synchronized (this) {
-        if (ulog != null)         ulog.preCommit(cmd);
+    RefCounted<IndexWriter> iw=solrCoreState.getIndexWriter(core);
+    try {
+      IndexWriter writer=iw.get();
+      if (cmd.optimize) {
+        writer.forceMerge(cmd.maxOptimizeSegments);
       }
-      final Map<String,String> commitData=new HashMap<String,String>();
-      commitData.put(SolrIndexWriter.COMMIT_TIME_MSEC_KEY,String.valueOf(System.currentTimeMillis()));
-      writer.commit(commitData);
-      numDocsPending.set(0);
-      callPostCommitCallbacks();
-    }
+ else       if (cmd.expungeDeletes) {
+        writer.forceMergeDeletes();
+      }
+      if (!cmd.softCommit) {
+synchronized (solrCoreState) {
+          if (ulog != null)           ulog.preCommit(cmd);
+        }
+        final Map<String,String> commitData=new HashMap<String,String>();
+        commitData.put(SolrIndexWriter.COMMIT_TIME_MSEC_KEY,String.valueOf(System.currentTimeMillis()));
+        writer.commit(commitData);
+        numDocsPending.set(0);
+        callPostCommitCallbacks();
+      }
  else {
-      callPostSoftCommitCallbacks();
+        callPostSoftCommitCallbacks();
+      }
+    }
+  finally {
+      iw.decref();
     }
     if (cmd.optimize) {
       callPostOptimizeCallbacks();
     }
     if (cmd.softCommit) {
-synchronized (this) {
+synchronized (solrCoreState) {
         if (ulog != null)         ulog.preSoftCommit(cmd);
         core.getSearcher(true,false,waitSearcher,true);
         if (ulog != null)         ulog.postSoftCommit(cmd);
       }
     }
  else {
-synchronized (this) {
+synchronized (solrCoreState) {
         if (ulog != null)         ulog.preSoftCommit(cmd);
         if (cmd.openSearcher) {
           core.getSearcher(true,false,waitSearcher);

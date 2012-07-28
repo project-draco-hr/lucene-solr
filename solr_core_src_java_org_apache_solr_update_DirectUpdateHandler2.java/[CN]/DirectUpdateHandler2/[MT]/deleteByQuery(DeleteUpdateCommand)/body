@@ -6,18 +6,24 @@
     Query q=getQuery(cmd);
     boolean delAll=MatchAllDocsQuery.class == q.getClass();
     if (delAll && cmd.getVersion() == -Long.MAX_VALUE) {
-synchronized (this) {
+synchronized (solrCoreState) {
         deleteAll();
         ulog.deleteAll();
         return;
       }
     }
-synchronized (this) {
+synchronized (solrCoreState) {
       if (delAll) {
         deleteAll();
       }
  else {
-        solrCoreState.getIndexWriter(core).deleteDocuments(q);
+        RefCounted<IndexWriter> iw=solrCoreState.getIndexWriter(core);
+        try {
+          iw.get().deleteDocuments(q);
+        }
+  finally {
+          iw.decref();
+        }
       }
       if (ulog != null)       ulog.deleteByQuery(cmd);
     }
