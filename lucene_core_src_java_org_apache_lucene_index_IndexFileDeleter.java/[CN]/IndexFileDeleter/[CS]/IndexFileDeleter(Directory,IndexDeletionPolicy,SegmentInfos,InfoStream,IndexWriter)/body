@@ -16,40 +16,44 @@
  catch (  NoSuchDirectoryException e) {
     files=new String[0];
   }
-  for (  String fileName : files) {
-    if (!fileName.endsWith("write.lock") && !fileName.equals(IndexFileNames.SEGMENTS_GEN)) {
-      getRefCount(fileName);
-      if (fileName.startsWith(IndexFileNames.SEGMENTS)) {
-        if (infoStream.isEnabled("IFD")) {
-          infoStream.message("IFD","init: load commit \"" + fileName + "\"");
-        }
-        SegmentInfos sis=new SegmentInfos();
-        try {
-          sis.read(directory,fileName);
-        }
- catch (        FileNotFoundException e) {
+  if (currentSegmentsFile != null) {
+    Matcher m=IndexFileNames.CODEC_FILE_PATTERN.matcher("");
+    for (    String fileName : files) {
+      m.reset(fileName);
+      if (!fileName.endsWith("write.lock") && !fileName.equals(IndexFileNames.SEGMENTS_GEN) && (m.matches() || fileName.startsWith(IndexFileNames.SEGMENTS))) {
+        getRefCount(fileName);
+        if (fileName.startsWith(IndexFileNames.SEGMENTS)) {
           if (infoStream.isEnabled("IFD")) {
-            infoStream.message("IFD","init: hit FileNotFoundException when loading commit \"" + fileName + "\"; skipping this commit point");
+            infoStream.message("IFD","init: load commit \"" + fileName + "\"");
           }
-          sis=null;
-        }
-catch (        IOException e) {
-          if (SegmentInfos.generationFromSegmentsFileName(fileName) <= currentGen && directory.fileLength(fileName) > 0) {
-            throw e;
+          SegmentInfos sis=new SegmentInfos();
+          try {
+            sis.read(directory,fileName);
           }
- else {
+ catch (          FileNotFoundException e) {
+            if (infoStream.isEnabled("IFD")) {
+              infoStream.message("IFD","init: hit FileNotFoundException when loading commit \"" + fileName + "\"; skipping this commit point");
+            }
             sis=null;
           }
-        }
-        if (sis != null) {
-          final CommitPoint commitPoint=new CommitPoint(commitsToDelete,directory,sis);
-          if (sis.getGeneration() == segmentInfos.getGeneration()) {
-            currentCommitPoint=commitPoint;
+catch (          IOException e) {
+            if (SegmentInfos.generationFromSegmentsFileName(fileName) <= currentGen && directory.fileLength(fileName) > 0) {
+              throw e;
+            }
+ else {
+              sis=null;
+            }
           }
-          commits.add(commitPoint);
-          incRef(sis,true);
-          if (lastSegmentInfos == null || sis.getGeneration() > lastSegmentInfos.getGeneration()) {
-            lastSegmentInfos=sis;
+          if (sis != null) {
+            final CommitPoint commitPoint=new CommitPoint(commitsToDelete,directory,sis);
+            if (sis.getGeneration() == segmentInfos.getGeneration()) {
+              currentCommitPoint=commitPoint;
+            }
+            commits.add(commitPoint);
+            incRef(sis,true);
+            if (lastSegmentInfos == null || sis.getGeneration() > lastSegmentInfos.getGeneration()) {
+              lastSegmentInfos=sis;
+            }
           }
         }
       }

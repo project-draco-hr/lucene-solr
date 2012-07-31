@@ -1,45 +1,72 @@
 {
-  name=checkDefault(name);
-  SolrCore core;
+  Exception failure=null;
+  try {
+    name=checkDefault(name);
+    SolrCore core;
 synchronized (cores) {
-    core=cores.get(name);
-  }
-  if (core == null)   throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core: " + name);
-  CoreDescriptor cd=core.getCoreDescriptor();
-  File instanceDir=new File(cd.getInstanceDir());
-  if (!instanceDir.isAbsolute()) {
-    instanceDir=new File(getSolrHome(),cd.getInstanceDir());
-  }
-  log.info("Reloading SolrCore '{}' using instanceDir: {}",cd.getName(),instanceDir.getAbsolutePath());
-  SolrResourceLoader solrLoader;
-  if (zkController == null) {
-    solrLoader=new SolrResourceLoader(instanceDir.getAbsolutePath(),libLoader,getCoreProps(instanceDir.getAbsolutePath(),cd.getPropertiesName(),cd.getCoreProperties()));
-  }
+      core=cores.get(name);
+    }
+    if (core == null)     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core: " + name);
+    CoreDescriptor cd=core.getCoreDescriptor();
+    File instanceDir=new File(cd.getInstanceDir());
+    if (!instanceDir.isAbsolute()) {
+      instanceDir=new File(getSolrHome(),cd.getInstanceDir());
+    }
+    log.info("Reloading SolrCore '{}' using instanceDir: {}",cd.getName(),instanceDir.getAbsolutePath());
+    SolrResourceLoader solrLoader;
+    if (zkController == null) {
+      solrLoader=new SolrResourceLoader(instanceDir.getAbsolutePath(),libLoader,getCoreProps(instanceDir.getAbsolutePath(),cd.getPropertiesName(),cd.getCoreProperties()));
+    }
  else {
-    try {
-      String collection=cd.getCloudDescriptor().getCollectionName();
-      zkController.createCollectionZkNode(cd.getCloudDescriptor());
-      String zkConfigName=zkController.readConfigName(collection);
-      if (zkConfigName == null) {
-        log.error("Could not find config name for collection:" + collection);
-        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"Could not find config name for collection:" + collection);
+      try {
+        String collection=cd.getCloudDescriptor().getCollectionName();
+        zkController.createCollectionZkNode(cd.getCloudDescriptor());
+        String zkConfigName=zkController.readConfigName(collection);
+        if (zkConfigName == null) {
+          log.error("Could not find config name for collection:" + collection);
+          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"Could not find config name for collection:" + collection);
+        }
+        solrLoader=new ZkSolrResourceLoader(instanceDir.getAbsolutePath(),zkConfigName,libLoader,getCoreProps(instanceDir.getAbsolutePath(),cd.getPropertiesName(),cd.getCoreProperties()),zkController);
       }
-      solrLoader=new ZkSolrResourceLoader(instanceDir.getAbsolutePath(),zkConfigName,libLoader,getCoreProps(instanceDir.getAbsolutePath(),cd.getPropertiesName(),cd.getCoreProperties()),zkController);
+ catch (      KeeperException e) {
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.error("",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
     }
- catch (    KeeperException e) {
-      log.error("",e);
-      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    SolrCore newCore=core.reload(solrLoader,core);
+    String origName=coreToOrigName.remove(core);
+    if (origName != null) {
+      coreToOrigName.put(newCore,origName);
     }
-catch (    InterruptedException e) {
-      Thread.currentThread().interrupt();
-      log.error("",e);
-      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    register(name,newCore,false);
+  }
+ catch (  ParserConfigurationException e1) {
+    failure=e1;
+    throw e1;
+  }
+catch (  IOException e2) {
+    failure=e2;
+    throw e2;
+  }
+catch (  SAXException e3) {
+    failure=e3;
+    throw e3;
+  }
+catch (  RuntimeException e4) {
+    failure=e4;
+    throw e4;
+  }
+ finally {
+synchronized (coreInitFailures) {
+      coreInitFailures.remove(name);
+      if (null != failure) {
+        coreInitFailures.put(name,failure);
+      }
     }
   }
-  SolrCore newCore=core.reload(solrLoader,core);
-  String origName=coreToOrigName.remove(core);
-  if (origName != null) {
-    coreToOrigName.put(newCore,origName);
-  }
-  register(name,newCore,false);
 }

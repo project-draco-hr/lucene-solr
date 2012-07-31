@@ -1,23 +1,23 @@
 {
-  List<SolrServer> solrClients=shardToClient.get(shard);
-  if (solrClients == null) {
-    throw new RuntimeException("shard not found:" + shard + " keys:"+ shardToClient.keySet());
+  List<CloudJettyRunner> solrJetties=shardToJetty.get(shard);
+  if (solrJetties == null) {
+    throw new RuntimeException("shard not found:" + shard + " keys:"+ shardToJetty.keySet());
   }
   long num=-1;
   long lastNum=-1;
   String failMessage=null;
   if (verbose)   System.err.println("check const of " + shard);
   int cnt=0;
-  assertEquals("The client count does not match up with the shard count for slice:" + shard,zkStateReader.getCloudState().getSlice(DEFAULT_COLLECTION,shard).getShards().size(),solrClients.size());
+  assertEquals("The client count does not match up with the shard count for slice:" + shard,zkStateReader.getCloudState().getSlice(DEFAULT_COLLECTION,shard).getShards().size(),solrJetties.size());
   SolrServer lastClient=null;
-  for (  SolrServer client : solrClients) {
-    ZkNodeProps props=clientToInfo.get(new CloudSolrServerClient(client));
+  for (  CloudJettyRunner cjetty : solrJetties) {
+    ZkNodeProps props=cjetty.info;
     if (verbose)     System.err.println("client" + cnt++);
     if (verbose)     System.err.println("PROPS:" + props);
     try {
       SolrQuery query=new SolrQuery("*:*");
       query.set("distrib",false);
-      num=client.query(query).getResults().getNumFound();
+      num=cjetty.client.solrClient.query(query).getResults().getNumFound();
     }
  catch (    SolrServerException e) {
       if (verbose)       System.err.println("error contacting client: " + e.getMessage() + "\n");
@@ -37,7 +37,7 @@ catch (    SolrException e) {
     boolean active=props.get(ZkStateReader.STATE_PROP).equals(ZkStateReader.ACTIVE);
     if (active && live) {
       if (lastNum > -1 && lastNum != num && failMessage == null) {
-        failMessage=shard + " is not consistent.  Got " + lastNum+ " from "+ lastClient+ "lastClient"+ " and got "+ num+ " from "+ client;
+        failMessage=shard + " is not consistent.  Got " + lastNum+ " from "+ lastClient+ "lastClient"+ " and got "+ num+ " from "+ cjetty.url;
         if (verbose || true) {
           System.err.println("######" + failMessage);
           SolrQuery query=new SolrQuery("*:*");
@@ -46,12 +46,12 @@ catch (    SolrException e) {
           query.set("rows","1000");
           query.set("sort","id asc");
           SolrDocumentList lst1=lastClient.query(query).getResults();
-          SolrDocumentList lst2=client.query(query).getResults();
-          showDiff(lst1,lst2,lastClient.toString(),client.toString());
+          SolrDocumentList lst2=cjetty.client.solrClient.query(query).getResults();
+          showDiff(lst1,lst2,lastClient.toString(),cjetty.client.solrClient.toString());
         }
       }
       lastNum=num;
-      lastClient=client;
+      lastClient=cjetty.client.solrClient;
     }
   }
   return failMessage;

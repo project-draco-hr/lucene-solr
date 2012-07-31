@@ -1,31 +1,33 @@
 {
-  if (core == null) {
-    if (refCntWriter != null)     refCntWriter.incref();
-    return refCntWriter;
-  }
-  while (pauseWriter) {
-    try {
-      wait();
+synchronized (writerPauseLock) {
+    if (core == null) {
+      if (refCntWriter != null)       refCntWriter.incref();
+      return refCntWriter;
     }
- catch (    InterruptedException e) {
-    }
-  }
-  if (indexWriter == null) {
-    indexWriter=createMainIndexWriter(core,"DirectUpdateHandler2",false,false);
-  }
-  if (refCntWriter == null) {
-    refCntWriter=new RefCounted<IndexWriter>(indexWriter){
-      @Override public void close(){
-synchronized (DefaultSolrCoreState.this) {
-          writerFree=true;
-          DefaultSolrCoreState.this.notifyAll();
-        }
+    while (pauseWriter) {
+      try {
+        writerPauseLock.wait();
+      }
+ catch (      InterruptedException e) {
       }
     }
+    if (indexWriter == null) {
+      indexWriter=createMainIndexWriter(core,"DirectUpdateHandler2",false,false);
+    }
+    if (refCntWriter == null) {
+      refCntWriter=new RefCounted<IndexWriter>(indexWriter){
+        @Override public void close(){
+synchronized (writerPauseLock) {
+            writerFree=true;
+            writerPauseLock.notifyAll();
+          }
+        }
+      }
 ;
+    }
+    writerFree=false;
+    writerPauseLock.notifyAll();
+    refCntWriter.incref();
+    return refCntWriter;
   }
-  writerFree=false;
-  notifyAll();
-  refCntWriter.incref();
-  return refCntWriter;
 }
