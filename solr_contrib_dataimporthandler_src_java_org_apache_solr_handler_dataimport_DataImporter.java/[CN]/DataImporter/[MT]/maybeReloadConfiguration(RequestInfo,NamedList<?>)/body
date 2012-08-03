@@ -1,0 +1,55 @@
+{
+  if (importLock.tryLock()) {
+    boolean success=false;
+    try {
+      String dataConfigText=params.getDataConfig();
+      String dataconfigFile=(String)params.getConfigFile();
+      InputSource is=null;
+      if (dataConfigText != null && dataConfigText.length() > 0) {
+        is=new InputSource(new StringReader(dataConfigText));
+      }
+ else       if (dataconfigFile != null) {
+        is=new InputSource(core.getResourceLoader().openResource(dataconfigFile));
+        is.setSystemId(SystemIdResolver.createSystemIdFromResourceName(dataconfigFile));
+        LOG.info("Loading DIH Configuration: " + dataconfigFile);
+      }
+      if (is != null) {
+        loadDataConfig(is);
+        success=true;
+      }
+      Map<String,Map<String,String>> dsProps=new HashMap<String,Map<String,String>>();
+      if (defaultParams != null) {
+        int position=0;
+        while (position < defaultParams.size()) {
+          if (defaultParams.getName(position) == null) {
+            break;
+          }
+          String name=defaultParams.getName(position);
+          if (name.equals("datasource")) {
+            success=true;
+            NamedList dsConfig=(NamedList)defaultParams.getVal(position);
+            LOG.info("Getting configuration for Global Datasource...");
+            Map<String,String> props=new HashMap<String,String>();
+            for (int i=0; i < dsConfig.size(); i++) {
+              props.put(dsConfig.getName(i),dsConfig.getVal(i).toString());
+            }
+            LOG.info("Adding properties to datasource: " + props);
+            dsProps.put((String)dsConfig.get("name"),props);
+          }
+          position++;
+        }
+      }
+      requestLevelDataSourceProps=Collections.unmodifiableMap(dsProps);
+    }
+ catch (    IOException ioe) {
+      throw ioe;
+    }
+ finally {
+      importLock.unlock();
+    }
+    return success;
+  }
+ else {
+    return false;
+  }
+}
