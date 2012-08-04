@@ -1,0 +1,57 @@
+{
+  System.setProperty("solrcloud.update.delay","1");
+  Map<String,String> props2=new HashMap<String,String>();
+  props2.put("configName","conf1");
+  ZkNodeProps zkProps2=new ZkNodeProps(props2);
+  SolrZkClient zkClient=new SolrZkClient(zkServer.getZkAddress(),AbstractZkTestCase.TIMEOUT);
+  zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/testcore",ZkStateReader.toJSON(zkProps2),CreateMode.PERSISTENT,true);
+  zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/testcore/shards",CreateMode.PERSISTENT,true);
+  zkClient.close();
+  CoreDescriptor dcore=new CoreDescriptor(container1,"testcore","testcore");
+  dcore.setDataDir(dataDir4.getAbsolutePath());
+  SolrCore core=container1.create(dcore);
+  container1.register(core,false);
+  ZkController zkController2=container2.getZkController();
+  String host=zkController2.getHostName();
+  ClusterState clusterState2=null;
+  Map<String,Slice> slices=null;
+  for (int i=75; i > 0; i--) {
+    clusterState2=zkController2.getClusterState();
+    slices=clusterState2.getSlices("testcore");
+    if (slices != null && slices.containsKey("shard1") && slices.get("shard1").getShards().size() > 0) {
+      break;
+    }
+    Thread.sleep(500);
+  }
+  assertNotNull(slices);
+  assertTrue(slices.containsKey("shard1"));
+  Slice slice=slices.get("shard1");
+  assertEquals("shard1",slice.getName());
+  Map<String,ZkNodeProps> shards=slice.getShards();
+  assertEquals(1,shards.size());
+  ZkNodeProps zkProps=shards.get(host + ":1661_solr_testcore");
+  assertNotNull(zkProps);
+  assertEquals(host + ":1661_solr",zkProps.get(ZkStateReader.NODE_NAME_PROP));
+  assertEquals("http://" + host + ":1661/solr",zkProps.get(ZkStateReader.BASE_URL_PROP));
+  Set<String> liveNodes=clusterState2.getLiveNodes();
+  assertNotNull(liveNodes);
+  assertEquals(3,liveNodes.size());
+  container3.shutdown();
+  for (int i=0; i < (5 * 15); i++) {
+    if (zkController2.getClusterState().getLiveNodes().size() == 2) {
+      break;
+    }
+    Thread.sleep(200);
+  }
+  assertEquals(2,zkController2.getClusterState().getLiveNodes().size());
+  container2.getZkController().getZkClient().getSolrZooKeeper().getConnection().disconnect();
+  container2.shutdown();
+  container2=init2.initialize();
+  for (int i=0; i < 200; i++) {
+    if (container1.getZkController().getClusterState().liveNodesContain(container2.getZkController().getNodeName())) {
+      break;
+    }
+    Thread.sleep(100);
+  }
+  assertTrue(container1.getZkController().getClusterState().liveNodesContain(container2.getZkController().getNodeName()));
+}

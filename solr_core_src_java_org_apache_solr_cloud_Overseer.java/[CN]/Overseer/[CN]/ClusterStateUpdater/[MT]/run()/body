@@ -1,0 +1,74 @@
+{
+  if (amILeader() && !Overseer.this.isClosed) {
+synchronized (reader.getUpdateLock()) {
+      try {
+        byte[] head=workQueue.peek();
+        if (head != null) {
+          reader.updateClusterState(true);
+          ClusterState clusterState=reader.getClusterState();
+          log.info("Replaying operations from work queue.");
+          while (head != null && amILeader()) {
+            final ZkNodeProps message=ZkNodeProps.load(head);
+            final String operation=message.get(QUEUE_OPERATION);
+            clusterState=processMessage(clusterState,message,operation);
+            zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(clusterState),true);
+            workQueue.remove();
+            head=workQueue.peek();
+          }
+        }
+      }
+ catch (      KeeperException e) {
+        if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+          log.warn("Solr cannot talk to ZK");
+          return;
+        }
+        SolrException.log(log,"",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+  }
+  log.info("Starting to work on the main queue");
+  while (amILeader() && !isClosed) {
+synchronized (reader.getUpdateLock()) {
+      try {
+        byte[] head=stateUpdateQueue.peek();
+        if (head != null) {
+          reader.updateClusterState(true);
+          ClusterState clusterState=reader.getClusterState();
+          while (head != null) {
+            final ZkNodeProps message=ZkNodeProps.load(head);
+            final String operation=message.get(QUEUE_OPERATION);
+            clusterState=processMessage(clusterState,message,operation);
+            byte[] processed=stateUpdateQueue.remove();
+            workQueue.offer(processed);
+            head=stateUpdateQueue.peek();
+          }
+          zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(clusterState),true);
+        }
+        while (workQueue.poll() != null)         ;
+      }
+ catch (      KeeperException e) {
+        if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+          log.warn("Overseer cannot talk to ZK");
+          return;
+        }
+        SolrException.log(log,"",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
+    try {
+      Thread.sleep(STATE_UPDATE_DELAY);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+  }
+}
