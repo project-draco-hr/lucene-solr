@@ -1,6 +1,10 @@
 {
   connect();
   ClusterState clusterState=zkStateReader.getClusterState();
+  boolean sendToLeaders=false;
+  if (request instanceof IsUpdateRequest && updatesToLeaders) {
+    sendToLeaders=true;
+  }
   SolrParams reqParams=request.getParams();
   if (reqParams == null) {
     reqParams=new ModifiableSolrParams();
@@ -16,7 +20,7 @@
     ClientUtils.appendMap(coll,slices,clusterState.getSlices(coll));
   }
   Set<String> liveNodes=clusterState.getLiveNodes();
-  if (clusterState.hashCode() != this.lastClusterStateHashCode) {
+  if (sendToLeaders && leaderUrlList == null || !sendToLeaders && urlList == null || clusterState.hashCode() != this.lastClusterStateHashCode) {
     Map<String,ZkNodeProps> nodes=new HashMap<String,ZkNodeProps>();
     List<String> urlList=new ArrayList<String>();
     for (    Slice slice : slices.values()) {
@@ -25,16 +29,32 @@
         String node=coreNodeProps.getNodeName();
         if (!liveNodes.contains(coreNodeProps.getNodeName()) || !coreNodeProps.getState().equals(ZkStateReader.ACTIVE))         continue;
         if (nodes.put(node,nodeProps) == null) {
-          String url=coreNodeProps.getCoreUrl();
-          urlList.add(url);
+          if (!sendToLeaders || (sendToLeaders && coreNodeProps.isLeader())) {
+            String url=coreNodeProps.getCoreUrl();
+            urlList.add(url);
+          }
         }
       }
     }
-    this.urlList=urlList;
+    if (sendToLeaders) {
+      this.leaderUrlList=urlList;
+    }
+ else {
+      this.urlList=urlList;
+    }
     this.lastClusterStateHashCode=clusterState.hashCode();
   }
-  Collections.shuffle(urlList,rand);
-  LBHttpSolrServer.Req req=new LBHttpSolrServer.Req(request,urlList);
+  List<String> theUrlList;
+  if (sendToLeaders) {
+    theUrlList=new ArrayList<String>(leaderUrlList.size());
+    theUrlList.addAll(leaderUrlList);
+  }
+ else {
+    theUrlList=new ArrayList<String>(urlList.size());
+    theUrlList.addAll(urlList);
+  }
+  Collections.shuffle(theUrlList,rand);
+  LBHttpSolrServer.Req req=new LBHttpSolrServer.Req(request,theUrlList);
   LBHttpSolrServer.Rsp rsp=lbServer.request(req);
   return rsp.getResponse();
 }
