@@ -1,4 +1,5 @@
 {
+  del("*:*");
   SolrCmdDistributor cmdDistrib=new SolrCmdDistributor(8);
   ModifiableSolrParams params=new ModifiableSolrParams();
   List<Node> nodes=new ArrayList<Node>();
@@ -48,4 +49,31 @@
   assertEquals(results.toString(),2,numFound);
   numFound=client.query(new SolrQuery("*:*")).getResults().getNumFound();
   assertEquals(results.toString(),2,numFound);
+  for (  SolrServer c : clients) {
+    c.optimize();
+  }
+  int id=5;
+  cmdDistrib=new SolrCmdDistributor(8);
+  nodes.clear();
+  int cnt=atLeast(200);
+  for (int i=0; i < cnt; i++) {
+    nodes.clear();
+    for (    SolrServer c : clients) {
+      if (random().nextBoolean()) {
+        continue;
+      }
+      HttpSolrServer httpClient=(HttpSolrServer)c;
+      nodeProps=new ZkNodeProps(ZkStateReader.BASE_URL_PROP,httpClient.getBaseURL(),ZkStateReader.CORE_NAME_PROP,"");
+      nodes.add(new StdNode(new ZkCoreNodeProps(nodeProps)));
+    }
+    cmd.solrDoc=sdoc("id",id++);
+    cmdDistrib.distribAdd(cmd,nodes,params);
+  }
+  cmdDistrib.finish();
+  cmdDistrib.distribCommit(ccmd,nodes,params);
+  for (  SolrServer c : clients) {
+    NamedList<Object> resp=c.request(new LukeRequest());
+    System.out.println(resp);
+    assertEquals("SOLR-3428: We only did adds - there should be no deletes",((NamedList<Object>)resp.get("index")).get("numDocs"),((NamedList<Object>)resp.get("index")).get("maxDoc"));
+  }
 }
