@@ -1,0 +1,54 @@
+{
+  super();
+  docOut=state.directory.createOutput(IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,BlockPackedPostingsFormat.DOC_EXTENSION),state.context);
+  IndexOutput posOut=null;
+  IndexOutput payOut=null;
+  boolean success=false;
+  try {
+    CodecUtil.writeHeader(docOut,DOC_CODEC,VERSION_CURRENT);
+    if (state.fieldInfos.hasProx()) {
+      posDeltaBuffer=new long[BLOCK_SIZE];
+      posOut=state.directory.createOutput(IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,BlockPackedPostingsFormat.POS_EXTENSION),state.context);
+      CodecUtil.writeHeader(posOut,POS_CODEC,VERSION_CURRENT);
+      if (state.fieldInfos.hasPayloads()) {
+        payloadBytes=new byte[128];
+        payloadLengthBuffer=new long[BLOCK_SIZE];
+      }
+ else {
+        payloadBytes=null;
+        payloadLengthBuffer=null;
+      }
+      if (state.fieldInfos.hasOffsets()) {
+        offsetStartDeltaBuffer=new long[BLOCK_SIZE];
+        offsetLengthBuffer=new long[BLOCK_SIZE];
+      }
+ else {
+        offsetStartDeltaBuffer=null;
+        offsetLengthBuffer=null;
+      }
+      if (state.fieldInfos.hasPayloads() || state.fieldInfos.hasOffsets()) {
+        payOut=state.directory.createOutput(IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,BlockPackedPostingsFormat.PAY_EXTENSION),state.context);
+        CodecUtil.writeHeader(payOut,PAY_CODEC,VERSION_CURRENT);
+      }
+    }
+ else {
+      posDeltaBuffer=null;
+      payloadLengthBuffer=null;
+      offsetStartDeltaBuffer=null;
+      offsetLengthBuffer=null;
+      payloadBytes=null;
+    }
+    this.payOut=payOut;
+    this.posOut=posOut;
+    success=true;
+  }
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(docOut,posOut,payOut);
+    }
+  }
+  docDeltaBuffer=new long[BLOCK_SIZE];
+  freqBuffer=new long[BLOCK_SIZE];
+  skipWriter=new BlockPackedSkipWriter(maxSkipLevels,BlockPackedPostingsFormat.BLOCK_SIZE,state.segmentInfo.getDocCount(),docOut,posOut,payOut);
+  encoded=new byte[BLOCK_SIZE * 4];
+}
