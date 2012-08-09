@@ -1,0 +1,31 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  Field field=new TextField("field","",Field.Store.NO);
+  TokenStream ts=new MockTokenizer(new StringReader("here we go"),MockTokenizer.WHITESPACE,true);
+  assertFalse(ts.hasAttribute(PayloadAttribute.class));
+  field.setTokenStream(ts);
+  doc.add(field);
+  writer.addDocument(doc);
+  Token withPayload=new Token("withPayload",0,11);
+  withPayload.setPayload(new BytesRef("test"));
+  ts=new CannedTokenStream(withPayload);
+  assertTrue(ts.hasAttribute(PayloadAttribute.class));
+  field.setTokenStream(ts);
+  writer.addDocument(doc);
+  ts=new MockTokenizer(new StringReader("another"),MockTokenizer.WHITESPACE,true);
+  assertFalse(ts.hasAttribute(PayloadAttribute.class));
+  field.setTokenStream(ts);
+  writer.addDocument(doc);
+  DirectoryReader reader=writer.getReader();
+  SegmentReader sr=getOnlySegmentReader(reader);
+  DocsAndPositionsEnum de=sr.termPositionsEnum(null,"field",new BytesRef("withPayload"));
+  de.nextDoc();
+  de.nextPosition();
+  assertTrue(de.hasPayload());
+  assertEquals(new BytesRef("test"),de.getPayload());
+  writer.close();
+  reader.close();
+  dir.close();
+}
