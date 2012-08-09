@@ -4,17 +4,24 @@
   UpdateLog ulog;
   ulog=core.getUpdateHandler().getUpdateLog();
   if (ulog == null) {
-    SolrException.log(log,"No UpdateLog found - cannot recover");
+    SolrException.log(log,"No UpdateLog found - cannot recover. Core:" + coreName);
     recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
     return;
   }
   List<Long> recentVersions;
-  UpdateLog.RecentUpdates recentUpdates=ulog.getRecentUpdates();
+  UpdateLog.RecentUpdates recentUpdates=null;
   try {
+    recentUpdates=ulog.getRecentUpdates();
     recentVersions=recentUpdates.getVersions(ulog.numRecordsToKeep);
   }
-  finally {
-    recentUpdates.close();
+ catch (  Throwable t) {
+    SolrException.log(log,"Corrupt tlog - ignoring. Core:" + coreName,t);
+    recentVersions=new ArrayList<Long>(0);
+  }
+ finally {
+    if (recentUpdates != null) {
+      recentUpdates.close();
+    }
   }
   List<Long> startingVersions=ulog.getStartingVersions();
   if (startingVersions != null && recoveringAfterStartup) {
@@ -33,6 +40,7 @@
   if (recoveringAfterStartup) {
     recentVersions=startingVersions;
     if ((ulog.getStartingOperation() & UpdateLog.FLAG_GAP) != 0) {
+      log.info("Looks like a previous replication recovery did not complete - skipping peer sync. Core:" + coreName);
       firstTime=false;
     }
   }
@@ -47,29 +55,30 @@
       sendPrepRecoveryCmd(leaderBaseUrl,leaderCoreName);
       if (firstTime) {
         firstTime=false;
-        log.info("Attempting to PeerSync from " + leaderUrl + " recoveringAfterStartup="+ recoveringAfterStartup);
+        log.info("Attempting to PeerSync from " + leaderUrl + " Core:"+ coreName+ " - recoveringAfterStartup="+ recoveringAfterStartup);
         PeerSync peerSync=new PeerSync(core,Collections.singletonList(leaderUrl),ulog.numRecordsToKeep);
         peerSync.setStartingVersions(recentVersions);
         boolean syncSuccess=peerSync.sync();
         if (syncSuccess) {
           SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
           core.getUpdateHandler().commit(new CommitUpdateCommand(req,false));
-          log.info("Sync Recovery was successful - registering as Active");
+          log.info("PeerSync Recovery was successful - registering as Active. Core:" + coreName);
           zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
           successfulRecovery=true;
           close=true;
           return;
         }
-        log.info("Sync Recovery was not successful - trying replication");
+        log.info("PeerSync Recovery was not successful - trying replication. Core:" + coreName);
       }
-      log.info("Begin buffering updates");
+      log.info("Starting Replication Recovery. Core:" + coreName);
+      log.info("Begin buffering updates. Core:" + coreName);
       ulog.bufferUpdates();
       replayed=false;
       try {
         replicate(zkController.getNodeName(),core,leaderprops,leaderUrl);
         replay(ulog);
         replayed=true;
-        log.info("Recovery was successful - registering as Active");
+        log.info("Replication Recovery was successful - registering as Active. Core:" + coreName);
         zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
         close=true;
         successfulRecovery=true;
@@ -94,24 +103,24 @@ catch (      Throwable t) {
       }
     }
  catch (    Throwable t) {
-      log.error("Error while trying to recover.",t);
+      log.error("Error while trying to recover. Core:" + coreName,t);
     }
     if (!successfulRecovery) {
       try {
-        log.error("Recovery failed - trying again...");
+        log.error("Recovery failed - trying again... Core:" + coreName);
         retries++;
         if (retries >= MAX_RETRIES) {
           if (retries == INTERRUPTED) {
           }
  else {
-            log.error("Recovery failed - max retries exceeded.");
+            log.error("Recovery failed - max retries exceeded. Core:" + coreName);
             recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
           }
           break;
         }
       }
  catch (      Exception e) {
-        log.error("",e);
+        log.error("Core:" + coreName,e);
       }
       try {
         double loopCount=Math.min(Math.pow(2,retries),600);
@@ -122,10 +131,10 @@ catch (      Throwable t) {
       }
  catch (      InterruptedException e) {
         Thread.currentThread().interrupt();
-        log.warn("Recovery was interrupted",e);
+        log.warn("Recovery was interrupted. Core:" + coreName,e);
         retries=INTERRUPTED;
       }
     }
   }
-  log.info("Finished recovery process");
+  log.info("Finished recovery process. Core:" + coreName);
 }

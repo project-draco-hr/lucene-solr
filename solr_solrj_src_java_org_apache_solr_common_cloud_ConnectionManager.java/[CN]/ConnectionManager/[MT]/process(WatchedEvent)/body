@@ -2,6 +2,7 @@
   if (log.isInfoEnabled()) {
     log.info("Watcher " + this + " name:"+ name+ " got event "+ event+ " path:"+ event.getPath()+ " type:"+ event.getType());
   }
+  checkClosed();
   state=event.getState();
   if (state == KeeperState.SyncConnected) {
     connected=true;
@@ -12,10 +13,18 @@
     log.info("Attempting to reconnect to recover relationship with ZooKeeper...");
     try {
       connectionStrategy.reconnect(zkServerAddress,zkClientTimeout,this,new ZkClientConnectionStrategy.ZkUpdate(){
-        @Override public void update(        SolrZooKeeper keeper) throws InterruptedException, TimeoutException {
+        @Override public void update(        SolrZooKeeper keeper) throws TimeoutException {
 synchronized (connectionStrategy) {
-            waitForConnected(SolrZkClient.DEFAULT_CLIENT_CONNECT_TIMEOUT);
-            client.updateKeeper(keeper);
+            checkClosed();
+            try {
+              waitForConnected(SolrZkClient.DEFAULT_CLIENT_CONNECT_TIMEOUT);
+              checkClosed();
+              client.updateKeeper(keeper);
+            }
+ catch (            InterruptedException e) {
+              throw new RuntimeException("Giving up on connecting - we were interrupted");
+            }
+            checkClosed();
             if (onReconnect != null) {
               onReconnect.command();
             }

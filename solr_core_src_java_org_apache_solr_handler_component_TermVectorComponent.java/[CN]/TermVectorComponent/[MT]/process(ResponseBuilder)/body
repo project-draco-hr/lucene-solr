@@ -5,6 +5,13 @@
   }
   NamedList<Object> termVectors=new NamedList<Object>();
   rb.rsp.add(TERM_VECTORS,termVectors);
+  IndexSchema schema=rb.req.getSchema();
+  SchemaField keyField=schema.getUniqueKeyField();
+  String uniqFieldName=null;
+  if (keyField != null) {
+    uniqFieldName=keyField.getName();
+    termVectors.add("uniqueKeyFieldName",uniqFieldName);
+  }
   FieldOptions allFields=new FieldOptions();
   allFields.termFreq=params.getBool(TermVectorParams.TF,false);
   allFields.positions=params.getBool(TermVectorParams.POSITIONS,false);
@@ -18,7 +25,6 @@
     allFields.docFreq=true;
     allFields.tfIdf=true;
   }
-  IndexSchema schema=rb.req.getSchema();
   Map<String,FieldOptions> fieldOptions=new HashMap<String,FieldOptions>();
   NamedList<List<String>> warnings=new NamedList<List<String>>();
   List<String> noTV=new ArrayList<String>();
@@ -28,6 +34,7 @@
   if (null != fields) {
     for (    String field : fields) {
       if (null == field || "score".equals(field))       continue;
+      final boolean fieldIsUniqueKey=field.equals(uniqFieldName);
       SchemaField sf=schema.getFieldOrNull(field);
       if (sf != null) {
         if (sf.storeTermVector()) {
@@ -41,16 +48,16 @@
           option.docFreq=params.getFieldBool(field,TermVectorParams.DF,allFields.docFreq);
           option.tfIdf=params.getFieldBool(field,TermVectorParams.TF_IDF,allFields.tfIdf);
           option.positions=params.getFieldBool(field,TermVectorParams.POSITIONS,allFields.positions);
-          if (option.positions && !sf.storeTermPositions()) {
+          if (option.positions && !sf.storeTermPositions() && !fieldIsUniqueKey) {
             noPos.add(field);
           }
           option.offsets=params.getFieldBool(field,TermVectorParams.OFFSETS,allFields.offsets);
-          if (option.offsets && !sf.storeTermOffsets()) {
+          if (option.offsets && !sf.storeTermOffsets() && !fieldIsUniqueKey) {
             noOff.add(field);
           }
         }
  else {
-          noTV.add(field);
+          if (!fieldIsUniqueKey)           noTV.add(field);
         }
       }
  else {
@@ -86,11 +93,6 @@
   }
   SolrIndexSearcher searcher=rb.req.getSearcher();
   IndexReader reader=searcher.getIndexReader();
-  SchemaField keyField=schema.getUniqueKeyField();
-  String uniqFieldName=null;
-  if (keyField != null) {
-    uniqFieldName=keyField.getName();
-  }
   final String finalUniqFieldName=uniqFieldName;
   final List<String> uniqValues=new ArrayList<String>();
   final StoredFieldVisitor getUniqValue=new StoredFieldVisitor(){
@@ -112,7 +114,6 @@
   while (iter.hasNext()) {
     Integer docId=iter.next();
     NamedList<Object> docNL=new NamedList<Object>();
-    termVectors.add("doc-" + docId,docNL);
     if (keyField != null) {
       reader.document(docId,getUniqValue);
       String uniqVal=null;
@@ -120,8 +121,11 @@
         uniqVal=uniqValues.get(0);
         uniqValues.clear();
         docNL.add("uniqueKey",uniqVal);
-        termVectors.add("uniqueKeyFieldName",uniqFieldName);
+        termVectors.add(uniqVal,docNL);
       }
+    }
+ else {
+      termVectors.add("doc-" + docId,docNL);
     }
     if (null != fields) {
       for (      Map.Entry<String,FieldOptions> entry : fieldOptions.entrySet()) {

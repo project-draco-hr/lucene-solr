@@ -3,7 +3,13 @@
   if (node == null)   return null;
   NamedNodeMap attrs=node.getAttributes();
   String analyzerName=DOMUtil.getAttr(attrs,"class");
+  NodeList charFilterNodes=(NodeList)xpath.evaluate("./charFilter",node,XPathConstants.NODESET);
+  NodeList tokenizerNodes=(NodeList)xpath.evaluate("./tokenizer",node,XPathConstants.NODESET);
+  NodeList tokenFilterNodes=(NodeList)xpath.evaluate("./filter",node,XPathConstants.NODESET);
   if (analyzerName != null) {
+    if (0 != charFilterNodes.getLength() || 0 != tokenizerNodes.getLength() || 0 != tokenFilterNodes.getLength()) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Configuration Error: Analyzer class='" + analyzerName + "' can not be combined with nested analysis factories");
+    }
     try {
       final Class<? extends Analyzer> clazz=loader.findClass(analyzerName,Analyzer.class);
       try {
@@ -40,7 +46,7 @@
     }
   }
 ;
-  charFilterLoader.load(loader,(NodeList)xpath.evaluate("./charFilter",node,XPathConstants.NODESET));
+  charFilterLoader.load(loader,charFilterNodes);
   final ArrayList<TokenizerFactory> tokenizers=new ArrayList<TokenizerFactory>(1);
   AbstractPluginLoader<TokenizerFactory> tokenizerLoader=new AbstractPluginLoader<TokenizerFactory>("[schema.xml] analyzer/tokenizer",TokenizerFactory.class,false,false){
     @Override protected void init(    TokenizerFactory plugin,    Node node) throws Exception {
@@ -58,9 +64,9 @@
     }
   }
 ;
-  tokenizerLoader.load(loader,(NodeList)xpath.evaluate("./tokenizer",node,XPathConstants.NODESET));
+  tokenizerLoader.load(loader,tokenizerNodes);
   if (tokenizers.isEmpty()) {
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"analyzer without class or tokenizer & filter list");
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"analyzer without class or tokenizer");
   }
   final ArrayList<TokenFilterFactory> filters=new ArrayList<TokenFilterFactory>();
   AbstractPluginLoader<TokenFilterFactory> filterLoader=new AbstractPluginLoader<TokenFilterFactory>("[schema.xml] analyzer/filter",TokenFilterFactory.class,false,false){
@@ -78,6 +84,6 @@
     }
   }
 ;
-  filterLoader.load(loader,(NodeList)xpath.evaluate("./filter",node,XPathConstants.NODESET));
+  filterLoader.load(loader,tokenFilterNodes);
   return new TokenizerChain(charFilters.toArray(new CharFilterFactory[charFilters.size()]),tokenizers.get(0),filters.toArray(new TokenFilterFactory[filters.size()]));
 }
