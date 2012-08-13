@@ -1,6 +1,12 @@
 {
   connect();
   ClusterState clusterState=zkStateReader.getClusterState();
+  boolean sendToLeaders=false;
+  List<String> replicas=null;
+  if (request instanceof IsUpdateRequest && updatesToLeaders) {
+    sendToLeaders=true;
+    replicas=new ArrayList<String>();
+  }
   SolrParams reqParams=request.getParams();
   if (reqParams == null) {
     reqParams=new ModifiableSolrParams();
@@ -16,21 +22,52 @@
     ClientUtils.appendMap(coll,slices,clusterState.getSlices(coll));
   }
   Set<String> liveNodes=clusterState.getLiveNodes();
-  Map<String,ZkNodeProps> nodes=new HashMap<String,ZkNodeProps>();
-  List<String> urlList=new ArrayList<String>();
-  for (  Slice slice : slices.values()) {
-    for (    ZkNodeProps nodeProps : slice.getShards().values()) {
-      ZkCoreNodeProps coreNodeProps=new ZkCoreNodeProps(nodeProps);
-      String node=coreNodeProps.getNodeName();
-      if (!liveNodes.contains(coreNodeProps.getNodeName()) || !coreNodeProps.getState().equals(ZkStateReader.ACTIVE))       continue;
-      if (nodes.put(node,nodeProps) == null) {
-        String url=coreNodeProps.getCoreUrl();
-        urlList.add(url);
+  if (sendToLeaders && leaderUrlList == null || !sendToLeaders && urlList == null || clusterState.hashCode() != this.lastClusterStateHashCode) {
+    Map<String,ZkNodeProps> nodes=new HashMap<String,ZkNodeProps>();
+    List<String> urlList=new ArrayList<String>();
+    for (    Slice slice : slices.values()) {
+      for (      ZkNodeProps nodeProps : slice.getShards().values()) {
+        ZkCoreNodeProps coreNodeProps=new ZkCoreNodeProps(nodeProps);
+        String node=coreNodeProps.getNodeName();
+        if (!liveNodes.contains(coreNodeProps.getNodeName()) || !coreNodeProps.getState().equals(ZkStateReader.ACTIVE))         continue;
+        if (nodes.put(node,nodeProps) == null) {
+          if (!sendToLeaders || (sendToLeaders && coreNodeProps.isLeader())) {
+            String url=coreNodeProps.getCoreUrl();
+            urlList.add(url);
+          }
+ else           if (sendToLeaders) {
+            String url=coreNodeProps.getCoreUrl();
+            replicas.add(url);
+          }
+        }
       }
     }
+    if (sendToLeaders) {
+      this.leaderUrlList=urlList;
+      this.replicasList=replicas;
+    }
+ else {
+      this.urlList=urlList;
+    }
+    this.lastClusterStateHashCode=clusterState.hashCode();
   }
-  Collections.shuffle(urlList,rand);
-  LBHttpSolrServer.Req req=new LBHttpSolrServer.Req(request,urlList);
+  List<String> theUrlList;
+  if (sendToLeaders) {
+    theUrlList=new ArrayList<String>(leaderUrlList.size());
+    theUrlList.addAll(leaderUrlList);
+  }
+ else {
+    theUrlList=new ArrayList<String>(urlList.size());
+    theUrlList.addAll(urlList);
+  }
+  Collections.shuffle(theUrlList,rand);
+  if (replicas != null) {
+    ArrayList<String> theReplicas=new ArrayList<String>(replicasList.size());
+    theReplicas.addAll(replicasList);
+    Collections.shuffle(theReplicas,rand);
+    theUrlList.addAll(theReplicas);
+  }
+  LBHttpSolrServer.Req req=new LBHttpSolrServer.Req(request,theUrlList);
   LBHttpSolrServer.Rsp rsp=lbServer.request(req);
   return rsp.getResponse();
 }

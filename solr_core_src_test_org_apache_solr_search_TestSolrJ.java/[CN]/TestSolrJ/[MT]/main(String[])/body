@@ -1,0 +1,40 @@
+{
+  String addr="http://localhost:8983/solr";
+  int i=0;
+  final int nDocs=Integer.parseInt(args[i++]);
+  final int nProducers=Integer.parseInt(args[i++]);
+  final int nConnections=Integer.parseInt(args[i++]);
+  final int maxSleep=Integer.parseInt(args[i++]);
+  ConcurrentUpdateSolrServer sserver=null;
+  server=sserver=new ConcurrentUpdateSolrServer(addr,64,nConnections);
+  server.deleteByQuery("*:*");
+  server.commit();
+  long start=System.currentTimeMillis();
+  final int docsPerThread=nDocs / nProducers;
+  Thread[] threads=new Thread[nProducers];
+  for (int threadNum=0; threadNum < nProducers; threadNum++) {
+    final int base=threadNum * docsPerThread;
+    threads[threadNum]=new Thread("add-thread" + i){
+      public void run(){
+        try {
+          indexDocs(base,docsPerThread,maxSleep);
+        }
+ catch (        Exception e) {
+          System.out.println("###############################CAUGHT EXCEPTION");
+          e.printStackTrace();
+          ex=e;
+        }
+      }
+    }
+;
+    threads[threadNum].start();
+  }
+  for (int threadNum=0; threadNum < nProducers; threadNum++) {
+    threads[threadNum].join();
+  }
+  if (sserver != null) {
+    sserver.blockUntilFinished();
+  }
+  long end=System.currentTimeMillis();
+  System.out.println("time=" + (end - start) + " throughput="+ (nDocs * 1000 / (end - start))+ " Exception="+ ex);
+}
