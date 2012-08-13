@@ -1,14 +1,34 @@
 {
   int position=0;
   int lastOffset=0;
+  BytesRef payload=null;
   for (int i=0; i < numProx; i++) {
     final int startOffset;
     final int endOffset;
+    final BytesRef thisPayload;
     if (positions == null) {
       position=-1;
+      thisPayload=null;
     }
  else {
-      position+=positions.readVInt();
+      int code=positions.readVInt();
+      position+=code >>> 1;
+      if ((code & 1) != 0) {
+        final int payloadLength=positions.readVInt();
+        if (payload == null) {
+          payload=new BytesRef();
+          payload.bytes=new byte[payloadLength];
+        }
+ else         if (payload.bytes.length < payloadLength) {
+          payload.grow(payloadLength);
+        }
+        positions.readBytes(payload.bytes,0,payloadLength);
+        payload.length=payloadLength;
+        thisPayload=payload;
+      }
+ else {
+        thisPayload=null;
+      }
     }
     if (offsets == null) {
       startOffset=endOffset=-1;
@@ -18,6 +38,6 @@
       endOffset=startOffset + offsets.readVInt();
       lastOffset=endOffset;
     }
-    addPosition(position,startOffset,endOffset);
+    addPosition(position,startOffset,endOffset,thisPayload);
   }
 }
