@@ -1,32 +1,45 @@
 {
   connManager=new ConnectionManager("ZooKeeperConnection Watcher:" + zkServerAddress,this,zkServerAddress,zkClientTimeout,strat,onReconnect);
-  strat.connect(zkServerAddress,zkClientTimeout,connManager,new ZkUpdate(){
-    @Override public void update(    SolrZooKeeper zooKeeper){
-      SolrZooKeeper oldKeeper=keeper;
-      keeper=zooKeeper;
-      if (oldKeeper != null) {
+  try {
+    strat.connect(zkServerAddress,zkClientTimeout,connManager,new ZkUpdate(){
+      @Override public void update(      SolrZooKeeper zooKeeper){
+        SolrZooKeeper oldKeeper=keeper;
+        keeper=zooKeeper;
         try {
-          oldKeeper.close();
+          closeKeeper(oldKeeper);
         }
- catch (        InterruptedException e) {
-          Thread.currentThread().interrupt();
-          log.error("",e);
-          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
-        }
-      }
-      if (isClosed) {
-        try {
-          SolrZkClient.this.keeper.close();
-        }
- catch (        InterruptedException e) {
-          Thread.currentThread().interrupt();
-          log.error("",e);
-          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+  finally {
+          if (isClosed) {
+            closeKeeper(SolrZkClient.this.keeper);
+          }
         }
       }
     }
-  }
 );
-  connManager.waitForConnected(clientConnectTimeout);
+  }
+ catch (  IOException e) {
+    connManager.close();
+    throw new RuntimeException();
+  }
+catch (  InterruptedException e) {
+    connManager.close();
+    throw new RuntimeException();
+  }
+catch (  TimeoutException e) {
+    connManager.close();
+    throw new RuntimeException();
+  }
+  try {
+    connManager.waitForConnected(clientConnectTimeout);
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    connManager.close();
+    throw new RuntimeException();
+  }
+catch (  TimeoutException e) {
+    connManager.close();
+    throw new RuntimeException();
+  }
   numOpens.incrementAndGet();
 }
