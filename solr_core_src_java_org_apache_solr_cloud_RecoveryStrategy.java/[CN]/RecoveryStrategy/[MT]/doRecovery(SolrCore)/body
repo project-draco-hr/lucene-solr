@@ -46,12 +46,20 @@
   }
   while (!successfulRecovery && !isClosed() && !isInterrupted()) {
     try {
-      zkController.publish(core.getCoreDescriptor(),ZkStateReader.RECOVERING);
       CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
       ZkNodeProps leaderprops=zkStateReader.getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId());
       String leaderBaseUrl=leaderprops.get(ZkStateReader.BASE_URL_PROP);
       String leaderCoreName=leaderprops.get(ZkStateReader.CORE_NAME_PROP);
       String leaderUrl=ZkCoreNodeProps.getCoreUrl(leaderBaseUrl,leaderCoreName);
+      String ourUrl=ZkCoreNodeProps.getCoreUrl(baseUrl,coreName);
+      boolean isLeader=leaderUrl.equals(ourUrl);
+      if (isLeader) {
+        log.warn("We have not yet recovered - but we are now the leader! core=" + coreName);
+        log.info("Finished recovery process. core=" + coreName);
+        zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
+        return;
+      }
+      zkController.publish(core.getCoreDescriptor(),ZkStateReader.RECOVERING);
       sendPrepRecoveryCmd(leaderBaseUrl,leaderCoreName);
       if (firstTime) {
         firstTime=false;
@@ -89,7 +97,7 @@
         retries=INTERRUPTED;
       }
 catch (      Throwable t) {
-        log.error("Error while trying to recover",t);
+        SolrException.log(log,"Error while trying to recover",t);
       }
  finally {
         if (!replayed) {
@@ -103,7 +111,7 @@ catch (      Throwable t) {
       }
     }
  catch (    Throwable t) {
-      log.error("Error while trying to recover. core=" + coreName,t);
+      SolrException.log(log,"Error while trying to recover. core=" + coreName,t);
     }
     if (!successfulRecovery) {
       try {
@@ -113,14 +121,14 @@ catch (      Throwable t) {
           if (retries == INTERRUPTED) {
           }
  else {
-            log.error("Recovery failed - max retries exceeded. core=" + coreName);
+            SolrException.log(log,"Recovery failed - max retries exceeded. core=" + coreName);
             recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
           }
           break;
         }
       }
  catch (      Exception e) {
-        log.error("core=" + coreName,e);
+        SolrException.log(log,"core=" + coreName,e);
       }
       try {
         double loopCount=Math.min(Math.pow(2,retries),600);
