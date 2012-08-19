@@ -1,0 +1,50 @@
+{
+  PageFetcherResult res=new PageFetcherResult();
+  try {
+    if (isDisallowedByRobots(u)) {
+      warn("The URL " + u + " is disallowed by robots.txt and will not be crawled.");
+      res.httpStatus=403;
+      visited.add(u);
+      return res;
+    }
+    res.httpStatus=404;
+    HttpURLConnection conn=(HttpURLConnection)u.openConnection();
+    conn.setRequestProperty("User-Agent","SimplePostTool-crawler/" + VERSION_OF_THIS_TOOL + " (http://lucene.apache.org/solr/)");
+    conn.setRequestProperty("Accept-Encoding","gzip, deflate");
+    conn.connect();
+    res.httpStatus=conn.getResponseCode();
+    if (!normalizeUrlEnding(conn.getURL().toString()).equals(normalizeUrlEnding(u.toString()))) {
+      info("The URL " + u + " caused a redirect to "+ conn.getURL());
+      u=conn.getURL();
+      res.redirectUrl=u;
+      visited.add(u);
+    }
+    if (res.httpStatus == 200) {
+      String rawContentType=conn.getContentType();
+      String type=rawContentType.split(";")[0];
+      if (typeSupported(type)) {
+        String encoding=conn.getContentEncoding();
+        InputStream is;
+        if (encoding != null && encoding.equalsIgnoreCase("gzip")) {
+          is=new GZIPInputStream(conn.getInputStream());
+        }
+ else         if (encoding != null && encoding.equalsIgnoreCase("deflate")) {
+          is=new InflaterInputStream(conn.getInputStream(),new Inflater(true));
+        }
+ else {
+          is=conn.getInputStream();
+        }
+        res.content=inputStreamToByteArray(is);
+        is.close();
+      }
+ else {
+        warn("Skipping URL with unsupported type " + type);
+        res.httpStatus=415;
+      }
+    }
+  }
+ catch (  IOException e) {
+    warn("IOException when reading page from url " + u + ": "+ e.getMessage());
+  }
+  return res;
+}
