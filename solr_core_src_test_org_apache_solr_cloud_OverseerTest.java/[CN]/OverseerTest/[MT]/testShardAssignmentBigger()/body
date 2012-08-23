@@ -4,10 +4,10 @@
   final int coreCount=random().nextInt(100) + 100;
   final int sliceCount=random().nextInt(20) + 1;
   ZkTestServer server=new ZkTestServer(zkDir);
-  System.setProperty(ZkStateReader.NUM_SHARDS_PROP,Integer.toString(sliceCount));
   SolrZkClient zkClient=null;
   ZkStateReader reader=null;
-  final ZkController[] controllers=new ZkController[nodeCount];
+  SolrZkClient overseerClient=null;
+  final MockZKController[] controllers=new MockZKController[nodeCount];
   final ExecutorService[] nodeExecutors=new ExecutorService[nodeCount];
   try {
     server.run();
@@ -15,17 +15,12 @@
     AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
     zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
     zkClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE,true);
+    overseerClient=electNewOverseer(server.getZkAddress());
     reader=new ZkStateReader(zkClient);
     reader.createClusterStateWatchersAndUpdate();
     for (int i=0; i < nodeCount; i++) {
-      controllers[i]=new ZkController(null,server.getZkAddress(),TIMEOUT,10000,"localhost","898" + i,"solr",new CurrentCoreDescriptorProvider(){
-        @Override public List<CoreDescriptor> getCurrentDescriptors(){
-          return null;
-        }
-      }
-);
+      controllers[i]=new MockZKController(server.getZkAddress(),"node" + i,"collection1");
     }
-    System.setProperty("bootstrap_confdir",getFile("solr/collection1/conf").getAbsolutePath());
     for (int i=0; i < nodeCount; i++) {
       nodeExecutors[i]=Executors.newFixedThreadPool(1,new DefaultSolrThreadFactory("testShardAssignment"));
     }
@@ -34,15 +29,9 @@
       final int slot=i;
       Runnable coreStarter=new Runnable(){
         @Override public void run(){
-          final CloudDescriptor collection1Desc=new CloudDescriptor();
-          collection1Desc.setCollectionName("collection1");
-          collection1Desc.setNumShards(sliceCount);
           final String coreName="core" + slot;
-          final CoreDescriptor desc=new CoreDescriptor(null,coreName,"");
-          desc.setCloudDescriptor(collection1Desc);
           try {
-            controllers[slot % nodeCount].preRegister(desc);
-            ids[slot]=controllers[slot % nodeCount].register(coreName,desc);
+            ids[slot]=controllers[slot % nodeCount].publishState(coreName,ZkStateReader.ACTIVE,sliceCount);
           }
  catch (          Throwable e) {
             e.printStackTrace();
@@ -105,14 +94,13 @@
     }
   }
   finally {
-    System.clearProperty(ZkStateReader.NUM_SHARDS_PROP);
-    System.clearProperty("bootstrap_confdir");
     if (DEBUG) {
       if (controllers[0] != null) {
         zkClient.printLayoutToStdOut();
       }
     }
     close(zkClient);
+    close(overseerClient);
     close(reader);
     for (int i=0; i < controllers.length; i++)     if (controllers[i] != null) {
       controllers[i].close();
