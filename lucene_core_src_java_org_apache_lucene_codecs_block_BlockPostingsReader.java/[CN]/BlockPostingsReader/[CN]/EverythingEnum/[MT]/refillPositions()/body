@@ -1,0 +1,48 @@
+{
+  if (posIn.getFilePointer() == lastPosBlockFP) {
+    final int count=posIn.readVInt();
+    int payloadLength=0;
+    payloadByteUpto=0;
+    for (int i=0; i < count; i++) {
+      int code=posIn.readVInt();
+      if (indexHasPayloads) {
+        if ((code & 1) != 0) {
+          payloadLength=posIn.readVInt();
+        }
+        payloadLengthBuffer[i]=payloadLength;
+        posDeltaBuffer[i]=code >>> 1;
+        if (payloadLength != 0) {
+          if (payloadByteUpto + payloadLength > payloadBytes.length) {
+            payloadBytes=ArrayUtil.grow(payloadBytes,payloadByteUpto + payloadLength);
+          }
+          posIn.readBytes(payloadBytes,payloadByteUpto,payloadLength);
+          payloadByteUpto+=payloadLength;
+        }
+      }
+ else {
+        posDeltaBuffer[i]=code;
+      }
+      if (indexHasOffsets) {
+        offsetStartDeltaBuffer[i]=posIn.readVInt();
+        offsetLengthBuffer[i]=posIn.readVInt();
+      }
+    }
+    payloadByteUpto=0;
+  }
+ else {
+    forUtil.readBlock(posIn,encoded,posDeltaBuffer);
+    if (indexHasPayloads) {
+      forUtil.readBlock(payIn,encoded,payloadLengthBuffer);
+      int numBytes=payIn.readVInt();
+      if (numBytes > payloadBytes.length) {
+        payloadBytes=ArrayUtil.grow(payloadBytes,numBytes);
+      }
+      payIn.readBytes(payloadBytes,0,numBytes);
+      payloadByteUpto=0;
+    }
+    if (indexHasOffsets) {
+      forUtil.readBlock(payIn,encoded,offsetStartDeltaBuffer);
+      forUtil.readBlock(payIn,encoded,offsetLengthBuffer);
+    }
+  }
+}

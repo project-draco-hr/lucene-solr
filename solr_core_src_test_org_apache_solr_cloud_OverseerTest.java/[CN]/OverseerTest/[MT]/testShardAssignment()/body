@@ -1,47 +1,31 @@
 {
   String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
   ZkTestServer server=new ZkTestServer(zkDir);
-  ZkController zkController=null;
+  MockZKController zkController=null;
   SolrZkClient zkClient=null;
+  SolrZkClient overseerClient=null;
   try {
     server.run();
     AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
     AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
     zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
     zkClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE,true);
+    overseerClient=electNewOverseer(server.getZkAddress());
     ZkStateReader reader=new ZkStateReader(zkClient);
     reader.createClusterStateWatchersAndUpdate();
-    zkController=new ZkController(null,server.getZkAddress(),TIMEOUT,10000,"localhost","8983","solr",new CurrentCoreDescriptorProvider(){
-      @Override public List<CoreDescriptor> getCurrentDescriptors(){
-        return null;
-      }
-    }
-);
-    System.setProperty("bootstrap_confdir",getFile("solr/collection1/conf").getAbsolutePath());
+    zkController=new MockZKController(server.getZkAddress(),"localhost","collection1");
     final int numShards=6;
-    final String[] ids=new String[numShards];
     for (int i=0; i < numShards; i++) {
-      CloudDescriptor collection1Desc=new CloudDescriptor();
-      collection1Desc.setNumShards(3);
-      collection1Desc.setCollectionName("collection1");
-      CoreDescriptor desc1=new CoreDescriptor(null,"core" + (i + 1),"");
-      desc1.setCloudDescriptor(collection1Desc);
-      zkController.preRegister(desc1);
-      ids[i]=zkController.register("core" + (i + 1),desc1);
+      assertNotNull("shard got no id?",zkController.publishState("core" + (i + 1),ZkStateReader.ACTIVE,3));
     }
-    assertEquals("shard1",ids[0]);
-    assertEquals("shard2",ids[1]);
-    assertEquals("shard3",ids[2]);
-    assertEquals("shard1",ids[3]);
-    assertEquals("shard2",ids[4]);
-    assertEquals("shard3",ids[5]);
-    waitForCollections(reader,"collection1");
+    assertEquals(2,reader.getClusterState().getSlice("collection1","shard1").getShards().size());
+    assertEquals(2,reader.getClusterState().getSlice("collection1","shard2").getShards().size());
+    assertEquals(2,reader.getClusterState().getSlice("collection1","shard3").getShards().size());
     assertNotNull(reader.getLeaderUrl("collection1","shard1",15000));
     assertNotNull(reader.getLeaderUrl("collection1","shard2",15000));
     assertNotNull(reader.getLeaderUrl("collection1","shard3",15000));
   }
   finally {
-    System.clearProperty("bootstrap_confdir");
     if (DEBUG) {
       if (zkController != null) {
         zkClient.printLayoutToStdOut();
@@ -51,6 +35,7 @@
     if (zkController != null) {
       zkController.close();
     }
+    close(overseerClient);
     server.shutdown();
   }
 }
