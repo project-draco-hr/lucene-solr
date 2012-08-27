@@ -162,51 +162,75 @@
     }
     final Map<Integer,JoinScore> docToJoinScore=new HashMap<Integer,JoinScore>();
     if (multipleValuesPerDocument) {
-      toSearcher.search(new MatchAllDocsQuery(),new Collector(){
-        private DocTermOrds docTermOrds;
-        private TermsEnum docTermsEnum;
-        private DocTermOrds.TermOrdsIterator reuse;
-        private int docBase;
-        public void collect(        int doc) throws IOException {
-          if (docTermOrds.isEmpty()) {
-            return;
-          }
-          reuse=docTermOrds.lookup(doc,reuse);
-          int[] buffer=new int[5];
-          int chunk;
-          do {
-            chunk=reuse.read(buffer);
-            if (chunk == 0) {
-              return;
-            }
-            for (int idx=0; idx < chunk; idx++) {
-              int key=buffer[idx];
-              docTermsEnum.seekExact((long)key);
-              JoinScore joinScore=joinValueToJoinScores.get(docTermsEnum.term());
-              if (joinScore == null) {
-                continue;
-              }
-              Integer basedDoc=docBase + doc;
-              if (!docToJoinScore.containsKey(basedDoc)) {
-                docToJoinScore.put(basedDoc,joinScore);
+      if (scoreDocsInOrder) {
+        AtomicReader slowCompositeReader=SlowCompositeReaderWrapper.wrap(toSearcher.getIndexReader());
+        Terms terms=slowCompositeReader.terms(toField);
+        if (terms != null) {
+          DocsEnum docsEnum=null;
+          TermsEnum termsEnum=null;
+          SortedSet<BytesRef> joinValues=new TreeSet<BytesRef>(BytesRef.getUTF8SortedAsUnicodeComparator());
+          joinValues.addAll(joinValueToJoinScores.keySet());
+          for (          BytesRef joinValue : joinValues) {
+            termsEnum=terms.iterator(termsEnum);
+            if (termsEnum.seekExact(joinValue,true)) {
+              docsEnum=termsEnum.docs(slowCompositeReader.getLiveDocs(),docsEnum,0);
+              JoinScore joinScore=joinValueToJoinScores.get(joinValue);
+              for (int doc=docsEnum.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=docsEnum.nextDoc()) {
+                if (!docToJoinScore.containsKey(doc)) {
+                  docToJoinScore.put(doc,joinScore);
+                }
               }
             }
           }
- while (chunk >= buffer.length);
-        }
-        public void setNextReader(        AtomicReaderContext context) throws IOException {
-          docBase=context.docBase;
-          docTermOrds=FieldCache.DEFAULT.getDocTermOrds(context.reader(),toField);
-          docTermsEnum=docTermOrds.getOrdTermsEnum(context.reader());
-          reuse=null;
-        }
-        public boolean acceptsDocsOutOfOrder(){
-          return false;
-        }
-        public void setScorer(        Scorer scorer){
         }
       }
+ else {
+        toSearcher.search(new MatchAllDocsQuery(),new Collector(){
+          private DocTermOrds docTermOrds;
+          private TermsEnum docTermsEnum;
+          private DocTermOrds.TermOrdsIterator reuse;
+          private int docBase;
+          public void collect(          int doc) throws IOException {
+            if (docTermOrds.isEmpty()) {
+              return;
+            }
+            reuse=docTermOrds.lookup(doc,reuse);
+            int[] buffer=new int[5];
+            int chunk;
+            do {
+              chunk=reuse.read(buffer);
+              if (chunk == 0) {
+                return;
+              }
+              for (int idx=0; idx < chunk; idx++) {
+                int key=buffer[idx];
+                docTermsEnum.seekExact((long)key);
+                JoinScore joinScore=joinValueToJoinScores.get(docTermsEnum.term());
+                if (joinScore == null) {
+                  continue;
+                }
+                Integer basedDoc=docBase + doc;
+                if (!docToJoinScore.containsKey(basedDoc)) {
+                  docToJoinScore.put(basedDoc,joinScore);
+                }
+              }
+            }
+ while (chunk >= buffer.length);
+          }
+          public void setNextReader(          AtomicReaderContext context) throws IOException {
+            docBase=context.docBase;
+            docTermOrds=FieldCache.DEFAULT.getDocTermOrds(context.reader(),toField);
+            docTermsEnum=docTermOrds.getOrdTermsEnum(context.reader());
+            reuse=null;
+          }
+          public boolean acceptsDocsOutOfOrder(){
+            return false;
+          }
+          public void setScorer(          Scorer scorer){
+          }
+        }
 );
+      }
     }
  else {
       toSearcher.search(new MatchAllDocsQuery(),new Collector(){
