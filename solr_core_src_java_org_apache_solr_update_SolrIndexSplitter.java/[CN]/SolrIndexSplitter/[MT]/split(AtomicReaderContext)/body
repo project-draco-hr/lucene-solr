@@ -1,0 +1,30 @@
+{
+  AtomicReader reader=readerContext.reader();
+  OpenBitSet[] docSets=new OpenBitSet[ranges.size()];
+  for (int i=0; i < docSets.length; i++) {
+    docSets[i]=new OpenBitSet(reader.maxDoc());
+  }
+  Bits liveDocs=reader.getLiveDocs();
+  Fields fields=reader.fields();
+  Terms terms=fields == null ? null : fields.terms(field.getName());
+  TermsEnum termsEnum=terms == null ? null : terms.iterator(null);
+  if (termsEnum == null)   return docSets;
+  BytesRef term=null;
+  DocsEnum docsEnum=null;
+  for (; ; ) {
+    term=termsEnum.next();
+    if (term == null)     break;
+    int hash=Hash.murmurhash3_x86_32(term.bytes,term.offset,term.length,0);
+    docsEnum=termsEnum.docs(liveDocs,docsEnum,0x0);
+    for (; ; ) {
+      int doc=docsEnum.nextDoc();
+      if (doc == DocsEnum.NO_MORE_DOCS)       break;
+      for (int i=0; i < rangesArr.length; i++) {
+        if (rangesArr[i].includes(hash)) {
+          docSets[i].fastSet(doc);
+        }
+      }
+    }
+  }
+  return docSets;
+}
