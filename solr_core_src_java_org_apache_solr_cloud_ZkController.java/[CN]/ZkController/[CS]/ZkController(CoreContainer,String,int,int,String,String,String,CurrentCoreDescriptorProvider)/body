@@ -27,7 +27,12 @@
         List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
         if (descriptors != null) {
           for (          CoreDescriptor descriptor : descriptors) {
-            register(descriptor.getName(),descriptor,true);
+            try {
+              register(descriptor.getName(),descriptor,true,true);
+            }
+ catch (            Throwable t) {
+              SolrException.log(log,"Error registering SolrCore",t);
+            }
           }
         }
       }
@@ -38,6 +43,39 @@
 catch (      Exception e) {
         SolrException.log(log,"",e);
         throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+  }
+);
+  zkClient.getZkClientConnectionStrategy().addDisconnectedListener(new ZkClientConnectionStrategy.DisconnectedListener(){
+    @Override public void disconnected(){
+      List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
+      if (descriptors != null) {
+        for (        CoreDescriptor descriptor : descriptors) {
+          descriptor.getCloudDescriptor().isLeader=false;
+        }
+      }
+    }
+  }
+);
+  zkClient.getZkClientConnectionStrategy().addConnectedListener(new ZkClientConnectionStrategy.ConnectedListener(){
+    @Override public void connected(){
+      List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
+      if (descriptors != null) {
+        for (        CoreDescriptor descriptor : descriptors) {
+          CloudDescriptor cloudDesc=descriptor.getCloudDescriptor();
+          String leaderUrl;
+          try {
+            leaderUrl=getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId()).getCoreUrl();
+          }
+ catch (          InterruptedException e) {
+            throw new RuntimeException();
+          }
+          String ourUrl=ZkCoreNodeProps.getCoreUrl(getBaseUrl(),descriptor.getName());
+          boolean isLeader=leaderUrl.equals(ourUrl);
+          log.info("SolrCore connected to ZooKeeper - we are " + ourUrl + " and leader is "+ leaderUrl);
+          cloudDesc.isLeader=isLeader;
+        }
       }
     }
   }

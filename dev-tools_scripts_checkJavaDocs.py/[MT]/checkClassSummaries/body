@@ -1,0 +1,75 @@
+def checkClassSummaries(fullPath):
+    f = open(fullPath, encoding='UTF-8')
+    missing = []
+    broken = []
+    inThing = False
+    lastCaption = None
+    lastItem = None
+    desc = None
+    foundMethodDetail = False
+    lastMethodAnchor = None
+    for line in f.readlines():
+        m = reMethodDetail.search(line)
+        if (m is not None):
+            foundMethodDetail = True
+            continue
+        if foundMethodDetail:
+            m = reMethodDetailAnchor.search(line)
+            if (m is not None):
+                lastMethodAnchor = m.group(1)
+                continue
+            m = reMethodOverridden.search(line)
+            if ((m is not None) and (('Methods', lastMethodAnchor) in missing)):
+                missing.remove(('Methods', lastMethodAnchor))
+        m = reCaption.search(line)
+        if (m is not None):
+            lastCaption = m.group(1)
+        m = reTDLastNested.search(line)
+        if (m is not None):
+            lastItem = m.group(1)
+        else:
+            m = reTDLast.search(line)
+            if (m is not None):
+                lastItem = m.group(1)
+            else:
+                m = reColOne.search(line)
+                if (m is not None):
+                    lastItem = m.group(1)
+        lineLower = line.strip().lower()
+        if (lineLower.find('<tr class="') != (-1)):
+            inThing = True
+            hasDesc = False
+            continue
+        if inThing:
+            if (lineLower.find('</tr>') != (-1)):
+                if (not hasDesc):
+                    missing.append((lastCaption, lastItem))
+                inThing = False
+                continue
+            else:
+                if (line.find('<div class="block">') != (-1)):
+                    desc = []
+                if (desc is not None):
+                    desc.append(line)
+                    if (line.find('</div>') != (-1)):
+                        desc = ''.join(desc)
+                        try:
+                            verifyHTML(desc)
+                        except RuntimeError as e:
+                            broken.append((lastCaption, lastItem, str(e)))
+                        desc = desc.replace('<div class="block">', '')
+                        desc = desc.replace('</div>', '')
+                        desc = desc.strip()
+                        hasDesc = (len(desc) > 0)
+                        desc = None
+    f.close()
+    if ((len(missing) > 0) or (len(broken) > 0)):
+        print ()
+        print fullPath
+        for (caption, item) in missing:
+            print ('  missing %s: %s' % (caption, item))
+        for (caption, item, why) in broken:
+            print ('  broken HTML: %s: %s: %s' % (caption, item, why))
+        return True
+    else:
+        return False

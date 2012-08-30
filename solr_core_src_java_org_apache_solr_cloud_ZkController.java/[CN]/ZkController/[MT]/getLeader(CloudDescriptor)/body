@@ -1,0 +1,24 @@
+{
+  String collection=cloudDesc.getCollectionName();
+  String shardId=cloudDesc.getShardId();
+  String leaderUrl;
+  try {
+    leaderUrl=getLeaderProps(collection,cloudDesc.getShardId()).getCoreUrl();
+    String clusterStateLeader=zkStateReader.getLeaderUrl(collection,shardId,30000);
+    int tries=0;
+    while (!leaderUrl.equals(clusterStateLeader)) {
+      if (tries == 60) {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"There is conflicting information about the leader of shard: " + cloudDesc.getShardId() + " our state says:"+ clusterStateLeader+ " but zookeeper says:"+ leaderUrl);
+      }
+      Thread.sleep(1000);
+      tries++;
+      clusterStateLeader=zkStateReader.getLeaderUrl(collection,shardId,30000);
+      leaderUrl=getLeaderProps(collection,cloudDesc.getShardId()).getCoreUrl();
+    }
+  }
+ catch (  Exception e) {
+    log.error("Error getting leader from zk",e);
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error getting leader from zk",e);
+  }
+  return leaderUrl;
+}
