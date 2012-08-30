@@ -1,33 +1,33 @@
 {
   super.setUp();
-  int retries=5;
-  for (int i=0; i < retries; i++) {
-    try {
-      ServerSocket server=new ServerSocket(0);
-      try {
-        port=server.getLocalPort();
+  String oldHost=System.getProperty("java.rmi.server.hostname");
+  try {
+    System.setProperty("java.rmi.server.hostname","127.0.0.1");
+class LocalhostRMIServerSocketFactory implements RMIServerSocketFactory {
+      ServerSocket socket;
+      @Override public ServerSocket createServerSocket(      int port) throws IOException {
+        socket=new ServerSocket();
+        socket.bind(new InetSocketAddress("127.0.0.1",port));
+        return socket;
       }
-  finally {
-        server.close();
-      }
-      try {
-        LocateRegistry.createRegistry(port);
-      }
- catch (      RemoteException e) {
-        throw e;
-      }
-      String url="service:jmx:rmi:///jndi/rmi://:" + port + "/solrjmx";
-      JmxConfiguration config=new JmxConfiguration(true,null,url,null);
-      monitoredMap=new JmxMonitoredMap<String,SolrInfoMBean>("","",config);
-      JMXServiceURL u=new JMXServiceURL(url);
-      connector=JMXConnectorFactory.connect(u);
-      mbeanServer=connector.getMBeanServerConnection();
-      break;
     }
- catch (    Exception e) {
-      if (retries == (i + 1)) {
-        throw e;
-      }
+    ;
+    LocalhostRMIServerSocketFactory factory=new LocalhostRMIServerSocketFactory();
+    LocateRegistry.createRegistry(0,null,factory);
+    port=factory.socket.getLocalPort();
+    String url="service:jmx:rmi://127.0.0.1:" + port + "/jndi/rmi://127.0.0.1:"+ port+ "/solrjmx";
+    JmxConfiguration config=new JmxConfiguration(true,null,url,null);
+    monitoredMap=new JmxMonitoredMap<String,SolrInfoMBean>("","",config,Collections.singletonMap(RMIConnectorServer.RMI_SERVER_SOCKET_FACTORY_ATTRIBUTE,factory));
+    JMXServiceURL u=new JMXServiceURL(url);
+    connector=JMXConnectorFactory.connect(u);
+    mbeanServer=connector.getMBeanServerConnection();
+  }
+  finally {
+    if (oldHost == null) {
+      System.clearProperty("java.rmi.server.hostname");
+    }
+ else {
+      System.setProperty("java.rmi.server.hostname",oldHost);
     }
   }
 }
