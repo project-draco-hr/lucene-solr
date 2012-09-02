@@ -3,41 +3,17 @@
   fieldsWriter.startDocument();
   fieldCount=0;
   final int thisFieldGen=fieldGen++;
-  for (  IndexableField field : docState.doc) {
+  for (  IndexableField field : docState.doc.indexableFields()) {
     final String fieldName=field.name();
-    final int hashPos=fieldName.hashCode() & hashMask;
-    DocFieldProcessorPerField fp=fieldHash[hashPos];
-    while (fp != null && !fp.fieldInfo.name.equals(fieldName)) {
-      fp=fp.next;
-    }
-    if (fp == null) {
-      FieldInfo fi=fieldInfos.addOrUpdate(fieldName,field.fieldType());
-      fp=new DocFieldProcessorPerField(this,fi);
-      fp.next=fieldHash[hashPos];
-      fieldHash[hashPos]=fp;
-      totalFieldCount++;
-      if (totalFieldCount >= fieldHash.length / 2) {
-        rehash();
-      }
-    }
- else {
-      fieldInfos.addOrUpdate(fp.fieldInfo.name,field.fieldType());
-    }
-    if (thisFieldGen != fp.lastGen) {
-      fp.fieldCount=0;
-      if (fieldCount == fields.length) {
-        final int newSize=fields.length * 2;
-        DocFieldProcessorPerField newArray[]=new DocFieldProcessorPerField[newSize];
-        System.arraycopy(fields,0,newArray,0,fieldCount);
-        fields=newArray;
-      }
-      fields[fieldCount++]=fp;
-      fp.lastGen=thisFieldGen;
-    }
+    IndexableFieldType ft=field.fieldType();
+    DocFieldProcessorPerField fp=processField(fieldInfos,thisFieldGen,fieldName,ft);
     fp.addField(field);
-    if (field.fieldType().stored()) {
-      fieldsWriter.addField(field,fp.fieldInfo);
-    }
+  }
+  for (  StorableField field : docState.doc.storableFields()) {
+    final String fieldName=field.name();
+    IndexableFieldType ft=field.fieldType();
+    DocFieldProcessorPerField fp=processField(fieldInfos,thisFieldGen,fieldName,ft);
+    fieldsWriter.addField(field,fp.fieldInfo);
     final DocValues.Type dvType=field.fieldType().docValueType();
     if (dvType != null) {
       DocValuesConsumerHolder docValuesConsumer=docValuesConsumer(dvType,docState,fp.fieldInfo);
