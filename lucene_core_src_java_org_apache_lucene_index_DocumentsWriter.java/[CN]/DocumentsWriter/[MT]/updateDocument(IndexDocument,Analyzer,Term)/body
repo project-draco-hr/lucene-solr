@@ -1,2 +1,27 @@
 {
+  boolean maybeMerge=preUpdate();
+  final ThreadState perThread=flushControl.obtainAndLock();
+  final DocumentsWriterPerThread flushingDWPT;
+  try {
+    if (!perThread.isActive()) {
+      ensureOpen();
+      throw new IllegalStateException("perThread is not active but we are still open");
+    }
+    final DocumentsWriterPerThread dwpt=perThread.dwpt;
+    try {
+      dwpt.updateDocument(doc,analyzer,delTerm);
+      numDocsInRAM.incrementAndGet();
+    }
+  finally {
+      if (dwpt.checkAndResetHasAborted()) {
+        flushControl.doOnAbort(perThread);
+      }
+    }
+    final boolean isUpdate=delTerm != null;
+    flushingDWPT=flushControl.doAfterDocument(perThread,isUpdate);
+  }
+  finally {
+    perThread.unlock();
+  }
+  return postUpdate(flushingDWPT,maybeMerge);
 }
