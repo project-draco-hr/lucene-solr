@@ -1,9 +1,9 @@
 {
-  int retries=300;
+  int timeout=Integer.parseInt(leaderVoteWait);
+  long timeoutAt=System.currentTimeMillis() + timeout;
   boolean tryAgain=true;
   Slice slices=zkController.getClusterState().getSlice(collection,shardId);
-  log.info("Running the leader process. afterExperiation=" + afterExpiration);
-  while (tryAgain || slices == null) {
+  while (true && !isClosed) {
     if (slices != null) {
       Map<String,ZkNodeProps> shards=slices.getShards();
       Set<Entry<String,ZkNodeProps>> entrySet=shards.entrySet();
@@ -17,23 +17,22 @@
       }
       if ((afterExpiration || !weAreReplacement) && found >= slices.getShards().size()) {
         log.info("Enough replicas found to continue.");
-        tryAgain=false;
+        break;
       }
  else       if (!afterExpiration && found >= slices.getShards().size() - 1) {
         log.info("Enough replicas found to continue.");
-        tryAgain=false;
+        break;
       }
  else {
-        log.info("Waiting until we see more replicas up");
+        log.info("Waiting until we see more replicas up: total=" + slices.getShards().size() + " found="+ found+ " timeoutin="+ (timeoutAt - System.currentTimeMillis()));
       }
-      retries--;
-      if (retries == 0) {
+      if (System.currentTimeMillis() > timeoutAt) {
         log.info("Was waiting for replicas to come up, but they are taking too long - assuming they won't come back till later");
         break;
       }
     }
     if (tryAgain) {
-      Thread.sleep(1000);
+      Thread.sleep(500);
       slices=zkController.getClusterState().getSlice(collection,shardId);
     }
   }

@@ -26,25 +26,37 @@
   }
   List<Long> startingVersions=ulog.getStartingVersions();
   if (startingVersions != null && recoveringAfterStartup) {
-    int oldIdx=0;
-    long firstStartingVersion=startingVersions.size() > 0 ? startingVersions.get(0) : 0;
-    for (; oldIdx < recentVersions.size(); oldIdx++) {
-      if (recentVersions.get(oldIdx) == firstStartingVersion)       break;
+    try {
+      int oldIdx=0;
+      long firstStartingVersion=startingVersions.size() > 0 ? startingVersions.get(0) : 0;
+      for (; oldIdx < recentVersions.size(); oldIdx++) {
+        if (recentVersions.get(oldIdx) == firstStartingVersion)         break;
+      }
+      if (oldIdx > 0) {
+        log.info("####### Found new versions added after startup: num=" + oldIdx);
+        log.info("###### currentVersions=" + recentVersions);
+      }
+      log.info("###### startupVersions=" + startingVersions);
     }
-    if (oldIdx > 0) {
-      log.info("####### Found new versions added after startup: num=" + oldIdx);
-      log.info("###### currentVersions=" + recentVersions);
+ catch (    Throwable t) {
+      SolrException.log(log,"Error getting recent versions. core=" + coreName,t);
+      recentVersions=new ArrayList<Long>(0);
     }
-    log.info("###### startupVersions=" + startingVersions);
   }
   if (recoveringAfterStartup) {
     recentVersions=startingVersions;
-    if ((ulog.getStartingOperation() & UpdateLog.FLAG_GAP) != 0) {
-      log.info("Looks like a previous replication recovery did not complete - skipping peer sync. core=" + coreName);
+    try {
+      if ((ulog.getStartingOperation() & UpdateLog.FLAG_GAP) != 0) {
+        log.info("Looks like a previous replication recovery did not complete - skipping peer sync. core=" + coreName);
+        firstTime=false;
+      }
+    }
+ catch (    Throwable t) {
+      SolrException.log(log,"Error trying to get ulog starting operation. core=" + coreName,t);
       firstTime=false;
     }
   }
-  while (!successfulRecovery && !isClosed() && !isInterrupted()) {
+  while (!successfulRecovery && !isInterrupted()) {
     try {
       CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
       ZkNodeProps leaderprops=zkStateReader.getLeaderProps(cloudDesc.getCollectionName(),cloudDesc.getShardId());
@@ -93,6 +105,7 @@
         zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
         close=true;
         successfulRecovery=true;
+        recoveryListener.recovered();
       }
  catch (      InterruptedException e) {
         Thread.currentThread().interrupt();
@@ -119,9 +132,14 @@ catch (      Throwable t) {
     if (!successfulRecovery) {
       try {
         log.error("Recovery failed - trying again... core=" + coreName);
+        if (isClosed()) {
+          retries=INTERRUPTED;
+        }
         retries++;
         if (retries >= MAX_RETRIES) {
           if (retries == INTERRUPTED) {
+            SolrException.log(log,"Recovery failed - interrupted. core=" + coreName);
+            recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
           }
  else {
             SolrException.log(log,"Recovery failed - max retries exceeded. core=" + coreName);
@@ -130,7 +148,7 @@ catch (      Throwable t) {
           break;
         }
       }
- catch (      Exception e) {
+ catch (      Throwable e) {
         SolrException.log(log,"core=" + coreName,e);
       }
       try {
