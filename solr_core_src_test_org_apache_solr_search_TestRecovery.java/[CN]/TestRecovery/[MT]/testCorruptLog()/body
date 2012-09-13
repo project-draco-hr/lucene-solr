@@ -1,25 +1,6 @@
 {
   try {
     DirectUpdateHandler2.commitOnClose=false;
-    final Semaphore logReplay=new Semaphore(0);
-    final Semaphore logReplayFinish=new Semaphore(0);
-    UpdateLog.testing_logReplayHook=new Runnable(){
-      @Override public void run(){
-        try {
-          assertTrue(logReplay.tryAcquire(timeout,TimeUnit.SECONDS));
-        }
- catch (        Exception e) {
-          throw new RuntimeException(e);
-        }
-      }
-    }
-;
-    UpdateLog.testing_logReplayFinishHook=new Runnable(){
-      @Override public void run(){
-        logReplayFinish.release();
-      }
-    }
-;
     File logDir=h.getCore().getUpdateHandler().getUpdateLog().getLogDir();
     clearIndex();
     assertU(commit());
@@ -34,8 +15,6 @@
     raf.seek(0);
     raf.write(new byte[(int)len]);
     raf.close();
-    logReplay.release(1000);
-    logReplayFinish.release(1);
     ignoreException("Failure to open existing log file");
     createCore();
     resetExceptionIgnores();
@@ -44,6 +23,8 @@
     updateJ(jsonAdd(sdoc("id","G5","_version_","105")),params(DISTRIB_UPDATE_PARAM,FROM_LEADER));
     updateJ(jsonAdd(sdoc("id","G6","_version_","106")),params(DISTRIB_UPDATE_PARAM,FROM_LEADER));
     assertJQ(req("qt","/get","getVersions","3"),"/versions==[106,105,104]");
+    assertU(commit());
+    assertJQ(req("q","*:*"),"/response/numFound==3");
   }
   finally {
     DirectUpdateHandler2.commitOnClose=true;
