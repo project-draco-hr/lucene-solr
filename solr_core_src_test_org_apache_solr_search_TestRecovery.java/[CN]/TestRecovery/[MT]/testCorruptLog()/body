@@ -1,0 +1,53 @@
+{
+  try {
+    DirectUpdateHandler2.commitOnClose=false;
+    final Semaphore logReplay=new Semaphore(0);
+    final Semaphore logReplayFinish=new Semaphore(0);
+    UpdateLog.testing_logReplayHook=new Runnable(){
+      @Override public void run(){
+        try {
+          assertTrue(logReplay.tryAcquire(timeout,TimeUnit.SECONDS));
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    UpdateLog.testing_logReplayFinishHook=new Runnable(){
+      @Override public void run(){
+        logReplayFinish.release();
+      }
+    }
+;
+    File logDir=h.getCore().getUpdateHandler().getUpdateLog().getLogDir();
+    clearIndex();
+    assertU(commit());
+    assertU(adoc("id","G1"));
+    assertU(adoc("id","G2"));
+    assertU(adoc("id","G3"));
+    h.close();
+    String[] files=UpdateLog.getLogList(logDir);
+    Arrays.sort(files);
+    RandomAccessFile raf=new RandomAccessFile(new File(logDir,files[files.length - 1]),"rw");
+    long len=raf.length();
+    raf.seek(0);
+    raf.write(new byte[(int)len]);
+    raf.close();
+    logReplay.release(1000);
+    logReplayFinish.release(1);
+    ignoreException("Failure to open existing log file");
+    createCore();
+    resetExceptionIgnores();
+    assertJQ(req("q","*:*"),"/response/numFound==0");
+    updateJ(jsonAdd(sdoc("id","G4","_version_","104")),params(DISTRIB_UPDATE_PARAM,FROM_LEADER));
+    updateJ(jsonAdd(sdoc("id","G5","_version_","105")),params(DISTRIB_UPDATE_PARAM,FROM_LEADER));
+    updateJ(jsonAdd(sdoc("id","G6","_version_","106")),params(DISTRIB_UPDATE_PARAM,FROM_LEADER));
+    assertJQ(req("qt","/get","getVersions","3"),"/versions==[106,105,104]");
+  }
+  finally {
+    DirectUpdateHandler2.commitOnClose=true;
+    UpdateLog.testing_logReplayHook=null;
+    UpdateLog.testing_logReplayFinishHook=null;
+  }
+}
