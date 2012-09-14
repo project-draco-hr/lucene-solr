@@ -1,25 +1,32 @@
 {
-  System.setProperty("zkClientTimeout","500");
+  System.setProperty("zkClientTimeout",Integer.toString(ZkTestServer.TICK_TIME * 2 + 100));
   String leader=getLeader();
   int leaderPort=getLeaderPort(leader);
-  containerMap.get(leaderPort).getZkController().getZkClient().getSolrZooKeeper().pauseCnxn(2000);
+  ZkController zkController=containerMap.get(leaderPort).getZkController();
+  zkController.getZkClient().getSolrZooKeeper().pauseCnxn(zkController.getClientTimeout() + 100);
   for (int i=0; i < 60; i++) {
     if (leaderPort != getLeaderPort(getLeader())) {
       break;
     }
     Thread.sleep(100);
   }
+  Thread.sleep(ZkTestServer.TICK_TIME * 2 + 100);
   if (VERBOSE)   System.out.println("kill everyone");
   for (  Map.Entry<Integer,CoreContainer> entry : containerMap.entrySet()) {
     if (entry.getKey() != leaderPort) {
       entry.getValue().shutdown();
     }
   }
-  for (int i=0; i < 60; i++) {
-    if (leaderPort == getLeaderPort(getLeader())) {
-      break;
+  for (int i=0; i < 320; i++) {
+    try {
+      if (leaderPort == getLeaderPort(getLeader())) {
+        break;
+      }
+      Thread.sleep(100);
     }
-    Thread.sleep(100);
+ catch (    Exception e) {
+      continue;
+    }
   }
   assertEquals(leaderPort,getLeaderPort(getLeader()));
 }

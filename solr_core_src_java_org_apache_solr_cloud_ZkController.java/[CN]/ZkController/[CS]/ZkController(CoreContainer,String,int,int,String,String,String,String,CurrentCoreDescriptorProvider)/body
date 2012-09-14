@@ -12,20 +12,21 @@
   this.nodeName=this.hostName + ':' + this.localHostPort+ '_'+ this.localHostContext;
   this.baseURL=this.localHost + ":" + this.localHostPort+ "/"+ this.localHostContext;
   this.leaderVoteWait=leaderVoteWait;
+  this.clientTimeout=zkClientTimeout;
   zkClient=new SolrZkClient(zkServerAddress,zkClientTimeout,zkClientConnectTimeout,new OnReconnect(){
     public void command(){
       try {
+        markAllAsNotLeader(registerOnReconnect);
         ShardHandler shardHandler;
         String adminPath;
         shardHandler=cc.getShardHandlerFactory().getShardHandler();
         adminPath=cc.getAdminPath();
-        ExecutorUtil.shutdownAndAwaitTermination(cc.getCmdDistribExecutor());
-        cc.newCmdDistribExecutor();
+        cc.cancelCoreRecoveries();
+        registerAllCoresAsDown(registerOnReconnect,false);
         ZkController.this.overseer=new Overseer(shardHandler,adminPath,zkStateReader);
         ElectionContext context=new OverseerElectionContext(zkClient,overseer,getNodeName());
         overseerElector.joinElection(context);
         zkStateReader.createClusterStateWatchersAndUpdate();
-        registerAllCoresAsDown(registerOnReconnect);
         createEphemeralLiveNode();
         List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
         if (descriptors != null) {

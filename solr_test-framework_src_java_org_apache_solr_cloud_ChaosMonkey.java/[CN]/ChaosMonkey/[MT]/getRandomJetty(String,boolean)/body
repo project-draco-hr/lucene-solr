@@ -39,8 +39,42 @@
     List<CloudJettyRunner> jetties=shardToJetty.get(slice);
     int index=random.nextInt(jetties.size());
     cjetty=jetties.get(index);
-    ZkNodeProps leader=zkStateReader.getLeaderProps(collection,slice);
-    boolean isLeader=leader.getStr(ZkStateReader.NODE_NAME_PROP).equals(jetties.get(index).nodeName);
+    ZkNodeProps leader=null;
+    try {
+      leader=zkStateReader.getLeaderProps(collection,slice);
+    }
+ catch (    Throwable t) {
+      log.error("Could not get leader",t);
+      return null;
+    }
+    FilterHolder fh=cjetty.jetty.getDispatchFilter();
+    if (fh == null) {
+      monkeyLog("selected jetty not running correctly - skip");
+      return null;
+    }
+    SolrDispatchFilter df=((SolrDispatchFilter)fh.getFilter());
+    if (df == null) {
+      monkeyLog("selected jetty not running correctly - skip");
+      return null;
+    }
+    CoreContainer cores=df.getCores();
+    if (cores == null) {
+      monkeyLog("selected jetty not running correctly - skip");
+      return null;
+    }
+    SolrCore core=cores.getCore(leader.getStr(ZkStateReader.CORE_NAME_PROP));
+    if (core == null) {
+      monkeyLog("selected jetty not running correctly - skip");
+      return null;
+    }
+    boolean rtIsLeader;
+    try {
+      rtIsLeader=core.getCoreDescriptor().getCloudDescriptor().isLeader();
+    }
+  finally {
+      core.close();
+    }
+    boolean isLeader=leader.getStr(ZkStateReader.NODE_NAME_PROP).equals(jetties.get(index).nodeName) || rtIsLeader;
     if (!aggressivelyKillLeaders && isLeader) {
       monkeyLog("abort! I don't kill leaders");
       return null;

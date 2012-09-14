@@ -1,10 +1,10 @@
 {
-  log.info("Running the leader process. afterExpiration=" + afterExpiration);
+  log.info("Running the leader process.");
   String coreName=leaderProps.getStr(ZkStateReader.CORE_NAME_PROP);
   ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,"leader",ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
   Overseer.getInQueue(zkClient).offer(ZkStateReader.toJSON(m));
   String leaderVoteWait=cc.getZkController().getLeaderVoteWait();
-  if (leaderVoteWait != null) {
+  if (!weAreReplacement && leaderVoteWait != null) {
     waitForReplicasToComeUp(weAreReplacement,leaderVoteWait);
   }
   SolrCore core=null;
@@ -18,16 +18,26 @@
       rejoinLeaderElection(leaderSeqPath,core);
       return;
     }
-    if (weAreReplacement) {
-      log.info("I may be the new leader - try and sync");
-      core.getUpdateHandler().getSolrCoreState().cancelRecovery();
-      boolean success=syncStrategy.sync(zkController,core,leaderProps);
-      if (!success && anyoneElseActive()) {
-        rejoinLeaderElection(leaderSeqPath,core);
-        return;
-      }
+    log.info("I may be the new leader - try and sync");
+    core.getUpdateHandler().getSolrCoreState().cancelRecovery();
+    boolean success=false;
+    try {
+      success=syncStrategy.sync(zkController,core,leaderProps);
+    }
+ catch (    Throwable t) {
+      SolrException.log(log,"Exception while trying to sync",t);
+      success=false;
+    }
+    if (!success && !areAnyOtherReplicasActive(zkController,leaderProps,collection,shardId)) {
+      log.info("Sync was not a success but no one else is active! I am the leader");
+      success=true;
+    }
+    if (!success) {
+      rejoinLeaderElection(leaderSeqPath,core);
+      return;
     }
     log.info("I am the new leader: " + ZkCoreNodeProps.getCoreUrl(leaderProps));
+    core.getCoreDescriptor().getCloudDescriptor().isLeader=true;
   }
   finally {
     if (core != null) {
@@ -38,27 +48,15 @@
     super.runLeaderProcess(weAreReplacement);
   }
  catch (  Throwable t) {
-    cancelElection();
     try {
       core=cc.getCore(coreName);
       core.getCoreDescriptor().getCloudDescriptor().isLeader=false;
-      if (!cc.isShutDown()) {
-        rejoinLeaderElection(coreName,core);
-      }
+      rejoinLeaderElection(coreName,core);
     }
   finally {
       if (core != null) {
         core.close();
       }
-    }
-  }
-  try {
-    core=cc.getCore(coreName);
-    core.getCoreDescriptor().getCloudDescriptor().isLeader=true;
-  }
-  finally {
-    if (core != null) {
-      core.close();
     }
   }
 }

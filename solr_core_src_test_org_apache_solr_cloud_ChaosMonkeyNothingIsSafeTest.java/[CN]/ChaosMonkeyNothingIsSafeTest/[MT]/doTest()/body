@@ -24,11 +24,14 @@
       threads.add(searchThread);
       searchThread.start();
     }
-    FullThrottleStopableIndexingThread ftIndexThread=new FullThrottleStopableIndexingThread(clients,i * 50000,true);
-    threads.add(ftIndexThread);
-    ftIndexThread.start();
-    chaosMonkey.startTheMonkey(true,1500);
-    int runLength=atLeast(BASE_RUN_LENGTH);
+    boolean runFullThrottle=random().nextBoolean();
+    if (runFullThrottle) {
+      FullThrottleStopableIndexingThread ftIndexThread=new FullThrottleStopableIndexingThread(clients,i * 50000,true);
+      threads.add(ftIndexThread);
+      ftIndexThread.start();
+    }
+    chaosMonkey.startTheMonkey(true,10000);
+    int runLength=BASE_RUN_LENGTH;
     try {
       Thread.sleep(runLength);
     }
@@ -43,7 +46,6 @@
     }
     for (    StopableThread indexThread : threads) {
       if (indexThread instanceof StopableIndexingThread && !(indexThread instanceof FullThrottleStopableIndexingThread)) {
-        assertEquals(0,((StopableIndexingThread)indexThread).getFails());
       }
     }
     Thread.sleep(2000);
@@ -54,7 +56,7 @@
     commit();
     zkStateReader.updateClusterState(true);
     assertTrue(zkStateReader.getClusterState().getLiveNodes().size() > 0);
-    checkShardConsistency(false,true);
+    checkShardConsistency(!runFullThrottle,true);
     long ctrlDocs=controlClient.query(new SolrQuery("*:*")).getResults().getNumFound();
     long cloudClientDocs=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
     assertTrue("Found " + ctrlDocs + " control docs",cloudClientDocs > 0);

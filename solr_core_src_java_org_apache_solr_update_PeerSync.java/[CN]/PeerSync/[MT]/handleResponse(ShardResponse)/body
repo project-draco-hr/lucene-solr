@@ -1,14 +1,18 @@
 {
   ShardRequest sreq=srsp.getShardRequest();
   if (srsp.getException() != null) {
-    if (sreq.purpose == 1 && srsp.getException() instanceof SolrServerException) {
+    if (cantReachIsSuccess && sreq.purpose == 1 && srsp.getException() instanceof SolrServerException) {
       Throwable solrException=((SolrServerException)srsp.getException()).getRootCause();
       if (solrException instanceof ConnectException || solrException instanceof NoHttpResponseException) {
-        log.info(msg() + " couldn't connect to " + srsp.getShardAddress()+ ", counting as success");
+        log.warn(msg() + " couldn't connect to " + srsp.getShardAddress()+ ", counting as success");
         return true;
       }
     }
-    log.warn(msg() + " exception talking to " + srsp.getShardAddress()+ ", counting as success");
+    if (cantReachIsSuccess && sreq.purpose == 1 && srsp.getException() instanceof SolrException && ((SolrException)srsp.getException()).code() == 503) {
+      log.warn(msg() + " got a 503 from " + srsp.getShardAddress()+ ", counting as success");
+      return true;
+    }
+    log.warn(msg() + " exception talking to " + srsp.getShardAddress()+ ", failed",srsp.getException());
     return false;
   }
   if (sreq.purpose == 1) {
