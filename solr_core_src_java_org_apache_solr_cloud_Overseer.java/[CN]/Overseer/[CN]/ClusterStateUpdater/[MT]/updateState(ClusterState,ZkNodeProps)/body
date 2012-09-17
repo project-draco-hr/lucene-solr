@@ -5,33 +5,37 @@
   if (!state.getCollections().contains(collection) && numShards != null) {
     state=createCollection(state,collection,numShards);
   }
-  String shardId=message.getStr(ZkStateReader.SHARD_ID_PROP);
-  if (shardId == null) {
+  String sliceName=message.getStr(ZkStateReader.SHARD_ID_PROP);
+  if (sliceName == null) {
     String nodeName=message.getStr(ZkStateReader.NODE_NAME_PROP);
-    shardId=getAssignedId(state,nodeName,message);
+    sliceName=getAssignedId(state,nodeName,message);
   }
-  if (shardId == null) {
-    shardId=AssignShard.assignShard(collection,state,numShards);
+  if (sliceName == null) {
+    sliceName=AssignShard.assignShard(collection,state,numShards);
   }
-  Map<String,Object> props=new HashMap<String,Object>();
-  Map<String,Object> coreProps=new HashMap<String,Object>(message.getProperties().size());
-  coreProps.putAll(message.getProperties());
-  coreProps.remove(ZkStateReader.NUM_SHARDS_PROP);
-  coreProps.remove(QUEUE_OPERATION);
-  for (  Entry<String,Object> entry : coreProps.entrySet()) {
-    props.put(entry.getKey(),entry.getValue());
+  Slice slice=state.getSlice(collection,sliceName);
+  Map<String,Object> replicaProps=new LinkedHashMap<String,Object>();
+  replicaProps.putAll(message.getProperties());
+  if (slice != null) {
+    Replica oldReplica=slice.getReplicasMap().get(zkCoreNodeName);
+    if (oldReplica != null && oldReplica.containsKey(ZkStateReader.LEADER_PROP)) {
+      replicaProps.put(ZkStateReader.LEADER_PROP,oldReplica.get(ZkStateReader.LEADER_PROP));
+    }
   }
-  Replica zkProps=new Replica(zkCoreNodeName,props);
-  Slice slice=state.getSlice(collection,shardId);
-  Map<String,Replica> shardProps;
-  if (slice == null) {
-    shardProps=new HashMap<String,Replica>();
+  replicaProps.remove(ZkStateReader.NUM_SHARDS_PROP);
+  replicaProps.remove(QUEUE_OPERATION);
+  Replica replica=new Replica(zkCoreNodeName,replicaProps);
+  Map<String,Object> sliceProps=null;
+  Map<String,Replica> replicas;
+  if (slice != null) {
+    sliceProps=slice.getProperties();
+    replicas=slice.getReplicasCopy();
   }
  else {
-    shardProps=state.getSlice(collection,shardId).getReplicasCopy();
+    replicas=new HashMap<String,Replica>(1);
   }
-  shardProps.put(zkCoreNodeName,zkProps);
-  slice=new Slice(shardId,shardProps);
+  replicas.put(replica.getName(),replica);
+  slice=new Slice(sliceName,replicas,sliceProps);
   ClusterState newClusterState=updateSlice(state,collection,slice);
   return newClusterState;
 }
