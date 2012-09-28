@@ -1,2 +1,68 @@
 {
+  final List<MinResult<T>> results=new ArrayList<MinResult<T>>();
+  final FST.BytesReader fstReader=fst.getBytesReader(0);
+  final T NO_OUTPUT=fst.outputs.getNoOutput();
+  while (results.size() < topN) {
+    FSTPath<T> path;
+    if (queue == null) {
+      break;
+    }
+    path=queue.pollFirst();
+    if (path == null) {
+      break;
+    }
+    if (path.arc.label == FST.END_LABEL) {
+      path.input.length--;
+      results.add(new MinResult<T>(path.input,path.cost,comparator));
+      continue;
+    }
+    if (results.size() == topN - 1) {
+      queue=null;
+    }
+    while (true) {
+      fst.readFirstTargetArc(path.arc,path.arc,fstReader);
+      boolean foundZero=false;
+      while (true) {
+        if (comparator.compare(NO_OUTPUT,path.arc.output) == 0) {
+          if (queue == null) {
+            foundZero=true;
+            break;
+          }
+ else           if (!foundZero) {
+            scratchArc.copyFrom(path.arc);
+            foundZero=true;
+          }
+ else {
+            addIfCompetitive(path);
+          }
+        }
+ else         if (queue != null) {
+          addIfCompetitive(path);
+        }
+        if (path.arc.isLast()) {
+          break;
+        }
+        fst.readNextArc(path.arc,fstReader);
+      }
+      assert foundZero;
+      if (queue != null) {
+        path.arc.copyFrom(scratchArc);
+      }
+      if (path.arc.label == FST.END_LABEL) {
+        T finalOutput=fst.outputs.add(path.cost,path.arc.output);
+        if (acceptResult(path.input,finalOutput)) {
+          results.add(new MinResult<T>(path.input,finalOutput,comparator));
+        }
+        break;
+      }
+ else {
+        path.input.grow(1 + path.input.length);
+        path.input.ints[path.input.length]=path.arc.label;
+        path.input.length++;
+        path.cost=fst.outputs.add(path.cost,path.arc.output);
+      }
+    }
+  }
+  @SuppressWarnings({"rawtypes","unchecked"}) final MinResult<T>[] arr=(MinResult<T>[])new MinResult[results.size()];
+  return results.toArray(arr);
 }
