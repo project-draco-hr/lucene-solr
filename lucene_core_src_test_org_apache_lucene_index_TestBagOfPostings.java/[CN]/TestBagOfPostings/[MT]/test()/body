@@ -1,0 +1,46 @@
+{
+  LinkedList<String> postings=new LinkedList<String>();
+  int numTerms=atLeast(300);
+  int maxTermsPerDoc=10;
+  for (int i=0; i < numTerms; i++) {
+    String term=Integer.toString(i);
+    for (int j=0; j < i; j++) {
+      postings.add(term);
+    }
+  }
+  Collections.shuffle(postings,random());
+  Directory dir=newFSDirectory(_TestUtil.getTempDir("bagofpostings"));
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir);
+  Document document=new Document();
+  Field field=newTextField("field","",Field.Store.NO);
+  document.add(field);
+  while (!postings.isEmpty()) {
+    StringBuilder text=new StringBuilder();
+    Set<String> visited=new HashSet<String>();
+    for (int i=0; i < maxTermsPerDoc; i++) {
+      if (postings.isEmpty() || visited.contains(postings.peek())) {
+        break;
+      }
+      String element=postings.remove();
+      text.append(' ');
+      text.append(element);
+      visited.add(element);
+    }
+    field.setStringValue(text.toString());
+    iw.addDocument(document);
+  }
+  iw.forceMerge(1);
+  DirectoryReader ir=iw.getReader();
+  assertEquals(1,ir.leaves().size());
+  AtomicReader air=ir.leaves().get(0).reader();
+  Terms terms=air.terms("field");
+  TermsEnum termsEnum=terms.iterator(null);
+  BytesRef term;
+  while ((term=termsEnum.next()) != null) {
+    int value=Integer.parseInt(term.utf8ToString());
+    assertEquals(value,termsEnum.docFreq());
+  }
+  ir.close();
+  iw.close();
+  dir.close();
+}
