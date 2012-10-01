@@ -1,39 +1,66 @@
 {
-  LinkedList<String> postings=new LinkedList<String>();
+  List<String> postingsList=new ArrayList<String>();
   int numTerms=atLeast(300);
-  int maxTermsPerDoc=10;
+  final int maxTermsPerDoc=_TestUtil.nextInt(random(),10,20);
   for (int i=0; i < numTerms; i++) {
     String term=Integer.toString(i);
     for (int j=0; j < i; j++) {
-      postings.add(term);
+      postingsList.add(term);
     }
   }
-  Collections.shuffle(postings,random());
+  Collections.shuffle(postingsList,random());
+  final ConcurrentLinkedQueue<String> postings=new ConcurrentLinkedQueue<String>(postingsList);
   Directory dir=newFSDirectory(_TestUtil.getTempDir("bagofpostings"));
-  RandomIndexWriter iw=new RandomIndexWriter(random(),dir);
-  Document document=new Document();
-  Field field=newTextField("field","",Field.Store.NO);
-  document.add(field);
-  while (!postings.isEmpty()) {
-    StringBuilder text=new StringBuilder();
-    Set<String> visited=new HashSet<String>();
-    for (int i=0; i < maxTermsPerDoc; i++) {
-      if (postings.isEmpty() || visited.contains(postings.peek())) {
-        break;
+  final RandomIndexWriter iw=new RandomIndexWriter(random(),dir);
+  int threadCount=_TestUtil.nextInt(random(),1,5);
+  Thread[] threads=new Thread[threadCount];
+  final CountDownLatch startingGun=new CountDownLatch(1);
+  for (int threadID=0; threadID < threadCount; threadID++) {
+    threads[threadID]=new Thread(){
+      @Override public void run(){
+        try {
+          Document document=new Document();
+          Field field=newTextField("field","",Field.Store.NO);
+          document.add(field);
+          startingGun.await();
+          while (!postings.isEmpty()) {
+            StringBuilder text=new StringBuilder();
+            Set<String> visited=new HashSet<String>();
+            for (int i=0; i < maxTermsPerDoc; i++) {
+              String token=postings.poll();
+              if (token == null) {
+                break;
+              }
+              if (visited.contains(token)) {
+                postings.add(token);
+                break;
+              }
+              text.append(' ');
+              text.append(token);
+              visited.add(token);
+            }
+            field.setStringValue(text.toString());
+            iw.addDocument(document);
+          }
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
       }
-      String element=postings.remove();
-      text.append(' ');
-      text.append(element);
-      visited.add(element);
     }
-    field.setStringValue(text.toString());
-    iw.addDocument(document);
+;
+    threads[threadID].start();
+  }
+  startingGun.countDown();
+  for (  Thread t : threads) {
+    t.join();
   }
   iw.forceMerge(1);
   DirectoryReader ir=iw.getReader();
   assertEquals(1,ir.leaves().size());
   AtomicReader air=ir.leaves().get(0).reader();
   Terms terms=air.terms("field");
+  assertEquals(numTerms - 1,terms.size());
   TermsEnum termsEnum=terms.iterator(null);
   BytesRef term;
   while ((term=termsEnum.next()) != null) {
