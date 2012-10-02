@@ -1,18 +1,14 @@
 {
-  maxDocID=0;
   totalPostings=0;
   totalPayloadBytes=0;
-  fields=new TreeMap<String,Map<BytesRef,List<Posting>>>();
-  fieldsLive=new TreeMap<String,Map<BytesRef,List<Posting>>>();
+  fields=new TreeMap<String,Map<BytesRef,Long>>();
   final int numFields=_TestUtil.nextInt(random(),1,5);
   if (VERBOSE) {
     System.out.println("TEST: " + numFields + " fields");
   }
+  maxDoc=0;
   FieldInfo[] fieldInfoArray=new FieldInfo[numFields];
   int fieldUpto=0;
-  int numMediumTerms=0;
-  int numBigTerms=0;
-  int numManyPositions=0;
   while (fieldUpto < numFields) {
     String field=_TestUtil.randomSimpleString(random());
     if (fields.containsKey(field)) {
@@ -20,7 +16,7 @@
     }
     fieldInfoArray[fieldUpto]=new FieldInfo(field,true,fieldUpto,false,false,true,IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS,null,DocValues.Type.FIXED_INTS_8,null);
     fieldUpto++;
-    Map<BytesRef,List<Posting>> postings=new TreeMap<BytesRef,List<Posting>>();
+    Map<BytesRef,Long> postings=new TreeMap<BytesRef,Long>();
     fields.put(field,postings);
     Set<String> seenTerms=new HashSet<String>();
     final int numTerms=4;
@@ -30,126 +26,46 @@
         continue;
       }
       seenTerms.add(term);
-      int numDocs;
-      if (numBigTerms == 0 || (random().nextInt(10) == 3 && numBigTerms < 2)) {
-        numDocs=RANDOM_MULTIPLIER * _TestUtil.nextInt(random(),50000,70000);
-        numBigTerms++;
+      if (TEST_NIGHTLY && termUpto == 0 && fieldUpto == 1) {
         term="big_" + term;
       }
- else       if (numMediumTerms == 0 || (random().nextInt(10) == 3 && numMediumTerms < 5)) {
-        numDocs=RANDOM_MULTIPLIER * _TestUtil.nextInt(random(),3000,6000);
-        numMediumTerms++;
+ else       if (termUpto == 1 && fieldUpto == 1) {
         term="medium_" + term;
       }
  else       if (random().nextBoolean()) {
-        numDocs=RANDOM_MULTIPLIER * _TestUtil.nextInt(random(),1,40);
         term="low_" + term;
       }
  else {
-        numDocs=_TestUtil.nextInt(random(),1,3);
         term="verylow_" + term;
       }
-      List<Posting> termPostings=new ArrayList<Posting>();
-      postings.put(new BytesRef(term),termPostings);
-      int docID=0;
-      int maxDocSpacing=_TestUtil.nextInt(random(),1,100);
-      int payloadSize;
-      if (random().nextInt(10) == 7) {
-        payloadSize=1 + random().nextInt(3);
+      long termSeed=random().nextLong();
+      postings.put(new BytesRef(term),termSeed);
+      DocsEnum docsEnum=getSeedPostings(term,termSeed,false,IndexOptions.DOCS_ONLY);
+      int doc;
+      int lastDoc=0;
+      while ((doc=docsEnum.nextDoc()) != DocsEnum.NO_MORE_DOCS) {
+        lastDoc=doc;
       }
- else {
-        payloadSize=1 + random().nextInt(1);
-      }
-      boolean fixedPayloads=random().nextBoolean();
-      for (int docUpto=0; docUpto < numDocs; docUpto++) {
-        if (docUpto == 0 && random().nextBoolean()) {
-        }
- else         if (maxDocSpacing == 1) {
-          docID++;
-        }
- else {
-          docID+=_TestUtil.nextInt(random(),1,maxDocSpacing);
-        }
-        Posting posting=new Posting();
-        posting.docID=docID;
-        maxDocID=Math.max(docID,maxDocID);
-        posting.positions=new ArrayList<Position>();
-        termPostings.add(posting);
-        int freq;
-        if (random().nextInt(30) == 17 && numManyPositions < 5) {
-          freq=_TestUtil.nextInt(random(),1,1000);
-          numManyPositions++;
-        }
- else {
-          freq=_TestUtil.nextInt(random(),1,20);
-        }
-        int pos=0;
-        int offset=0;
-        int posSpacing=_TestUtil.nextInt(random(),1,100);
-        totalPostings+=freq;
-        for (int posUpto=0; posUpto < freq; posUpto++) {
-          if (posUpto == 0 && random().nextBoolean()) {
-          }
- else           if (posSpacing == 1) {
-            pos++;
-          }
- else {
-            pos+=_TestUtil.nextInt(random(),1,posSpacing);
-          }
-          Position position=new Position();
-          posting.positions.add(position);
-          position.position=pos;
-          if (payloadSize != 0) {
-            if (fixedPayloads) {
-              position.payload=new byte[payloadSize];
-            }
- else {
-              int thisPayloadSize=random().nextInt(payloadSize);
-              if (thisPayloadSize != 0) {
-                position.payload=new byte[thisPayloadSize];
-              }
-            }
-          }
-          if (position.payload != null) {
-            random().nextBytes(position.payload);
-            totalPayloadBytes+=position.payload.length;
-          }
-          position.startOffset=offset + random().nextInt(5);
-          position.endOffset=position.startOffset + random().nextInt(10);
-          offset=position.endOffset;
-        }
-      }
+      maxDoc=Math.max(lastDoc,maxDoc);
     }
   }
   fieldInfos=new FieldInfos(fieldInfoArray);
-  globalLiveDocs=new FixedBitSet(1 + maxDocID);
+  maxDoc++;
+  globalLiveDocs=new FixedBitSet(maxDoc);
   double liveRatio=random().nextDouble();
-  for (int i=0; i < 1 + maxDocID; i++) {
+  for (int i=0; i < maxDoc; i++) {
     if (random().nextDouble() <= liveRatio) {
       globalLiveDocs.set(i);
     }
   }
-  for (  Map.Entry<String,Map<BytesRef,List<Posting>>> fieldEnt : fields.entrySet()) {
-    Map<BytesRef,List<Posting>> postingsLive=new TreeMap<BytesRef,List<Posting>>();
-    fieldsLive.put(fieldEnt.getKey(),postingsLive);
-    for (    Map.Entry<BytesRef,List<Posting>> termEnt : fieldEnt.getValue().entrySet()) {
-      List<Posting> termPostingsLive=new ArrayList<Posting>();
-      postingsLive.put(termEnt.getKey(),termPostingsLive);
-      for (      Posting posting : termEnt.getValue()) {
-        if (globalLiveDocs.get(posting.docID)) {
-          termPostingsLive.add(posting);
-        }
-      }
-    }
-  }
   allTerms=new ArrayList<FieldAndTerm>();
-  for (  Map.Entry<String,Map<BytesRef,List<Posting>>> fieldEnt : fields.entrySet()) {
+  for (  Map.Entry<String,Map<BytesRef,Long>> fieldEnt : fields.entrySet()) {
     String field=fieldEnt.getKey();
-    for (    Map.Entry<BytesRef,List<Posting>> termEnt : fieldEnt.getValue().entrySet()) {
+    for (    Map.Entry<BytesRef,Long> termEnt : fieldEnt.getValue().entrySet()) {
       allTerms.add(new FieldAndTerm(field,termEnt.getKey()));
     }
   }
   if (VERBOSE) {
-    System.out.println("TEST: done init postings; maxDocID=" + maxDocID + "; "+ allTerms.size()+ " total terms, across "+ fieldInfos.size()+ " fields");
+    System.out.println("TEST: done init postings; " + allTerms.size() + " total terms, across "+ fieldInfos.size()+ " fields");
   }
 }
