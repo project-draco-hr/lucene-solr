@@ -9,6 +9,7 @@
   for (  StorableField field : docFields) {
     listFields.add(field.stringValue());
   }
+  boolean preserveMulti=params.getFieldBool(fieldName,HighlightParams.PRESERVE_MULTI,false);
   String[] docTexts=(String[])listFields.toArray(new String[listFields.size()]);
   if (docTexts.length == 0)   return;
   TokenStream tstream=null;
@@ -56,8 +57,15 @@
     try {
       TextFragment[] bestTextFragments=highlighter.getBestTextFragments(tstream,docTexts[j],mergeContiguousFragments,numFragments);
       for (int k=0; k < bestTextFragments.length; k++) {
-        if ((bestTextFragments[k] != null) && (bestTextFragments[k].getScore() > 0)) {
-          frags.add(bestTextFragments[k]);
+        if (preserveMulti) {
+          if (bestTextFragments[k] != null) {
+            frags.add(bestTextFragments[k]);
+          }
+        }
+ else {
+          if ((bestTextFragments[k] != null) && (bestTextFragments[k].getScore() > 0)) {
+            frags.add(bestTextFragments[k]);
+          }
         }
       }
     }
@@ -65,17 +73,26 @@
       throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
     }
   }
-  Collections.sort(frags,new Comparator<TextFragment>(){
-    public int compare(    TextFragment arg0,    TextFragment arg1){
-      return Math.round(arg1.getScore() - arg0.getScore());
+  if (!preserveMulti) {
+    Collections.sort(frags,new Comparator<TextFragment>(){
+      public int compare(      TextFragment arg0,      TextFragment arg1){
+        return Math.round(arg1.getScore() - arg0.getScore());
+      }
     }
-  }
 );
+  }
   if (frags.size() > 0) {
     ArrayList<String> fragTexts=new ArrayList<String>();
     for (    TextFragment fragment : frags) {
-      if ((fragment != null) && (fragment.getScore() > 0)) {
-        fragTexts.add(fragment.toString());
+      if (preserveMulti) {
+        if (fragment != null) {
+          fragTexts.add(fragment.toString());
+        }
+      }
+ else {
+        if ((fragment != null) && (fragment.getScore() > 0)) {
+          fragTexts.add(fragment.toString());
+        }
       }
       if (fragTexts.size() >= numFragments)       break;
     }
