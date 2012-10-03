@@ -17,7 +17,19 @@
     for (    IndexReader reader : readers) {
       merger.add(reader);
     }
-    MergeState mergeState=merger.merge();
+    MergeState mergeState;
+    boolean success=false;
+    try {
+      mergeState=merger.merge();
+      success=true;
+    }
+  finally {
+      if (!success) {
+synchronized (this) {
+          deleter.refresh(info.name);
+        }
+      }
+    }
     SegmentInfoPerCommit infoPerCommit=new SegmentInfoPerCommit(info,0,-1L);
     info.setFiles(new HashSet<String>(trackingDir.getCreatedFiles()));
     trackingDir.getCreatedFiles().clear();
@@ -33,13 +45,28 @@ synchronized (this) {
     }
     if (useCompoundFile) {
       Collection<String> filesToDelete=infoPerCommit.files();
-      createCompoundFile(infoStream,directory,MergeState.CheckAbort.NONE,info,context);
+      try {
+        createCompoundFile(infoStream,directory,MergeState.CheckAbort.NONE,info,context);
+      }
+  finally {
 synchronized (this) {
-        deleter.deleteNewFiles(filesToDelete);
+          deleter.deleteNewFiles(filesToDelete);
+        }
       }
       info.setUseCompoundFile(true);
     }
-    codec.segmentInfoFormat().getSegmentInfoWriter().write(trackingDir,info,mergeState.fieldInfos,context);
+    success=false;
+    try {
+      codec.segmentInfoFormat().getSegmentInfoWriter().write(trackingDir,info,mergeState.fieldInfos,context);
+      success=true;
+    }
+  finally {
+      if (!success) {
+synchronized (this) {
+          deleter.refresh(info.name);
+        }
+      }
+    }
     info.addFiles(trackingDir.getCreatedFiles());
 synchronized (this) {
       if (stopMerges) {
