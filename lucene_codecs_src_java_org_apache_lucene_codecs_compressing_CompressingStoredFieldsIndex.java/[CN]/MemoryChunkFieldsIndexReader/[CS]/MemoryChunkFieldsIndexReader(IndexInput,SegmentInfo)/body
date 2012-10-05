@@ -1,0 +1,33 @@
+{
+  super(fieldsIndexIn);
+  final int numChunks=fieldsIndexIn.readVInt();
+  final int bitsPerStartPointer=fieldsIndexIn.readByte() & 0xFF;
+  if (bitsPerStartPointer > 64) {
+    throw new CorruptIndexException("Corrupted");
+  }
+  final PackedInts.ReaderIterator docBaseDeltas=PackedInts.getReaderIterator(fieldsIndexIn,PackedInts.DEFAULT_BUFFER_SIZE);
+  if (docBaseDeltas.size() != numChunks) {
+    throw new CorruptIndexException("Expected " + numChunks + " chunks, but got "+ docBaseDeltas.size());
+  }
+  final PackedInts.Mutable docBases=PackedInts.getMutable(numChunks,PackedInts.bitsRequired(Math.max(0,si.getDocCount() - 1)),PackedInts.COMPACT);
+  int docBase=0;
+  for (int i=0; i < numChunks; ++i) {
+    docBases.set(i,docBase);
+    docBase+=docBaseDeltas.next();
+  }
+  if (docBase != si.getDocCount()) {
+    throw new CorruptIndexException("Expected " + si.getDocCount() + " docs, got "+ docBase);
+  }
+  final PackedInts.ReaderIterator startPointerDeltas=PackedInts.getReaderIterator(fieldsIndexIn,PackedInts.DEFAULT_BUFFER_SIZE);
+  if (startPointerDeltas.size() != numChunks) {
+    throw new CorruptIndexException("Expected " + numChunks + " chunks, but got "+ startPointerDeltas.size());
+  }
+  final PackedInts.Mutable startPointers=PackedInts.getMutable(numChunks,bitsPerStartPointer,PackedInts.COMPACT);
+  int startPointer=0;
+  for (int i=0; i < numChunks; ++i) {
+    startPointer+=startPointerDeltas.next();
+    startPointers.set(i,startPointer);
+  }
+  this.docBases=docBases;
+  this.startPointers=startPointers;
+}

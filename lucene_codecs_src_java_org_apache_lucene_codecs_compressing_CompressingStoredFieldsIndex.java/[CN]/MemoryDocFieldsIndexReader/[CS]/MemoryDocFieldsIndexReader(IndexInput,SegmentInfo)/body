@@ -1,0 +1,30 @@
+{
+  super(fieldsIndexIn);
+  final int numChunks=fieldsIndexIn.readVInt();
+  final int bitsPerStartPointer=fieldsIndexIn.readByte() & 0xFF;
+  if (bitsPerStartPointer > 64) {
+    throw new CorruptIndexException("Corrupted");
+  }
+  final PackedInts.Reader chunkDocs=PackedInts.getReader(fieldsIndexIn);
+  if (chunkDocs.size() != numChunks) {
+    throw new CorruptIndexException("Expected " + numChunks + " chunks, but got "+ chunkDocs.size());
+  }
+  final PackedInts.ReaderIterator startPointerDeltas=PackedInts.getReaderIterator(fieldsIndexIn,PackedInts.DEFAULT_BUFFER_SIZE);
+  if (startPointerDeltas.size() != numChunks) {
+    throw new CorruptIndexException("Expected " + numChunks + " chunks, but got "+ startPointerDeltas.size());
+  }
+  final PackedInts.Mutable startPointers=PackedInts.getMutable(si.getDocCount(),bitsPerStartPointer,PackedInts.COMPACT);
+  int docID=0;
+  long startPointer=0;
+  for (int i=0; i < numChunks; ++i) {
+    startPointer+=startPointerDeltas.next();
+    final int chunkDocCount=(int)chunkDocs.get(i);
+    for (int j=0; j < chunkDocCount; ++j) {
+      startPointers.set(docID++,startPointer);
+    }
+  }
+  if (docID != si.getDocCount()) {
+    throw new CorruptIndexException("Expected " + si.getDocCount() + " docs, got "+ docID);
+  }
+  this.startPointers=startPointers;
+}
