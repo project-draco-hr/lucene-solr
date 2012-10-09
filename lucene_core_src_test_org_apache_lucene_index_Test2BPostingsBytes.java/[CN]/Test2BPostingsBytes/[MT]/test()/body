@@ -1,0 +1,59 @@
+{
+  BaseDirectoryWrapper dir=newFSDirectory(_TestUtil.getTempDir("2BPostingsBytes1"));
+  if (dir instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir).setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+  }
+  IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH).setRAMBufferSizeMB(256.0).setMergeScheduler(new ConcurrentMergeScheduler()).setMergePolicy(newLogMergePolicy(false,10)).setOpenMode(IndexWriterConfig.OpenMode.CREATE));
+  MergePolicy mp=w.getConfig().getMergePolicy();
+  if (mp instanceof LogByteSizeMergePolicy) {
+    ((LogByteSizeMergePolicy)mp).setMaxMergeMB(1024 * 1024 * 1024);
+  }
+  Document doc=new Document();
+  FieldType ft=new FieldType(TextField.TYPE_NOT_STORED);
+  ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
+  ft.setOmitNorms(true);
+  MyTokenStream tokenStream=new MyTokenStream();
+  Field field=new Field("field",tokenStream,ft);
+  doc.add(field);
+  final int numDocs=1000;
+  for (int i=0; i < numDocs; i++) {
+    if (i % 2 == 1) {
+      tokenStream.n=65536;
+    }
+ else {
+      tokenStream.n=65537;
+    }
+    w.addDocument(doc);
+  }
+  w.forceMerge(1);
+  w.close();
+  DirectoryReader oneThousand=DirectoryReader.open(dir);
+  IndexReader subReaders[]=new IndexReader[1000];
+  Arrays.fill(subReaders,oneThousand);
+  MultiReader mr=new MultiReader(subReaders);
+  BaseDirectoryWrapper dir2=newFSDirectory(_TestUtil.getTempDir("2BPostingsBytes2"));
+  if (dir2 instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir2).setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+  }
+  IndexWriter w2=new IndexWriter(dir2,new IndexWriterConfig(TEST_VERSION_CURRENT,null));
+  w2.addIndexes(mr);
+  w2.forceMerge(1);
+  w2.close();
+  oneThousand.close();
+  DirectoryReader oneMillion=DirectoryReader.open(dir2);
+  subReaders=new IndexReader[2000];
+  Arrays.fill(subReaders,oneMillion);
+  mr=new MultiReader(subReaders);
+  BaseDirectoryWrapper dir3=newFSDirectory(_TestUtil.getTempDir("2BPostingsBytes3"));
+  if (dir3 instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir3).setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+  }
+  IndexWriter w3=new IndexWriter(dir3,new IndexWriterConfig(TEST_VERSION_CURRENT,null));
+  w3.addIndexes(mr);
+  w3.forceMerge(1);
+  w3.close();
+  oneMillion.close();
+  dir.close();
+  dir2.close();
+  dir3.close();
+}
