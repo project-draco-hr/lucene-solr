@@ -1,0 +1,62 @@
+{
+  BaseDirectoryWrapper dir=newFSDirectory(_TestUtil.getTempDir("4GBStoredFields"));
+  if (dir instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir).setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+  }
+  dir.setCheckIndexOnClose(false);
+  IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH).setRAMBufferSizeMB(256.0).setMergeScheduler(new ConcurrentMergeScheduler()).setMergePolicy(newLogMergePolicy(false,10)).setOpenMode(IndexWriterConfig.OpenMode.CREATE));
+  MergePolicy mp=w.getConfig().getMergePolicy();
+  if (mp instanceof LogByteSizeMergePolicy) {
+    ((LogByteSizeMergePolicy)mp).setMaxMergeMB(1024 * 1024 * 1024);
+  }
+  final Document doc=new Document();
+  final FieldType ft=new FieldType();
+  ft.setIndexed(false);
+  ft.setStored(true);
+  ft.freeze();
+  final int valueLength=RandomInts.randomIntBetween(random(),1 << 13,1 << 20);
+  final byte[] value=new byte[valueLength];
+  for (int i=0; i < valueLength; ++i) {
+    value[i]=(byte)random().nextInt(256);
+  }
+  final Field f=new Field("fld",value,ft);
+  doc.add(f);
+  final int numDocs=(int)((1L << 32) / valueLength + 100);
+  for (int i=0; i < numDocs; ++i) {
+    w.addDocument(doc);
+    if (VERBOSE && i % (numDocs / 10) == 0) {
+      System.out.println(i + " of " + numDocs+ "...");
+    }
+  }
+  w.forceMerge(1);
+  w.close();
+  if (VERBOSE) {
+    boolean found=false;
+    for (    String file : dir.listAll()) {
+      if (file.endsWith(".fdt")) {
+        final long fileLength=dir.fileLength(file);
+        if (fileLength >= 1L << 32) {
+          found=true;
+        }
+        System.out.println("File length of " + file + " : "+ fileLength);
+      }
+    }
+    if (!found) {
+      System.out.println("No .fdt file larger than 4GB, test bug?");
+    }
+  }
+  CheckIndex ci=new CheckIndex(dir);
+  if (VERBOSE) {
+    ci.setInfoStream(System.out);
+  }
+  ci.checkIndex();
+  DirectoryReader rd=DirectoryReader.open(dir);
+  StoredDocument sd=rd.document(numDocs - 1);
+  assertNotNull(sd);
+  assertEquals(1,sd.getFields().size());
+  BytesRef valueRef=sd.getBinaryValue("fld");
+  assertNotNull(valueRef);
+  assertEquals(new BytesRef(value),valueRef);
+  rd.close();
+  dir.close();
+}
