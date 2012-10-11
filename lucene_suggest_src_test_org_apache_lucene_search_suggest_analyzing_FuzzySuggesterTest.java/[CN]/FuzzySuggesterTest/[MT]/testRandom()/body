@@ -1,0 +1,167 @@
+{
+  int numQueries=atLeast(100);
+  final List<TermFreq2> slowCompletor=new ArrayList<TermFreq2>();
+  final TreeSet<String> allPrefixes=new TreeSet<String>();
+  final Set<String> seen=new HashSet<String>();
+  TermFreq[] keys=new TermFreq[numQueries];
+  boolean preserveSep=random().nextBoolean();
+  final int numStopChars=random().nextInt(10);
+  final boolean preserveHoles=random().nextBoolean();
+  if (VERBOSE) {
+    System.out.println("TEST: " + numQueries + " words; preserveSep="+ preserveSep+ " numStopChars="+ numStopChars+ " preserveHoles="+ preserveHoles);
+  }
+  for (int i=0; i < numQueries; i++) {
+    int numTokens=_TestUtil.nextInt(random(),1,4);
+    String key;
+    String analyzedKey;
+    while (true) {
+      key="";
+      analyzedKey="";
+      for (int token=0; token < numTokens; token++) {
+        String s;
+        while (true) {
+          s=_TestUtil.randomSimpleString(random());
+          if (s.length() > 0) {
+            if (token > 0) {
+              key+=" ";
+            }
+            if (preserveSep && analyzedKey.length() > 0 && analyzedKey.charAt(analyzedKey.length() - 1) != ' ') {
+              analyzedKey+=" ";
+            }
+            key+=s;
+            if (s.length() == 1 && isStopChar(s.charAt(0),numStopChars)) {
+              if (preserveSep && preserveHoles) {
+                analyzedKey+='\u0000';
+              }
+            }
+ else {
+              analyzedKey+=s;
+            }
+            break;
+          }
+        }
+      }
+      analyzedKey=analyzedKey.replaceAll("(^| )\u0000$","");
+      if (!seen.contains(key)) {
+        seen.add(key);
+        break;
+      }
+    }
+    for (int j=1; j < key.length(); j++) {
+      allPrefixes.add(key.substring(0,j));
+    }
+    int weight=random().nextInt(1 << 24);
+    keys[i]=new TermFreq(key,weight);
+    slowCompletor.add(new TermFreq2(key,analyzedKey,weight));
+  }
+  if (VERBOSE) {
+    List<TermFreq2> sorted=new ArrayList<TermFreq2>(slowCompletor);
+    Collections.sort(sorted);
+    for (    TermFreq2 ent : sorted) {
+      System.out.println("  surface='" + ent.surfaceForm + " analyzed='"+ ent.analyzedForm+ "' weight="+ ent.weight);
+    }
+  }
+  Analyzer a=new MockTokenEatingAnalyzer(numStopChars,preserveHoles);
+  FuzzySuggester suggester=new FuzzySuggester(a,a,preserveSep ? AnalyzingSuggester.PRESERVE_SEP : 0,256,-1,1,false,1);
+  suggester.build(new TermFreqArrayIterator(keys));
+  for (  String prefix : allPrefixes) {
+    if (VERBOSE) {
+      System.out.println("\nTEST: prefix=" + prefix);
+    }
+    final int topN=_TestUtil.nextInt(random(),1,10);
+    List<LookupResult> r=suggester.lookup(_TestUtil.stringToCharSequence(prefix,random()),true,topN);
+    List<LookupResult> matches=new ArrayList<LookupResult>();
+    String[] tokens=prefix.split(" ");
+    StringBuilder builder=new StringBuilder();
+    for (int i=0; i < tokens.length; i++) {
+      String token=tokens[i];
+      if (preserveSep && builder.length() > 0 && !builder.toString().endsWith(" ")) {
+        builder.append(' ');
+      }
+      if (token.length() == 1 && isStopChar(token.charAt(0),numStopChars)) {
+        if (preserveSep && preserveHoles) {
+          builder.append("\u0000");
+        }
+      }
+ else {
+        builder.append(token);
+      }
+    }
+    String analyzedKey=builder.toString();
+    while (true) {
+      String s=analyzedKey.replaceAll("(^| )\u0000$","");
+      s=s.replaceAll("\\s+$","");
+      if (s.equals(analyzedKey)) {
+        break;
+      }
+      analyzedKey=s;
+    }
+    if (analyzedKey.length() == 0) {
+      continue;
+    }
+    if (VERBOSE) {
+      System.out.println("  analyzed: " + analyzedKey);
+    }
+    TokenStreamToAutomaton tokenStreamToAutomaton=suggester.getTokenStreamToAutomaton();
+    Automaton automaton=suggester.toLevenshteinAutomata(suggester.toLookupAutomaton(analyzedKey));
+    assertTrue(automaton.isDeterministic());
+    BytesRef spare=new BytesRef();
+    for (    TermFreq2 e : slowCompletor) {
+      spare.copyChars(e.analyzedForm);
+      Set<IntsRef> finiteStrings=suggester.toFiniteStrings(spare,tokenStreamToAutomaton);
+      for (      IntsRef intsRef : finiteStrings) {
+        State p=automaton.getInitialState();
+        BytesRef ref=Util.toBytesRef(intsRef,spare);
+        boolean added=false;
+        for (int i=ref.offset; i < ref.length; i++) {
+          State q=p.step(ref.bytes[i] & 0xff);
+          if (q == null) {
+            break;
+          }
+ else           if (q.isAccept()) {
+            matches.add(new LookupResult(e.surfaceForm,e.weight));
+            added=true;
+            break;
+          }
+          p=q;
+        }
+        if (!added && p.isAccept()) {
+          matches.add(new LookupResult(e.surfaceForm,e.weight));
+        }
+      }
+    }
+    assertTrue(numStopChars > 0 || matches.size() > 0);
+    if (matches.size() > 1) {
+      Collections.sort(matches,new Comparator<LookupResult>(){
+        public int compare(        LookupResult left,        LookupResult right){
+          int cmp=Float.compare(right.value,left.value);
+          if (cmp == 0) {
+            return left.compareTo(right);
+          }
+ else {
+            return cmp;
+          }
+        }
+      }
+);
+    }
+    if (matches.size() > topN) {
+      matches=matches.subList(0,topN);
+    }
+    if (VERBOSE) {
+      System.out.println("  expected:");
+      for (      LookupResult lr : matches) {
+        System.out.println("    key=" + lr.key + " weight="+ lr.value);
+      }
+      System.out.println("  actual:");
+      for (      LookupResult lr : r) {
+        System.out.println("    key=" + lr.key + " weight="+ lr.value);
+      }
+    }
+    assertEquals(prefix + "  " + topN,matches.size(),r.size());
+    for (int hit=0; hit < r.size(); hit++) {
+      assertEquals(prefix + "  " + topN,matches.get(hit).key.toString(),r.get(hit).key.toString());
+      assertEquals(matches.get(hit).value,r.get(hit).value,0f);
+    }
+  }
+}

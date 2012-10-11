@@ -1,2 +1,89 @@
 {
+  String prefix=getClass().getSimpleName();
+  File directory=Sort.defaultTempDir();
+  File tempInput=File.createTempFile(prefix,".input",directory);
+  File tempSorted=File.createTempFile(prefix,".sorted",directory);
+  Sort.ByteSequencesWriter writer=new Sort.ByteSequencesWriter(tempInput);
+  Sort.ByteSequencesReader reader=null;
+  BytesRef scratch=new BytesRef();
+  TokenStreamToAutomaton ts2a=getTokenStreamToAutomaton();
+  boolean success=false;
+  byte buffer[]=new byte[8];
+  try {
+    ByteArrayDataOutput output=new ByteArrayDataOutput(buffer);
+    BytesRef surfaceForm;
+    while ((surfaceForm=iterator.next()) != null) {
+      Set<IntsRef> paths=toFiniteStrings(surfaceForm,ts2a);
+      for (      IntsRef path : paths) {
+        Util.toBytesRef(path,scratch);
+        short analyzedLength=(short)scratch.length;
+        int requiredLength=analyzedLength + 2 + 4+ surfaceForm.length+ 2;
+        buffer=ArrayUtil.grow(buffer,requiredLength);
+        output.reset(buffer);
+        output.writeBytes(scratch.bytes,scratch.offset,scratch.length);
+        output.writeByte((byte)0);
+        output.writeByte((byte)0);
+        output.writeInt(encodeWeight(iterator.weight()));
+        output.writeBytes(surfaceForm.bytes,surfaceForm.offset,surfaceForm.length);
+        output.writeShort(analyzedLength);
+        writer.write(buffer,0,output.getPosition());
+      }
+    }
+    writer.close();
+    new Sort().sort(tempInput,tempSorted);
+    reader=new Sort.ByteSequencesReader(tempSorted);
+    PairOutputs<Long,BytesRef> outputs=new PairOutputs<Long,BytesRef>(PositiveIntOutputs.getSingleton(true),ByteSequenceOutputs.getSingleton());
+    Builder<Pair<Long,BytesRef>> builder=new Builder<Pair<Long,BytesRef>>(FST.INPUT_TYPE.BYTE1,outputs);
+    BytesRef previous=null;
+    BytesRef analyzed=new BytesRef();
+    BytesRef surface=new BytesRef();
+    IntsRef scratchInts=new IntsRef();
+    ByteArrayDataInput input=new ByteArrayDataInput();
+    int dedup=0;
+    while (reader.read(scratch)) {
+      input.reset(scratch.bytes,scratch.offset,scratch.length);
+      input.setPosition(input.length() - 2);
+      short analyzedLength=input.readShort();
+      analyzed.bytes=scratch.bytes;
+      analyzed.offset=scratch.offset;
+      analyzed.length=analyzedLength;
+      input.setPosition(analyzedLength + 2);
+      long cost=input.readInt();
+      surface.bytes=scratch.bytes;
+      surface.offset=input.getPosition();
+      surface.length=input.length() - input.getPosition() - 2;
+      if (previous == null) {
+        previous=new BytesRef();
+        previous.copyBytes(analyzed);
+      }
+ else       if (analyzed.equals(previous)) {
+        dedup++;
+        if (dedup >= maxSurfaceFormsPerAnalyzedForm) {
+          continue;
+        }
+      }
+ else {
+        dedup=0;
+        previous.copyBytes(analyzed);
+      }
+      analyzed.grow(analyzed.length + 2);
+      analyzed.bytes[analyzed.length]=0;
+      analyzed.bytes[analyzed.length + 1]=(byte)dedup;
+      analyzed.length+=2;
+      Util.toIntsRef(analyzed,scratchInts);
+      builder.add(scratchInts,outputs.newPair(cost,BytesRef.deepCopyOf(surface)));
+    }
+    fst=builder.finish();
+    success=true;
+  }
+  finally {
+    if (success) {
+      IOUtils.close(reader,writer);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(reader,writer);
+    }
+    tempInput.delete();
+    tempSorted.delete();
+  }
 }
