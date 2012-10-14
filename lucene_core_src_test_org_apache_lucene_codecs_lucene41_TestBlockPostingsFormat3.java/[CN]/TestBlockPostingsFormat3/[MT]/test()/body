@@ -1,0 +1,67 @@
+{
+  Directory dir=newDirectory();
+  Analyzer analyzer=new Analyzer(new Analyzer.PerFieldReuseStrategy()){
+    @Override protected TokenStreamComponents createComponents(    String fieldName,    Reader reader){
+      Tokenizer tokenizer=new MockTokenizer(reader);
+      if (fieldName.contains("payloadsFixed")) {
+        TokenFilter filter=new MockFixedLengthPayloadFilter(new Random(0),tokenizer,1);
+        return new TokenStreamComponents(tokenizer,filter);
+      }
+ else       if (fieldName.contains("payloadsVariable")) {
+        TokenFilter filter=new MockVariableLengthPayloadFilter(new Random(0),tokenizer);
+        return new TokenStreamComponents(tokenizer,filter);
+      }
+ else {
+        return new TokenStreamComponents(tokenizer);
+      }
+    }
+  }
+;
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,analyzer);
+  iwc.setCodec(new Lucene41Codec(){
+    @Override public PostingsFormat getPostingsFormatForField(    String field){
+      return PostingsFormat.forName("Lucene41");
+    }
+  }
+);
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  Document doc=new Document();
+  FieldType bareType=new FieldType(TextField.TYPE_NOT_STORED);
+  bareType.setStoreTermVectors(true);
+  bareType.setStoreTermVectorPositions(true);
+  bareType.setStoreTermVectorOffsets(true);
+  bareType.setStoreTermVectorPayloads(true);
+  FieldType offsetsType=new FieldType(bareType);
+  offsetsType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+  Field field1=new Field("field1bare","",bareType);
+  Field field2=new Field("field2offsets","",offsetsType);
+  Field field3=new Field("field3payloadsFixed","",bareType);
+  Field field4=new Field("field4payloadsVariable","",bareType);
+  Field field5=new Field("field5payloadsFixedOffsets","",offsetsType);
+  Field field6=new Field("field6payloadsVariableOffsets","",offsetsType);
+  doc.add(field1);
+  doc.add(field2);
+  doc.add(field3);
+  doc.add(field4);
+  doc.add(field5);
+  doc.add(field6);
+  for (int i=0; i < MAXDOC; i++) {
+    String stringValue=Integer.toString(i) + " verycommon " + English.intToEnglish(i).replace('-',' ')+ " "+ _TestUtil.randomSimpleString(random());
+    field1.setStringValue(stringValue);
+    field2.setStringValue(stringValue);
+    field3.setStringValue(stringValue);
+    field4.setStringValue(stringValue);
+    field5.setStringValue(stringValue);
+    field6.setStringValue(stringValue);
+    iw.addDocument(doc);
+  }
+  iw.close();
+  verify(dir);
+  _TestUtil.checkIndex(dir);
+  iwc.setOpenMode(OpenMode.APPEND);
+  IndexWriter iw2=new IndexWriter(dir,iwc);
+  iw2.forceMerge(1);
+  iw2.close();
+  verify(dir);
+  dir.close();
+}
