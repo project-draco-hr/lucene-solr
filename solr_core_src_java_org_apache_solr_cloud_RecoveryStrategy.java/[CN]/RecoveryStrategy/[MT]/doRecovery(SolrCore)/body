@@ -78,7 +78,7 @@
       if (firstTime) {
         firstTime=false;
         log.info("Attempting to PeerSync from " + leaderUrl + " core="+ coreName+ " - recoveringAfterStartup="+ recoveringAfterStartup);
-        PeerSync peerSync=new PeerSync(core,Collections.singletonList(leaderUrl),ulog.numRecordsToKeep);
+        PeerSync peerSync=new PeerSync(core,Collections.singletonList(leaderUrl),ulog.numRecordsToKeep,false,false);
         peerSync.setStartingVersions(recentVersions);
         boolean syncSuccess=peerSync.sync();
         if (syncSuccess) {
@@ -137,13 +137,13 @@ catch (      Throwable t) {
     }
     if (!successfulRecovery) {
       try {
-        log.error("Recovery failed - trying again... core=" + coreName);
+        log.error("Recovery failed - trying again... (" + retries + ") core="+ coreName);
         if (isClosed()) {
           retries=INTERRUPTED;
         }
         retries++;
         if (retries >= MAX_RETRIES) {
-          if (retries == INTERRUPTED) {
+          if (retries >= INTERRUPTED) {
             SolrException.log(log,"Recovery failed - interrupted. core=" + coreName);
             try {
               recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
@@ -153,7 +153,7 @@ catch (      Throwable t) {
             }
           }
  else {
-            SolrException.log(log,"Recovery failed - max retries exceeded. core=" + coreName);
+            SolrException.log(log,"Recovery failed - max retries exceeded (" + retries + "). core="+ coreName);
             try {
               recoveryFailed(core,zkController,baseUrl,coreZkNodeName,core.getCoreDescriptor());
             }
@@ -169,6 +169,7 @@ catch (      Throwable t) {
       }
       try {
         double loopCount=Math.min(Math.pow(2,retries),600);
+        log.info("Wait {} seconds before trying to recover again ({})",loopCount,retries);
         for (int i=0; i < loopCount; i++) {
           if (isClosed())           break;
           Thread.sleep(STARTING_RECOVERY_DELAY);
