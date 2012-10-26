@@ -1,36 +1,34 @@
 {
-  try {
-    String indexDir=getNewIndexDir();
-    boolean indexExists=getDirectoryFactory().exists(indexDir);
-    boolean firstTime;
+  String indexDir=getNewIndexDir();
+  boolean indexExists=getDirectoryFactory().exists(indexDir);
+  boolean firstTime;
 synchronized (SolrCore.class) {
-      firstTime=dirs.add(new File(indexDir).getCanonicalPath());
-    }
-    boolean removeLocks=solrConfig.unlockOnStartup;
-    initIndexReaderFactory();
-    if (indexExists && firstTime && !reload) {
-      Directory dir=directoryFactory.get(indexDir,getSolrConfig().indexConfig.lockType);
-      if (dir != null) {
-        if (IndexWriter.isLocked(dir)) {
-          if (removeLocks) {
-            log.warn(logid + "WARNING: Solr index directory '{}' is locked.  Unlocking...",indexDir);
-            IndexWriter.unlock(dir);
-          }
+    firstTime=dirs.add(new File(indexDir).getCanonicalPath());
+  }
+  boolean removeLocks=solrConfig.unlockOnStartup;
+  initIndexReaderFactory();
+  if (indexExists && firstTime && !reload) {
+    Directory dir=directoryFactory.get(indexDir,getSolrConfig().indexConfig.lockType);
+    try {
+      if (IndexWriter.isLocked(dir)) {
+        if (removeLocks) {
+          log.warn(logid + "WARNING: Solr index directory '{}' is locked.  Unlocking...",indexDir);
+          IndexWriter.unlock(dir);
+        }
  else {
-            log.error(logid + "Solr index directory '{}' is locked.  Throwing exception",indexDir);
-            throw new LockObtainFailedException("Index locked for write for core " + name);
-          }
+          log.error(logid + "Solr index directory '{}' is locked.  Throwing exception",indexDir);
+          throw new LockObtainFailedException("Index locked for write for core " + name);
         }
         directoryFactory.release(dir);
       }
     }
-    if (!indexExists) {
-      log.warn(logid + "Solr index directory '" + new File(indexDir)+ "' doesn't exist."+ " Creating new index...");
-      SolrIndexWriter writer=SolrIndexWriter.create("SolrCore.initIndex",indexDir,getDirectoryFactory(),true,schema,solrConfig.indexConfig,solrDelPolicy,codec,false);
-      writer.close();
+  finally {
+      directoryFactory.release(dir);
     }
   }
- catch (  IOException e) {
-    throw new RuntimeException(e);
+  if (!indexExists) {
+    log.warn(logid + "Solr index directory '" + new File(indexDir)+ "' doesn't exist."+ " Creating new index...");
+    SolrIndexWriter writer=SolrIndexWriter.create("SolrCore.initIndex",indexDir,getDirectoryFactory(),true,schema,solrConfig.indexConfig,solrDelPolicy,codec,false);
+    writer.close();
   }
 }
