@@ -7,13 +7,17 @@ synchronized (getUpdateLock()) {
         if (EventType.None.equals(event.getType())) {
           return;
         }
-        log.info("A cluster state change has occurred - updating...");
+        log.info("A cluster state change has occurred - updating... ({})",ZkStateReader.this.clusterState.getLiveNodes().size());
         try {
 synchronized (ZkStateReader.this.getUpdateLock()) {
             final Watcher thisWatch=this;
             Stat stat=new Stat();
             byte[] data=zkClient.getData(CLUSTER_STATE,thisWatch,stat,true);
-            ClusterState clusterState=ClusterState.load(stat.getVersion(),data,ZkStateReader.this.clusterState.getLiveNodes());
+            List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,this,true);
+            Set<String> liveNodesSet=new HashSet<String>();
+            liveNodesSet.addAll(liveNodes);
+            Set<String> ln=ZkStateReader.this.clusterState.getLiveNodes();
+            ClusterState clusterState=ClusterState.load(stat.getVersion(),data,ln);
             ZkStateReader.this.clusterState=clusterState;
           }
         }
@@ -40,10 +44,10 @@ synchronized (ZkStateReader.this.getUpdateLock()) {
         if (EventType.None.equals(event.getType())) {
           return;
         }
-        log.info("Updating live nodes");
         try {
 synchronized (ZkStateReader.this.getUpdateLock()) {
             List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,this,true);
+            log.info("Updating live nodes... ({})",liveNodes.size());
             Set<String> liveNodesSet=new HashSet<String>();
             liveNodesSet.addAll(liveNodes);
             ClusterState clusterState=new ClusterState(ZkStateReader.this.clusterState.getZkClusterStateVersion(),liveNodesSet,ZkStateReader.this.clusterState.getCollectionStates());

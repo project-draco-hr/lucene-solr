@@ -9,12 +9,15 @@
   }
   System.setProperty("solr.solr.home",solrHome);
   if (System.getProperty("jetty.testMode") != null) {
-    SocketConnector connector=new SocketConnector();
+    SelectChannelConnector connector=new SelectChannelConnector();
     connector.setPort(port);
     connector.setReuseAddress(true);
-    if (!stopAtShutdown) {
-      QueuedThreadPool threadPool=(QueuedThreadPool)connector.getThreadPool();
-      if (threadPool != null) {
+    connector.setLowResourcesMaxIdleTime(1500);
+    QueuedThreadPool threadPool=(QueuedThreadPool)connector.getThreadPool();
+    if (threadPool != null) {
+      threadPool.setMaxThreads(10000);
+      threadPool.setMaxIdleTimeMs(5000);
+      if (!stopAtShutdown) {
         threadPool.setMaxStopTimeMs(100);
       }
     }
@@ -22,13 +25,19 @@
     server.setSessionIdManager(new HashSessionIdManager(new Random()));
   }
  else {
-    if (!stopAtShutdown) {
-      for (      Connector connector : server.getConnectors()) {
-        if (connector instanceof SocketConnector) {
-          QueuedThreadPool threadPool=(QueuedThreadPool)((SocketConnector)connector).getThreadPool();
-          if (threadPool != null) {
-            threadPool.setMaxStopTimeMs(100);
-          }
+    for (    Connector connector : server.getConnectors()) {
+      QueuedThreadPool threadPool=null;
+      if (connector instanceof SocketConnector) {
+        threadPool=(QueuedThreadPool)((SocketConnector)connector).getThreadPool();
+      }
+      if (connector instanceof SelectChannelConnector) {
+        threadPool=(QueuedThreadPool)((SelectChannelConnector)connector).getThreadPool();
+      }
+      if (threadPool != null) {
+        threadPool.setMaxThreads(10000);
+        threadPool.setMaxIdleTimeMs(5000);
+        if (!stopAtShutdown) {
+          threadPool.setMaxStopTimeMs(100);
         }
       }
     }

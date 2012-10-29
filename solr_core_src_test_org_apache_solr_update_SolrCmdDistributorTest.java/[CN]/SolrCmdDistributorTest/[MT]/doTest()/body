@@ -7,8 +7,11 @@
   nodes.add(new StdNode(new ZkCoreNodeProps(nodeProps)));
   AddUpdateCommand cmd=new AddUpdateCommand(null);
   cmd.solrDoc=sdoc("id",1);
+  params=new ModifiableSolrParams();
   cmdDistrib.distribAdd(cmd,nodes,params);
   CommitUpdateCommand ccmd=new CommitUpdateCommand(null,false);
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribCommit(ccmd,nodes,params);
   cmdDistrib.finish();
   Response response=cmdDistrib.getResponse();
@@ -20,13 +23,21 @@
   nodes.add(new StdNode(new ZkCoreNodeProps(nodeProps)));
   cmdDistrib=new SolrCmdDistributor(5,executor);
   cmd.solrDoc=sdoc("id",2);
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribAdd(cmd,nodes,params);
   AddUpdateCommand cmd2=new AddUpdateCommand(null);
   cmd2.solrDoc=sdoc("id",3);
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribAdd(cmd2,nodes,params);
   AddUpdateCommand cmd3=new AddUpdateCommand(null);
   cmd3.solrDoc=sdoc("id",4);
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribAdd(cmd3,Collections.singletonList(nodes.get(1)),params);
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribCommit(ccmd,nodes,params);
   cmdDistrib.finish();
   response=cmdDistrib.getResponse();
@@ -39,7 +50,11 @@
   DeleteUpdateCommand dcmd=new DeleteUpdateCommand(null);
   dcmd.id="2";
   cmdDistrib=new SolrCmdDistributor(5,executor);
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribDelete(dcmd,nodes,params);
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribCommit(ccmd,nodes,params);
   cmdDistrib.finish();
   response=cmdDistrib.getResponse();
@@ -54,7 +69,7 @@
   }
   int id=5;
   cmdDistrib=new SolrCmdDistributor(5,executor);
-  int cnt=atLeast(201);
+  int cnt=atLeast(303);
   for (int i=0; i < cnt; i++) {
     nodes.clear();
     for (    SolrServer c : clients) {
@@ -63,12 +78,12 @@
       }
       HttpSolrServer httpClient=(HttpSolrServer)c;
       nodeProps=new ZkNodeProps(ZkStateReader.BASE_URL_PROP,httpClient.getBaseURL(),ZkStateReader.CORE_NAME_PROP,"");
-      System.out.println("node props:" + nodeProps);
       nodes.add(new StdNode(new ZkCoreNodeProps(nodeProps)));
     }
     AddUpdateCommand c=new AddUpdateCommand(null);
     c.solrDoc=sdoc("id",id++);
     if (nodes.size() > 0) {
+      params=new ModifiableSolrParams();
       cmdDistrib.distribAdd(c,nodes,params);
     }
   }
@@ -78,8 +93,33 @@
     nodeProps=new ZkNodeProps(ZkStateReader.BASE_URL_PROP,httpClient.getBaseURL(),ZkStateReader.CORE_NAME_PROP,"");
     nodes.add(new StdNode(new ZkCoreNodeProps(nodeProps)));
   }
+  final AtomicInteger commits=new AtomicInteger();
+  for (  JettySolrRunner jetty : jettys) {
+    CoreContainer cores=((SolrDispatchFilter)jetty.getDispatchFilter().getFilter()).getCores();
+    SolrCore core=cores.getCore("collection1");
+    try {
+      core.getUpdateHandler().registerCommitCallback(new SolrEventListener(){
+        @Override public void init(        NamedList args){
+        }
+        @Override public void postSoftCommit(){
+        }
+        @Override public void postCommit(){
+          commits.incrementAndGet();
+        }
+        @Override public void newSearcher(        SolrIndexSearcher newSearcher,        SolrIndexSearcher currentSearcher){
+        }
+      }
+);
+    }
+  finally {
+      core.close();
+    }
+  }
+  params=new ModifiableSolrParams();
+  params.set(DistributedUpdateProcessor.COMMIT_END_POINT,true);
   cmdDistrib.distribCommit(ccmd,nodes,params);
   cmdDistrib.finish();
+  assertEquals(shardCount,commits.get());
   for (  SolrServer c : clients) {
     NamedList<Object> resp=c.request(new LukeRequest());
     assertEquals("SOLR-3428: We only did adds - there should be no deletes",((NamedList<Object>)resp.get("index")).get("numDocs"),((NamedList<Object>)resp.get("index")).get("maxDoc"));

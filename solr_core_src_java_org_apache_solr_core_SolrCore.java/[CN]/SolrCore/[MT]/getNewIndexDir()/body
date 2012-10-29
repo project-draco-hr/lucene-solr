@@ -1,22 +1,52 @@
 {
   String result=dataDir + "index/";
-  File propsFile=new File(dataDir + "index.properties");
-  if (propsFile.exists()) {
-    Properties p=new Properties();
-    InputStream is=null;
+  Properties p=new Properties();
+  Directory dir=null;
+  try {
+    dir=getDirectoryFactory().get(getDataDir(),null);
+    if (dir.fileExists("index.properties")) {
+      final IndexInput input=dir.openInput("index.properties",IOContext.DEFAULT);
+      final InputStream is=new InputStream(){
+        @Override public int read() throws IOException {
+          byte next;
+          try {
+            next=input.readByte();
+          }
+ catch (          EOFException e) {
+            return -1;
+          }
+          return next;
+        }
+        @Override public void close() throws IOException {
+          super.close();
+          input.close();
+        }
+      }
+;
+      try {
+        p.load(is);
+        String s=p.getProperty("index");
+        if (s != null && s.trim().length() > 0) {
+          result=dataDir + s;
+        }
+      }
+ catch (      Exception e) {
+        log.error("Unable to load index.properties",e);
+      }
+ finally {
+        IOUtils.closeQuietly(is);
+      }
+    }
+  }
+ catch (  IOException e) {
+    SolrException.log(log,"",e);
+  }
+ finally {
     try {
-      is=new FileInputStream(propsFile);
-      p.load(is);
+      getDirectoryFactory().release(dir);
     }
  catch (    IOException e) {
-    }
- finally {
-      IOUtils.closeQuietly(is);
-    }
-    String s=p.getProperty("index");
-    if (s != null && s.trim().length() > 0) {
-      File tmp=new File(dataDir + s);
-      if (tmp.exists() && tmp.isDirectory())       result=dataDir + s;
+      SolrException.log(log,"",e);
     }
   }
   if (!result.equals(lastNewIndexDir)) {

@@ -1,0 +1,40 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,null);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  Document doc=new Document();
+  Field field=new StringField("value","",Field.Store.YES);
+  doc.add(field);
+  final int NUM_VALS=5;
+  for (int val=NUM_VALS; val > 0; val--) {
+    field.setStringValue(Integer.toString(val));
+    writer.addDocument(doc);
+  }
+  IndexReader reader=writer.getReader();
+  writer.close();
+  IndexSearcher searcher=new IndexSearcher(reader);
+  IntFieldSource src=new IntFieldSource("value");
+  SortField sf=src.getSortField(false).rewrite(searcher);
+  Sort orderBy=new Sort(sf);
+  Query q=new MatchAllDocsQuery();
+  TopDocs hits=searcher.search(q,Integer.MAX_VALUE,orderBy);
+  assertEquals(NUM_VALS,hits.scoreDocs.length);
+  int i=0;
+  for (  ScoreDoc hit : hits.scoreDocs) {
+    int valueFromDoc=Integer.parseInt(reader.document(hit.doc).get("value"));
+    assertEquals(++i,valueFromDoc);
+  }
+  int afterIdx=1;
+  FieldDoc afterHit=(FieldDoc)hits.scoreDocs[afterIdx];
+  hits=searcher.searchAfter(afterHit,q,Integer.MAX_VALUE,orderBy);
+  assertEquals(NUM_VALS - (afterIdx + 1),hits.scoreDocs.length);
+  int afterValue=((Double)afterHit.fields[0]).intValue();
+  for (  ScoreDoc hit : hits.scoreDocs) {
+    int val=Integer.parseInt(reader.document(hit.doc).get("value"));
+    assertTrue(afterValue <= val);
+    assertFalse(hit.doc == afterHit.doc);
+  }
+  reader.close();
+  dir.close();
+}

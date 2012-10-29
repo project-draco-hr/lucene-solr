@@ -4,13 +4,25 @@
   commit();
   long deadShardCount=shardToJetty.get(SHARD2).get(0).client.solrClient.query(query).getResults().getNumFound();
   query("q","*:*","sort","n_tl1 desc");
+  int oldLiveNodes=cloudClient.getZkStateReader().getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE,null,true).size();
+  assertEquals(5,oldLiveNodes);
   CloudJettyRunner deadShard=chaosMonkey.stopShard(SHARD2,0);
-  cloudClient.connect();
   Set<CloudJettyRunner> jetties=new HashSet<CloudJettyRunner>();
   jetties.addAll(shardToJetty.get(SHARD2));
   jetties.remove(deadShard);
+  int liveNodes=cloudClient.getZkStateReader().getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE,null,true).size();
+  int tries=50;
+  while (oldLiveNodes == liveNodes) {
+    Thread.sleep(100);
+    if (tries-- == 0) {
+      fail("We expected a node to drop...");
+    }
+    liveNodes=cloudClient.getZkStateReader().getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE,null,true).size();
+  }
+  assertEquals(4,liveNodes);
+  int cnt=0;
   for (  CloudJettyRunner cjetty : jetties) {
-    waitToSeeNotLive(((SolrDispatchFilter)cjetty.jetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader(),deadShard);
+    waitToSeeNotLive(((SolrDispatchFilter)cjetty.jetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader(),deadShard,cnt++);
   }
   waitToSeeNotLive(cloudClient.getZkStateReader(),deadShard);
   try {
@@ -20,6 +32,7 @@
  catch (  SolrServerException e) {
   }
   commit();
+  printLayout();
   query("q","*:*","sort","n_tl1 desc");
   long numFound1=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
   index_specific(shardToJetty.get(SHARD2).get(1).client.solrClient,id,1000,i1,108,t1,"specific doc!");
