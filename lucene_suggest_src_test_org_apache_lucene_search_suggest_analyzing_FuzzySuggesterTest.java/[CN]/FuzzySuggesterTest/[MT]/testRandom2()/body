@@ -1,0 +1,64 @@
+{
+  final int NUM=atLeast(200);
+  final List<TermFreq> answers=new ArrayList<TermFreq>();
+  final Set<String> seen=new HashSet<String>();
+  for (int i=0; i < NUM; i++) {
+    final String s=randomSimpleString(8);
+    if (!seen.contains(s)) {
+      answers.add(new TermFreq(s,random().nextInt(1000)));
+      seen.add(s);
+    }
+  }
+  Collections.sort(answers,new Comparator<TermFreq>(){
+    @Override public int compare(    TermFreq a,    TermFreq b){
+      return a.term.compareTo(b.term);
+    }
+  }
+);
+  if (VERBOSE) {
+    System.out.println("\nTEST: targets");
+    for (    TermFreq tf : answers) {
+      System.out.println("  " + tf.term.utf8ToString() + " freq="+ tf.v);
+    }
+  }
+  Analyzer a=new MockAnalyzer(random(),MockTokenizer.KEYWORD,false);
+  int maxEdits=random().nextBoolean() ? 1 : 2;
+  int prefixLen=random().nextInt(4);
+  boolean transpositions=random().nextBoolean();
+  FuzzySuggester suggest=new FuzzySuggester(a,a,0,256,-1,maxEdits,transpositions,prefixLen,prefixLen);
+  if (VERBOSE) {
+    System.out.println("TEST: maxEdits=" + maxEdits + " prefixLen="+ prefixLen+ " transpositions="+ transpositions+ " num="+ NUM);
+  }
+  Collections.shuffle(answers,random());
+  suggest.build(new TermFreqArrayIterator(answers.toArray(new TermFreq[answers.size()])));
+  final int ITERS=atLeast(100);
+  for (int iter=0; iter < ITERS; iter++) {
+    final String frag=randomSimpleString(6);
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter frag=" + frag);
+    }
+    final List<LookupResult> expected=slowFuzzyMatch(prefixLen,maxEdits,transpositions,answers,frag);
+    if (VERBOSE) {
+      System.out.println("  expected: " + expected.size());
+      for (      LookupResult c : expected) {
+        System.out.println("    " + c);
+      }
+    }
+    final List<LookupResult> actual=suggest.lookup(frag,false,NUM);
+    if (VERBOSE) {
+      System.out.println("  actual: " + actual.size());
+      for (      LookupResult c : actual) {
+        System.out.println("    " + c);
+      }
+    }
+    Collections.sort(actual,new CompareByCostThenAlpha());
+    final int limit=Math.min(expected.size(),actual.size());
+    for (int ans=0; ans < limit; ans++) {
+      final LookupResult c0=expected.get(ans);
+      final LookupResult c1=actual.get(ans);
+      assertEquals("expected " + c0.key + " but got "+ c1.key,0,CHARSEQUENCE_COMPARATOR.compare(c0.key,c1.key));
+      assertEquals(c0.value,c1.value);
+    }
+    assertEquals(expected.size(),actual.size());
+  }
+}
