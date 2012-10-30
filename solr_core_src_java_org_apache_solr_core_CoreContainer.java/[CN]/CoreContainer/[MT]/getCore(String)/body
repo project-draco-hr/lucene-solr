@@ -1,8 +1,37 @@
 {
   name=checkDefault(name);
+  SolrCore core;
 synchronized (cores) {
-    SolrCore core=cores.get(name);
-    if (core != null)     core.open();
-    return core;
+    core=cores.get(name);
+    if (core != null) {
+      core.open();
+      return core;
+    }
   }
+  if (dynamicDescriptors.size() == 0)   return null;
+synchronized (swappableCores) {
+    core=swappableCores.get(name);
+    if (core != null) {
+      core.open();
+      return core;
+    }
+  }
+  CoreDescriptor desc=dynamicDescriptors.get(name);
+  if (desc == null) {
+    return null;
+  }
+  try {
+    core=create(desc);
+    core.open();
+    if (desc.isSwappable()) {
+      registerLazyCore(name,core,false);
+    }
+ else {
+      register(name,core,false);
+    }
+  }
+ catch (  Exception ex) {
+    throw recordAndThrow(name,"Unable to create core" + name,ex);
+  }
+  return core;
 }

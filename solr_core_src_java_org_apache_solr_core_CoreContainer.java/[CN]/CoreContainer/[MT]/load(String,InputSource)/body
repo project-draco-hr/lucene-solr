@@ -5,14 +5,16 @@
   log.info("Loading CoreContainer using Solr Home: '{}'",dir);
   this.loader=new SolrResourceLoader(dir);
   solrHome=loader.getInstanceDir();
-  Config cfg=new Config(loader,null,cfgis,null,false);
+  Config cfg;
   try {
+    cfg=new Config(loader,null,cfgis,null,false);
     this.cfg=new Config(loader,null,copyDoc(cfg.getDocument()));
   }
- catch (  TransformerException e) {
+ catch (  Exception e) {
     throw new SolrException(ErrorCode.SERVER_ERROR,"",e);
   }
   cfg.substituteProperties();
+  allocateLazyCores(cfg);
   if (cfg.getBool("solr/logging/@enabled",true)) {
     String slf4jImpl=null;
     String fname=cfg.get("solr/logging/watcher/@class",null);
@@ -136,9 +138,22 @@
         p.setDataDir(opt);
       }
       p.setCoreProperties(readProperties(cfg,node));
-      core=create(p);
-      register(name,core,false);
-      coreToOrigName.put(core,rawName);
+      opt=DOMUtil.getAttr(node,CORE_LOADONSTARTUP,null);
+      if (opt != null) {
+        p.setLoadOnStartup(("true".equalsIgnoreCase(opt) || "on".equalsIgnoreCase(opt)) ? true : false);
+      }
+      opt=DOMUtil.getAttr(node,CORE_SWAPPABLE,null);
+      if (opt != null) {
+        p.setSwappable(("true".equalsIgnoreCase(opt) || "on".equalsIgnoreCase(opt)) ? true : false);
+      }
+      if (!p.isSwappable() && p.isLoadOnStartup()) {
+        core=create(p);
+        register(name,core,false);
+        coreToOrigName.put(core,rawName);
+      }
+ else {
+        dynamicDescriptors.put(rawName,p);
+      }
     }
  catch (    Throwable ex) {
       SolrException.log(log,null,ex);

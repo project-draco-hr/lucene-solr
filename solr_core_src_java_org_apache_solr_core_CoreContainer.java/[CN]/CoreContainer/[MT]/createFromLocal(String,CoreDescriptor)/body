@@ -1,0 +1,38 @@
+{
+  SolrResourceLoader solrLoader=null;
+  SolrConfig config=null;
+  solrLoader=new SolrResourceLoader(instanceDir,libLoader,getCoreProps(instanceDir,dcore.getPropertiesName(),dcore.getCoreProperties()));
+  try {
+    config=new SolrConfig(solrLoader,dcore.getConfigName(),null);
+  }
+ catch (  Exception e) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Could not load config for " + dcore.getConfigName(),e);
+  }
+  IndexSchema schema=null;
+  if (indexSchemaCache != null) {
+    File schemaFile=new File(dcore.getSchemaName());
+    if (!schemaFile.isAbsolute()) {
+      schemaFile=new File(solrLoader.getInstanceDir() + "conf" + File.separator+ dcore.getSchemaName());
+    }
+    if (schemaFile.exists()) {
+      String key=schemaFile.getAbsolutePath() + ":" + new SimpleDateFormat("yyyyMMddHHmmss",Locale.ROOT).format(new Date(schemaFile.lastModified()));
+      schema=indexSchemaCache.get(key);
+      if (schema == null) {
+        log.info("creating new schema object for core: " + dcore.name);
+        schema=new IndexSchema(config,dcore.getSchemaName(),null);
+        indexSchemaCache.put(key,schema);
+      }
+ else {
+        log.info("re-using schema object for core: " + dcore.name);
+      }
+    }
+  }
+  if (schema == null) {
+    schema=new IndexSchema(config,dcore.getSchemaName(),null);
+  }
+  SolrCore core=new SolrCore(dcore.getName(),null,config,schema,dcore);
+  if (core.getUpdateHandler().getUpdateLog() != null) {
+    core.getUpdateHandler().getUpdateLog().recoverFromLog();
+  }
+  return core;
+}
