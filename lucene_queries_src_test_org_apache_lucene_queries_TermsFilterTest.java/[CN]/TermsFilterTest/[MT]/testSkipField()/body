@@ -1,0 +1,34 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  int num=atLeast(10);
+  Set<Term> terms=new HashSet<Term>();
+  for (int i=0; i < num; i++) {
+    String field="field" + random().nextInt(100);
+    terms.add(new Term(field,"content1"));
+    Document doc=new Document();
+    doc.add(newStringField(field,"content1",Field.Store.YES));
+    w.addDocument(doc);
+  }
+  int randomFields=random().nextInt(10);
+  for (int i=0; i < randomFields; i++) {
+    while (true) {
+      String field="field" + random().nextInt(100);
+      Term t=new Term(field,"content1");
+      if (!terms.contains(t)) {
+        terms.add(t);
+        break;
+      }
+    }
+  }
+  w.forceMerge(1);
+  IndexReader reader=w.getReader();
+  w.close();
+  assertEquals(1,reader.leaves().size());
+  AtomicReaderContext context=reader.leaves().get(0);
+  TermsFilter tf=new TermsFilter(new ArrayList<Term>(terms));
+  FixedBitSet bits=(FixedBitSet)tf.getDocIdSet(context,context.reader().getLiveDocs());
+  assertEquals(context.reader().numDocs(),bits.cardinality());
+  reader.close();
+  dir.close();
+}
