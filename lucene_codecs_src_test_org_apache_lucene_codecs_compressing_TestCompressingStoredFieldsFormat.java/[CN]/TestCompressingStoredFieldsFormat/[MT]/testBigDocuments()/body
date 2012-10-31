@@ -1,0 +1,50 @@
+{
+  if (dir instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir).setThrottling(Throttling.NEVER);
+  }
+  final Document emptyDoc=new Document();
+  final Document bigDoc1=new Document();
+  final Document bigDoc2=new Document();
+  final Field idField=new StringField("id","",Store.NO);
+  emptyDoc.add(idField);
+  bigDoc1.add(idField);
+  bigDoc2.add(idField);
+  final FieldType onlyStored=new FieldType(StringField.TYPE_STORED);
+  onlyStored.setIndexed(false);
+  final Field smallField=new Field("fld",randomByteArray(random().nextInt(10),256),onlyStored);
+  final int numFields=atLeast(1000000);
+  for (int i=0; i < numFields; ++i) {
+    bigDoc1.add(smallField);
+  }
+  final Field bigField=new Field("fld",randomByteArray(RandomInts.randomIntBetween(random(),1000000,5000000),2),onlyStored);
+  bigDoc2.add(bigField);
+  final int numDocs=atLeast(5);
+  final Document[] docs=new Document[numDocs];
+  for (int i=0; i < numDocs; ++i) {
+    docs[i]=RandomPicks.randomFrom(random(),Arrays.asList(emptyDoc,bigDoc1,bigDoc2));
+  }
+  for (int i=0; i < numDocs; ++i) {
+    idField.setStringValue("" + i);
+    iw.addDocument(docs[i]);
+    if (random().nextInt(numDocs) == 0) {
+      iw.commit();
+    }
+  }
+  iw.commit();
+  iw.forceMerge(1);
+  final DirectoryReader rd=DirectoryReader.open(dir);
+  final IndexSearcher searcher=new IndexSearcher(rd);
+  for (int i=0; i < numDocs; ++i) {
+    final Query query=new TermQuery(new Term("id","" + i));
+    final TopDocs topDocs=searcher.search(query,1);
+    assertEquals("" + i,1,topDocs.totalHits);
+    final StoredDocument doc=rd.document(topDocs.scoreDocs[0].doc);
+    assertNotNull(doc);
+    final StorableField[] fieldValues=doc.getFields("fld");
+    assertEquals(docs[i].getFields("fld").length,fieldValues.length);
+    if (fieldValues.length > 0) {
+      assertEquals(docs[i].getFields("fld")[0].binaryValue(),fieldValues[0].binaryValue());
+    }
+  }
+  rd.close();
+}
