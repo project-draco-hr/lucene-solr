@@ -1,0 +1,32 @@
+{
+  LineFileDocs lineFileDocs=new LineFileDocs(random());
+  int numDocs=atLeast(10);
+  MemoryIndex memory=new MemoryIndex(random().nextBoolean(),random().nextInt(50) * 1024 * 1024);
+  for (int i=0; i < numDocs; i++) {
+    Directory dir=newDirectory();
+    MockAnalyzer mockAnalyzer=new MockAnalyzer(random());
+    IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(random(),TEST_VERSION_CURRENT,mockAnalyzer));
+    Document nextDoc=lineFileDocs.nextDoc();
+    Document doc=new Document();
+    for (    Field field : nextDoc.getFields()) {
+      if (field.fieldType().indexed()) {
+        doc.add(field);
+        if (random().nextInt(3) == 0) {
+          doc.add(field);
+        }
+      }
+    }
+    writer.addDocument(doc);
+    writer.close();
+    for (    IndexableField field : doc.indexableFields()) {
+      memory.addField(field.name(),((Field)field).stringValue(),mockAnalyzer);
+    }
+    DirectoryReader competitor=DirectoryReader.open(dir);
+    AtomicReader memIndexReader=(AtomicReader)memory.createSearcher().getIndexReader();
+    duellReaders(competitor,memIndexReader);
+    IOUtils.close(competitor,memIndexReader);
+    memory.reset();
+    dir.close();
+  }
+  lineFileDocs.close();
+}

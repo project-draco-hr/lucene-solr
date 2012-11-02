@@ -1,0 +1,40 @@
+{
+  Counter bytesUsed=Counter.newCounter();
+  IntBlockPool pool=new IntBlockPool(new ByteTrackingAllocator(bytesUsed));
+  for (int j=0; j < 2; j++) {
+    List<StartEndAndValues> holders=new ArrayList<TestIntBlockPool.StartEndAndValues>();
+    int num=atLeast(4);
+    for (int i=0; i < num; i++) {
+      holders.add(new StartEndAndValues(random().nextInt(1000)));
+    }
+    IntBlockPool.SliceWriter writer=new IntBlockPool.SliceWriter(pool);
+    IntBlockPool.SliceReader reader=new IntBlockPool.SliceReader(pool);
+    int numValuesToWrite=atLeast(10000);
+    for (int i=0; i < numValuesToWrite; i++) {
+      StartEndAndValues values=holders.get(random().nextInt(holders.size()));
+      if (values.valueCount == 0) {
+        values.start=writer.startNewSlice();
+      }
+ else {
+        writer.reset(values.end);
+      }
+      writer.writeInt(values.nextValue());
+      values.end=writer.getCurrentOffset();
+      if (random().nextInt(5) == 0) {
+        assertReader(reader,holders.get(random().nextInt(holders.size())));
+      }
+    }
+    while (!holders.isEmpty()) {
+      StartEndAndValues values=holders.remove(random().nextInt(holders.size()));
+      assertReader(reader,values);
+    }
+    if (random().nextBoolean()) {
+      pool.reset(true,false);
+      assertEquals(0,bytesUsed.get());
+    }
+ else {
+      pool.reset(true,true);
+      assertEquals(IntBlockPool.INT_BLOCK_SIZE * RamUsageEstimator.NUM_BYTES_INT,bytesUsed.get());
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  memory.reset();
+  StringBuilder fooField=new StringBuilder();
+  StringBuilder termField=new StringBuilder();
+  final int numFooTerms=random().nextInt(250 * RANDOM_MULTIPLIER);
+  for (int i=0; i < numFooTerms; i++) {
+    fooField.append(" ");
+    fooField.append(randomTerm());
+  }
+  final int numTermTerms=random().nextInt(250 * RANDOM_MULTIPLIER);
+  for (int i=0; i < numTermTerms; i++) {
+    termField.append(" ");
+    termField.append(randomTerm());
+  }
+  Directory ramdir=new RAMDirectory();
+  Analyzer analyzer=randomAnalyzer();
+  IndexWriter writer=new IndexWriter(ramdir,new IndexWriterConfig(TEST_VERSION_CURRENT,analyzer).setCodec(_TestUtil.alwaysPostingsFormat(new Lucene41PostingsFormat())));
+  Document doc=new Document();
+  Field field1=newTextField("foo",fooField.toString(),Field.Store.NO);
+  Field field2=newTextField("term",termField.toString(),Field.Store.NO);
+  doc.add(field1);
+  doc.add(field2);
+  writer.addDocument(doc);
+  writer.close();
+  memory.addField("foo",fooField.toString(),analyzer);
+  memory.addField("term",termField.toString(),analyzer);
+  if (VERBOSE) {
+    System.out.println("Random MemoryIndex:\n" + memory.toString());
+    System.out.println("Same index as RAMDirectory: " + RamUsageEstimator.humanReadableUnits(RamUsageEstimator.sizeOf(ramdir)));
+    System.out.println();
+  }
+ else {
+    assertTrue(memory.getMemorySize() > 0L);
+  }
+  AtomicReader reader=(AtomicReader)memory.createSearcher().getIndexReader();
+  DirectoryReader competitor=DirectoryReader.open(ramdir);
+  duellReaders(competitor,reader);
+  IOUtils.close(reader,competitor);
+  assertAllQueries(memory,ramdir,analyzer);
+  ramdir.close();
+}
