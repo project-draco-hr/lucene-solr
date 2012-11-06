@@ -1,0 +1,73 @@
+{
+  underlyingDataModified=true;
+  int numberToChange=random().nextInt(people.length + 1);
+  Set<Integer> changeSet=new HashSet<Integer>();
+  Set<Integer> deleteSet=new HashSet<Integer>();
+  Set<Integer> addSet=new HashSet<Integer>();
+  Connection conn=null;
+  PreparedStatement change=null;
+  PreparedStatement delete=null;
+  PreparedStatement add=null;
+  Timestamp theTime=new Timestamp(System.currentTimeMillis() + 1000);
+  try {
+    conn=DriverManager.getConnection("jdbc:hsqldb:mem:.");
+    change=conn.prepareStatement("update people set name=?, last_modified=? where id=?");
+    delete=conn.prepareStatement("update people set deleted='Y', last_modified=? where id=?");
+    add=conn.prepareStatement("insert into people (id,name,country_code,last_modified) values (?,?,'NEW',?)");
+    for (int i=0; i < numberToChange; i++) {
+      int tryIndex=random().nextInt(people.length);
+      Integer id=(Integer)people[tryIndex][0];
+      if (!changeSet.contains(id) && !deleteSet.contains(id)) {
+        boolean changeDontDelete=random().nextBoolean();
+        if (changeDontDelete) {
+          changeSet.add(id);
+          change.setString(1,"MODIFIED " + people[tryIndex][1]);
+          change.setTimestamp(2,theTime);
+          change.setInt(3,id);
+          Assert.assertEquals(1,change.executeUpdate());
+        }
+ else {
+          deleteSet.add(id);
+          delete.setTimestamp(1,theTime);
+          delete.setInt(2,id);
+          Assert.assertEquals(1,delete.executeUpdate());
+        }
+      }
+    }
+    int numberToAdd=random().nextInt(3);
+    for (int i=0; i < numberToAdd; i++) {
+      int tryIndex=random().nextInt(people.length);
+      Integer id=(Integer)people[tryIndex][0];
+      Integer newId=id + 1000;
+      String newDesc="ADDED " + people[tryIndex][1];
+      if (!addSet.contains(newId)) {
+        addSet.add(newId);
+        add.setInt(1,newId);
+        add.setString(2,newDesc);
+        add.setTimestamp(3,theTime);
+        Assert.assertEquals(1,add.executeUpdate());
+      }
+    }
+    conn.commit();
+  }
+ catch (  SQLException e) {
+    throw e;
+  }
+ finally {
+    try {
+      change.close();
+    }
+ catch (    Exception ex) {
+    }
+    try {
+      conn.close();
+    }
+ catch (    Exception ex) {
+    }
+  }
+  IntChanges c=new IntChanges();
+  c.changedKeys=changeSet.toArray(new Integer[changeSet.size()]);
+  c.deletedKeys=deleteSet.toArray(new Integer[deleteSet.size()]);
+  c.addedKeys=addSet.toArray(new Integer[addSet.size()]);
+  return c;
+}
