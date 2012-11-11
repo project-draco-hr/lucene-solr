@@ -1,0 +1,57 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  final int maxMergeCount=_TestUtil.nextInt(random(),1,5);
+  final int maxMergeThreads=_TestUtil.nextInt(random(),1,maxMergeCount);
+  final CountDownLatch enoughMergesWaiting=new CountDownLatch(maxMergeCount);
+  final AtomicInteger runningMergeCount=new AtomicInteger(0);
+  final AtomicBoolean failed=new AtomicBoolean();
+  if (VERBOSE) {
+    System.out.println("TEST: maxMergeCount=" + maxMergeCount + " maxMergeThreads="+ maxMergeThreads);
+  }
+  ConcurrentMergeScheduler cms=new ConcurrentMergeScheduler(){
+    @Override protected void doMerge(    MergePolicy.OneMerge merge) throws IOException {
+      try {
+        int count=runningMergeCount.incrementAndGet();
+        try {
+          assertTrue("count=" + count + " vs maxMergeCount="+ maxMergeCount,count <= maxMergeCount);
+          enoughMergesWaiting.countDown();
+          while (true) {
+            if (enoughMergesWaiting.await(10,TimeUnit.MILLISECONDS) || failed.get()) {
+              break;
+            }
+          }
+          Thread.sleep(20);
+          super.doMerge(merge);
+        }
+  finally {
+          runningMergeCount.decrementAndGet();
+        }
+      }
+ catch (      Throwable t) {
+        failed.set(true);
+        writer.mergeFinish(merge);
+        throw new RuntimeException(t);
+      }
+    }
+  }
+;
+  cms.setMaxThreadCount(maxMergeThreads);
+  cms.setMaxMergeCount(maxMergeCount);
+  iwc.setMergeScheduler(cms);
+  iwc.setMaxBufferedDocs(2);
+  TieredMergePolicy tmp=new TieredMergePolicy();
+  iwc.setMergePolicy(tmp);
+  tmp.setMaxMergeAtOnce(2);
+  tmp.setSegmentsPerTier(2);
+  IndexWriter w=new IndexWriter(dir,iwc);
+  Document doc=new Document();
+  doc.add(newField("field","field",TextField.TYPE_NOT_STORED));
+  while (enoughMergesWaiting.getCount() != 0 && !failed.get()) {
+    for (int i=0; i < 10; i++) {
+      w.addDocument(doc);
+    }
+  }
+  w.close(false);
+  dir.close();
+}
