@@ -1,0 +1,37 @@
+{
+  SimpleDateFormat errMsgFormat=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSSSSS");
+  String[] d={"{'ts' ''yyyy-MM-dd HH:mm:ss.SSSSSS''}","{'ts' ''yyyy-MM-dd HH:mm:ss''}","yyyy-MM-dd HH:mm:ss","yyyy-MM-dd HH:mm:ss.SSSSSS"};
+  for (int i=0; i < d.length; i++) {
+    delQ("*:*");
+    commit();
+    if (i < 2) {
+      useJdbcEscapeSyntax=true;
+    }
+ else {
+      useJdbcEscapeSyntax=false;
+    }
+    dateFormat=d[i];
+    SimpleDateFormat df=new SimpleDateFormat(dateFormat,Locale.ROOT);
+    Date oneSecondAgo=new Date(System.currentTimeMillis() - 1000);
+    Map<String,String> init=new HashMap<String,String>();
+    init.put("dateFormat",dateFormat);
+    init.put("filename",fileName);
+    init.put("directory",fileLocation);
+    SimplePropertiesWriter spw=new SimplePropertiesWriter();
+    spw.init(new DataImporter(),init);
+    Map<String,Object> props=new HashMap<String,Object>();
+    props.put("SomeDates.last_index_time",oneSecondAgo);
+    props.put("last_index_time",oneSecondAgo);
+    spw.persist(props);
+    h.query("/dataimport",generateRequest());
+    props=spw.readIndexerProperties();
+    Date entityDate=df.parse((String)props.get("SomeDates.last_index_time"));
+    Date docDate=df.parse((String)props.get("last_index_time"));
+    Calendar c=new GregorianCalendar(TimeZone.getTimeZone("GMT"),Locale.ROOT);
+    c.setTime(docDate);
+    int year=c.get(Calendar.YEAR);
+    Assert.assertTrue("This date: " + errMsgFormat.format(oneSecondAgo) + " should be prior to the document date: "+ errMsgFormat.format(docDate),docDate.getTime() - oneSecondAgo.getTime() > 0);
+    Assert.assertTrue("This date: " + errMsgFormat.format(oneSecondAgo) + " should be prior to the entity date: "+ errMsgFormat.format(entityDate),entityDate.getTime() - oneSecondAgo.getTime() > 0);
+    assertQ(req("*:*"),"//*[@numFound='1']","//doc/str[@name=\"ayear_s\"]=\"" + year + "\"");
+  }
+}

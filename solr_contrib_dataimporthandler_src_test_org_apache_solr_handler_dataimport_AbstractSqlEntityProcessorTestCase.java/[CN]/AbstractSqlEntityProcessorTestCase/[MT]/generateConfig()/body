@@ -1,0 +1,80 @@
+{
+  String ds=null;
+  if (dbToUse == Database.DERBY) {
+    ds="derby";
+  }
+ else   if (dbToUse == Database.HSQLDB) {
+    ds="hsqldb";
+  }
+ else {
+    throw new AssertionError("Invalid database to use: " + dbToUse);
+  }
+  StringBuilder sb=new StringBuilder();
+  sb.append("<dataConfig> \n");
+  sb.append("<dataSource name=''hsqldb'' driver=''org.hsqldb.jdbcDriver'' url=''jdbc:hsqldb:mem:.'' /> \n");
+  sb.append("<dataSource name=''derby'' driver=''org.apache.derby.jdbc.EmbeddedDriver'' url=''jdbc:derby:memory:derbyDB;'' /> \n");
+  sb.append("<document name=''TestSqlEntityProcessor''> \n");
+  sb.append("<entity name=''People'' ");
+  sb.append("pk=''" + (random().nextBoolean() ? "ID" : "People.ID") + "'' ");
+  sb.append("processor=''SqlEntityProcessor'' ");
+  sb.append("dataSource=''" + ds + "'' ");
+  sb.append(rootTransformerName != null ? "transformer=''" + rootTransformerName + "'' " : "");
+  sb.append("query=''SELECT ID, NAME, COUNTRY_CODE FROM PEOPLE WHERE DELETED != 'Y' '' ");
+  sb.append(deltaQueriesPersonTable());
+  sb.append("> \n");
+  sb.append("<field column=''NAME'' name=''NAME_mult_s'' /> \n");
+  sb.append("<field column=''COUNTRY_CODE'' name=''COUNTRY_CODES_mult_s'' /> \n");
+  if (countryEntity) {
+    sb.append("<entity name=''Countries'' ");
+    sb.append("pk=''" + (random().nextBoolean() ? "CODE" : "Countries.CODE") + "'' ");
+    sb.append("dataSource=''" + ds + "'' ");
+    sb.append(countryTransformer ? "transformer=''AddAColumnTransformer'' " + "newColumnName=''countryAdded_s'' newColumnValue=''country_added'' " : "");
+    if (countryCached) {
+      sb.append(random().nextBoolean() ? "processor=''SqlEntityProcessor'' cacheImpl=''SortedMapBackedCache'' " : "processor=''CachedSqlEntityProcessor'' ");
+      if (useSimpleCaches) {
+        sb.append("query=''SELECT CODE, COUNTRY_NAME FROM COUNTRIES WHERE DELETED != 'Y' AND CODE='${People.COUNTRY_CODE}' ''>\n");
+      }
+ else {
+        sb.append(random().nextBoolean() ? "cacheKey=''CODE'' cacheLookup=''People.COUNTRY_CODE'' " : "where=''CODE=People.COUNTRY_CODE'' ");
+        sb.append("query=''SELECT CODE, COUNTRY_NAME FROM COUNTRIES'' ");
+        sb.append("> \n");
+      }
+    }
+ else {
+      sb.append("processor=''SqlEntityProcessor'' query=''SELECT CODE, COUNTRY_NAME FROM COUNTRIES WHERE DELETED != 'Y' AND CODE='${People.COUNTRY_CODE}' '' ");
+      sb.append(deltaQueriesCountryTable());
+      sb.append("> \n");
+    }
+    sb.append("<field column=''CODE'' name=''COUNTRY_CODE_s'' /> \n");
+    sb.append("<field column=''COUNTRY_NAME'' name=''COUNTRY_NAME_s'' /> \n");
+    sb.append("</entity> \n");
+  }
+  if (sportsEntity) {
+    sb.append("<entity name=''Sports'' ");
+    sb.append("dataSource=''" + ds + "'' ");
+    sb.append(sportsTransformer ? "transformer=''AddAColumnTransformer'' " + "newColumnName=''sportsAdded_s'' newColumnValue=''sport_added'' " : "");
+    if (sportsCached) {
+      sb.append(random().nextBoolean() ? "processor=''SqlEntityProcessor'' cacheImpl=''SortedMapBackedCache'' " : "processor=''CachedSqlEntityProcessor'' ");
+      if (useSimpleCaches) {
+        sb.append("query=''SELECT ID, SPORT_NAME FROM PEOPLE_SPORTS WHERE DELETED != 'Y' AND PERSON_ID=${People.ID} ORDER BY ID'' ");
+      }
+ else {
+        sb.append(random().nextBoolean() ? "cacheKey=''PERSON_ID'' cacheLookup=''People.ID'' " : "where=''PERSON_ID=People.ID'' ");
+        sb.append("query=''SELECT ID, PERSON_ID, SPORT_NAME FROM PEOPLE_SPORTS ORDER BY ID'' ");
+      }
+    }
+ else {
+      sb.append("processor=''SqlEntityProcessor'' query=''SELECT ID, SPORT_NAME FROM PEOPLE_SPORTS WHERE DELETED != 'Y' AND PERSON_ID=${People.ID} ORDER BY ID'' ");
+    }
+    sb.append("> \n");
+    sb.append("<field column=''SPORT_NAME'' name=''SPORT_NAME_mult_s'' /> \n");
+    sb.append("<field column=''id'' name=''SPORT_ID_mult_s'' /> \n");
+    sb.append("</entity> \n");
+  }
+  sb.append("</entity> \n");
+  sb.append("</document> \n");
+  sb.append("</dataConfig> \n");
+  String config=sb.toString().replaceAll("[']{2}","\"");
+  log.debug(config);
+  return config;
+}
