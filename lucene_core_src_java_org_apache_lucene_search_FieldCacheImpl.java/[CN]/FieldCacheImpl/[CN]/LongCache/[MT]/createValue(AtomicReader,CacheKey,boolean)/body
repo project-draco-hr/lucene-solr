@@ -1,0 +1,38 @@
+{
+  int maxDoc=reader.maxDoc();
+  final long[] values;
+  NumericDocValues valuesIn=reader.getNumericDocValues(key.field);
+  if (valuesIn != null) {
+    values=new long[maxDoc];
+    for (int docID=0; docID < maxDoc; docID++) {
+      values[docID]=valuesIn.get(docID);
+    }
+  }
+ else {
+    final LongParser parser=(LongParser)key.custom;
+    if (parser == null) {
+      try {
+        return wrapper.getLongs(reader,key.field,DEFAULT_LONG_PARSER,setDocsWithField);
+      }
+ catch (      NumberFormatException ne) {
+        return wrapper.getLongs(reader,key.field,NUMERIC_UTILS_LONG_PARSER,setDocsWithField);
+      }
+    }
+    values=new long[reader.maxDoc()];
+    Uninvert u=new Uninvert(){
+      private long currentValue;
+      @Override public void visitTerm(      BytesRef term){
+        currentValue=parser.parseLong(term);
+      }
+      @Override public void visitDoc(      int docID){
+        values[docID]=currentValue;
+      }
+    }
+;
+    u.uninvert(reader,key.field,setDocsWithField);
+    if (setDocsWithField) {
+      wrapper.setDocsWithField(reader,key.field,u.docsWithField);
+    }
+  }
+  return new LongsFromArray(values);
+}

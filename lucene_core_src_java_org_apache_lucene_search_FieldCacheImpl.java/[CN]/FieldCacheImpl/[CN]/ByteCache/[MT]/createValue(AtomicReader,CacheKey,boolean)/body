@@ -1,0 +1,33 @@
+{
+  int maxDoc=reader.maxDoc();
+  final byte[] values;
+  NumericDocValues valuesIn=reader.getNumericDocValues(key.field);
+  if (valuesIn != null) {
+    values=new byte[maxDoc];
+    for (int docID=0; docID < maxDoc; docID++) {
+      values[docID]=(byte)valuesIn.get(docID);
+    }
+  }
+ else {
+    final ByteParser parser=(ByteParser)key.custom;
+    if (parser == null) {
+      return wrapper.getBytes(reader,key.field,DEFAULT_BYTE_PARSER,setDocsWithField);
+    }
+    values=new byte[maxDoc];
+    Uninvert u=new Uninvert(){
+      private byte currentValue;
+      @Override public void visitTerm(      BytesRef term){
+        currentValue=parser.parseByte(term);
+      }
+      @Override public void visitDoc(      int docID){
+        values[docID]=currentValue;
+      }
+    }
+;
+    u.uninvert(reader,key.field,setDocsWithField);
+    if (setDocsWithField) {
+      wrapper.setDocsWithField(reader,key.field,u.docsWithField);
+    }
+  }
+  return new BytesFromArray(values);
+}

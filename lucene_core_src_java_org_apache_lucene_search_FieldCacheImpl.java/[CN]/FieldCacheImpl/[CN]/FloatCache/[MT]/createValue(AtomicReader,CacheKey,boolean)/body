@@ -1,0 +1,38 @@
+{
+  int maxDoc=reader.maxDoc();
+  final float[] values;
+  NumericDocValues valuesIn=reader.getNumericDocValues(key.field);
+  if (valuesIn != null) {
+    values=new float[maxDoc];
+    for (int docID=0; docID < maxDoc; docID++) {
+      values[docID]=Float.intBitsToFloat((int)valuesIn.get(docID));
+    }
+  }
+ else {
+    final FloatParser parser=(FloatParser)key.custom;
+    if (parser == null) {
+      try {
+        return wrapper.getFloats(reader,key.field,DEFAULT_FLOAT_PARSER,setDocsWithField);
+      }
+ catch (      NumberFormatException ne) {
+        return wrapper.getFloats(reader,key.field,NUMERIC_UTILS_FLOAT_PARSER,setDocsWithField);
+      }
+    }
+    values=new float[reader.maxDoc()];
+    Uninvert u=new Uninvert(){
+      private float currentValue;
+      @Override public void visitTerm(      BytesRef term){
+        currentValue=parser.parseFloat(term);
+      }
+      @Override public void visitDoc(      int docID){
+        values[docID]=currentValue;
+      }
+    }
+;
+    u.uninvert(reader,key.field,setDocsWithField);
+    if (setDocsWithField) {
+      wrapper.setDocsWithField(reader,key.field,u.docsWithField);
+    }
+  }
+  return new FloatsFromArray(values);
+}

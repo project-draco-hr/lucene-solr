@@ -1,0 +1,76 @@
+{
+  final int maxDoc=reader.maxDoc();
+  BinaryDocValues valuesIn=reader.getBinaryDocValues(key.field);
+  if (valuesIn != null) {
+    final byte[][] values=new byte[maxDoc][];
+    BytesRef scratch=new BytesRef();
+    for (int docID=0; docID < maxDoc; docID++) {
+      valuesIn.get(docID,scratch);
+      values[docID]=new byte[scratch.length];
+      System.arraycopy(scratch.bytes,scratch.offset,values[docID],0,scratch.length);
+    }
+    return new DocTerms(){
+      @Override public int size(){
+        return maxDoc;
+      }
+      @Override public boolean exists(      int docID){
+        return true;
+      }
+      @Override public BytesRef getTerm(      int docID,      BytesRef ret){
+        ret.bytes=values[docID];
+        ret.length=ret.bytes.length;
+        ret.offset=0;
+        return ret;
+      }
+    }
+;
+  }
+ else {
+    Terms terms=reader.terms(key.field);
+    final float acceptableOverheadRatio=((Float)key.custom).floatValue();
+    final int termCountHardLimit=maxDoc;
+    final PagedBytes bytes=new PagedBytes(15);
+    int startBPV;
+    if (terms != null) {
+      long numUniqueTerms=terms.size();
+      if (numUniqueTerms != -1L) {
+        if (numUniqueTerms > termCountHardLimit) {
+          numUniqueTerms=termCountHardLimit;
+        }
+        startBPV=PackedInts.bitsRequired(numUniqueTerms * 4);
+      }
+ else {
+        startBPV=1;
+      }
+    }
+ else {
+      startBPV=1;
+    }
+    final GrowableWriter docToOffset=new GrowableWriter(startBPV,maxDoc,acceptableOverheadRatio);
+    bytes.copyUsingLengthPrefix(new BytesRef());
+    if (terms != null) {
+      int termCount=0;
+      final TermsEnum termsEnum=terms.iterator(null);
+      DocsEnum docs=null;
+      while (true) {
+        if (termCount++ == termCountHardLimit) {
+          break;
+        }
+        final BytesRef term=termsEnum.next();
+        if (term == null) {
+          break;
+        }
+        final long pointer=bytes.copyUsingLengthPrefix(term);
+        docs=termsEnum.docs(null,docs,0);
+        while (true) {
+          final int docID=docs.nextDoc();
+          if (docID == DocIdSetIterator.NO_MORE_DOCS) {
+            break;
+          }
+          docToOffset.set(docID,pointer);
+        }
+      }
+    }
+    return new DocTermsImpl(bytes.freeze(true),docToOffset.getMutable());
+  }
+}
