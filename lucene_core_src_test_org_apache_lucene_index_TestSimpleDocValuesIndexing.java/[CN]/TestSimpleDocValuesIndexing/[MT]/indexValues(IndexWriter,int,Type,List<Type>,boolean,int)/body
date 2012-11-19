@@ -1,0 +1,127 @@
+{
+  final boolean isNumeric=NUMERICS.contains(valueType);
+  FixedBitSet deleted=new FixedBitSet(numValues);
+  Document doc=new Document();
+  final Field valField;
+  if (isNumeric) {
+switch (valueType) {
+case VAR_INTS:
+      valField=new PackedLongDocValuesField(valueType.name(),(long)0);
+    break;
+case FIXED_INTS_16:
+  valField=new ShortDocValuesField(valueType.name(),(short)0);
+break;
+case FIXED_INTS_32:
+valField=new IntDocValuesField(valueType.name(),0);
+break;
+case FIXED_INTS_64:
+valField=new LongDocValuesField(valueType.name(),(long)0);
+break;
+case FIXED_INTS_8:
+valField=new ByteDocValuesField(valueType.name(),(byte)0);
+break;
+case FLOAT_32:
+valField=new FloatDocValuesField(valueType.name(),(float)0);
+break;
+case FLOAT_64:
+valField=new DoubleDocValuesField(valueType.name(),(double)0);
+break;
+default :
+valField=null;
+fail("unhandled case");
+}
+}
+ else {
+switch (valueType) {
+case BYTES_FIXED_STRAIGHT:
+valField=new StraightBytesDocValuesField(valueType.name(),new BytesRef(),true);
+break;
+case BYTES_VAR_STRAIGHT:
+valField=new StraightBytesDocValuesField(valueType.name(),new BytesRef(),false);
+break;
+case BYTES_FIXED_DEREF:
+valField=new DerefBytesDocValuesField(valueType.name(),new BytesRef(),true);
+break;
+case BYTES_VAR_DEREF:
+valField=new DerefBytesDocValuesField(valueType.name(),new BytesRef(),false);
+break;
+case BYTES_FIXED_SORTED:
+valField=new SortedBytesDocValuesField(valueType.name(),new BytesRef(),true);
+break;
+case BYTES_VAR_SORTED:
+valField=new SortedBytesDocValuesField(valueType.name(),new BytesRef(),false);
+break;
+default :
+valField=null;
+fail("unhandled case");
+}
+}
+doc.add(valField);
+final BytesRef bytesRef=new BytesRef();
+final String idBase=valueType.name() + "_";
+final byte[] b=new byte[bytesSize];
+if (bytesRef != null) {
+bytesRef.bytes=b;
+bytesRef.length=b.length;
+bytesRef.offset=0;
+}
+byte upto=0;
+for (int i=0; i < numValues; i++) {
+if (isNumeric) {
+switch (valueType) {
+case VAR_INTS:
+valField.setLongValue((long)i);
+break;
+case FIXED_INTS_16:
+valField.setShortValue((short)i);
+break;
+case FIXED_INTS_32:
+valField.setIntValue(i);
+break;
+case FIXED_INTS_64:
+valField.setLongValue((long)i);
+break;
+case FIXED_INTS_8:
+valField.setByteValue((byte)(0xFF & (i % 128)));
+break;
+case FLOAT_32:
+valField.setFloatValue(2.0f * i);
+break;
+case FLOAT_64:
+valField.setDoubleValue(2.0d * i);
+break;
+default :
+fail("unexpected value " + valueType);
+}
+}
+ else {
+for (int j=0; j < b.length; j++) {
+b[j]=upto++;
+}
+if (bytesRef != null) {
+valField.setBytesValue(bytesRef);
+}
+}
+doc.removeFields("id");
+doc.add(new StringField("id",idBase + i,Field.Store.YES));
+w.addDocument(doc);
+if (i % 7 == 0) {
+if (withDeletions && random().nextBoolean()) {
+Type val=valueVarList.get(random().nextInt(1 + valueVarList.indexOf(valueType)));
+final int randInt=val == valueType ? random().nextInt(1 + i) : random().nextInt(numValues);
+w.deleteDocuments(new Term("id",val.name() + "_" + randInt));
+if (val == valueType) {
+deleted.set(randInt);
+}
+}
+if (random().nextInt(10) == 0) {
+w.commit();
+}
+}
+}
+w.commit();
+if (withDeletions || random().nextBoolean()) {
+w.forceMerge(1,true);
+}
+return deleted;
+}
