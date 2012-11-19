@@ -2,37 +2,25 @@
   final int maxDoc=reader.maxDoc();
   SortedDocValues valuesIn=reader.getSortedDocValues(key.field);
   if (valuesIn != null) {
-    final byte[][] values=new byte[valuesIn.getValueCount()][];
-    BytesRef scratch=new BytesRef();
-    for (int ord=0; ord < values.length; ord++) {
-      valuesIn.lookupOrd(ord,scratch);
-      values[ord]=new byte[scratch.length];
-      System.arraycopy(scratch.bytes,scratch.offset,values[ord],0,scratch.length);
-    }
-    final int[] docToOrd=new int[maxDoc];
-    for (int docID=0; docID < maxDoc; docID++) {
-      docToOrd[docID]=valuesIn.getOrd(docID);
-    }
+    final SortedDocValues ramInstance=valuesIn.newRAMInstance();
     return new DocTermsIndex(){
-      @Override public PackedInts.Reader getDocToOrd(){
-        return null;
-      }
-      @Override public int numOrd(){
-        return values.length;
+      @Override public BytesRef lookup(      int ord,      BytesRef reuse){
+        ramInstance.lookupOrd(ord,reuse);
+        return reuse;
       }
       @Override public int getOrd(      int docID){
-        return docToOrd[docID];
+        return ramInstance.getOrd(docID);
+      }
+      @Override public int numOrd(){
+        return ramInstance.getValueCount();
       }
       @Override public int size(){
-        return docToOrd.length;
-      }
-      @Override public BytesRef lookup(      int ord,      BytesRef ret){
-        ret.bytes=values[ord];
-        ret.length=ret.bytes.length;
-        ret.offset=0;
-        return ret;
+        return ramInstance.size();
       }
       @Override public TermsEnum getTermsEnum(){
+        return null;
+      }
+      @Override public Reader getDocToOrd(){
         return null;
       }
     }
