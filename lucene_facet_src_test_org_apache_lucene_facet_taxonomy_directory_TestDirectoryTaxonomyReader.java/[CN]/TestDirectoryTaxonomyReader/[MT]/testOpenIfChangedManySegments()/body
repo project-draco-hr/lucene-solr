@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  DirectoryTaxonomyWriter writer=new DirectoryTaxonomyWriter(dir){
+    @Override protected IndexWriterConfig createIndexWriterConfig(    OpenMode openMode){
+      IndexWriterConfig conf=super.createIndexWriterConfig(openMode);
+      LogMergePolicy lmp=(LogMergePolicy)conf.getMergePolicy();
+      lmp.setMergeFactor(2);
+      return conf;
+    }
+  }
+;
+  TaxonomyReader reader=new DirectoryTaxonomyReader(writer);
+  int numRounds=random().nextInt(10) + 10;
+  int numCategories=1;
+  for (int i=0; i < numRounds; i++) {
+    int numCats=random().nextInt(4) + 1;
+    for (int j=0; j < numCats; j++) {
+      writer.addCategory(new CategoryPath(Integer.toString(i),Integer.toString(j)));
+    }
+    numCategories+=numCats + 1;
+    TaxonomyReader newtr=TaxonomyReader.openIfChanged(reader);
+    assertNotNull(newtr);
+    reader.close();
+    reader=newtr;
+    assertEquals(numCategories,reader.getSize());
+    int roundOrdinal=reader.getOrdinal(new CategoryPath(Integer.toString(i)));
+    int[] parents=reader.getParentArray();
+    assertEquals(0,parents[roundOrdinal]);
+    for (int j=0; j < numCats; j++) {
+      int ord=reader.getOrdinal(new CategoryPath(Integer.toString(i),Integer.toString(j)));
+      assertEquals(roundOrdinal,parents[ord]);
+    }
+  }
+  reader.close();
+  writer.close();
+  dir.close();
+}

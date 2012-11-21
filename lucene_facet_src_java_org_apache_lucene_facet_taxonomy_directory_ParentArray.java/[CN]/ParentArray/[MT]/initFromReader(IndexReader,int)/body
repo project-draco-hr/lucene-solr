@@ -1,0 +1,41 @@
+{
+  if (reader.maxDoc() == first) {
+    return;
+  }
+  TermsEnum termsEnum=null;
+  DocsAndPositionsEnum positions=null;
+  int idx=0;
+  for (  AtomicReaderContext context : reader.leaves()) {
+    if (context.docBase < first) {
+      continue;
+    }
+    termsEnum=context.reader().fields().terms(Consts.FIELD_PAYLOADS).iterator(termsEnum);
+    if (!termsEnum.seekExact(Consts.PAYLOAD_PARENT_BYTES_REF,true)) {
+      throw new CorruptIndexException("Missing parent stream data for segment " + context.reader());
+    }
+    positions=termsEnum.docsAndPositions(null,positions);
+    if (positions == null) {
+      throw new CorruptIndexException("Missing parent stream data for segment " + context.reader());
+    }
+    idx=context.docBase;
+    int doc;
+    while ((doc=positions.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+      doc+=context.docBase;
+      if (doc == idx) {
+        if (positions.freq() == 0) {
+          throw new CorruptIndexException("Missing parent data for category " + idx);
+        }
+        parentOrdinals[idx++]=positions.nextPosition();
+      }
+ else {
+        throw new CorruptIndexException("Missing parent data for category " + idx);
+      }
+    }
+    if (idx + 1 < context.reader().maxDoc()) {
+      throw new CorruptIndexException("Missing parent data for category " + (idx + 1));
+    }
+  }
+  if (idx != reader.maxDoc()) {
+    throw new CorruptIndexException("Missing parent data for category " + idx);
+  }
+}
