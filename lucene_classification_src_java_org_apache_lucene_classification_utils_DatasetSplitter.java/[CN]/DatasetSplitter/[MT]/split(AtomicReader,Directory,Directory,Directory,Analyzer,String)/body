@@ -1,0 +1,60 @@
+{
+  IndexWriter testWriter=new IndexWriter(testIndex,new IndexWriterConfig(Version.LUCENE_50,analyzer));
+  IndexWriter cvWriter=new IndexWriter(crossValidationIndex,new IndexWriterConfig(Version.LUCENE_50,analyzer));
+  IndexWriter trainingWriter=new IndexWriter(trainingIndex,new IndexWriterConfig(Version.LUCENE_50,analyzer));
+  try {
+    int size=originalIndex.maxDoc();
+    IndexSearcher indexSearcher=new IndexSearcher(originalIndex);
+    TopDocs topDocs=indexSearcher.search(new MatchAllDocsQuery(),Integer.MAX_VALUE);
+    FieldType ft=new FieldType(TextField.TYPE_STORED);
+    ft.setStoreTermVectors(true);
+    ft.setStoreTermVectorOffsets(true);
+    ft.setStoreTermVectorPositions(true);
+    int b=0;
+    for (    ScoreDoc scoreDoc : topDocs.scoreDocs) {
+      Document doc=new Document();
+      if (fieldNames != null && fieldNames.length > 0) {
+        for (        String fieldName : fieldNames) {
+          doc.add(new Field(fieldName,originalIndex.document(scoreDoc.doc).getField(fieldName).stringValue(),ft));
+        }
+      }
+ else {
+        for (        StorableField storableField : originalIndex.document(scoreDoc.doc).getFields()) {
+          if (storableField.readerValue() != null) {
+            doc.add(new Field(storableField.name(),storableField.readerValue(),ft));
+          }
+ else           if (storableField.binaryValue() != null) {
+            doc.add(new Field(storableField.name(),storableField.binaryValue(),ft));
+          }
+ else           if (storableField.stringValue() != null) {
+            doc.add(new Field(storableField.name(),storableField.stringValue(),ft));
+          }
+ else           if (storableField.numericValue() != null) {
+            doc.add(new Field(storableField.name(),storableField.numericValue().toString(),ft));
+          }
+        }
+      }
+      if (b % 2 == 0 && testWriter.maxDoc() < size * testRatio) {
+        testWriter.addDocument(doc);
+        testWriter.commit();
+      }
+ else       if (cvWriter.maxDoc() < size * crossValidationRatio) {
+        cvWriter.addDocument(doc);
+        cvWriter.commit();
+      }
+ else {
+        trainingWriter.addDocument(doc);
+        trainingWriter.commit();
+      }
+      b++;
+    }
+  }
+ catch (  Exception e) {
+    throw new IOException(e);
+  }
+ finally {
+    testWriter.close();
+    cvWriter.close();
+    trainingWriter.close();
+  }
+}
