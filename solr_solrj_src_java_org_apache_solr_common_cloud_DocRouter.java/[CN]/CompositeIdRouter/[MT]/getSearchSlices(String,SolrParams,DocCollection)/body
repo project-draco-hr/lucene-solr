@@ -1,0 +1,35 @@
+{
+  if (shardKey == null) {
+    return collection.getSlices();
+  }
+  String id=shardKey;
+  int idx=shardKey.indexOf(separator);
+  if (idx < 0) {
+    return Collections.singletonList(hashToSlice(Hash.murmurhash3_x86_32(id,0,id.length(),0),collection));
+  }
+  int m1=mask1;
+  int m2=mask2;
+  String part1=id.substring(0,idx);
+  int commaIdx=part1.indexOf(bitsSepartor);
+  if (commaIdx > 0) {
+    int firstBits=getBits(part1,commaIdx);
+    if (firstBits >= 0) {
+      m1=-1 << (32 - firstBits);
+      m2=-1 >>> firstBits;
+      part1=part1.substring(0,commaIdx);
+    }
+  }
+  int hash1=Hash.murmurhash3_x86_32(part1,0,part1.length(),0);
+  int upperBits=hash1 & m1;
+  int lowerBound=upperBits;
+  int upperBound=upperBits | m2;
+  Range completeRange=new Range(lowerBound,upperBound);
+  List<Slice> slices=new ArrayList(1);
+  for (  Slice slice : slices) {
+    Range range=slice.getRange();
+    if (range != null && range.overlaps(completeRange)) {
+      slices.add(slice);
+    }
+  }
+  return slices;
+}
