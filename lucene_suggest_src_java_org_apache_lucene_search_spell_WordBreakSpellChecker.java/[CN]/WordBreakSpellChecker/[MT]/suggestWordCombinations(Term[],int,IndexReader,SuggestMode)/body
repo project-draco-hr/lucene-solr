@@ -13,40 +13,39 @@
   Comparator<CombineSuggestionWrapper> queueComparator=new CombinationsThenFreqComparator();
   Queue<CombineSuggestionWrapper> suggestions=new PriorityQueue<CombineSuggestionWrapper>(queueInitialCapacity,queueComparator);
   int thisTimeEvaluations=0;
-  BytesRef reuse=new BytesRef();
   for (int i=0; i < terms.length - 1; i++) {
     if (terms[i].equals(SEPARATOR_TERM)) {
       continue;
     }
-    int byteLength=terms[i].bytes().length;
-    if (byteLength > maxCombineWordLength) {
+    String leftTermText=terms[i].text();
+    int leftTermLength=leftTermText.codePointCount(0,leftTermText.length());
+    if (leftTermLength > maxCombineWordLength) {
       continue;
     }
-    reuse.grow(byteLength);
-    reuse.length=byteLength;
-    System.arraycopy(terms[i].bytes().bytes,terms[i].bytes().offset,reuse.bytes,0,byteLength);
     int maxFreq=0;
     int minFreq=Integer.MAX_VALUE;
     if (origFreqs != null) {
       maxFreq=origFreqs[i];
       minFreq=origFreqs[i];
     }
+    String combinedTermText=leftTermText;
+    int combinedLength=leftTermLength;
     for (int j=i + 1; j < terms.length && j - i <= maxChanges; j++) {
       if (terms[j].equals(SEPARATOR_TERM)) {
         break;
       }
-      byteLength+=terms[j].bytes().length;
-      if (byteLength > maxCombineWordLength) {
+      String rightTermText=terms[j].text();
+      int rightTermLength=rightTermText.codePointCount(0,rightTermText.length());
+      combinedTermText+=rightTermText;
+      combinedLength+=rightTermLength;
+      if (combinedLength > maxCombineWordLength) {
         break;
       }
       if (origFreqs != null) {
         maxFreq=Math.max(maxFreq,origFreqs[j]);
         minFreq=Math.min(minFreq,origFreqs[j]);
       }
-      reuse.grow(byteLength);
-      System.arraycopy(terms[j].bytes().bytes,terms[j].bytes().offset,reuse.bytes,reuse.length,terms[j].bytes().length);
-      reuse.length=byteLength;
-      Term combinedTerm=new Term(terms[0].field(),reuse);
+      Term combinedTerm=new Term(terms[0].field(),combinedTermText);
       int combinedTermFreq=ir.docFreq(combinedTerm);
       if (suggestMode != SuggestMode.SUGGEST_MORE_POPULAR || combinedTermFreq >= maxFreq) {
         if (suggestMode != SuggestMode.SUGGEST_WHEN_NOT_IN_INDEX || minFreq == 0) {
