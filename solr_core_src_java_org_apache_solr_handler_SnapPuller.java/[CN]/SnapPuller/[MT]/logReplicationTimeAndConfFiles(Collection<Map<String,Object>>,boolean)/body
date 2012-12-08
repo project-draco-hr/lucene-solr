@@ -1,11 +1,12 @@
 {
-  FileOutputStream outFile=null;
   List<String> confFiles=new ArrayList<String>();
   if (modifiedConfFiles != null && !modifiedConfFiles.isEmpty())   for (  Map<String,Object> map1 : modifiedConfFiles)   confFiles.add((String)map1.get(NAME));
   Properties props=replicationHandler.loadReplicationProperties();
   long replicationTime=System.currentTimeMillis();
   long replicationTimeTaken=(replicationTime - getReplicationStartTime()) / 1000;
+  Directory dir=null;
   try {
+    dir=solrCore.getDirectoryFactory().get(solrCore.getDataDir(),solrCore.getSolrConfig().indexConfig.lockType);
     int indexCount=1, confFilesCount=1;
     if (props.containsKey(TIMES_INDEX_REPLICATED)) {
       indexCount=Integer.valueOf(props.getProperty(TIMES_INDEX_REPLICATED)) + 1;
@@ -34,15 +35,21 @@
       sb=readToStringBuffer(replicationTime,props.getProperty(REPLICATION_FAILED_AT_LIST));
       props.setProperty(REPLICATION_FAILED_AT_LIST,sb.toString());
     }
-    File f=new File(solrCore.getDataDir(),REPLICATION_PROPERTIES);
-    outFile=new FileOutputStream(f);
-    props.store(outFile,"Replication details");
-    outFile.close();
+    final IndexOutput out=dir.createOutput(REPLICATION_PROPERTIES,IOContext.DEFAULT);
+    OutputStream outFile=new PropertiesOutputStream(out);
+    try {
+      props.store(outFile,"Replication details");
+    }
+  finally {
+      IOUtils.closeQuietly(outFile);
+    }
   }
  catch (  Exception e) {
     LOG.warn("Exception while updating statistics",e);
   }
  finally {
-    IOUtils.closeQuietly(outFile);
+    if (dir != null) {
+      solrCore.getDirectoryFactory().release(dir);
+    }
   }
 }
