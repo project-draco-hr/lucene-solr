@@ -3,26 +3,10 @@
   Properties p=new Properties();
   Directory dir=null;
   try {
-    dir=solrCore.getDirectoryFactory().get(solrCore.getDataDir(),null);
+    dir=solrCore.getDirectoryFactory().get(solrCore.getDataDir(),solrCore.getSolrConfig().indexConfig.lockType);
     if (dir.fileExists("index.properties")) {
       final IndexInput input=dir.openInput("index.properties",IOContext.DEFAULT);
-      final InputStream is=new InputStream(){
-        @Override public int read() throws IOException {
-          byte next;
-          try {
-            next=input.readByte();
-          }
- catch (          EOFException e) {
-            return -1;
-          }
-          return next;
-        }
-        @Override public void close() throws IOException {
-          super.close();
-          input.close();
-        }
-      }
-;
+      final InputStream is=new PropertiesInputStream(input);
       try {
         p.load(is);
       }
@@ -42,17 +26,9 @@
     p.put("index",tmpIdxDirName);
     OutputStream os=null;
     try {
-      os=new OutputStream(){
-        @Override public void write(        int b) throws IOException {
-          out.writeByte((byte)b);
-        }
-        @Override public void close() throws IOException {
-          super.close();
-          out.close();
-        }
-      }
-;
+      os=new PropertiesOutputStream(out);
       p.store(os,"index properties");
+      dir.sync(Collections.singleton(INDEX_PEROPERTIES));
     }
  catch (    Exception e) {
       throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unable to write index.properties",e);

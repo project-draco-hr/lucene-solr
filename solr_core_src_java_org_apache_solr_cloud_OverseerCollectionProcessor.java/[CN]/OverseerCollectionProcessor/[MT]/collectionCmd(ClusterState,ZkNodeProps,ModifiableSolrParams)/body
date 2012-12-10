@@ -1,27 +1,29 @@
 {
   log.info("Executing Collection Cmd : " + params);
-  String name=message.getStr("name");
-  Map<String,Slice> slices=clusterState.getCollectionStates().get(name);
-  if (slices == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Could not find collection:" + name);
+  String collectionName=message.getStr("name");
+  DocCollection coll=clusterState.getCollection(collectionName);
+  if (coll == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Could not find collection:" + collectionName);
   }
-  for (  Map.Entry<String,Slice> entry : slices.entrySet()) {
+  for (  Map.Entry<String,Slice> entry : coll.getSlicesMap().entrySet()) {
     Slice slice=entry.getValue();
     Map<String,Replica> shards=slice.getReplicasMap();
     Set<Map.Entry<String,Replica>> shardEntries=shards.entrySet();
     for (    Map.Entry<String,Replica> shardEntry : shardEntries) {
       final ZkNodeProps node=shardEntry.getValue();
       if (clusterState.liveNodesContain(node.getStr(ZkStateReader.NODE_NAME_PROP))) {
-        params.set(CoreAdminParams.CORE,node.getStr(ZkStateReader.CORE_NAME_PROP));
+        ModifiableSolrParams cloneParams=new ModifiableSolrParams();
+        cloneParams.add(params);
+        cloneParams.set(CoreAdminParams.CORE,node.getStr(ZkStateReader.CORE_NAME_PROP));
         String replica=node.getStr(ZkStateReader.BASE_URL_PROP);
         ShardRequest sreq=new ShardRequest();
-        params.set("qt",adminPath);
+        cloneParams.set("qt",adminPath);
         sreq.purpose=1;
         if (replica.startsWith("http://"))         replica=replica.substring(7);
         sreq.shards=new String[]{replica};
         sreq.actualShards=sreq.shards;
-        sreq.params=params;
-        log.info("Collection Admin sending CoreAdmin cmd to " + replica);
+        sreq.params=cloneParams;
+        log.info("Collection Admin sending CoreAdmin cmd to " + replica + " params:"+ sreq.params);
         shardHandler.submit(sreq,replica,sreq.params);
       }
     }

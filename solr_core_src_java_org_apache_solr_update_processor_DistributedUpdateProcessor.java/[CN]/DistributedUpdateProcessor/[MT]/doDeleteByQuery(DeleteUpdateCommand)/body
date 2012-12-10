@@ -8,23 +8,22 @@
   DistribPhase phase=DistribPhase.parseParam(req.getParams().get(DISTRIB_UPDATE_PARAM));
   if (zkEnabled && DistribPhase.NONE == phase) {
     boolean leaderForAnyShard=false;
-    Map<String,Slice> slices=zkController.getClusterState().getSlices(collection);
-    if (slices == null) {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"Cannot find collection:" + collection + " in "+ zkController.getClusterState().getCollections());
-    }
-    ModifiableSolrParams params=new ModifiableSolrParams(filterParams(req.getParams()));
-    params.set(DISTRIB_UPDATE_PARAM,DistribPhase.TOLEADER.toString());
+    ModifiableSolrParams outParams=new ModifiableSolrParams(filterParams(req.getParams()));
+    outParams.set(DISTRIB_UPDATE_PARAM,DistribPhase.TOLEADER.toString());
+    DocCollection coll=zkController.getClusterState().getCollection(collection);
+    SolrParams params=req.getParams();
+    Collection<Slice> slices=coll.getRouter().getSearchSlices(params.get(ShardParams.SHARD_KEYS),params,coll);
     List<Node> leaders=new ArrayList<Node>(slices.size());
-    for (    Map.Entry<String,Slice> sliceEntry : slices.entrySet()) {
-      String sliceName=sliceEntry.getKey();
-      ZkNodeProps leaderProps;
+    for (    Slice slice : slices) {
+      String sliceName=slice.getName();
+      Replica leader;
       try {
-        leaderProps=zkController.getZkStateReader().getLeaderProps(collection,sliceName);
+        leader=zkController.getZkStateReader().getLeaderProps(collection,sliceName);
       }
  catch (      InterruptedException e) {
         throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Exception finding leader for shard " + sliceName,e);
       }
-      ZkCoreNodeProps coreLeaderProps=new ZkCoreNodeProps(leaderProps);
+      ZkCoreNodeProps coreLeaderProps=new ZkCoreNodeProps(leader);
       String leaderNodeName=coreLeaderProps.getCoreNodeName();
       String coreName=req.getCore().getName();
       String coreNodeName=zkController.getNodeName() + "_" + coreName;
@@ -36,8 +35,8 @@
         leaders.add(new StdNode(coreLeaderProps));
       }
     }
-    params.remove("commit");
-    cmdDistrib.distribDelete(cmd,leaders,params);
+    outParams.remove("commit");
+    cmdDistrib.distribDelete(cmd,leaders,outParams);
     if (!leaderForAnyShard) {
       return;
     }

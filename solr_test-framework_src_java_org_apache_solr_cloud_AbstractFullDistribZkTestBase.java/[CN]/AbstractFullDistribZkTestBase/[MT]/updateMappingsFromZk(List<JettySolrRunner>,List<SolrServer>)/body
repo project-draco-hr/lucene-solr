@@ -4,22 +4,18 @@
   cloudJettys.clear();
   shardToJetty.clear();
   ClusterState clusterState=zkStateReader.getClusterState();
-  Map<String,Slice> slices=clusterState.getSlices(DEFAULT_COLLECTION);
-  if (slices == null) {
-    throw new RuntimeException("No slices found for collection " + DEFAULT_COLLECTION + " in "+ clusterState.getCollections());
-  }
+  DocCollection coll=clusterState.getCollection(DEFAULT_COLLECTION);
   List<CloudSolrServerClient> theClients=new ArrayList<CloudSolrServerClient>();
   for (  SolrServer client : clients) {
-    nextClient:     for (    Map.Entry<String,Slice> slice : slices.entrySet()) {
-      Map<String,Replica> theShards=slice.getValue().getReplicasMap();
-      for (      Map.Entry<String,Replica> shard : theShards.entrySet()) {
+    nextClient:     for (    Slice slice : coll.getSlices()) {
+      for (      Replica replica : slice.getReplicas()) {
         int port=new URI(((HttpSolrServer)client).getBaseURL()).getPort();
-        if (shard.getKey().contains(":" + port + "_")) {
+        if (replica.getName().contains(":" + port + "_")) {
           CloudSolrServerClient csc=new CloudSolrServerClient();
           csc.solrClient=client;
           csc.port=port;
-          csc.shardName=shard.getValue().getStr(ZkStateReader.NODE_NAME_PROP);
-          csc.info=shard.getValue();
+          csc.shardName=replica.getStr(ZkStateReader.NODE_NAME_PROP);
+          csc.info=replica;
           theClients.add(csc);
           break nextClient;
         }
@@ -31,26 +27,25 @@
     if (port == -1) {
       throw new RuntimeException("Cannot find the port for jetty");
     }
-    nextJetty:     for (    Map.Entry<String,Slice> slice : slices.entrySet()) {
-      Map<String,Replica> theShards=slice.getValue().getReplicasMap();
-      for (      Map.Entry<String,Replica> shard : theShards.entrySet()) {
-        if (shard.getKey().contains(":" + port + "_")) {
-          List<CloudJettyRunner> list=shardToJetty.get(slice.getKey());
+    nextJetty:     for (    Slice slice : coll.getSlices()) {
+      for (      Replica replica : slice.getReplicas()) {
+        if (replica.getName().contains(":" + port + "_")) {
+          List<CloudJettyRunner> list=shardToJetty.get(slice.getName());
           if (list == null) {
             list=new ArrayList<CloudJettyRunner>();
-            shardToJetty.put(slice.getKey(),list);
+            shardToJetty.put(slice.getName(),list);
           }
-          boolean isLeader=shard.getValue().containsKey(ZkStateReader.LEADER_PROP);
+          boolean isLeader=slice.getLeader() == replica;
           CloudJettyRunner cjr=new CloudJettyRunner();
           cjr.jetty=jetty;
-          cjr.info=shard.getValue();
-          cjr.nodeName=shard.getValue().getStr(ZkStateReader.NODE_NAME_PROP);
-          cjr.coreNodeName=shard.getKey();
-          cjr.url=shard.getValue().getStr(ZkStateReader.BASE_URL_PROP) + "/" + shard.getValue().getStr(ZkStateReader.CORE_NAME_PROP);
+          cjr.info=replica;
+          cjr.nodeName=replica.getStr(ZkStateReader.NODE_NAME_PROP);
+          cjr.coreNodeName=replica.getName();
+          cjr.url=replica.getStr(ZkStateReader.BASE_URL_PROP) + "/" + replica.getStr(ZkStateReader.CORE_NAME_PROP);
           cjr.client=findClientByPort(port,theClients);
           list.add(cjr);
           if (isLeader) {
-            shardToLeaderJetty.put(slice.getKey(),cjr);
+            shardToLeaderJetty.put(slice.getName(),cjr);
           }
           cloudJettys.add(cjr);
           break nextJetty;
@@ -58,9 +53,9 @@
       }
     }
   }
-  for (  Map.Entry<String,Slice> slice : slices.entrySet()) {
-    List<CloudJettyRunner> jetties=shardToJetty.get(slice.getKey());
-    assertNotNull("Test setup problem: We found no jetties for shard: " + slice.getKey() + " just:"+ shardToJetty.keySet(),jetties);
-    assertEquals(slice.getValue().getReplicasMap().size(),jetties.size());
+  for (  Slice slice : coll.getSlices()) {
+    List<CloudJettyRunner> jetties=shardToJetty.get(slice.getName());
+    assertNotNull("Test setup problem: We found no jetties for shard: " + slice.getName() + " just:"+ shardToJetty.keySet(),jetties);
+    assertEquals(slice.getReplicas().size(),jetties.size());
   }
 }

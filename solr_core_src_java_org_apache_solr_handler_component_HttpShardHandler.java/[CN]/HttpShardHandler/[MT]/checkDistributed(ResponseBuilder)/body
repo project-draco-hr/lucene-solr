@@ -26,30 +26,39 @@
     }
  else     if (zkController != null) {
       clusterState=zkController.getClusterState();
+      String shardKeys=params.get(ShardParams.SHARD_KEYS);
+      slices=new HashMap<String,Slice>();
       String collections=params.get("collection");
       if (collections != null) {
         List<String> collectionList=StrUtils.splitSmart(collections,",",true);
-        slices=new HashMap<String,Slice>();
-        for (int i=0; i < collectionList.size(); i++) {
-          String collection=collectionList.get(i);
-          ClientUtils.appendMap(collection,slices,clusterState.getSlices(collection));
+        for (        String collectionName : collectionList) {
+          addSlices(slices,clusterState,params,collectionName,shardKeys,true);
         }
       }
  else {
-        slices=clusterState.getSlices(cloudDescriptor.getCollectionName());
-        if (slices == null) {
-          throw new SolrException(ErrorCode.BAD_REQUEST,"Could not find collection:" + cloudDescriptor.getCollectionName());
-        }
+        String collectionName=cloudDescriptor.getCollectionName();
+        addSlices(slices,clusterState,params,collectionName,shardKeys,false);
       }
       rb.slices=slices.keySet().toArray(new String[slices.size()]);
       rb.shards=new String[rb.slices.length];
     }
     if (zkController != null) {
+      String ourSlice=cloudDescriptor.getShardId();
+      String ourCollection=cloudDescriptor.getCollectionName();
+      if (rb.slices.length == 1 && (rb.slices[0].equals(ourSlice) || rb.slices[0].equals(ourCollection + "_" + ourSlice)) && ZkStateReader.ACTIVE.equals(cloudDescriptor.getLastPublished())) {
+        boolean shortCircuit=params.getBool("shortCircuit",true);
+        String targetHandler=params.get(ShardParams.SHARDS_QT);
+        shortCircuit=shortCircuit && targetHandler == null;
+        if (shortCircuit) {
+          rb.isDistrib=false;
+          return;
+        }
+      }
       for (int i=0; i < rb.shards.length; i++) {
         if (rb.shards[i] == null) {
           if (clusterState == null) {
             clusterState=zkController.getClusterState();
-            slices=clusterState.getSlices(cloudDescriptor.getCollectionName());
+            slices=clusterState.getSlicesMap(cloudDescriptor.getCollectionName());
           }
           String sliceName=rb.slices[i];
           Slice slice=slices.get(sliceName);

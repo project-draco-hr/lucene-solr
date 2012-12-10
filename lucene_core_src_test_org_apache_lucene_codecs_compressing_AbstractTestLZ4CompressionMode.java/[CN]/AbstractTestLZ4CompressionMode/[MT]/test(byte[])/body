@@ -1,0 +1,42 @@
+{
+  final byte[] compressed=super.test(decompressed);
+  int off=0;
+  int decompressedOff=0;
+  for (; ; ) {
+    final int token=compressed[off++] & 0xFF;
+    int literalLen=token >>> 4;
+    if (literalLen == 0x0F) {
+      while (compressed[off] == (byte)0xFF) {
+        literalLen+=0xFF;
+        ++off;
+      }
+      literalLen+=compressed[off++] & 0xFF;
+    }
+    off+=literalLen;
+    decompressedOff+=literalLen;
+    if (off == compressed.length) {
+      assertEquals(decompressed.length,decompressedOff);
+      assertTrue("lastLiterals=" + literalLen + ", bytes="+ decompressed.length,literalLen >= LZ4.LAST_LITERALS || literalLen == decompressed.length);
+      break;
+    }
+    final int matchDec=(compressed[off++] & 0xFF) | ((compressed[off++] & 0xFF) << 8);
+    assertTrue(matchDec + " " + decompressedOff,matchDec > 0 && matchDec <= decompressedOff);
+    int matchLen=token & 0x0F;
+    if (matchLen == 0x0F) {
+      while (compressed[off] == (byte)0xFF) {
+        matchLen+=0xFF;
+        ++off;
+      }
+      matchLen+=compressed[off++] & 0xFF;
+    }
+    matchLen+=LZ4.MIN_MATCH;
+    if (decompressedOff + matchLen < decompressed.length - LZ4.LAST_LITERALS) {
+      final boolean moreCommonBytes=decompressed[decompressedOff + matchLen] == decompressed[decompressedOff - matchDec + matchLen];
+      final boolean nextSequenceHasLiterals=((compressed[off] & 0xFF) >>> 4) != 0;
+      assertTrue(!moreCommonBytes || !nextSequenceHasLiterals);
+    }
+    decompressedOff+=matchLen;
+  }
+  assertEquals(decompressed.length,decompressedOff);
+  return compressed;
+}

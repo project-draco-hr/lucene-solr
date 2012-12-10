@@ -29,7 +29,7 @@
       }
     }
   }
-  List<Element> dataSourceTags=ConfigParseUtil.getChildNodes(e,DATA_SRC);
+  List<Element> dataSourceTags=ConfigParseUtil.getChildNodes(e,ConfigNameConstants.DATA_SRC);
   if (!dataSourceTags.isEmpty()) {
     for (    Element element : dataSourceTags) {
       Map<String,String> p=new HashMap<String,String>();
@@ -46,5 +46,34 @@
       break;
     }
   }
-  return new DIHConfiguration(documentTags.get(0),this,functions,script,dataSources);
+  PropertyWriter pw=null;
+  List<Element> propertyWriterTags=ConfigParseUtil.getChildNodes(e,ConfigNameConstants.PROPERTY_WRITER);
+  if (propertyWriterTags.isEmpty()) {
+    boolean zookeeper=false;
+    if (this.core != null && this.core.getCoreDescriptor().getCoreContainer().isZooKeeperAware()) {
+      zookeeper=true;
+    }
+    pw=new PropertyWriter(zookeeper ? "ZKPropertiesWriter" : "SimplePropertiesWriter",Collections.<String,String>emptyMap());
+  }
+ else   if (propertyWriterTags.size() > 1) {
+    throw new DataImportHandlerException(SEVERE,"Only one " + ConfigNameConstants.PROPERTY_WRITER + " can be configured.");
+  }
+ else {
+    Element pwElement=propertyWriterTags.get(0);
+    String type=null;
+    Map<String,String> params=new HashMap<String,String>();
+    for (    Map.Entry<String,String> entry : ConfigParseUtil.getAllAttributes(pwElement).entrySet()) {
+      if (TYPE.equals(entry.getKey())) {
+        type=entry.getValue();
+      }
+ else {
+        params.put(entry.getKey(),entry.getValue());
+      }
+    }
+    if (type == null) {
+      throw new DataImportHandlerException(SEVERE,"The " + ConfigNameConstants.PROPERTY_WRITER + " element must specify "+ TYPE);
+    }
+    pw=new PropertyWriter(type,params);
+  }
+  return new DIHConfiguration(documentTags.get(0),this,functions,script,dataSources,pw);
 }

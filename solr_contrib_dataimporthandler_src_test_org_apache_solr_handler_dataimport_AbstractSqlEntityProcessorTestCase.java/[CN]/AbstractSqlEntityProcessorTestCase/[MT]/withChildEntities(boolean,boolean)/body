@@ -1,0 +1,95 @@
+{
+  rootTransformerName=random().nextBoolean() ? null : "AddAColumnTransformer";
+  int numChildren=random().nextInt(1) + 1;
+  int numDatabaseRequests=1;
+  if (underlyingDataModified) {
+    if (countryEntity) {
+      if (cached) {
+        numDatabaseRequests++;
+      }
+ else {
+        numDatabaseRequests+=totalPeople();
+      }
+    }
+    if (sportsEntity) {
+      if (cached) {
+        numDatabaseRequests++;
+      }
+ else {
+        numDatabaseRequests+=totalPeople();
+      }
+    }
+  }
+ else {
+    countryEntity=true;
+    sportsEntity=true;
+    if (numChildren == 1) {
+      countryEntity=random().nextBoolean();
+      sportsEntity=!countryEntity;
+    }
+    if (countryEntity) {
+      countryTransformer=random().nextBoolean();
+      if (cached) {
+        numDatabaseRequests++;
+        countryCached=true;
+      }
+ else {
+        numDatabaseRequests+=totalPeople();
+      }
+    }
+    if (sportsEntity) {
+      sportsTransformer=random().nextBoolean();
+      if (cached) {
+        numDatabaseRequests++;
+        sportsCached=true;
+      }
+ else {
+        numDatabaseRequests+=totalPeople();
+      }
+    }
+  }
+  h.query("/dataimport",generateRequest());
+  assertQ("There should be 1 document per person in the database: " + totalPeople(),req("*:*"),"//*[@numFound='" + (totalPeople()) + "']");
+  if (!underlyingDataModified && "AddAColumnTransformer".equals(rootTransformerName)) {
+    assertQ("There should be 1 document with a transformer-added column per person is the database: " + totalPeople(),req("AddAColumn_s:Added"),"//*[@numFound='" + (totalPeople()) + "']");
+  }
+  if (countryEntity) {
+    if (personNameExists("Jayden")) {
+      String nrName=countryNameByCode("NP");
+      if (nrName != null && nrName.length() > 0) {
+        assertQ(req("NAME_mult_s:Jayden"),"//*[@numFound='1']","//doc/str[@name='COUNTRY_NAME_s']='" + nrName + "'");
+      }
+    }
+    String nrName=countryNameByCode("NR");
+    int num=numberPeopleByCountryCode("NR");
+    if (nrName != null && num > 0) {
+      assertQ(req("COUNTRY_CODES_mult_s:NR"),"//*[@numFound='" + num + "']","//doc/str[@name='COUNTRY_NAME_s']='" + nrName + "'");
+    }
+    if (countryTransformer && !underlyingDataModified) {
+      assertQ(req("countryAdded_s:country_added"),"//*[@numFound='" + totalPeople() + "']");
+    }
+  }
+  if (sportsEntity) {
+    if (!underlyingDataModified) {
+      assertQ(req("SPORT_NAME_mult_s:Sailing"),"//*[@numFound='2']");
+    }
+    String michaelsName=personNameById(3);
+    String[] michaelsSports=sportNamesByPersonId(3);
+    if (michaelsName != null && michaelsSports.length > 0) {
+      String[] xpath=new String[michaelsSports.length + 1];
+      xpath[0]="//*[@numFound='1']";
+      int i=1;
+      for (      String ms : michaelsSports) {
+        xpath[i]="//doc/arr[@name='SPORT_NAME_mult_s']/str[" + i + "]='"+ ms+ "'";
+        i++;
+      }
+      assertQ(req("NAME_mult_s:" + michaelsName.replaceAll("\\W","\\\\$0")),xpath);
+    }
+    if (!underlyingDataModified && sportsTransformer) {
+      assertQ(req("sportsAdded_s:sport_added"),"//*[@numFound='" + (totalPeople()) + "']");
+    }
+  }
+  if (checkDatabaseRequests) {
+    Assert.assertTrue("Expecting " + numDatabaseRequests + " database calls, but DIH reported "+ totalDatabaseRequests(),totalDatabaseRequests() == numDatabaseRequests);
+  }
+}
