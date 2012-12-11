@@ -1,12 +1,22 @@
 {
   clearIndex();
   SolrCore core=h.getCore();
-  RefCounted<IndexWriter> iw=((DirectUpdateHandler2)core.getUpdateHandler()).getSolrCoreState().getIndexWriter(core);
+  RefCounted<IndexWriter> iwr=((DirectUpdateHandler2)core.getUpdateHandler()).getSolrCoreState().getIndexWriter(core);
   try {
-    assertEquals("Mergefactor was not picked up",8,((LogMergePolicy)iw.get().getConfig().getMergePolicy()).getMergeFactor());
+    IndexWriter iw=iwr.get();
+    assertEquals("Mergefactor was not picked up",8,((LogMergePolicy)iw.getConfig().getMergePolicy()).getMergeFactor());
+    Directory dir=iw.getDirectory();
+    if (dir instanceof MockDirectoryWrapper) {
+      dir=((MockDirectoryWrapper)dir).getDelegate();
+    }
+    assertTrue(dir.getClass().getName(),dir instanceof RateLimitedDirectoryWrapper);
+    assertEquals(Double.valueOf(1000000),((RateLimitedDirectoryWrapper)dir).getMaxWriteMBPerSec(Context.DEFAULT));
+    assertEquals(Double.valueOf(2000000),((RateLimitedDirectoryWrapper)dir).getMaxWriteMBPerSec(Context.FLUSH));
+    assertEquals(Double.valueOf(3000000),((RateLimitedDirectoryWrapper)dir).getMaxWriteMBPerSec(Context.MERGE));
+    assertEquals(Double.valueOf(4000000),((RateLimitedDirectoryWrapper)dir).getMaxWriteMBPerSec(Context.READ));
   }
   finally {
-    iw.decref();
+    iwr.decref();
   }
   NamedList stats=core.getStatistics();
   assertEquals("collection1",stats.get("coreName"));
