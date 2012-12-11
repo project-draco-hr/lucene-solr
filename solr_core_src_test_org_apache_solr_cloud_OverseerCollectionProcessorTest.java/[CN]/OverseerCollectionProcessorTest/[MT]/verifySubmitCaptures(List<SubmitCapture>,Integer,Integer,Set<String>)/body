@@ -1,0 +1,67 @@
+{
+  List<String> coreNames=new ArrayList<String>();
+  Map<String,Map<String,Integer>> sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap=new HashMap<String,Map<String,Integer>>();
+  List<String> nodeUrlWithoutProtocolPartForLiveNodes=new ArrayList<String>(liveNodes.size());
+  for (  String nodeName : liveNodes) {
+    String nodeUrlWithoutProtocolPart=nodeName.replaceAll("_","/");
+    if (nodeUrlWithoutProtocolPart.startsWith("http://"))     nodeUrlWithoutProtocolPart=nodeUrlWithoutProtocolPart.substring(7);
+    nodeUrlWithoutProtocolPartForLiveNodes.add(nodeUrlWithoutProtocolPart);
+  }
+  for (  SubmitCapture submitCapture : submitCaptures) {
+    ShardRequest shardRequest=submitCapture.shardRequestCapture.getValue();
+    assertEquals(CoreAdminAction.CREATE.toString(),shardRequest.params.get(CoreAdminParams.ACTION));
+    String coreName=shardRequest.params.get(CoreAdminParams.NAME);
+    assertFalse("Core with name " + coreName + " created twice",coreNames.contains(coreName));
+    coreNames.add(coreName);
+    assertEquals(CONFIG_NAME,shardRequest.params.get("collection.configName"));
+    assertEquals(COLLECTION_NAME,shardRequest.params.get(CoreAdminParams.COLLECTION));
+    assertEquals(numberOfSlices.toString(),shardRequest.params.get(ZkStateReader.NUM_SHARDS_PROP));
+    assertEquals(ADMIN_PATH,shardRequest.params.get("qt"));
+    assertEquals(1,shardRequest.purpose);
+    assertEquals(1,shardRequest.shards.length);
+    assertEquals(submitCapture.nodeUrlsWithoutProtocolPartCapture.getValue(),shardRequest.shards[0]);
+    assertTrue("Shard " + coreName + " created on wrong node "+ shardRequest.shards[0],nodeUrlWithoutProtocolPartForLiveNodes.contains(shardRequest.shards[0]));
+    assertEquals(shardRequest.shards,shardRequest.actualShards);
+    String sliceName=shardRequest.params.get(CoreAdminParams.SHARD);
+    if (!sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.containsKey(sliceName)) {
+      sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.put(sliceName,new HashMap<String,Integer>());
+    }
+    Map<String,Integer> nodeUrlsWithoutProtocolPartToNumberOfShardsRunningMap=sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.get(sliceName);
+    Integer existingCount;
+    nodeUrlsWithoutProtocolPartToNumberOfShardsRunningMap.put(shardRequest.shards[0],((existingCount=nodeUrlsWithoutProtocolPartToNumberOfShardsRunningMap.get(shardRequest.shards[0])) == null) ? 1 : (existingCount + 1));
+  }
+  assertEquals(numberOfSlices * numberOfReplica,coreNames.size());
+  for (int i=1; i <= numberOfSlices; i++) {
+    for (int j=1; j <= numberOfReplica; j++) {
+      String coreName=COLLECTION_NAME + "_shard" + i+ "_replica"+ j;
+      assertTrue("Shard " + coreName + " was not created",coreNames.contains(coreName));
+    }
+  }
+  assertEquals(numberOfSlices.intValue(),sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.size());
+  for (int i=1; i <= numberOfSlices; i++) {
+    sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.keySet().contains("shard" + i);
+  }
+  int minShardsPerSlicePerNode=numberOfReplica / liveNodes.size();
+  int numberOfNodesSupposedToRunMaxShards=numberOfReplica % liveNodes.size();
+  int numberOfNodesSupposedToRunMinShards=liveNodes.size() - numberOfNodesSupposedToRunMaxShards;
+  int maxShardsPerSlicePerNode=(numberOfNodesSupposedToRunMaxShards == 0) ? minShardsPerSlicePerNode : (minShardsPerSlicePerNode + 1);
+  boolean diffBetweenMinAndMaxShardsPerSlicePerNode=(maxShardsPerSlicePerNode != minShardsPerSlicePerNode);
+  for (  Entry<String,Map<String,Integer>> sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMapEntry : sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.entrySet()) {
+    int numberOfShardsRunning=0;
+    int numberOfNodesRunningMinShards=0;
+    int numberOfNodesRunningMaxShards=0;
+    int numberOfNodesRunningAtLeastOneShard=0;
+    for (    String nodeUrlsWithoutProtocolPart : sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMapEntry.getValue().keySet()) {
+      int numberOfShardsRunningOnThisNode=sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMapEntry.getValue().get(nodeUrlsWithoutProtocolPart);
+      numberOfShardsRunning+=numberOfShardsRunningOnThisNode;
+      numberOfNodesRunningAtLeastOneShard++;
+      assertTrue("Node " + nodeUrlsWithoutProtocolPart + " is running wrong number of shards. Supposed to run "+ minShardsPerSlicePerNode+ (diffBetweenMinAndMaxShardsPerSlicePerNode ? (" or " + maxShardsPerSlicePerNode) : ""),(numberOfShardsRunningOnThisNode == minShardsPerSlicePerNode) || (numberOfShardsRunningOnThisNode == maxShardsPerSlicePerNode));
+      if (numberOfShardsRunningOnThisNode == minShardsPerSlicePerNode)       numberOfNodesRunningMinShards++;
+      if (numberOfShardsRunningOnThisNode == maxShardsPerSlicePerNode)       numberOfNodesRunningMaxShards++;
+    }
+    if (minShardsPerSlicePerNode == 0)     numberOfNodesRunningMinShards=(liveNodes.size() - numberOfNodesRunningAtLeastOneShard);
+    assertEquals("Too many shards are running under slice " + sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMapEntry.getKey(),numberOfReplica.intValue(),numberOfShardsRunning);
+    assertEquals(numberOfNodesSupposedToRunMinShards,numberOfNodesRunningMinShards);
+    assertEquals(numberOfNodesSupposedToRunMaxShards,numberOfNodesRunningMaxShards);
+  }
+}

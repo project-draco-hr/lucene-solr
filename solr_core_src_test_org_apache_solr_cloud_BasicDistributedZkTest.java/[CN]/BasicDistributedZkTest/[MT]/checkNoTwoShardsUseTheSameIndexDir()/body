@@ -1,0 +1,31 @@
+{
+  Map<String,Set<String>> indexDirToShardNamesMap=new HashMap<String,Set<String>>();
+  List<MBeanServer> servers=new LinkedList<MBeanServer>();
+  servers.add(ManagementFactory.getPlatformMBeanServer());
+  servers.addAll(MBeanServerFactory.findMBeanServer(null));
+  for (  final MBeanServer server : servers) {
+    Set<ObjectName> mbeans=new HashSet<ObjectName>();
+    mbeans.addAll(server.queryNames(null,null));
+    for (    final ObjectName mbean : mbeans) {
+      Object value;
+      Object indexDir;
+      Object name;
+      try {
+        if (((value=server.getAttribute(mbean,"category")) != null && value.toString().equals(Category.CORE.toString())) && ((value=server.getAttribute(mbean,"source")) != null && value.toString().contains(SolrCore.class.getSimpleName())) && ((indexDir=server.getAttribute(mbean,"indexDir")) != null)&& ((name=server.getAttribute(mbean,"name")) != null)) {
+          if (!indexDirToShardNamesMap.containsKey(indexDir.toString())) {
+            indexDirToShardNamesMap.put(indexDir.toString(),new HashSet<String>());
+          }
+          indexDirToShardNamesMap.get(indexDir.toString()).add(name.toString());
+        }
+      }
+ catch (      Exception e) {
+      }
+    }
+  }
+  assertTrue("Something is broken in the assert for no shards using the same indexDir - probably something was changed in the attributes published in the MBean of " + SolrCore.class.getSimpleName(),indexDirToShardNamesMap.size() > 0);
+  for (  Entry<String,Set<String>> entry : indexDirToShardNamesMap.entrySet()) {
+    if (entry.getValue().size() > 1) {
+      fail("We have shards using the same indexDir. E.g. shards " + entry.getValue().toString() + " all use indexDir "+ entry.getKey());
+    }
+  }
+}
