@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  writer=new RandomIndexWriter(random(),dir);
+  taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  docBuilder=new CategoryDocumentBuilder(taxoWriter);
+  add("Author/Bob","Publish Date/2010/10/15");
+  add("Author/Lisa","Publish Date/2010/10/20");
+  add("Author/Lisa","Publish Date/2012/1/1");
+  add("Author/Susan","Publish Date/2012/1/7");
+  add("Author/Frank","Publish Date/1999/5/5");
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  writer.close();
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  taxoWriter.close();
+  FacetSearchParams fsp=new FacetSearchParams();
+  fsp.addFacetRequest(new CountFacetRequest(new CategoryPath("Publish Date"),10));
+  fsp.addFacetRequest(new CountFacetRequest(new CategoryPath("Author"),10));
+  FacetsCollector c=new FacetsCollector(fsp,searcher.getIndexReader(),taxoReader);
+  searcher.search(new MatchAllDocsQuery(),c);
+  List<FacetResult> results=c.getFacetResults();
+  assertEquals(2,results.size());
+  assertEquals("Publish Date (5)\n  2012 (2)\n  2010 (2)\n  1999 (1)\n",toSimpleString(results.get(0)));
+  assertEquals("Author (5)\n  Lisa (2)\n  Frank (1)\n  Susan (1)\n  Bob (1)\n",toSimpleString(results.get(1)));
+  fsp=new FacetSearchParams();
+  Query q2=DrillDown.query(fsp,new MatchAllDocsQuery(),new CategoryPath("Publish Date/2010",'/'));
+  fsp.addFacetRequest(new CountFacetRequest(new CategoryPath("Author"),10));
+  c=new FacetsCollector(fsp,searcher.getIndexReader(),taxoReader);
+  searcher.search(q2,c);
+  results=c.getFacetResults();
+  assertEquals(1,results.size());
+  assertEquals("Author (2)\n  Lisa (1)\n  Bob (1)\n",toSimpleString(results.get(0)));
+  taxoReader.close();
+  searcher.getIndexReader().close();
+  dir.close();
+  taxoDir.close();
+}
