@@ -1,8 +1,31 @@
 {
-  SolrParams p=rb.req.getParams();
-  if (p.getBool(MoreLikeThisParams.MLT,false)) {
+  SolrParams params=rb.req.getParams();
+  if (params.getBool(MoreLikeThisParams.MLT,false)) {
+    log.debug("Starting MoreLikeThis.Process.  isShard: " + params.getBool(ShardParams.IS_SHARD));
     SolrIndexSearcher searcher=rb.req.getSearcher();
-    NamedList<DocList> sim=getMoreLikeThese(rb,searcher,rb.getResults().docList,rb.getFieldFlags());
-    rb.rsp.add("moreLikeThis",sim);
+    int mltcount=params.getInt(MoreLikeThisParams.DOC_COUNT,20);
+    if (params.getBool(ShardParams.IS_SHARD,false)) {
+      if (params.get(MoreLikeThisComponent.DIST_DOC_ID) == null) {
+        MoreLikeThisHandler.MoreLikeThisHelper mlt=new MoreLikeThisHandler.MoreLikeThisHelper(params,searcher);
+        NamedList<BooleanQuery> bQuery=mlt.getMoreLikeTheseQuery(rb.getResults().docList);
+        NamedList<String> temp=new NamedList<String>();
+        Iterator<Entry<String,BooleanQuery>> idToQueryIt=bQuery.iterator();
+        while (idToQueryIt.hasNext()) {
+          Entry<String,BooleanQuery> idToQuery=idToQueryIt.next();
+          String s=idToQuery.getValue().toString();
+          log.debug("MLT Query:" + s);
+          temp.add(idToQuery.getKey(),idToQuery.getValue().toString());
+        }
+        rb.rsp.add("moreLikeThis",temp);
+      }
+ else {
+        NamedList<DocList> sim=getMoreLikeThese(rb,rb.req.getSearcher(),rb.getResults().docList,mltcount);
+        rb.rsp.add("moreLikeThis",sim);
+      }
+    }
+ else {
+      NamedList<DocList> sim=getMoreLikeThese(rb,rb.req.getSearcher(),rb.getResults().docList,mltcount);
+      rb.rsp.add("moreLikeThis",sim);
+    }
   }
 }

@@ -1,0 +1,36 @@
+{
+  if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS && rb.req.getParams().getBool(COMPONENT_NAME,false)) {
+    Map<Object,SolrDocumentList> tempResults=new LinkedHashMap<Object,SolrDocumentList>();
+    int mltcount=rb.req.getParams().getInt(MoreLikeThisParams.DOC_COUNT,20);
+    String keyName=rb.req.getSchema().getUniqueKeyField().getName();
+    for (    ShardRequest sreq : rb.finished) {
+      if ((sreq.purpose & ShardRequest.PURPOSE_GET_MLT_RESULTS) != 0) {
+        for (        ShardResponse r : sreq.responses) {
+          log.debug("ShardRequest.response.shard: " + r.getShard());
+          String key=r.getShardRequest().params.get(MoreLikeThisComponent.DIST_DOC_ID);
+          SolrDocumentList shardDocList=(SolrDocumentList)r.getSolrResponse().getResponse().get("response");
+          if (shardDocList == null) {
+            continue;
+          }
+          log.info("MLT: results added for key: " + key + " documents: "+ shardDocList.toString());
+          SolrDocumentList mergedDocList=tempResults.get(key);
+          if (mergedDocList == null) {
+            mergedDocList=new SolrDocumentList();
+            mergedDocList.addAll(shardDocList);
+            mergedDocList.setNumFound(shardDocList.getNumFound());
+            mergedDocList.setStart(shardDocList.getStart());
+            mergedDocList.setMaxScore(shardDocList.getMaxScore());
+          }
+ else {
+            mergedDocList=mergeSolrDocumentList(mergedDocList,shardDocList,mltcount,keyName);
+          }
+          log.debug("Adding docs for key: " + key);
+          tempResults.put(key,mergedDocList);
+        }
+      }
+    }
+    NamedList<SolrDocumentList> list=buildMoreLikeThisNamed(tempResults,rb.resultIds);
+    rb.rsp.add("moreLikeThis",list);
+  }
+  super.finishStage(rb);
+}
