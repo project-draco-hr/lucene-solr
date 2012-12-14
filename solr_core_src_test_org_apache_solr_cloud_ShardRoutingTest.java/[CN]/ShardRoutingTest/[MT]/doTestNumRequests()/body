@@ -1,0 +1,41 @@
+{
+  List<CloudJettyRunner> runners=shardToJetty.get(bucket1);
+  CloudJettyRunner leader=shardToLeaderJetty.get(bucket1);
+  CloudJettyRunner replica=null;
+  for (  CloudJettyRunner r : runners) {
+    if (r != leader)     replica=r;
+  }
+  long nStart=getNumRequests();
+  leader.client.solrClient.add(sdoc("id","b!doc1"));
+  long nEnd=getNumRequests();
+  assertEquals(2,nEnd - nStart);
+  nStart=getNumRequests();
+  replica.client.solrClient.add(sdoc("id","b!doc1"));
+  nEnd=getNumRequests();
+  assertEquals(3,nEnd - nStart);
+  nStart=getNumRequests();
+  replica.client.solrClient.add(sdoc("id","b!doc1"));
+  nEnd=getNumRequests();
+  assertEquals(3,nEnd - nStart);
+  CloudJettyRunner leader2=shardToLeaderJetty.get(bucket2);
+  nStart=getNumRequests();
+  replica.client.solrClient.query(params("q","*:*","shards",bucket1));
+  nEnd=getNumRequests();
+  assertEquals(1,nEnd - nStart);
+  nStart=getNumRequests();
+  replica.client.solrClient.query(params("q","*:*","shard.keys","b!"));
+  nEnd=getNumRequests();
+  assertEquals(1,nEnd - nStart);
+  nStart=getNumRequests();
+  leader2.client.solrClient.query(params("q","*:*","shard.keys","b!"));
+  nEnd=getNumRequests();
+  assertEquals(3,nEnd - nStart);
+  nStart=getNumRequests();
+  leader2.client.solrClient.query(params("q","*:*"));
+  nEnd=getNumRequests();
+  assertEquals(9,nEnd - nStart);
+  nStart=getNumRequests();
+  leader2.client.solrClient.query(params("q","*:*","shard.keys","b!,d!"));
+  nEnd=getNumRequests();
+  assertEquals(5,nEnd - nStart);
+}
