@@ -1,4 +1,5 @@
 {
+  Assume.assumeTrue(_TestUtil.canUseSimpleNorms());
   Directory dir=newDirectory();
   IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setMergePolicy(newLogMergePolicy());
   RandomIndexWriter riw=new RandomIndexWriter(random(),dir,iwc);
@@ -15,13 +16,19 @@
     riw.addDocument(d);
   }
   IndexReader ir1=riw.getReader();
-  DocValues dv1=MultiDocValues.getNormDocValues(ir1,field);
-  byte[] norms1=dv1 == null ? null : (byte[])dv1.getSource().getArray();
+  NumericDocValues norms1=MultiSimpleDocValues.simpleNormValues(ir1,field);
   riw.forceMerge(1);
   DirectoryReader ir2=riw.getReader();
-  DocValues dv2=getOnlySegmentReader(ir2).normValues(field);
-  byte[] norms2=dv2 == null ? null : (byte[])dv2.getSource().getArray();
-  assertArrayEquals(norms1,norms2);
+  NumericDocValues norms2=getOnlySegmentReader(ir2).simpleNormValues(field);
+  if (norms1 == null) {
+    assertNull(norms2);
+  }
+ else {
+    assertEquals(norms1.size(),norms2.size());
+    for (int docID=0; docID < norms1.size(); docID++) {
+      assertEquals(norms1.get(docID),norms2.get(docID));
+    }
+  }
   ir1.close();
   ir2.close();
   riw.close();

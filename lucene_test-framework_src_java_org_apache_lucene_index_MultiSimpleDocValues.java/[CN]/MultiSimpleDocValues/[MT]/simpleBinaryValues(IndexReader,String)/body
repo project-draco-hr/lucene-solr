@@ -1,0 +1,50 @@
+{
+  final List<AtomicReaderContext> leaves=r.leaves();
+  boolean anyReal=false;
+  int maxLength=-1;
+  for (  AtomicReaderContext ctx : leaves) {
+    BinaryDocValues values=ctx.reader().getBinaryDocValues(field);
+    if (values == null) {
+      values=new BinaryDocValues.EMPTY(ctx.reader().maxDoc());
+    }
+ else {
+      anyReal=true;
+    }
+    maxLength=Math.max(maxLength,values.maxLength());
+  }
+  if (!anyReal) {
+    return null;
+  }
+ else {
+    final int finalMaxLength=maxLength;
+    return new BinaryDocValues(){
+      @Override public void get(      int docID,      BytesRef result){
+        int subIndex=ReaderUtil.subIndex(docID,leaves);
+        BinaryDocValues values;
+        try {
+          values=leaves.get(subIndex).reader().getBinaryDocValues(field);
+        }
+ catch (        IOException ioe) {
+          throw new RuntimeException(ioe);
+        }
+        if (values != null) {
+          values.get(docID - leaves.get(subIndex).docBase,result);
+        }
+ else {
+          result.length=0;
+          result.bytes=BinaryDocValues.MISSING;
+        }
+      }
+      @Override public int size(){
+        return r.maxDoc();
+      }
+      @Override public boolean isFixedLength(){
+        return false;
+      }
+      @Override public int maxLength(){
+        return finalMaxLength;
+      }
+    }
+;
+  }
+}
