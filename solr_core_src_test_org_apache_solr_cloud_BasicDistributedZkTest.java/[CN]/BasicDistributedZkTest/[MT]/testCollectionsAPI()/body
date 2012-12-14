@@ -13,7 +13,7 @@
  else       if (i == 1) {
         client=createCloudClient("awholynewcollection_" + i);
       }
-      createCollection(collectionInfos,"awholynewcollection_" + i,numShards,replicationFactor,maxShardsPerNode,client);
+      createCollection(collectionInfos,"awholynewcollection_" + i,numShards,replicationFactor,maxShardsPerNode,client,null);
     }
   finally {
       if (client != null)       client.shutdown();
@@ -23,7 +23,7 @@
   for (  Entry<String,List<Integer>> entry : collectionInfosEntrySet) {
     String collection=entry.getKey();
     List<Integer> list=entry.getValue();
-    checkForCollection(collection,list);
+    checkForCollection(collection,list,null);
     String url=getUrlFromZk(collection);
     HttpSolrServer collectionClient=new HttpSolrServer(url);
     waitForNon403or404or503(collectionClient);
@@ -83,25 +83,51 @@
   List<Integer> list=new ArrayList<Integer>(2);
   list.add(1);
   list.add(2);
-  checkForCollection(collectionName,list);
+  checkForCollection(collectionName,list,null);
   url=getUrlFromZk(collectionName);
   collectionClient=new HttpSolrServer(url);
   waitForNon403or404or503(collectionClient);
   for (int j=0; j < cnt; j++) {
     waitForRecoveriesToFinish(collectionName,zkStateReader,false);
   }
-  int liveNodes=getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes().size();
-  int numShards=(liveNodes / 2) + 1;
+  int numLiveNodes=getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes().size();
+  int numShards=(numLiveNodes / 2) + 1;
   int replicationFactor=2;
   int maxShardsPerNode=1;
   collectionInfos=new HashMap<String,List<Integer>>();
   CloudSolrServer client=createCloudClient("awholynewcollection_" + cnt);
   try {
-    createCollection(collectionInfos,"awholynewcollection_" + cnt,numShards,replicationFactor,maxShardsPerNode,client);
+    createCollection(collectionInfos,"awholynewcollection_" + cnt,numShards,replicationFactor,maxShardsPerNode,client,null);
   }
   finally {
     client.shutdown();
   }
   checkCollectionIsNotCreated(collectionInfos.keySet().iterator().next());
+  numLiveNodes=getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes().size();
+  List<String> createNodeList=new ArrayList<String>();
+  int numOfCreateNodes=numLiveNodes / 2;
+  assertFalse("createNodeSet test is pointless with only " + numLiveNodes + " nodes running",numOfCreateNodes == 0);
+  int i=0;
+  for (  String liveNode : getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes()) {
+    if (i < numOfCreateNodes) {
+      createNodeList.add(liveNode);
+      i++;
+    }
+ else {
+      break;
+    }
+  }
+  maxShardsPerNode=2;
+  numShards=createNodeList.size() * maxShardsPerNode;
+  replicationFactor=1;
+  collectionInfos=new HashMap<String,List<Integer>>();
+  client=createCloudClient("awholynewcollection_" + (cnt + 1));
+  try {
+    createCollection(collectionInfos,"awholynewcollection_" + (cnt + 1),numShards,replicationFactor,maxShardsPerNode,client,StrUtils.join(createNodeList,','));
+  }
+  finally {
+    client.shutdown();
+  }
+  checkForCollection(collectionInfos.keySet().iterator().next(),collectionInfos.entrySet().iterator().next().getValue(),createNodeList);
   checkNoTwoShardsUseTheSameIndexDir();
 }
