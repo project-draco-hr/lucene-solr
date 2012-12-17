@@ -1,5 +1,9 @@
 {
-  long docs=controlClient.query(new SolrQuery("*:*")).getResults().getNumFound();
+  SolrParams q=params("q","*:*","fl","id,_version_","rows","100000");
+  SolrDocumentList controlDocList=controlClient.query(q).getResults();
+  long docs=controlDocList.getNumFound();
+  SolrDocumentList cloudDocList=cloudClient.query(q).getResults();
+  long cloudClientDocs=cloudDocList.getNumFound();
   if (verbose)   System.err.println("Control Docs:" + docs);
   updateMappingsFromZk(jettys,clients);
   Set<String> theShards=shardToJetty.keySet();
@@ -41,8 +45,11 @@
         }
       }
     }
-    SolrQuery q=new SolrQuery("*:*");
-    long cloudClientDocs=cloudClient.query(q).getResults().getNumFound();
-    assertEquals("adding up the # of docs on each shard does not match the control - cloud client returns:" + cloudClientDocs,docs,cnt);
+    if (docs != cnt || cloudClientDocs != docs) {
+      String msg="document count mismatch.  control=" + docs + " sum(shards)="+ cnt+ " cloudClient="+ cloudClientDocs;
+      log.error(msg);
+      showDiff(controlDocList,cloudDocList,"controlDocList","cloudDocList");
+      fail(msg);
+    }
   }
 }
