@@ -13,23 +13,13 @@
     System.clearProperty(ZkStateReader.NUM_SHARDS_PROP);
   }
   controlClient=createNewSolrServer(controlJetty.getLocalPort());
+  if (sliceCount <= 0) {
+    controlClientCloud=createCloudClient("control_collection");
+    controlClientCloud.connect();
+    waitForCollection(controlClientCloud.getZkStateReader(),"control_collection",0);
+    return;
+  }
   initCloud();
   createJettys(numServers,true);
-  ZkStateReader zkStateReader=cloudClient.getZkStateReader();
-  int cnt=30;
-  while (!zkStateReader.getClusterState().getCollections().contains(DEFAULT_COLLECTION)) {
-    if (cnt == 0) {
-      throw new RuntimeException("timeout waiting for collection1 in cluster state");
-    }
-    cnt--;
-    Thread.sleep(500);
-  }
-  cnt=30;
-  while (zkStateReader.getClusterState().getSlices(DEFAULT_COLLECTION).size() != sliceCount) {
-    if (cnt == 0) {
-      throw new RuntimeException("timeout waiting for collection shards to come up");
-    }
-    cnt--;
-    Thread.sleep(500);
-  }
+  waitForCollection(cloudClient.getZkStateReader(),DEFAULT_COLLECTION,sliceCount);
 }
