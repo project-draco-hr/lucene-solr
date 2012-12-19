@@ -105,9 +105,8 @@
     SolrException.log(log,null,e);
   }
   NodeList nodes=(NodeList)cfg.evaluate("solr/cores/core",XPathConstants.NODESET);
-  coreLoadExecutor=new ThreadPoolExecutor(0,Integer.MAX_VALUE,5,TimeUnit.SECONDS,new SynchronousQueue<Runnable>(),new DefaultSolrThreadFactory("coreLoadExecutor"));
+  coreLoadExecutor=new ThreadPoolExecutor(coreLoadThreads,coreLoadThreads,1,TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>(),new DefaultSolrThreadFactory("coreLoadExecutor"));
   try {
-    final AdjustableSemaphore semaphore=new AdjustableSemaphore(coreLoadThreads);
     CompletionService<SolrCore> completionService=new ExecutorCompletionService<SolrCore>(coreLoadExecutor);
     Set<Future<SolrCore>> pending=new HashSet<Future<SolrCore>>();
     for (int i=0; i < nodes.getLength(); i++) {
@@ -177,25 +176,11 @@
                   c.close();
                 }
               }
-              semaphore.release();
               return c;
             }
           }
 ;
-          try {
-            semaphore.acquire();
-          }
- catch (          InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new SolrException(ErrorCode.SERVER_ERROR,"Interrupted while loading SolrCore(s)",e);
-          }
-          try {
-            pending.add(completionService.submit(task));
-          }
- catch (          RejectedExecutionException e) {
-            semaphore.release();
-            throw e;
-          }
+          pending.add(completionService.submit(task));
         }
  else {
           dynamicDescriptors.put(rawName,p);
@@ -217,11 +202,11 @@
           }
         }
  catch (        ExecutionException e) {
-          SolrException.log(SolrCore.log,"error sending update request to shard",e);
+          SolrException.log(SolrCore.log,"error loading core",e);
         }
       }
  catch (      InterruptedException e) {
-        throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"interrupted waiting for shard update response",e);
+        throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"interrupted while loading core",e);
       }
     }
   }
