@@ -22,49 +22,50 @@
         fieldState.attributeSource=stream;
         OffsetAttribute offsetAttribute=fieldState.attributeSource.addAttribute(OffsetAttribute.class);
         PositionIncrementAttribute posIncrAttribute=fieldState.attributeSource.addAttribute(PositionIncrementAttribute.class);
-        consumer.start(field);
-        for (; ; ) {
-          if (!hasMoreTokens)           break;
-          final int posIncr=posIncrAttribute.getPositionIncrement();
-          if (posIncr < 0) {
-            throw new IllegalArgumentException("position increment must be >=0 (got " + posIncr + ")");
-          }
-          if (fieldState.position == 0 && posIncr == 0) {
-            throw new IllegalArgumentException("first position increment must be > 0 (got 0)");
-          }
-          int position=fieldState.position + posIncr;
-          if (position > 0) {
-            position--;
-          }
- else           if (position < 0) {
-            throw new IllegalArgumentException("position overflow for field '" + field.name() + "'");
-          }
-          fieldState.position=position;
-          if (posIncr == 0)           fieldState.numOverlap++;
-          if (checkOffsets) {
-            int startOffset=fieldState.offset + offsetAttribute.startOffset();
-            int endOffset=fieldState.offset + offsetAttribute.endOffset();
-            if (startOffset < 0 || endOffset < startOffset) {
-              throw new IllegalArgumentException("startOffset must be non-negative, and endOffset must be >= startOffset, " + "startOffset=" + startOffset + ",endOffset="+ endOffset);
+        if (hasMoreTokens) {
+          consumer.start(field);
+          do {
+            final int posIncr=posIncrAttribute.getPositionIncrement();
+            if (posIncr < 0) {
+              throw new IllegalArgumentException("position increment must be >=0 (got " + posIncr + ")");
             }
-            if (startOffset < lastStartOffset) {
-              throw new IllegalArgumentException("offsets must not go backwards startOffset=" + startOffset + " is < lastStartOffset="+ lastStartOffset);
+            if (fieldState.position == 0 && posIncr == 0) {
+              throw new IllegalArgumentException("first position increment must be > 0 (got 0)");
             }
-            lastStartOffset=startOffset;
-          }
-          boolean success=false;
-          try {
-            consumer.add();
-            success=true;
-          }
+            int position=fieldState.position + posIncr;
+            if (position > 0) {
+              position--;
+            }
+ else             if (position < 0) {
+              throw new IllegalArgumentException("position overflow for field '" + field.name() + "'");
+            }
+            fieldState.position=position;
+            if (posIncr == 0)             fieldState.numOverlap++;
+            if (checkOffsets) {
+              int startOffset=fieldState.offset + offsetAttribute.startOffset();
+              int endOffset=fieldState.offset + offsetAttribute.endOffset();
+              if (startOffset < 0 || endOffset < startOffset) {
+                throw new IllegalArgumentException("startOffset must be non-negative, and endOffset must be >= startOffset, " + "startOffset=" + startOffset + ",endOffset="+ endOffset);
+              }
+              if (startOffset < lastStartOffset) {
+                throw new IllegalArgumentException("offsets must not go backwards startOffset=" + startOffset + " is < lastStartOffset="+ lastStartOffset);
+              }
+              lastStartOffset=startOffset;
+            }
+            boolean success=false;
+            try {
+              consumer.add();
+              success=true;
+            }
   finally {
-            if (!success) {
-              docState.docWriter.setAborting();
+              if (!success) {
+                docState.docWriter.setAborting();
+              }
             }
+            fieldState.length++;
+            fieldState.position++;
           }
-          fieldState.length++;
-          fieldState.position++;
-          hasMoreTokens=stream.incrementToken();
+ while (stream.incrementToken());
         }
         stream.end();
         fieldState.offset+=offsetAttribute.endOffset();
