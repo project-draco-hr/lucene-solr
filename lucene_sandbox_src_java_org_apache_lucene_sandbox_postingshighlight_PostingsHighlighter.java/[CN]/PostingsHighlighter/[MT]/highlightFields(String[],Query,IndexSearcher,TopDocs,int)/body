@@ -1,0 +1,40 @@
+{
+  final IndexReader reader=searcher.getIndexReader();
+  final ScoreDoc scoreDocs[]=topDocs.scoreDocs;
+  query=rewrite(query);
+  SortedSet<Term> queryTerms=new TreeSet<Term>();
+  query.extractTerms(queryTerms);
+  int docids[]=new int[scoreDocs.length];
+  for (int i=0; i < docids.length; i++) {
+    docids[i]=scoreDocs[i].doc;
+  }
+  IndexReaderContext readerContext=reader.getContext();
+  List<AtomicReaderContext> leaves=readerContext.leaves();
+  BreakIterator bi=(BreakIterator)breakIterator.clone();
+  Arrays.sort(docids);
+  Arrays.sort(fields);
+  LimitedStoredFieldVisitor visitor=new LimitedStoredFieldVisitor(fields,maxLength);
+  String contents[][]=new String[fields.length][docids.length];
+  for (int i=0; i < docids.length; i++) {
+    reader.document(docids[i],visitor);
+    for (int j=0; j < fields.length; j++) {
+      contents[j][i]=visitor.getValue(j).toString();
+    }
+    visitor.reset();
+  }
+  Map<String,String[]> highlights=new HashMap<String,String[]>();
+  for (int i=0; i < fields.length; i++) {
+    String field=fields[i];
+    Term floor=new Term(field,"");
+    Term ceiling=new Term(field,UnicodeUtil.BIG_TERM);
+    SortedSet<Term> fieldTerms=queryTerms.subSet(floor,ceiling);
+    Term terms[]=fieldTerms.toArray(new Term[fieldTerms.size()]);
+    Map<Integer,String> fieldHighlights=highlightField(field,contents[i],bi,terms,docids,leaves,maxPassages);
+    String[] result=new String[scoreDocs.length];
+    for (int j=0; j < scoreDocs.length; j++) {
+      result[j]=fieldHighlights.get(scoreDocs[j].doc);
+    }
+    highlights.put(field,result);
+  }
+  return highlights;
+}
