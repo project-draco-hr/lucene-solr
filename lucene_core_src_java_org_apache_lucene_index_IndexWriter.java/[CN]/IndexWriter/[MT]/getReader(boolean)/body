@@ -5,44 +5,53 @@
     infoStream.message("IW","flush at getReader");
   }
   poolReaders=true;
-  final DirectoryReader r;
+  DirectoryReader r=null;
   doBeforeFlush();
   boolean anySegmentFlushed=false;
+  boolean success2=false;
+  try {
 synchronized (fullFlushLock) {
-    boolean success=false;
-    try {
-      anySegmentFlushed=docWriter.flushAllThreads();
-      if (!anySegmentFlushed) {
-        flushCount.incrementAndGet();
-      }
-      success=true;
+      boolean success=false;
+      try {
+        anySegmentFlushed=docWriter.flushAllThreads();
+        if (!anySegmentFlushed) {
+          flushCount.incrementAndGet();
+        }
+        success=true;
 synchronized (this) {
-        maybeApplyDeletes(applyAllDeletes);
-        r=StandardDirectoryReader.open(this,segmentInfos,applyAllDeletes);
-        if (infoStream.isEnabled("IW")) {
-          infoStream.message("IW","return reader version=" + r.getVersion() + " reader="+ r);
+          maybeApplyDeletes(applyAllDeletes);
+          r=StandardDirectoryReader.open(this,segmentInfos,applyAllDeletes);
+          if (infoStream.isEnabled("IW")) {
+            infoStream.message("IW","return reader version=" + r.getVersion() + " reader="+ r);
+          }
         }
       }
-    }
- catch (    OutOfMemoryError oom) {
-      handleOOM(oom,"getReader");
-      return null;
-    }
+ catch (      OutOfMemoryError oom) {
+        handleOOM(oom,"getReader");
+        return null;
+      }
  finally {
-      if (!success) {
-        if (infoStream.isEnabled("IW")) {
-          infoStream.message("IW","hit exception during NRT reader");
+        if (!success) {
+          if (infoStream.isEnabled("IW")) {
+            infoStream.message("IW","hit exception during NRT reader");
+          }
         }
+        docWriter.finishFullFlush(success);
+        doAfterFlush();
       }
-      docWriter.finishFullFlush(success);
-      doAfterFlush();
     }
+    if (anySegmentFlushed) {
+      maybeMerge(MergeTrigger.FULL_FLUSH,UNBOUNDED_MAX_MERGE_SEGMENTS);
+    }
+    if (infoStream.isEnabled("IW")) {
+      infoStream.message("IW","getReader took " + (System.currentTimeMillis() - tStart) + " msec");
+    }
+    success2=true;
   }
-  if (anySegmentFlushed) {
-    maybeMerge(MergeTrigger.FULL_FLUSH,UNBOUNDED_MAX_MERGE_SEGMENTS);
-  }
-  if (infoStream.isEnabled("IW")) {
-    infoStream.message("IW","getReader took " + (System.currentTimeMillis() - tStart) + " msec");
+  finally {
+    if (!success2) {
+      IOUtils.closeWhileHandlingException(r);
+    }
   }
   return r;
 }
