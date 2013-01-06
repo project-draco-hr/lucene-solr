@@ -1,0 +1,29 @@
+{
+  final int limitKBytes=128;
+  final StringBuilder large=new StringBuilder("q=hello");
+  while (large.length() <= limitKBytes * 1024) {
+    large.append('&').append(large);
+  }
+  HttpServletRequest request=createMock(HttpServletRequest.class);
+  expect(request.getMethod()).andReturn("POST").anyTimes();
+  expect(request.getContentType()).andReturn("application/x-www-form-urlencoded").anyTimes();
+  expect(request.getContentLength()).andReturn(-1).anyTimes();
+  expect(request.getQueryString()).andReturn(null).anyTimes();
+  expect(request.getInputStream()).andReturn(new ServletInputStream(){
+    private final ByteArrayInputStream in=new ByteArrayInputStream(large.toString().getBytes("UTF-8"));
+    @Override public int read(){
+      return in.read();
+    }
+  }
+);
+  replay(request);
+  FormDataRequestParser formdata=new FormDataRequestParser(limitKBytes);
+  try {
+    formdata.parseParamsAndFillStreams(request,new ArrayList<ContentStream>());
+    fail("should throw SolrException");
+  }
+ catch (  SolrException solre) {
+    assertTrue(solre.getMessage().contains("upload limit"));
+    assertEquals(400,solre.code());
+  }
+}
