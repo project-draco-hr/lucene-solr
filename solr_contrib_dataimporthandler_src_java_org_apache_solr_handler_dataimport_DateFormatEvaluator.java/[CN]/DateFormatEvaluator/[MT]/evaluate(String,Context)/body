@@ -1,7 +1,7 @@
 {
   List<Object> l=parseParams(expression,context.getVariableResolver());
-  if (l.size() < 2 || l.size() > 3) {
-    throw new DataImportHandlerException(SEVERE,"'formatDate()' must have two or three parameters ");
+  if (l.size() < 2 || l.size() > 4) {
+    throw new DataImportHandlerException(SEVERE,"'formatDate()' must have two, three or four parameters ");
   }
   Object o=l.get(0);
   Object format=l.get(1);
@@ -11,7 +11,7 @@
     format=o.toString();
   }
   Locale locale=Locale.ROOT;
-  if (l.size() == 3) {
+  if (l.size() > 2) {
     Object localeObj=l.get(2);
     String localeStr=null;
     if (localeObj instanceof VariableWrapper) {
@@ -25,8 +25,25 @@
       throw new DataImportHandlerException(SEVERE,"Unsupported locale: " + localeStr);
     }
   }
+  TimeZone tz=TimeZone.getDefault();
+  if (l.size() == 4) {
+    Object tzObj=l.get(3);
+    String tzStr=null;
+    if (tzObj instanceof VariableWrapper) {
+      tzStr=((VariableWrapper)tzObj).resolve().toString();
+    }
+ else {
+      tzStr=tzObj.toString();
+    }
+    if (availableTimezones.contains(tzStr)) {
+      tz=TimeZone.getTimeZone(tzStr);
+    }
+ else {
+      throw new DataImportHandlerException(SEVERE,"Unsupported Timezone: " + tzStr);
+    }
+  }
   String dateFmt=format.toString();
-  SimpleDateFormat fmt=getDateFormat(dateFmt,locale);
+  SimpleDateFormat fmt=getDateFormat(dateFmt,tz,locale);
   Date date=null;
   if (o instanceof VariableWrapper) {
     VariableWrapper variableWrapper=(VariableWrapper)o;
@@ -37,7 +54,7 @@
  else {
       String s=variableval.toString();
       try {
-        date=getDateFormat(DEFAULT_DATE_FORMAT,locale).parse(s);
+        date=getDateFormat(DEFAULT_DATE_FORMAT,tz,locale).parse(s);
       }
  catch (      ParseException exp) {
         wrapAndThrow(SEVERE,exp,"Invalid expression for date");
@@ -48,7 +65,7 @@
     String datemathfmt=o.toString();
     datemathfmt=datemathfmt.replaceAll("NOW","");
     try {
-      date=getDateMathParser(locale).parseMath(datemathfmt);
+      date=getDateMathParser(locale,tz).parseMath(datemathfmt);
     }
  catch (    ParseException e) {
       wrapAndThrow(SEVERE,e,"Invalid expression for date");
