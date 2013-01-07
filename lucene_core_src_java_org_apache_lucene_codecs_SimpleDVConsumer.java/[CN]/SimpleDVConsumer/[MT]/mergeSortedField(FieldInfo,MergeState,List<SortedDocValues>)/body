@@ -1,6 +1,73 @@
 {
-  SortedDocValuesConsumer.Merger merger=new SortedDocValuesConsumer.Merger();
+  final SortedBytesMerger merger=new SortedBytesMerger();
   merger.merge(mergeState,toMerge);
-  SortedDocValuesConsumer consumer=addSortedField(fieldInfo,merger.numMergedTerms,merger.fixedLength >= 0,merger.maxLength);
-  consumer.merge(mergeState,merger);
+  addSortedField(fieldInfo,new Iterable<BytesRef>(){
+    @Override public Iterator<BytesRef> iterator(){
+      return new Iterator<BytesRef>(){
+        int ordUpto;
+        @Override public boolean hasNext(){
+          return ordUpto < merger.mergedTerms.size();
+        }
+        @Override public void remove(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public BytesRef next(){
+          return merger.mergedTerms.get(ordUpto++);
+        }
+      }
+;
+    }
+  }
+,new Iterable<Number>(){
+    @Override public Iterator<Number> iterator(){
+      return new Iterator<Number>(){
+        int readerUpto=-1;
+        int docIDUpto;
+        int nextValue;
+        SortedBytesMerger.SegmentState currentReader;
+        Bits currentLiveDocs;
+        boolean nextIsSet;
+        @Override public boolean hasNext(){
+          return nextIsSet || setNext();
+        }
+        @Override public void remove(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public Number next(){
+          if (!hasNext()) {
+            throw new NoSuchElementException();
+          }
+          assert nextIsSet;
+          nextIsSet=false;
+          return nextValue;
+        }
+        private boolean setNext(){
+          while (true) {
+            if (readerUpto == merger.segStates.size()) {
+              return false;
+            }
+            if (currentReader == null || docIDUpto == currentReader.reader.maxDoc()) {
+              readerUpto++;
+              if (readerUpto < merger.segStates.size()) {
+                currentReader=merger.segStates.get(readerUpto);
+                currentLiveDocs=currentReader.reader.getLiveDocs();
+              }
+              docIDUpto=0;
+              continue;
+            }
+            if (currentLiveDocs == null || currentLiveDocs.get(docIDUpto)) {
+              nextIsSet=true;
+              int segOrd=currentReader.values.getOrd(docIDUpto);
+              nextValue=currentReader.segOrdToMergedOrd[segOrd];
+              docIDUpto++;
+              return true;
+            }
+            docIDUpto++;
+          }
+        }
+      }
+;
+    }
+  }
+);
 }

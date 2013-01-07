@@ -1,31 +1,73 @@
 {
-  SortedDocValuesConsumer consumer=dvConsumer.addSortedField(fieldInfo,hash.size(),fixedLength >= 0,maxLength);
   final int maxDoc=state.segmentInfo.getDocCount();
-  int emptyOrd=-1;
+  final int emptyOrd;
   if (pendingIndex < maxDoc) {
-    emptyOrd=hash.add(EMPTY);
-    if (emptyOrd < 0) {
-      emptyOrd=-emptyOrd - 1;
+    int ord=hash.add(EMPTY);
+    if (ord < 0) {
+      emptyOrd=-ord - 1;
+    }
+ else {
+      emptyOrd=ord;
     }
   }
-  int valueCount=hash.size();
-  int[] sortedValues=hash.sort(BytesRef.getUTF8SortedAsUnicodeComparator());
+ else {
+    emptyOrd=-1;
+  }
+  final int valueCount=hash.size();
+  final int[] sortedValues=hash.sort(BytesRef.getUTF8SortedAsUnicodeComparator());
   final int sortedValueRamUsage=RamUsageEstimator.NUM_BYTES_ARRAY_HEADER + RamUsageEstimator.NUM_BYTES_INT * valueCount;
   iwBytesUsed.addAndGet(sortedValueRamUsage);
   final int[] ordMap=new int[valueCount];
-  BytesRef scratch=new BytesRef();
   for (int ord=0; ord < valueCount; ord++) {
-    consumer.addValue(hash.get(sortedValues[ord],scratch));
     ordMap[sortedValues[ord]]=ord;
   }
   final int bufferedDocCount=pendingIndex;
-  for (int docID=0; docID < bufferedDocCount; docID++) {
-    consumer.addDoc(ordMap[pending[docID]]);
+  dvConsumer.addSortedField(fieldInfo,new Iterable<BytesRef>(){
+    @Override public Iterator<BytesRef> iterator(){
+      return new Iterator<BytesRef>(){
+        int ordUpto;
+        BytesRef scratch=new BytesRef();
+        @Override public boolean hasNext(){
+          return ordUpto < valueCount;
+        }
+        @Override public void remove(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public BytesRef next(){
+          hash.get(sortedValues[ordUpto],scratch);
+          ordUpto++;
+          return scratch;
+        }
+      }
+;
+    }
   }
-  for (int docID=bufferedDocCount; docID < maxDoc; docID++) {
-    consumer.addDoc(ordMap[emptyOrd]);
+,new Iterable<Number>(){
+    @Override public Iterator<Number> iterator(){
+      return new Iterator<Number>(){
+        int docUpto;
+        @Override public boolean hasNext(){
+          return docUpto < maxDoc;
+        }
+        @Override public void remove(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public Number next(){
+          int ord;
+          if (docUpto < bufferedDocCount) {
+            ord=pending[docUpto];
+          }
+ else {
+            ord=emptyOrd;
+          }
+          docUpto++;
+          return ordMap[ord];
+        }
+      }
+;
+    }
   }
+);
   iwBytesUsed.addAndGet(-sortedValueRamUsage);
   reset();
-  consumer.finish();
 }
