@@ -7,8 +7,8 @@
       System.out.println("Partition Size: " + partitionSize);
     }
     final int pSize=partitionSize;
-    DefaultFacetIndexingParams iParams=new DefaultFacetIndexingParams(){
-      @Override protected int fixedPartitionSize(){
+    FacetIndexingParams iParams=new FacetIndexingParams(){
+      @Override public int getPartitionSize(){
         return pSize;
       }
     }
@@ -64,18 +64,18 @@
     CountFacetRequest cfrb20=new CountFacetRequest(new CategoryPath("a","b"),2);
     cfrb20.setDepth(0);
     cfrb20.setResultMode(ResultMode.PER_NODE_IN_TREE);
-    FacetSearchParams facetSearchParams=new FacetSearchParams(iParams);
-    facetSearchParams.addFacetRequest(cfra23);
-    facetSearchParams.addFacetRequest(cfra22);
-    facetSearchParams.addFacetRequest(cfra21);
-    facetSearchParams.addFacetRequest(cfrb23);
-    facetSearchParams.addFacetRequest(cfrb22);
-    facetSearchParams.addFacetRequest(cfrb21);
-    facetSearchParams.addFacetRequest(doctor);
-    facetSearchParams.addFacetRequest(cfrb20);
-    IntArrayAllocator iaa=new IntArrayAllocator(PartitionsUtils.partitionSize(facetSearchParams,tr),1);
-    FloatArrayAllocator faa=new FloatArrayAllocator(PartitionsUtils.partitionSize(facetSearchParams,tr),1);
-    FacetsAccumulator fctExtrctr=new StandardFacetsAccumulator(facetSearchParams,is.getIndexReader(),tr,iaa,faa);
+    List<FacetRequest> facetRequests=new ArrayList<FacetRequest>();
+    facetRequests.add(cfra23);
+    facetRequests.add(cfra22);
+    facetRequests.add(cfra21);
+    facetRequests.add(cfrb23);
+    facetRequests.add(cfrb22);
+    facetRequests.add(cfrb21);
+    facetRequests.add(doctor);
+    facetRequests.add(cfrb20);
+    FacetSearchParams facetSearchParams=new FacetSearchParams(facetRequests,iParams);
+    FacetArrays facetArrays=new FacetArrays(PartitionsUtils.partitionSize(facetSearchParams.getFacetIndexingParams(),tr));
+    FacetsAccumulator fctExtrctr=new StandardFacetsAccumulator(facetSearchParams,is.getIndexReader(),tr,facetArrays);
     fctExtrctr.setComplementThreshold(FacetsAccumulator.DISABLE_COMPLEMENT);
     long start=System.currentTimeMillis();
     List<FacetResult> facetResults=fctExtrctr.accumulate(scoredDoc.getScoredDocIDs());
@@ -84,7 +84,7 @@
       System.out.println("Time: " + (end - start));
     }
     FacetResult fr=facetResults.get(0);
-    boolean hasDoctor="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    boolean hasDoctor="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertEquals(9,fr.getNumValidDescendants());
     FacetResultNode parentRes=fr.getFacetResultNode();
     assertEquals(16.0,parentRes.getValue(),Double.MIN_VALUE);
@@ -116,7 +116,7 @@
       }
     }
     fr=facetResults.get(1);
-    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertEquals(9,fr.getNumValidDescendants());
     parentRes=fr.getFacetResultNode();
     assertEquals(16.0,parentRes.getValue(),Double.MIN_VALUE);
@@ -132,7 +132,7 @@
       }
     }
     fr=facetResults.get(2);
-    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertEquals(4,fr.getNumValidDescendants(),4);
     parentRes=fr.getFacetResultNode();
     assertEquals(16.0,parentRes.getValue(),Double.MIN_VALUE);
@@ -146,7 +146,7 @@
       assertEquals(node.getNumSubResults(),0);
     }
     fr=facetResults.get(3);
-    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertEquals(4,fr.getNumValidDescendants());
     parentRes=fr.getFacetResultNode();
     assertEquals(8.0,parentRes.getValue(),Double.MIN_VALUE);
@@ -160,7 +160,7 @@
       assertEquals(0,node.getNumSubResults());
     }
     fr=facetResults.get(4);
-    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertEquals(4,fr.getNumValidDescendants());
     parentRes=fr.getFacetResultNode();
     assertEquals(8.0,parentRes.getValue(),Double.MIN_VALUE);
@@ -173,7 +173,7 @@
       assertEquals(0,node.getNumSubResults());
     }
     fr=facetResults.get(5);
-    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertEquals(4,fr.getNumValidDescendants());
     parentRes=fr.getFacetResultNode();
     assertEquals(8.0,parentRes.getValue(),Double.MIN_VALUE);
@@ -186,13 +186,13 @@
       assertEquals(0,node.getNumSubResults());
     }
     fr=facetResults.get(6);
-    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertEquals(0,fr.getNumValidDescendants());
     parentRes=fr.getFacetResultNode();
     assertEquals(8.0,parentRes.getValue(),Double.MIN_VALUE);
     assertEquals(0.0,parentRes.getResidue(),Double.MIN_VALUE);
     assertEquals(0,parentRes.getNumSubResults());
-    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().getComponent(0));
+    hasDoctor|="Doctor".equals(fr.getFacetRequest().getCategoryPath().components[0]);
     assertFalse("Shouldn't have found anything for a FacetRequest " + "of a facet that doesn't exist in the index.",hasDoctor);
     assertEquals("Shouldn't have found more than seven request.",7,facetResults.size());
     ir.close();

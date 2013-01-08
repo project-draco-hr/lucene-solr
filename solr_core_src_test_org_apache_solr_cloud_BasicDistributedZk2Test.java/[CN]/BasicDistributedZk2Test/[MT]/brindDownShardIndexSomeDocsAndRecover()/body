@@ -10,21 +10,6 @@
   Set<CloudJettyRunner> jetties=new HashSet<CloudJettyRunner>();
   jetties.addAll(shardToJetty.get(SHARD2));
   jetties.remove(deadShard);
-  int liveNodes=cloudClient.getZkStateReader().getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE,null,true).size();
-  int tries=50;
-  while (oldLiveNodes == liveNodes) {
-    Thread.sleep(100);
-    if (tries-- == 0) {
-      fail("We expected a node to drop...");
-    }
-    liveNodes=cloudClient.getZkStateReader().getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE,null,true).size();
-  }
-  assertEquals(4,liveNodes);
-  int cnt=0;
-  for (  CloudJettyRunner cjetty : jetties) {
-    waitToSeeNotLive(((SolrDispatchFilter)cjetty.jetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader(),deadShard,cnt++);
-  }
-  waitToSeeNotLive(cloudClient.getZkStateReader(),deadShard);
   try {
     index_specific(deadShard.client.solrClient,id,999,i1,107,t1,"specific doc!");
     fail("This server should be down and this update should have failed");
@@ -47,7 +32,13 @@
   controlClient.add(doc);
   UpdateRequest ureq=new UpdateRequest();
   ureq.add(doc);
-  ureq.process(cloudClient);
+  try {
+    ureq.process(cloudClient);
+  }
+ catch (  SolrServerException e) {
+    Thread.sleep(500);
+    ureq.process(cloudClient);
+  }
   commit();
   query("q","*:*","sort","n_tl1 desc");
   long numFound3=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
@@ -71,10 +62,6 @@
   deadShardCount=shardToJetty.get(SHARD2).get(0).client.solrClient.query(query).getResults().getNumFound();
   checkShardConsistency(true,false);
   chaosMonkey.stopJetty(deadShard);
-  for (  CloudJettyRunner cjetty : jetties) {
-    waitToSeeNotLive(((SolrDispatchFilter)cjetty.jetty.getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader(),deadShard);
-  }
-  waitToSeeNotLive(cloudClient.getZkStateReader(),deadShard);
   for (int i=0; i < 226; i++) {
     doc=new SolrInputDocument();
     doc.addField("id",2000 + i);
@@ -87,6 +74,17 @@
   Thread.sleep(1500);
   ChaosMonkey.start(deadShard.jetty);
   Thread.sleep(1500);
+  waitForThingsToLevelOut(15);
+  Thread.sleep(500);
   waitForRecoveriesToFinish(false);
   checkShardConsistency(true,false);
+  final HttpSolrServer client=(HttpSolrServer)shardToJetty.get(SHARD2).get(0).client.solrClient;
+  System.out.println("base url: " + client.getBaseURL());
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set("qt","/replication");
+  params.set("command","backup");
+  QueryRequest request=new QueryRequest(params);
+  NamedList<Object> results=client.request(request);
+  System.out.println("results:" + results);
+  checkForBackupSuccess(client);
 }

@@ -15,6 +15,7 @@
     throw new SolrException(ErrorCode.SERVER_ERROR,"",e);
   }
   cfg.substituteProperties();
+  initShardHandler(cfg);
   allocateLazyCores(cfg);
   if (cfg.getBool("solr/logging/@enabled",true)) {
     String slf4jImpl=null;
@@ -67,6 +68,8 @@
   adminPath=cfg.get("solr/cores/@adminPath",null);
   shareSchema=cfg.getBool("solr/cores/@shareSchema",DEFAULT_SHARE_SCHEMA);
   zkClientTimeout=cfg.getInt("solr/cores/@zkClientTimeout",DEFAULT_ZK_CLIENT_TIMEOUT);
+  distribUpdateConnTimeout=cfg.getInt("solr/cores/@distribUpdateConnTimeout",0);
+  distribUpdateSoTimeout=cfg.getInt("solr/cores/@distribUpdateSoTimeout",0);
   hostPort=cfg.get("solr/cores/@hostPort",DEFAULT_HOST_PORT);
   hostContext=cfg.get("solr/cores/@hostContext",DEFAULT_HOST_CONTEXT);
   host=cfg.get("solr/cores/@host",null);
@@ -102,9 +105,8 @@
     SolrException.log(log,null,e);
   }
   NodeList nodes=(NodeList)cfg.evaluate("solr/cores/core",XPathConstants.NODESET);
-  coreLoadExecutor=new ThreadPoolExecutor(0,Integer.MAX_VALUE,5,TimeUnit.SECONDS,new SynchronousQueue<Runnable>(),new DefaultSolrThreadFactory("coreLoadExecutor"));
+  coreLoadExecutor=new ThreadPoolExecutor(coreLoadThreads,coreLoadThreads,1,TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>(),new DefaultSolrThreadFactory("coreLoadExecutor"));
   try {
-    final AdjustableSemaphore semaphore=new AdjustableSemaphore(coreLoadThreads);
     CompletionService<SolrCore> completionService=new ExecutorCompletionService<SolrCore>(coreLoadExecutor);
     Set<Future<SolrCore>> pending=new HashSet<Future<SolrCore>>();
     for (int i=0; i < nodes.getLength(); i++) {
@@ -151,17 +153,22 @@
         if (opt != null) {
           p.setLoadOnStartup(("true".equalsIgnoreCase(opt) || "on".equalsIgnoreCase(opt)) ? true : false);
         }
-        opt=DOMUtil.getAttr(node,CORE_SWAPPABLE,null);
+        opt=DOMUtil.getAttr(node,CORE_TRANSIENT,null);
         if (opt != null) {
-          p.setSwappable(("true".equalsIgnoreCase(opt) || "on".equalsIgnoreCase(opt)) ? true : false);
+          p.setTransient(("true".equalsIgnoreCase(opt) || "on".equalsIgnoreCase(opt)) ? true : false);
         }
-        if (!p.isSwappable() && p.isLoadOnStartup()) {
+        if (p.isLoadOnStartup()) {
           Callable<SolrCore> task=new Callable<SolrCore>(){
-            public SolrCore call(){
+            @Override public SolrCore call(){
               SolrCore c=null;
               try {
                 c=create(p);
-                register(name,c,false);
+                if (p.isTransient()) {
+                  registerLazyCore(name,c,false);
+                }
+ else {
+                  register(name,c,false);
+                }
               }
  catch (              Throwable t) {
                 SolrException.log(log,null,t);
@@ -169,25 +176,11 @@
                   c.close();
                 }
               }
-              semaphore.release();
               return c;
             }
           }
 ;
-          try {
-            semaphore.acquire();
-          }
- catch (          InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new SolrException(ErrorCode.SERVER_ERROR,"Interrupted while loading SolrCore(s)",e);
-          }
-          try {
-            pending.add(completionService.submit(task));
-          }
- catch (          RejectedExecutionException e) {
-            semaphore.release();
-            throw e;
-          }
+          pending.add(completionService.submit(task));
         }
  else {
           dynamicDescriptors.put(rawName,p);
@@ -209,11 +202,11 @@
           }
         }
  catch (        ExecutionException e) {
-          SolrException.log(SolrCore.log,"error sending update request to shard",e);
+          SolrException.log(SolrCore.log,"error loading core",e);
         }
       }
  catch (      InterruptedException e) {
-        throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"interrupted waiting for shard update response",e);
+        throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"interrupted while loading core",e);
       }
     }
   }

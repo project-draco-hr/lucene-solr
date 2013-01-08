@@ -14,7 +14,7 @@
   indexDoc(skipServers,id,docId++,i1,50,tlong,50,t1,"under the moon and over the lake");
   commit();
   waitForRecoveriesToFinish(false);
-  String shardFailMessage=checkShardConsistency("shard1",true);
+  String shardFailMessage=checkShardConsistency("shard1",true,false);
   assertNotNull(shardFailMessage);
   ModifiableSolrParams params=new ModifiableSolrParams();
   params.set("action",CollectionAction.SYNCSHARD.toString());
@@ -25,6 +25,8 @@
   String baseUrl=((HttpSolrServer)shardToJetty.get("shard1").get(2).client.solrClient).getBaseURL();
   baseUrl=baseUrl.substring(0,baseUrl.length() - "collection1".length());
   HttpSolrServer baseServer=new HttpSolrServer(baseUrl);
+  baseServer.setConnectionTimeout(15000);
+  baseServer.setSoTimeout(30000);
   baseServer.request(request);
   waitForThingsToLevelOut(15);
   checkShardConsistency(false,true);
@@ -38,8 +40,9 @@
   jetties.remove(leaderJetty);
   assertEquals(shardCount - 1,jetties.size());
   chaosMonkey.killJetty(leaderJetty);
-  waitToSeeDownInClusterState(leaderJetty,jetties);
-  waitForThingsToLevelOut(45);
+  Thread.sleep(2000);
+  waitForThingsToLevelOut(90);
+  Thread.sleep(1000);
   checkShardConsistency(false,true);
   cloudClientDocs=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
   assertEquals(5,cloudClientDocs);
@@ -59,16 +62,18 @@
     indexDoc(skipServers,id,docId++,i1,50,tlong,50,t1,"to come to the aid of their country.");
   }
   commit();
+  Thread.sleep(1000);
   waitForRecoveriesToFinish(false);
-  shardFailMessage=checkShardConsistency("shard1",true);
-  assertNotNull(shardFailMessage);
+  shardFailMessage=waitTillInconsistent();
+  assertNotNull("shard1 should have just been set up to be inconsistent - but it's still consistent",shardFailMessage);
   jetties=new HashSet<CloudJettyRunner>();
   jetties.addAll(shardToJetty.get("shard1"));
   jetties.remove(leaderJetty);
   assertEquals(shardCount - 1,jetties.size());
   chaosMonkey.killJetty(leaderJetty);
-  waitToSeeDownInClusterState(leaderJetty,jetties);
-  Thread.sleep(4000);
+  Thread.sleep(3000);
+  waitForThingsToLevelOut(90);
+  Thread.sleep(2000);
   waitForRecoveriesToFinish(false);
   checkShardConsistency(true,true);
 }

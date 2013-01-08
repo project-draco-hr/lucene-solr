@@ -1,0 +1,29 @@
+{
+  assertTrue("Wrong usage of testTemplate. numberOfNodesToCreateOn " + numberOfNodesToCreateOn + " is not allowed to be higher than numberOfNodes "+ numberOfNodes,numberOfNodes.intValue() >= numberOfNodesToCreateOn.intValue());
+  assertTrue("Wrong usage of testTemplage. createNodeListOption has to be " + CreateNodeListOptions.SEND + " when numberOfNodes and numberOfNodesToCreateOn are unequal",((createNodeListOption == CreateNodeListOptions.SEND) || (numberOfNodes.intValue() == numberOfNodesToCreateOn.intValue())));
+  Set<String> liveNodes=commonMocks(numberOfNodes);
+  List<String> createNodeList=new ArrayList<String>();
+  int i=0;
+  for (  String node : liveNodes) {
+    if (i++ < numberOfNodesToCreateOn) {
+      createNodeList.add(node);
+    }
+  }
+  List<SubmitCapture> submitCaptures=null;
+  if (collectionExceptedToBeCreated) {
+    submitCaptures=mockShardHandlerForCreateJob(numberOfSlices,replicationFactor);
+  }
+  replay(workQueueMock);
+  replay(solrZkClientMock);
+  replay(zkStateReaderMock);
+  replay(clusterStateMock);
+  replay(shardHandlerMock);
+  startComponentUnderTest();
+  issueCreateJob(numberOfSlices,replicationFactor,maxShardsPerNode,(createNodeListOption != CreateNodeListOptions.SEND_NULL) ? createNodeList : null,(createNodeListOption != CreateNodeListOptions.DONT_SEND));
+  waitForEmptyQueue(10000);
+  assertEquals(collectionExceptedToBeCreated,underTest.lastProcessMessageResult);
+  verify(shardHandlerMock);
+  if (collectionExceptedToBeCreated) {
+    verifySubmitCaptures(submitCaptures,numberOfSlices,replicationFactor,createNodeList);
+  }
+}

@@ -1,17 +1,32 @@
 {
-  response.setCharacterEncoding("UTF-8");
-  response.setContentType("application/json");
   CoreContainer cores=(CoreContainer)request.getAttribute("org.apache.solr.CoreContainer");
-  String path=request.getParameter("path");
-  String addr=request.getParameter("addr");
+  if (cores == null) {
+    throw new ServletException("Missing request attribute org.apache.solr.CoreContainer.");
+  }
+  final SolrParams params;
+  try {
+    params=SolrRequestParsers.DEFAULT.parse(null,request.getServletPath(),request).getParams();
+  }
+ catch (  Exception e) {
+    int code=500;
+    if (e instanceof SolrException) {
+      code=Math.min(599,Math.max(100,((SolrException)e).code()));
+    }
+    response.sendError(code,e.toString());
+    return;
+  }
+  String path=params.get("path");
+  String addr=params.get("addr");
   if (addr != null && addr.length() == 0) {
     addr=null;
   }
-  String detailS=request.getParameter("detail");
+  String detailS=params.get("detail");
   boolean detail=detailS != null && detailS.equals("true");
-  String dumpS=request.getParameter("dump");
+  String dumpS=params.get("dump");
   boolean dump=dumpS != null && dumpS.equals("true");
-  PrintWriter out=response.getWriter();
+  response.setCharacterEncoding("UTF-8");
+  response.setContentType("application/json");
+  Writer out=new FastWriter(new OutputStreamWriter(response.getOutputStream(),IOUtils.CHARSET_UTF_8));
   ZKPrinter printer=new ZKPrinter(response,out,cores.getZkController(),addr);
   printer.detail=detail;
   printer.dump=dump;
@@ -21,4 +36,5 @@
   finally {
     printer.close();
   }
+  out.flush();
 }

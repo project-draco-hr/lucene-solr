@@ -1,11 +1,9 @@
 {
-  long docs=controlClient.query(new SolrQuery("*:*")).getResults().getNumFound();
-  if (verbose)   System.err.println("Control Docs:" + docs);
   updateMappingsFromZk(jettys,clients);
   Set<String> theShards=shardToJetty.keySet();
   String failMessage=null;
   for (  String shard : theShards) {
-    String shardFailMessage=checkShardConsistency(shard,verbose);
+    String shardFailMessage=checkShardConsistency(shard,false,verbose);
     if (shardFailMessage != null && failMessage == null) {
       failMessage=shardFailMessage;
     }
@@ -13,36 +11,67 @@
   if (failMessage != null) {
     fail(failMessage);
   }
-  if (checkVsControl) {
-    theShards=shardToJetty.keySet();
-    int cnt=0;
-    for (    String s : theShards) {
-      int times=shardToJetty.get(s).size();
-      for (int i=0; i < times; i++) {
-        try {
-          CloudJettyRunner cjetty=shardToJetty.get(s).get(i);
-          ZkNodeProps props=cjetty.info;
-          SolrServer client=cjetty.client.solrClient;
-          boolean active=props.getStr(ZkStateReader.STATE_PROP).equals(ZkStateReader.ACTIVE);
-          if (active) {
-            SolrQuery query=new SolrQuery("*:*");
-            query.set("distrib",false);
-            long results=client.query(query).getResults().getNumFound();
-            if (verbose)             System.err.println(new ZkCoreNodeProps(props).getCoreUrl() + " : " + results);
-            if (verbose)             System.err.println("shard:" + props.getStr(ZkStateReader.SHARD_ID_PROP));
-            cnt+=results;
-            break;
-          }
+  if (!checkVsControl)   return;
+  SolrParams q=params("q","*:*","rows","0","tests","checkShardConsistency(vsControl)");
+  SolrDocumentList controlDocList=controlClient.query(q).getResults();
+  long controlDocs=controlDocList.getNumFound();
+  SolrDocumentList cloudDocList=cloudClient.query(q).getResults();
+  long cloudClientDocs=cloudDocList.getNumFound();
+  theShards=shardToJetty.keySet();
+  int cnt=0;
+  for (  String s : theShards) {
+    int times=shardToJetty.get(s).size();
+    for (int i=0; i < times; i++) {
+      try {
+        CloudJettyRunner cjetty=shardToJetty.get(s).get(i);
+        ZkNodeProps props=cjetty.info;
+        SolrServer client=cjetty.client.solrClient;
+        boolean active=props.getStr(ZkStateReader.STATE_PROP).equals(ZkStateReader.ACTIVE);
+        if (active) {
+          SolrQuery query=new SolrQuery("*:*");
+          query.set("distrib",false);
+          long results=client.query(query).getResults().getNumFound();
+          if (verbose)           System.err.println(new ZkCoreNodeProps(props).getCoreUrl() + " : " + results);
+          if (verbose)           System.err.println("shard:" + props.getStr(ZkStateReader.SHARD_ID_PROP));
+          cnt+=results;
+          break;
         }
- catch (        Exception e) {
-          if (i == times - 1) {
-            throw e;
-          }
+      }
+ catch (      Exception e) {
+        if (i == times - 1) {
+          throw e;
         }
       }
     }
-    SolrQuery q=new SolrQuery("*:*");
-    long cloudClientDocs=cloudClient.query(q).getResults().getNumFound();
-    assertEquals("adding up the # of docs on each shard does not match the control - cloud client returns:" + cloudClientDocs,docs,cnt);
+  }
+  if (controlDocs != cnt || cloudClientDocs != controlDocs) {
+    String msg="document count mismatch.  control=" + controlDocs + " sum(shards)="+ cnt+ " cloudClient="+ cloudClientDocs;
+    log.error(msg);
+    q=params("q","*:*","rows","100000","fl","id","tests","checkShardConsistency(vsControl)/getIds");
+    controlDocList=controlClient.query(q).getResults();
+    if (controlDocs != controlDocList.getNumFound()) {
+      log.error("Something changed! control now " + controlDocList.getNumFound());
+    }
+    ;
+    cloudDocList=cloudClient.query(q).getResults();
+    if (cloudClientDocs != cloudDocList.getNumFound()) {
+      log.error("Something changed! cloudClient now " + cloudDocList.getNumFound());
+    }
+    ;
+    Set<Map> differences=showDiff(controlDocList,cloudDocList,"controlDocList","cloudDocList");
+    boolean foundId=false;
+    StringBuilder ids=new StringBuilder("id:(");
+    for (    Map doc : differences) {
+      ids.append(" " + doc.get("id"));
+      foundId=true;
+    }
+    ids.append(")");
+    if (foundId) {
+      q=params("q",ids.toString(),"rows","100000","fl","id,_version_","sort","id asc","tests","checkShardConsistency(vsControl)/getVers");
+      SolrDocumentList a=controlClient.query(q).getResults();
+      SolrDocumentList b=cloudClient.query(q).getResults();
+      log.error("controlClient :" + a + "\n\tcloudClient :"+ b);
+    }
+    fail(msg);
   }
 }

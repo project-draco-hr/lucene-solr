@@ -1,0 +1,79 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  createRandomIndex(atLeast(50),w,random().nextLong());
+  DirectoryReader reader=w.getReader();
+  SlowCompositeReaderWrapper wrapper=new SlowCompositeReaderWrapper(reader);
+  String field="body";
+  Terms terms=wrapper.terms(field);
+  PriorityQueue<TermAndFreq> lowFreqQueue=new PriorityQueue<CommonTermsQueryTest.TermAndFreq>(5){
+    @Override protected boolean lessThan(    TermAndFreq a,    TermAndFreq b){
+      return a.freq > b.freq;
+    }
+  }
+;
+  PriorityQueue<TermAndFreq> highFreqQueue=new PriorityQueue<CommonTermsQueryTest.TermAndFreq>(5){
+    @Override protected boolean lessThan(    TermAndFreq a,    TermAndFreq b){
+      return a.freq < b.freq;
+    }
+  }
+;
+  try {
+    TermsEnum iterator=terms.iterator(null);
+    while (iterator.next() != null) {
+      if (highFreqQueue.size() < 5) {
+        highFreqQueue.add(new TermAndFreq(BytesRef.deepCopyOf(iterator.term()),iterator.docFreq()));
+        lowFreqQueue.add(new TermAndFreq(BytesRef.deepCopyOf(iterator.term()),iterator.docFreq()));
+      }
+ else {
+        if (highFreqQueue.top().freq < iterator.docFreq()) {
+          highFreqQueue.top().freq=iterator.docFreq();
+          highFreqQueue.top().term=BytesRef.deepCopyOf(iterator.term());
+          highFreqQueue.updateTop();
+        }
+        if (lowFreqQueue.top().freq > iterator.docFreq()) {
+          lowFreqQueue.top().freq=iterator.docFreq();
+          lowFreqQueue.top().term=BytesRef.deepCopyOf(iterator.term());
+          lowFreqQueue.updateTop();
+        }
+      }
+    }
+    int lowFreq=lowFreqQueue.top().freq;
+    int highFreq=highFreqQueue.top().freq;
+    assumeTrue("unlucky index",highFreq - 1 > lowFreq);
+    List<TermAndFreq> highTerms=queueToList(highFreqQueue);
+    List<TermAndFreq> lowTerms=queueToList(lowFreqQueue);
+    IndexSearcher searcher=new IndexSearcher(reader);
+    Occur lowFreqOccur=randomOccur(random());
+    BooleanQuery verifyQuery=new BooleanQuery();
+    CommonTermsQuery cq=new CommonTermsQuery(randomOccur(random()),lowFreqOccur,highFreq - 1,random().nextBoolean());
+    for (    TermAndFreq termAndFreq : lowTerms) {
+      cq.add(new Term(field,termAndFreq.term));
+      verifyQuery.add(new BooleanClause(new TermQuery(new Term(field,termAndFreq.term)),lowFreqOccur));
+    }
+    for (    TermAndFreq termAndFreq : highTerms) {
+      cq.add(new Term(field,termAndFreq.term));
+    }
+    TopDocs cqSearch=searcher.search(cq,reader.maxDoc());
+    TopDocs verifySearch=searcher.search(verifyQuery,reader.maxDoc());
+    assertEquals(verifySearch.totalHits,cqSearch.totalHits);
+    Set<Integer> hits=new HashSet<Integer>();
+    for (    ScoreDoc doc : verifySearch.scoreDocs) {
+      hits.add(doc.doc);
+    }
+    for (    ScoreDoc doc : cqSearch.scoreDocs) {
+      assertTrue(hits.remove(doc.doc));
+    }
+    assertTrue(hits.isEmpty());
+    w.forceMerge(1);
+    DirectoryReader reader2=w.getReader();
+    QueryUtils.check(random(),cq,newSearcher(reader2));
+    reader2.close();
+  }
+  finally {
+    reader.close();
+    wrapper.close();
+    w.close();
+    dir.close();
+  }
+}

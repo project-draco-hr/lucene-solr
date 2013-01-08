@@ -1,0 +1,59 @@
+{
+  if (cc == null)   throw new IllegalArgumentException("CoreContainer cannot be null.");
+  this.cc=cc;
+  localHostContext=trimLeadingAndTrailingSlashes(localHostContext);
+  updateShardHandler=new UpdateShardHandler(distribUpdateConnTimeout,distribUpdateSoTimeout);
+  this.zkServerAddress=zkServerAddress;
+  this.localHostPort=locaHostPort;
+  this.localHostContext=localHostContext;
+  this.localHost=getHostAddress(localHost);
+  this.baseURL=this.localHost + ":" + this.localHostPort+ (this.localHostContext.isEmpty() ? "" : ("/" + this.localHostContext));
+  this.hostName=getHostNameFromAddress(this.localHost);
+  this.nodeName=generateNodeName(this.hostName,this.localHostPort,this.localHostContext);
+  this.leaderVoteWait=leaderVoteWait;
+  this.clientTimeout=zkClientTimeout;
+  zkClient=new SolrZkClient(zkServerAddress,zkClientTimeout,zkClientConnectTimeout,new OnReconnect(){
+    @Override public void command(){
+      try {
+        markAllAsNotLeader(registerOnReconnect);
+        ShardHandler shardHandler;
+        String adminPath;
+        shardHandler=cc.getShardHandlerFactory().getShardHandler();
+        adminPath=cc.getAdminPath();
+        cc.cancelCoreRecoveries();
+        registerAllCoresAsDown(registerOnReconnect,false);
+        ZkController.this.overseer=new Overseer(shardHandler,adminPath,zkStateReader);
+        ElectionContext context=new OverseerElectionContext(zkClient,overseer,getNodeName());
+        overseerElector.joinElection(context,true);
+        zkStateReader.createClusterStateWatchersAndUpdate();
+        createEphemeralLiveNode();
+        List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
+        if (descriptors != null) {
+          for (          CoreDescriptor descriptor : descriptors) {
+            try {
+              register(descriptor.getName(),descriptor,true,true);
+            }
+ catch (            Throwable t) {
+              SolrException.log(log,"Error registering SolrCore",t);
+            }
+          }
+        }
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      Exception e) {
+        SolrException.log(log,"",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+  }
+);
+  this.overseerJobQueue=Overseer.getInQueue(zkClient);
+  this.overseerCollectionQueue=Overseer.getCollectionQueue(zkClient);
+  cmdExecutor=new ZkCmdExecutor(zkClientTimeout);
+  leaderElector=new LeaderElector(zkClient);
+  zkStateReader=new ZkStateReader(zkClient);
+  init(registerOnReconnect);
+}

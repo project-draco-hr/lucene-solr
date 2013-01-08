@@ -1,18 +1,28 @@
 {
-  ArrayList<ContentStream> streams=new ArrayList<ContentStream>();
-  Map<String,String[]> params=new HashMap<String,String[]>();
-  params.put("q",new String[]{"hello"});
-  String[] ct=new String[]{"application/x-www-form-urlencoded","Application/x-www-form-urlencoded","application/x-www-form-urlencoded; charset=utf-8","application/x-www-form-urlencoded;"};
+  final String getParams="qt=%C3%BC&dup=foo", postParams="q=hello&d%75p=bar";
+  final byte[] postBytes=postParams.getBytes("UTF-8");
+  final String[] ct=new String[]{"application/x-www-form-urlencoded","Application/x-www-form-urlencoded","application/x-www-form-urlencoded; charset=utf-8","application/x-www-form-urlencoded;"};
   for (  String contentType : ct) {
     HttpServletRequest request=createMock(HttpServletRequest.class);
     expect(request.getMethod()).andReturn("POST").anyTimes();
     expect(request.getContentType()).andReturn(contentType).anyTimes();
-    expect(request.getParameterMap()).andReturn(params).anyTimes();
+    expect(request.getQueryString()).andReturn(getParams).anyTimes();
+    expect(request.getContentLength()).andReturn(postBytes.length).anyTimes();
+    expect(request.getInputStream()).andReturn(new ServletInputStream(){
+      private final ByteArrayInputStream in=new ByteArrayInputStream(postBytes);
+      @Override public int read(){
+        return in.read();
+      }
+    }
+);
     replay(request);
-    MultipartRequestParser multipart=new MultipartRequestParser(1000000);
+    MultipartRequestParser multipart=new MultipartRequestParser(2048);
     RawRequestParser raw=new RawRequestParser();
-    StandardRequestParser standard=new StandardRequestParser(multipart,raw);
-    SolrParams p=standard.parseParamsAndFillStreams(request,streams);
+    FormDataRequestParser formdata=new FormDataRequestParser(2048);
+    StandardRequestParser standard=new StandardRequestParser(multipart,raw,formdata);
+    SolrParams p=standard.parseParamsAndFillStreams(request,new ArrayList<ContentStream>());
     assertEquals("contentType: " + contentType,"hello",p.get("q"));
+    assertEquals("contentType: " + contentType,"\u00FC",p.get("qt"));
+    assertArrayEquals("contentType: " + contentType,new String[]{"foo","bar"},p.getParams("dup"));
   }
 }
