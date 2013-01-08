@@ -1,0 +1,73 @@
+{
+class CheckStatus extends Thread {
+    volatile String fail=null;
+    volatile String response=null;
+    volatile boolean success=false;
+    final Pattern p=Pattern.compile("<str name=\"snapshotCompletedAt\">(.*?)</str>");
+    CheckStatus(){
+    }
+    @Override public void run(){
+      String masterUrl=client.getBaseURL() + "/replication?command=" + ReplicationHandler.CMD_DETAILS;
+      URL url;
+      InputStream stream=null;
+      try {
+        url=new URL(masterUrl);
+        stream=url.openStream();
+        response=IOUtils.toString(stream,"UTF-8");
+        if (response.contains("<str name=\"status\">success</str>")) {
+          Matcher m=p.matcher(response);
+          if (!m.find()) {
+            fail("could not find the completed timestamp in response.");
+          }
+          success=true;
+        }
+        stream.close();
+      }
+ catch (      Exception e) {
+        e.printStackTrace();
+        fail=e.getMessage();
+      }
+ finally {
+        IOUtils.closeQuietly(stream);
+      }
+    }
+  }
+  ;
+  SolrCore core=((SolrDispatchFilter)shardToJetty.get(SHARD2).get(0).jetty.getDispatchFilter().getFilter()).getCores().getCore("collection1");
+  String ddir;
+  try {
+    ddir=core.getDataDir();
+  }
+  finally {
+    core.close();
+  }
+  File dataDir=new File(ddir);
+  int waitCnt=0;
+  CheckStatus checkStatus=new CheckStatus();
+  while (true) {
+    checkStatus.run();
+    if (checkStatus.fail != null) {
+      fail(checkStatus.fail);
+    }
+    if (checkStatus.success) {
+      break;
+    }
+    Thread.sleep(200);
+    if (waitCnt == 20) {
+      fail("Backup success not detected:" + checkStatus.response);
+    }
+    waitCnt++;
+  }
+  File[] files=dataDir.listFiles(new FilenameFilter(){
+    @Override public boolean accept(    File dir,    String name){
+      if (name.startsWith("snapshot")) {
+        return true;
+      }
+      return false;
+    }
+  }
+);
+  assertEquals(Arrays.asList(files).toString(),1,files.length);
+  File snapDir=files[0];
+  AbstractSolrTestCase.recurseDelete(snapDir);
+}
