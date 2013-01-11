@@ -1,0 +1,28 @@
+{
+  assertTrue("Not using ZooKeeper",h.getCoreContainer().isZooKeeperAware());
+  h.getCoreContainer().getZkController().getZkStateReader().getLeaderUrl("collection1","shard1",30000);
+  assertQ("test query on empty index",request("qlkciyopsbgzyvkylsjhchghjrdf"),"//result[@numFound='0']");
+  SimpleDateFormat errMsgFormat=new SimpleDateFormat(dateFormat,Locale.ROOT);
+  delQ("*:*");
+  commit();
+  SimpleDateFormat df=new SimpleDateFormat(dateFormat,Locale.ROOT);
+  Date oneSecondAgo=new Date(System.currentTimeMillis() - 1000);
+  Map<String,String> init=new HashMap<String,String>();
+  init.put("dateFormat",dateFormat);
+  ZKPropertiesWriter spw=new ZKPropertiesWriter();
+  spw.init(new DataImporter(h.getCore(),"dataimport"),init);
+  Map<String,Object> props=new HashMap<String,Object>();
+  props.put("SomeDates.last_index_time",oneSecondAgo);
+  props.put("last_index_time",oneSecondAgo);
+  spw.persist(props);
+  List rows=new ArrayList();
+  rows.add(createMap("id","1","year_s","2013"));
+  MockDataSource.setIterator("select " + df.format(oneSecondAgo) + " from dummy",rows.iterator());
+  h.query("/dataimport",lrf.makeRequest("command","full-import","dataConfig",generateConfig(),"clean","true","commit","true","synchronous","true","indent","true"));
+  props=spw.readIndexerProperties();
+  Date entityDate=df.parse((String)props.get("SomeDates.last_index_time"));
+  Date docDate=df.parse((String)props.get("last_index_time"));
+  Assert.assertTrue("This date: " + errMsgFormat.format(oneSecondAgo) + " should be prior to the document date: "+ errMsgFormat.format(docDate),docDate.getTime() - oneSecondAgo.getTime() > 0);
+  Assert.assertTrue("This date: " + errMsgFormat.format(oneSecondAgo) + " should be prior to the entity date: "+ errMsgFormat.format(entityDate),entityDate.getTime() - oneSecondAgo.getTime() > 0);
+  assertQ(request("*:*"),"//*[@numFound='1']","//doc/str[@name=\"year_s\"]=\"2013\"");
+}

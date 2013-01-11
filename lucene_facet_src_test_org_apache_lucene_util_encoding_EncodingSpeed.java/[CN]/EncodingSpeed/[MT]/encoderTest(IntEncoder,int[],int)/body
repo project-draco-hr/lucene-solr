@@ -1,45 +1,30 @@
 {
-  long startTime, endTime;
-  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  BytesRef bytes=new BytesRef(values.length);
   for (int i=100; i != 0; --i) {
-    baos.reset();
-    encoder.reInit(baos);
-    for (    int value : data) {
-      encoder.encode(value);
-    }
-    encoder.close();
+    IntsRef data=newIntsRef(values);
+    encoder.encode(data,bytes);
   }
-  startTime=System.currentTimeMillis();
+  long encodeTime=0;
   for (int factor=loopFactor; factor > 0; --factor) {
-    baos.reset();
-    encoder.reInit(baos);
-    for (    int value : data) {
-      encoder.encode(value);
-    }
-    encoder.close();
+    IntsRef data=newIntsRef(values);
+    long start=System.currentTimeMillis();
+    encoder.encode(data,bytes);
+    encodeTime+=System.currentTimeMillis() - start;
   }
-  endTime=System.currentTimeMillis();
-  long encodeTime=endTime - startTime;
-  ByteArrayInputStream bais=new ByteArrayInputStream(baos.toByteArray());
+  IntsRef decoded=new IntsRef(values.length);
+  int encodedSize=bytes.length;
   IntDecoder decoder=encoder.createMatchingDecoder();
-  decoder.reInit(bais);
   for (int i=100; i != 0; --i) {
-    bais.mark(baos.size());
-    while (decoder.decode() != IntDecoder.EOS) {
-    }
-    bais.reset();
-    decoder.reInit(bais);
+    decoder.decode(bytes,decoded);
   }
-  decoder.reInit(bais);
-  startTime=System.currentTimeMillis();
+  long decodeTime=0;
   for (int i=loopFactor; i > 0; --i) {
-    bais.mark(baos.size());
-    while (decoder.decode() != IntDecoder.EOS) {
-    }
-    bais.reset();
-    decoder.reInit(bais);
+    long start=System.currentTimeMillis();
+    decoder.decode(bytes,decoded);
+    decodeTime+=System.currentTimeMillis() - start;
   }
-  endTime=System.currentTimeMillis();
-  long decodeTime=endTime - startTime;
-  System.out.println(String.format(Locale.ROOT,resultsFormat,encoder,nf.format(baos.size() * 8.0 / data.length),encodeTime,nf.format(encodeTime * 1000000.0 / (loopFactor * data.length)),decodeTime,nf.format(decodeTime * 1000000.0 / (loopFactor * data.length))));
+  if (decoded.length != values.length) {
+    throw new RuntimeException("wrong num values. expected=" + values.length + " actual="+ decoded.length+ " decoder="+ decoder);
+  }
+  System.out.println(String.format(Locale.ROOT,resultsFormat,encoder,nf.format(encodedSize * 8.0 / values.length),encodeTime,nf.format(encodeTime * 1000000.0 / (loopFactor * values.length)),decodeTime,nf.format(decodeTime * 1000000.0 / (loopFactor * values.length))));
 }
