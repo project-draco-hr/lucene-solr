@@ -3,15 +3,21 @@
     throw new IllegalArgumentException("categories should not be null");
   }
   final Map<CategoryListParams,Iterable<CategoryPath>> categoryLists=createCategoryListMapping(categories);
+  IntsRef ordinals=new IntsRef(32);
   for (  Entry<CategoryListParams,Iterable<CategoryPath>> e : categoryLists.entrySet()) {
     final CategoryListParams clp=e.getKey();
     final String field=clp.getTerm().field();
-    CategoryListBuilder categoriesPayloadBuilder=getCategoryListBuilder(clp,e.getValue());
+    ordinals.length=0;
+    int maxNumOrds=0;
     for (    CategoryPath cp : e.getValue()) {
       int ordinal=taxonomyWriter.addCategory(cp);
-      categoriesPayloadBuilder.handle(ordinal,cp);
+      maxNumOrds+=cp.length;
+      if (ordinals.ints.length < maxNumOrds) {
+        ordinals.grow(maxNumOrds);
+      }
+      ordinals.ints[ordinals.length++]=ordinal;
     }
-    HashMap<String,BytesRef> categoriesData=categoriesPayloadBuilder.finish();
+    Map<String,BytesRef> categoriesData=getCategoryListData(clp,ordinals,e.getValue());
     CountingListStream ts=new CountingListStream();
     ts.setCategoriesData(categoriesData);
     doc.add(new Field(field,ts,COUNTING_LIST_PAYLOAD_TYPE));

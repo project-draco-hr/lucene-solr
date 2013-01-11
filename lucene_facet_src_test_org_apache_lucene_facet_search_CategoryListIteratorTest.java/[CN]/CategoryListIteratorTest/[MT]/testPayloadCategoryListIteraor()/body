@@ -1,0 +1,33 @@
+{
+  Directory dir=newDirectory();
+  final IntEncoder encoder=new SortingIntEncoder(new UniqueValuesIntEncoder(new DGapIntEncoder(new VInt8IntEncoder())));
+  DataTokenStream dts=new DataTokenStream("1",encoder);
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random(),MockTokenizer.KEYWORD,false)).setMergePolicy(newLogMergePolicy()));
+  for (int i=0; i < data.length; i++) {
+    dts.setIdx(i);
+    Document doc=new Document();
+    doc.add(new TextField("f",dts));
+    writer.addDocument(doc);
+  }
+  IndexReader reader=writer.getReader();
+  writer.close();
+  IntsRef ordinals=new IntsRef();
+  CategoryListIterator cli=new PayloadCategoryListIteraor(reader,new Term("f","1"),encoder.createMatchingDecoder());
+  cli.init();
+  int totalCategories=0;
+  for (int i=0; i < data.length; i++) {
+    Set<Integer> values=new HashSet<Integer>();
+    for (int j=0; j < data[i].length; j++) {
+      values.add(data[i].ints[j]);
+    }
+    cli.getOrdinals(i,ordinals);
+    assertTrue("no ordinals for document " + i,ordinals.length > 0);
+    for (int j=0; j < ordinals.length; j++) {
+      assertTrue("expected category not found: " + ordinals.ints[j],values.contains(ordinals.ints[j]));
+    }
+    totalCategories+=ordinals.length;
+  }
+  assertEquals("Missing categories!",10,totalCategories);
+  reader.close();
+  dir.close();
+}
