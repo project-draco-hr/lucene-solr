@@ -1,0 +1,147 @@
+{
+  final int iters=atLeast(10);
+  for (int iter=0; iter < iters; iter++) {
+    final int numBytes=_TestUtil.nextInt(random(),1,200000);
+    final byte[] expected=new byte[numBytes];
+    final int blockBits=_TestUtil.nextInt(random(),8,15);
+    final BytesStore bytes=new BytesStore(blockBits);
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + iter + " numBytes="+ numBytes+ " blockBits="+ blockBits);
+    }
+    int pos=0;
+    while (pos < numBytes) {
+      int op=random().nextInt(7);
+      if (VERBOSE) {
+        System.out.println("  cycle pos=" + pos);
+      }
+switch (op) {
+case 0:
+{
+          byte b=(byte)random().nextInt(256);
+          if (VERBOSE) {
+            System.out.println("    writeByte b=" + b);
+          }
+          expected[pos++]=b;
+          bytes.writeByte(b);
+        }
+      break;
+case 1:
+{
+      int len=random().nextInt(Math.min(numBytes - pos,100));
+      byte[] temp=new byte[len];
+      random().nextBytes(temp);
+      if (VERBOSE) {
+        System.out.println("    writeBytes len=" + len + " bytes="+ Arrays.toString(temp));
+      }
+      System.arraycopy(temp,0,expected,pos,temp.length);
+      bytes.writeBytes(temp,0,temp.length);
+      pos+=len;
+    }
+  break;
+case 2:
+{
+  if (pos > 4) {
+    int x=random().nextInt();
+    int randomPos=random().nextInt(pos - 4);
+    if (VERBOSE) {
+      System.out.println("    abs writeInt pos=" + randomPos + " x="+ x);
+    }
+    bytes.writeInt(randomPos,x);
+    expected[randomPos++]=(byte)(x >> 24);
+    expected[randomPos++]=(byte)(x >> 16);
+    expected[randomPos++]=(byte)(x >> 8);
+    expected[randomPos++]=(byte)x;
+  }
+}
+break;
+case 3:
+{
+if (pos > 0) {
+int len=_TestUtil.nextInt(random(),1,Math.min(100,pos));
+int start;
+if (len == pos) {
+  start=0;
+}
+ else {
+  start=random().nextInt(pos - len);
+}
+int end=start + len;
+if (VERBOSE) {
+  System.out.println("    reverse start=" + start + " end="+ end+ " len="+ len);
+}
+bytes.reverse(start,end);
+while (start < end) {
+  byte b=expected[end];
+  expected[end]=expected[start];
+  expected[start]=b;
+  start++;
+  end--;
+}
+}
+}
+break;
+case 4:
+{
+if (pos > 2) {
+int randomPos=random().nextInt(pos - 1);
+int len=_TestUtil.nextInt(random(),1,Math.min(pos - randomPos - 1,100));
+byte[] temp=new byte[len];
+random().nextBytes(temp);
+if (VERBOSE) {
+System.out.println("    abs writeBytes pos=" + randomPos + " len="+ len+ " bytes="+ Arrays.toString(temp));
+}
+System.arraycopy(temp,0,expected,randomPos,temp.length);
+bytes.writeBytes(randomPos,temp,0,temp.length);
+}
+}
+break;
+case 5:
+{
+if (pos > 1) {
+int src=random().nextInt(pos - 1);
+int dest=_TestUtil.nextInt(random(),src + 1,pos - 1);
+int len=_TestUtil.nextInt(random(),1,Math.min(300,pos - dest));
+if (VERBOSE) {
+System.out.println("    copyBytes src=" + src + " dest="+ dest+ " len="+ len);
+}
+System.arraycopy(expected,src,expected,dest,len);
+bytes.copyBytes(src,dest,len);
+}
+}
+break;
+case 6:
+{
+int len=random().nextInt(Math.min(100,numBytes - pos));
+pos+=len;
+bytes.skip(len);
+if (VERBOSE) {
+System.out.println("    skip len=" + len);
+}
+}
+break;
+}
+assertEquals(pos,bytes.getPosition());
+if ((pos > 0 && random().nextInt(200) == 17)) {
+verify(bytes,expected,pos);
+}
+}
+BytesStore bytesToVerify;
+if (random().nextBoolean()) {
+if (VERBOSE) {
+System.out.println("TEST: save/load final bytes");
+}
+Directory dir=newDirectory();
+IndexOutput out=dir.createOutput("bytes",IOContext.DEFAULT);
+bytes.writeTo(out);
+out.close();
+IndexInput in=dir.openInput("bytes",IOContext.DEFAULT);
+bytesToVerify=new BytesStore(in,numBytes,_TestUtil.nextInt(random(),256,Integer.MAX_VALUE));
+in.close();
+dir.close();
+}
+ else {
+bytesToVerify=bytes;
+}
+verify(bytesToVerify,expected,numBytes);
+}
+}
