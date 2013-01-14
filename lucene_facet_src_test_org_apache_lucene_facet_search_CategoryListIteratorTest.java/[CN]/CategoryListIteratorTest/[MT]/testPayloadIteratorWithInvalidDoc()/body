@@ -23,25 +23,29 @@
   }
   IndexReader reader=writer.getReader();
   writer.close();
-  IntsRef ordinals=new IntsRef();
-  CategoryListIterator cli=new PayloadCategoryListIteraor(reader,new Term("f","1"),encoder.createMatchingDecoder());
-  assertTrue("Failed to initialize payload iterator",cli.init());
   int totalCategories=0;
-  for (int i=0; i < data.length; i++) {
-    Set<Integer> values=new HashSet<Integer>();
-    for (int j=0; j < data[i].length; j++) {
-      values.add(data[i].ints[j]);
-    }
-    cli.getOrdinals(i,ordinals);
-    if (i == 0) {
-      assertTrue("document 0 must have a payload",ordinals.length > 0);
-      for (int j=0; j < ordinals.length; j++) {
-        assertTrue("expected category not found: " + ordinals.ints[j],values.contains(ordinals.ints[j]));
+  IntsRef ordinals=new IntsRef();
+  CategoryListIterator cli=new PayloadCategoryListIteraor(new Term("f","1"),encoder.createMatchingDecoder());
+  for (  AtomicReaderContext context : reader.leaves()) {
+    cli.setNextReader(context);
+    int maxDoc=context.reader().maxDoc();
+    int dataIdx=context.docBase;
+    for (int doc=0; doc < maxDoc; doc++, dataIdx++) {
+      Set<Integer> values=new HashSet<Integer>();
+      for (int j=0; j < data[dataIdx].length; j++) {
+        values.add(data[dataIdx].ints[j]);
       }
-      totalCategories+=ordinals.length;
-    }
+      cli.getOrdinals(doc,ordinals);
+      if (dataIdx == 0) {
+        assertTrue("document 0 must have a payload",ordinals.length > 0);
+        for (int j=0; j < ordinals.length; j++) {
+          assertTrue("expected category not found: " + ordinals.ints[j],values.contains(ordinals.ints[j]));
+        }
+        totalCategories+=ordinals.length;
+      }
  else {
-      assertTrue("only document 0 should have a payload",ordinals.length == 0);
+        assertTrue("only document 0 should have a payload",ordinals.length == 0);
+      }
     }
   }
   assertEquals("Wrong number of total categories!",2,totalCategories);
