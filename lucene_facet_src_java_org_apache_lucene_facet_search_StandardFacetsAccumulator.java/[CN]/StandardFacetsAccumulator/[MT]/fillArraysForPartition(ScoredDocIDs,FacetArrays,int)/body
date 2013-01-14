@@ -8,19 +8,36 @@
   HashMap<CategoryListIterator,Aggregator> categoryLists=getCategoryListMap(facetArrays,partition);
   IntsRef ordinals=new IntsRef(32);
   for (  Entry<CategoryListIterator,Aggregator> entry : categoryLists.entrySet()) {
-    CategoryListIterator categoryList=entry.getKey();
-    if (!categoryList.init()) {
-      continue;
-    }
-    Aggregator categorator=entry.getValue();
-    ScoredDocIDsIterator iterator=docids.iterator();
+    final ScoredDocIDsIterator iterator=docids.iterator();
+    final CategoryListIterator categoryListIter=entry.getKey();
+    final Aggregator aggregator=entry.getValue();
+    Iterator<AtomicReaderContext> contexts=indexReader.leaves().iterator();
+    AtomicReaderContext current=null;
+    int maxDoc=-1;
     while (iterator.next()) {
       int docID=iterator.getDocID();
-      categoryList.getOrdinals(docID,ordinals);
+      while (docID >= maxDoc) {
+        if (!contexts.hasNext()) {
+          throw new RuntimeException("ScoredDocIDs contains documents outside this reader's segments !?");
+        }
+        current=contexts.next();
+        maxDoc=current.docBase + current.reader().maxDoc();
+        if (docID < maxDoc) {
+          boolean validSegment=categoryListIter.setNextReader(current);
+          validSegment&=aggregator.setNextReader(current);
+          if (!validSegment) {
+            while (docID < maxDoc && iterator.next()) {
+              docID=iterator.getDocID();
+            }
+          }
+        }
+      }
+      docID-=current.docBase;
+      categoryListIter.getOrdinals(docID,ordinals);
       if (ordinals.length == 0) {
         continue;
       }
-      categorator.aggregate(docID,iterator.getScore(),ordinals);
+      aggregator.aggregate(docID,iterator.getScore(),ordinals);
     }
   }
 }

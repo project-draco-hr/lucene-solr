@@ -1,0 +1,169 @@
+{
+  int[] ints=new int[7];
+  IntsRef input=new IntsRef(ints,0,ints.length);
+  long seed=random().nextLong();
+  for (int doPackIter=0; doPackIter < 2; doPackIter++) {
+    boolean doPack=doPackIter == 1;
+    if (!doPack) {
+      System.out.println("\nTEST: 3B nodes; doPack=false output=NO_OUTPUTS");
+      Outputs<Object> outputs=NoOutputs.getSingleton();
+      Object NO_OUTPUT=outputs.getNoOutput();
+      final Builder<Object> b=new Builder<Object>(FST.INPUT_TYPE.BYTE1,0,0,false,false,Integer.MAX_VALUE,outputs,null,doPack,PackedInts.COMPACT,true,15);
+      int count=0;
+      Random r=new Random(seed);
+      int[] ints2=new int[200];
+      IntsRef input2=new IntsRef(ints2,0,ints2.length);
+      while (true) {
+        for (int i=10; i < ints2.length; i++) {
+          ints2[i]=r.nextInt(256);
+        }
+        b.add(input2,NO_OUTPUT);
+        count++;
+        if (count % 100000 == 0) {
+          System.out.println(count + ": " + b.fstSizeInBytes()+ " bytes; "+ b.getTotStateCount()+ " nodes");
+        }
+        if (b.getTotStateCount() > LIMIT) {
+          break;
+        }
+        nextInput(r,ints2);
+      }
+      FST<Object> fst=b.finish();
+      System.out.println("\nTEST: now verify [fst size=" + fst.sizeInBytes() + "; nodeCount="+ fst.getNodeCount()+ "; arcCount="+ fst.getArcCount()+ "]");
+      Arrays.fill(ints2,0);
+      r=new Random(seed);
+      for (int i=0; i < count; i++) {
+        if (i % 1000000 == 0) {
+          System.out.println(i + "...: ");
+        }
+        for (int j=10; j < ints2.length; j++) {
+          ints2[j]=r.nextInt(256);
+        }
+        assertEquals(NO_OUTPUT,Util.get(fst,input2));
+        nextInput(r,ints2);
+      }
+      System.out.println("\nTEST: enum all input/outputs");
+      IntsRefFSTEnum<Object> fstEnum=new IntsRefFSTEnum<Object>(fst);
+      Arrays.fill(ints2,0);
+      r=new Random(seed);
+      int upto=0;
+      while (true) {
+        IntsRefFSTEnum.InputOutput<Object> pair=fstEnum.next();
+        if (pair == null) {
+          break;
+        }
+        for (int j=10; j < ints2.length; j++) {
+          ints2[j]=r.nextInt(256);
+        }
+        assertEquals(input2,pair.input);
+        assertEquals(NO_OUTPUT,pair.output);
+        upto++;
+        nextInput(r,ints2);
+      }
+      assertEquals(count,upto);
+    }
+{
+      System.out.println("\nTEST: 3 GB size; doPack=" + doPack + " outputs=bytes");
+      Outputs<BytesRef> outputs=ByteSequenceOutputs.getSingleton();
+      final Builder<BytesRef> b=new Builder<BytesRef>(FST.INPUT_TYPE.BYTE1,0,0,true,true,Integer.MAX_VALUE,outputs,null,doPack,PackedInts.COMPACT,true,15);
+      byte[] outputBytes=new byte[20];
+      BytesRef output=new BytesRef(outputBytes);
+      Arrays.fill(ints,0);
+      int count=0;
+      Random r=new Random(seed);
+      while (true) {
+        r.nextBytes(outputBytes);
+        b.add(input,BytesRef.deepCopyOf(output));
+        count++;
+        if (count % 1000000 == 0) {
+          System.out.println(count + "...: " + b.fstSizeInBytes()+ " bytes");
+        }
+        if (b.fstSizeInBytes() > LIMIT) {
+          break;
+        }
+        nextInput(r,ints);
+      }
+      FST<BytesRef> fst=b.finish();
+      System.out.println("\nTEST: now verify [fst size=" + fst.sizeInBytes() + "; nodeCount="+ fst.getNodeCount()+ "; arcCount="+ fst.getArcCount()+ "]");
+      r=new Random(seed);
+      Arrays.fill(ints,0);
+      for (int i=0; i < count; i++) {
+        if (i % 1000000 == 0) {
+          System.out.println(i + "...: ");
+        }
+        r.nextBytes(outputBytes);
+        assertEquals(output,Util.get(fst,input));
+        nextInput(r,ints);
+      }
+      System.out.println("\nTEST: enum all input/outputs");
+      IntsRefFSTEnum<BytesRef> fstEnum=new IntsRefFSTEnum<BytesRef>(fst);
+      Arrays.fill(ints,0);
+      r=new Random(seed);
+      int upto=0;
+      while (true) {
+        IntsRefFSTEnum.InputOutput<BytesRef> pair=fstEnum.next();
+        if (pair == null) {
+          break;
+        }
+        assertEquals(input,pair.input);
+        r.nextBytes(outputBytes);
+        assertEquals(output,pair.output);
+        upto++;
+        nextInput(r,ints);
+      }
+      assertEquals(count,upto);
+    }
+{
+      System.out.println("\nTEST: 3 GB size; doPack=" + doPack + " outputs=long");
+      Outputs<Long> outputs=PositiveIntOutputs.getSingleton();
+      final Builder<Long> b=new Builder<Long>(FST.INPUT_TYPE.BYTE1,0,0,true,true,Integer.MAX_VALUE,outputs,null,doPack,PackedInts.COMPACT,true,15);
+      long output=1;
+      Arrays.fill(ints,0);
+      int count=0;
+      Random r=new Random(seed);
+      while (true) {
+        b.add(input,output);
+        output+=1 + r.nextInt(10);
+        count++;
+        if (count % 1000000 == 0) {
+          System.out.println(count + "...: " + b.fstSizeInBytes()+ " bytes");
+        }
+        if (b.fstSizeInBytes() > LIMIT) {
+          break;
+        }
+        nextInput(r,ints);
+      }
+      FST<Long> fst=b.finish();
+      System.out.println("\nTEST: now verify [fst size=" + fst.sizeInBytes() + "; nodeCount="+ fst.getNodeCount()+ "; arcCount="+ fst.getArcCount()+ "]");
+      Arrays.fill(ints,0);
+      output=1;
+      r=new Random(seed);
+      for (int i=0; i < count; i++) {
+        if (i % 1000000 == 0) {
+          System.out.println(i + "...: ");
+        }
+        assertEquals(output,Util.get(fst,input).longValue());
+        assertEquals(input,Util.getByOutput(fst,output));
+        output+=1 + r.nextInt(10);
+        nextInput(r,ints);
+      }
+      System.out.println("\nTEST: enum all input/outputs");
+      IntsRefFSTEnum<Long> fstEnum=new IntsRefFSTEnum<Long>(fst);
+      Arrays.fill(ints,0);
+      r=new Random(seed);
+      int upto=0;
+      output=1;
+      while (true) {
+        IntsRefFSTEnum.InputOutput<Long> pair=fstEnum.next();
+        if (pair == null) {
+          break;
+        }
+        assertEquals(input,pair.input);
+        assertEquals(output,pair.output.longValue());
+        output+=1 + r.nextInt(10);
+        upto++;
+        nextInput(r,ints);
+      }
+      assertEquals(count,upto);
+    }
+  }
+}

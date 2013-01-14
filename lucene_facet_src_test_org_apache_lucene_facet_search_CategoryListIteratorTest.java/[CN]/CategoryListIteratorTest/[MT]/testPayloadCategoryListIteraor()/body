@@ -11,21 +11,25 @@
   }
   IndexReader reader=writer.getReader();
   writer.close();
-  IntsRef ordinals=new IntsRef();
-  CategoryListIterator cli=new PayloadCategoryListIteraor(reader,new Term("f","1"),encoder.createMatchingDecoder());
-  cli.init();
   int totalCategories=0;
-  for (int i=0; i < data.length; i++) {
-    Set<Integer> values=new HashSet<Integer>();
-    for (int j=0; j < data[i].length; j++) {
-      values.add(data[i].ints[j]);
+  IntsRef ordinals=new IntsRef();
+  CategoryListIterator cli=new PayloadCategoryListIteraor(new Term("f","1"),encoder.createMatchingDecoder());
+  for (  AtomicReaderContext context : reader.leaves()) {
+    cli.setNextReader(context);
+    int maxDoc=context.reader().maxDoc();
+    int dataIdx=context.docBase;
+    for (int doc=0; doc < maxDoc; doc++, dataIdx++) {
+      Set<Integer> values=new HashSet<Integer>();
+      for (int j=0; j < data[dataIdx].length; j++) {
+        values.add(data[dataIdx].ints[j]);
+      }
+      cli.getOrdinals(doc,ordinals);
+      assertTrue("no ordinals for document " + doc,ordinals.length > 0);
+      for (int j=0; j < ordinals.length; j++) {
+        assertTrue("expected category not found: " + ordinals.ints[j],values.contains(ordinals.ints[j]));
+      }
+      totalCategories+=ordinals.length;
     }
-    cli.getOrdinals(i,ordinals);
-    assertTrue("no ordinals for document " + i,ordinals.length > 0);
-    for (int j=0; j < ordinals.length; j++) {
-      assertTrue("expected category not found: " + ordinals.ints[j],values.contains(ordinals.ints[j]));
-    }
-    totalCategories+=ordinals.length;
   }
   assertEquals("Missing categories!",10,totalCategories);
   reader.close();
