@@ -1,3 +1,37 @@
 {
-  throw new AssertionError();
+  final FSTEntry entry=fsts.get(field.number);
+  FST<Long> instance;
+synchronized (this) {
+    instance=fstInstances.get(field.number);
+    if (instance == null) {
+      data.seek(entry.offset);
+      instance=new FST<Long>(data,PositiveIntOutputs.getSingleton(true));
+      fstInstances.put(field.number,instance);
+    }
+  }
+  final NumericDocValues docToOrd=getNumeric(field);
+  final FST<Long> fst=instance;
+  final BytesReader in=fst.getBytesReader(0);
+  final Arc<Long> firstArc=new Arc<Long>();
+  final Arc<Long> scratchArc=new Arc<Long>();
+  final IntsRef scratchInts=new IntsRef();
+  return new SortedDocValues(){
+    @Override public int getOrd(    int docID){
+      return (int)docToOrd.get(docID);
+    }
+    @Override public void lookupOrd(    int ord,    BytesRef result){
+      try {
+        in.setPosition(0);
+        fst.getFirstArc(firstArc);
+        Util.toBytesRef(Util.getByOutput(fst,ord,in,firstArc,scratchArc,scratchInts),result);
+      }
+ catch (      IOException bogus) {
+        throw new RuntimeException(bogus);
+      }
+    }
+    @Override public int getValueCount(){
+      return entry.numOrds;
+    }
+  }
+;
 }
