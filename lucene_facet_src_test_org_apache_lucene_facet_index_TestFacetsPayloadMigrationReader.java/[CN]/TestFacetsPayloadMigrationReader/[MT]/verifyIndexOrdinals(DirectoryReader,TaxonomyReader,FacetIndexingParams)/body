@@ -1,0 +1,49 @@
+{
+  HashSet<String> docValuesFields=new HashSet<String>();
+  for (  AtomicReaderContext context : indexReader.leaves()) {
+    FieldInfos infos=context.reader().getFieldInfos();
+    for (    FieldInfo info : infos) {
+      if (info.hasDocValues()) {
+        docValuesFields.add(info.name);
+      }
+    }
+  }
+  boolean[] foundOrdinals=new boolean[taxoReader.getSize()];
+  for (int i=0; i < foundOrdinals.length; i++) {
+    foundOrdinals[i]=false;
+  }
+  foundOrdinals[0]=true;
+  int dummyOrdinal=taxoReader.getOrdinal(new CategoryPath("dummy"));
+  if (dummyOrdinal > 0) {
+    foundOrdinals[dummyOrdinal]=true;
+  }
+  int partitionSize=fip.getPartitionSize();
+  int numPartitions=(int)Math.ceil(taxoReader.getSize() / (double)partitionSize);
+  final IntsRef ordinals=new IntsRef(32);
+  for (  String dim : DIMENSIONS) {
+    CategoryListParams clp=fip.getCategoryListParams(new CategoryPath(dim));
+    int partitionOffset=0;
+    for (int partition=0; partition < numPartitions; partition++, partitionOffset+=partitionSize) {
+      final CategoryListIterator cli=clp.createCategoryListIterator(partition);
+      for (      AtomicReaderContext context : indexReader.leaves()) {
+        if (cli.setNextReader(context)) {
+          docValuesFields.remove(clp.field + PartitionsUtils.partitionName(partition));
+          int maxDoc=context.reader().maxDoc();
+          for (int doc=0; doc < maxDoc; doc++) {
+            cli.getOrdinals(doc,ordinals);
+            for (int j=0; j < ordinals.length; j++) {
+              int ordinal=ordinals.ints[j] + partitionOffset;
+              assertTrue("should not have received dummy ordinal (" + dummyOrdinal + ")",dummyOrdinal != ordinal);
+              assertNotNull("missing category for ordinal " + ordinal,taxoReader.getPath(ordinal));
+              foundOrdinals[ordinal]=true;
+            }
+          }
+        }
+      }
+    }
+  }
+  assertTrue("some fields which have docValues were not visited: " + docValuesFields,docValuesFields.isEmpty());
+  for (int i=0; i < foundOrdinals.length; i++) {
+    assertTrue("ordinal " + i + " not visited",foundOrdinals[i]);
+  }
+}
