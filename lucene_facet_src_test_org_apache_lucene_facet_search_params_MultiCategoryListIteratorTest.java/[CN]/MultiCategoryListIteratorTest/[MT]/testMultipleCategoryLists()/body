@@ -8,7 +8,7 @@
   HashMap<CategoryPath,CategoryListParams> clps=new HashMap<CategoryPath,CategoryListParams>();
   for (  String dim : dimensions) {
     CategoryPath cp=new CategoryPath(dim);
-    CategoryListParams clp=new CategoryListParams(new Term("$" + dim,CategoryListParams.DEFAULT_TERM.bytes()));
+    CategoryListParams clp=new CategoryListParams("$" + dim);
     clps.put(cp,clp);
   }
   PerDimensionIndexingParams indexingParams=new PerDimensionIndexingParams(clps);
@@ -30,23 +30,13 @@
     indexWriter.addDocument(doc);
   }
   IOUtils.close(indexWriter,taxoWriter);
-  CategoryListCache clCache=null;
-  if (random.nextBoolean()) {
-    clCache=new CategoryListCache();
-  }
   DirectoryReader indexReader=DirectoryReader.open(indexDir);
   TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
   CategoryListIterator[] iterators=new CategoryListIterator[numDimensions];
   for (int i=0; i < iterators.length; i++) {
     CategoryListParams clp=indexingParams.getCategoryListParams(new CategoryPath(dimensions[i]));
     IntDecoder decoder=clp.createEncoder().createMatchingDecoder();
-    if (clCache != null && random.nextBoolean()) {
-      clCache.loadAndRegister(clp,indexReader,taxoReader,indexingParams);
-      iterators[i]=clCache.get(clp).iterator(0);
-    }
- else {
-      iterators[i]=new PayloadCategoryListIteraor(clp.getTerm(),decoder);
-    }
+    iterators[i]=new DocValuesCategoryListIterator(clp.field,decoder);
   }
   MultiCategoryListIterator cli=new MultiCategoryListIterator(iterators);
   for (  AtomicReaderContext context : indexReader.leaves()) {

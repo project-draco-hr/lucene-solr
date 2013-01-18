@@ -16,20 +16,30 @@
     int maxDoc=-1;
     while (iterator.next()) {
       int docID=iterator.getDocID();
-      while (docID >= maxDoc) {
-        if (!contexts.hasNext()) {
-          throw new RuntimeException("ScoredDocIDs contains documents outside this reader's segments !?");
-        }
-        current=contexts.next();
-        maxDoc=current.docBase + current.reader().maxDoc();
-        if (docID < maxDoc) {
-          boolean validSegment=categoryListIter.setNextReader(current);
-          validSegment&=aggregator.setNextReader(current);
-          if (!validSegment) {
-            while (docID < maxDoc && iterator.next()) {
-              docID=iterator.getDocID();
+      if (docID >= maxDoc) {
+        boolean iteratorDone=false;
+        do {
+          if (!contexts.hasNext()) {
+            throw new RuntimeException("ScoredDocIDs contains documents outside this reader's segments !?");
+          }
+          current=contexts.next();
+          maxDoc=current.docBase + current.reader().maxDoc();
+          if (docID < maxDoc) {
+            boolean validSegment=categoryListIter.setNextReader(current);
+            validSegment&=aggregator.setNextReader(current);
+            if (!validSegment) {
+              while (docID < maxDoc && iterator.next()) {
+                docID=iterator.getDocID();
+              }
+              if (docID < maxDoc) {
+                iteratorDone=true;
+              }
             }
           }
+        }
+ while (docID >= maxDoc);
+        if (iteratorDone) {
+          break;
         }
       }
       docID-=current.docBase;
