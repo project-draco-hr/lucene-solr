@@ -1,0 +1,96 @@
+{
+  Directory d=newDirectory();
+  IndexWriterConfig iwConfig=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  final int nDocs=atLeast(50);
+  final Field id=new IntDocValuesField("id",0);
+  final Field f;
+switch (type) {
+case BINARY:
+    f=new BinaryDocValuesField("dv",new BytesRef());
+  break;
+case SORTED:
+f=new SortedBytesDocValuesField("dv",new BytesRef());
+break;
+case NUMERIC:
+f=new LongDocValuesField("dv",0);
+break;
+default :
+throw new AssertionError();
+}
+Document document=new Document();
+document.add(id);
+document.add(f);
+final Object[] vals=new Object[nDocs];
+RandomIndexWriter iw=new RandomIndexWriter(random(),d,iwConfig);
+for (int i=0; i < nDocs; ++i) {
+id.setIntValue(i);
+switch (type) {
+case SORTED:
+case BINARY:
+vals[i]=_TestUtil.randomSimpleString(random(),20);
+f.setBytesValue(new BytesRef((String)vals[i]));
+break;
+case NUMERIC:
+final int bitsPerValue=RandomInts.randomIntBetween(random(),1,31);
+vals[i]=(long)random().nextInt((int)PackedInts.maxValue(bitsPerValue));
+f.setLongValue((Long)vals[i]);
+break;
+}
+iw.addDocument(document);
+if (random().nextBoolean() && i % 10 == 9) {
+iw.commit();
+}
+}
+iw.close();
+DirectoryReader rd=DirectoryReader.open(d);
+for (AtomicReaderContext leave : rd.leaves()) {
+final FunctionValues ids=new LongFieldSource("id").getValues(null,leave);
+final ValueSource vs;
+switch (type) {
+case BINARY:
+case SORTED:
+vs=new StrFieldSource("dv");
+break;
+case NUMERIC:
+vs=new LongFieldSource("dv");
+break;
+default :
+throw new AssertionError();
+}
+final FunctionValues values=vs.getValues(null,leave);
+BytesRef bytes=new BytesRef();
+for (int i=0; i < leave.reader().maxDoc(); ++i) {
+assertTrue(values.exists(i));
+if (vs instanceof StrFieldSource) {
+assertTrue(values.objectVal(i) instanceof String);
+}
+ else if (vs instanceof LongFieldSource) {
+assertTrue(values.objectVal(i) instanceof Long);
+assertTrue(values.bytesVal(i,bytes));
+assertEquals(8,bytes.length);
+}
+ else {
+throw new AssertionError();
+}
+Object expected=vals[ids.intVal(i)];
+switch (type) {
+case SORTED:
+values.ordVal(i);
+assertTrue(values.numOrd() >= 1);
+case BINARY:
+assertEquals(expected,values.objectVal(i));
+assertEquals(expected,values.strVal(i));
+assertEquals(expected,values.objectVal(i));
+assertEquals(expected,values.strVal(i));
+assertTrue(values.bytesVal(i,bytes));
+assertEquals(new BytesRef((String)expected),bytes);
+break;
+case NUMERIC:
+assertEquals(((Number)expected).longValue(),values.longVal(i));
+break;
+}
+}
+}
+rd.close();
+d.close();
+}
