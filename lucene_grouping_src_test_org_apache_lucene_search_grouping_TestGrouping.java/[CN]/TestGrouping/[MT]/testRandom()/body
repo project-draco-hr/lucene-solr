@@ -13,7 +13,7 @@
     for (int i=0; i < numGroups; i++) {
       String randomValue;
       do {
-        randomValue=_TestUtil.randomRealisticUnicodeString(random());
+        randomValue=_TestUtil.randomSimpleString(random());
       }
  while ("".equals(randomValue));
       groups.add(new BytesRef(randomValue));
@@ -167,12 +167,16 @@
         if (VERBOSE) {
           System.out.println("TEST: groupSort=" + groupSort + " docSort="+ docSort+ " searchTerm="+ searchTerm+ " dF="+ r.docFreq(new Term("content",searchTerm))+ " dFBlock="+ rBlocks.docFreq(new Term("content",searchTerm))+ " topNGroups="+ topNGroups+ " groupOffset="+ groupOffset+ " docOffset="+ docOffset+ " doCache="+ doCache+ " docsPerGroup="+ docsPerGroup+ " doAllGroups="+ doAllGroups+ " getScores="+ getScores+ " getMaxScores="+ getMaxScores);
         }
-        final AbstractFirstPassGroupingCollector<?> c1=createRandomFirstPassCollector("group",groupSort,groupOffset + topNGroups,canUseIDV);
+        String groupField="group";
+        if (canUseIDV && random().nextBoolean()) {
+          groupField+="_dv";
+        }
+        final AbstractFirstPassGroupingCollector<?> c1=createRandomFirstPassCollector(groupField,groupSort,groupOffset + topNGroups);
         final CachingCollector cCache;
         final Collector c;
         final AbstractAllGroupsCollector<?> allGroupsCollector;
         if (doAllGroups) {
-          allGroupsCollector=createAllGroupsCollector(c1,"group");
+          allGroupsCollector=createAllGroupsCollector(c1,groupField);
         }
  else {
           allGroupsCollector=null;
@@ -244,7 +248,7 @@
               System.out.println("  " + (searchGroup.groupValue == null ? "null" : searchGroup.groupValue.utf8ToString()) + ": "+ Arrays.deepToString(searchGroup.sortValues));
             }
           }
-          c2=createSecondPassCollector(c1,"group",groupSort,docSort,groupOffset,docOffset + docsPerGroup,getScores,getMaxScores,fillFields);
+          c2=createSecondPassCollector(c1,groupField,groupSort,docSort,groupOffset,docOffset + docsPerGroup,getScores,getMaxScores,fillFields);
           if (doCache) {
             if (cCache.isCached()) {
               if (VERBOSE) {
@@ -321,8 +325,7 @@
             }
           }
         }
-        boolean idvBasedImplsUsed=random().nextBoolean();
-        assertEquals(docIDToID,expectedGroups,groupsResult,true,true,true,getScores,idvBasedImplsUsed);
+        assertEquals(docIDToID,expectedGroups,groupsResult,true,true,true,getScores,groupField.endsWith("_dv"));
         assertEquals(docIDToID,expectedGroups,topGroupsShards,true,false,fillFields,getScores,idvBasedImplsUsedSharded.value);
         if (topGroupsShards != null) {
           verifyShards(shards.docStarts,topGroupsShards);
@@ -368,7 +371,7 @@
             }
           }
         }
-        final TopGroups<BytesRef> topGroupsBlockShards=searchShards(sBlocks,shardsBlocks.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores,false,true,new ValueHolder<Boolean>(false));
+        final TopGroups<BytesRef> topGroupsBlockShards=searchShards(sBlocks,shardsBlocks.subSearchers,query,groupSort,docSort,groupOffset,topNGroups,docOffset,docsPerGroup,getScores,getMaxScores,false,false,new ValueHolder<Boolean>(false));
         if (expectedGroups != null) {
           for (          GroupDocs<?> groupDocsHits : expectedGroups.groups) {
             for (            ScoreDoc hit : groupDocsHits.scoreDocs) {

@@ -6,21 +6,32 @@
   final List<Collection<SearchGroup<BytesRef>>> shardGroups=new ArrayList<Collection<SearchGroup<BytesRef>>>();
   List<AbstractFirstPassGroupingCollector<?>> firstPassGroupingCollectors=new ArrayList<AbstractFirstPassGroupingCollector<?>>();
   AbstractFirstPassGroupingCollector<?> firstPassCollector=null;
+  boolean shardsCanUseIDV;
+  if (canUseIDV) {
+    if (SlowCompositeReaderWrapper.class.isAssignableFrom(subSearchers[0].getIndexReader().getClass())) {
+      shardsCanUseIDV=false;
+    }
+ else {
+      shardsCanUseIDV=!preFlex;
+    }
+  }
+ else {
+    shardsCanUseIDV=false;
+  }
+  String groupField="group";
+  if (shardsCanUseIDV && random().nextBoolean()) {
+    groupField+="_dv";
+    usedIdvBasedImpl.value=true;
+  }
   for (int shardIDX=0; shardIDX < subSearchers.length; shardIDX++) {
-    if (SlowCompositeReaderWrapper.class.isAssignableFrom(subSearchers[shardIDX].getIndexReader().getClass())) {
-      canUseIDV=false;
-    }
- else {
-      canUseIDV=!preFlex;
-    }
     if (firstPassCollector == null) {
-      firstPassCollector=createRandomFirstPassCollector("group",groupSort,groupOffset + topNGroups,canUseIDV);
+      firstPassCollector=createRandomFirstPassCollector(groupField,groupSort,groupOffset + topNGroups);
     }
  else {
-      firstPassCollector=createFirstPassCollector("group",groupSort,groupOffset + topNGroups,firstPassCollector);
+      firstPassCollector=createFirstPassCollector(groupField,groupSort,groupOffset + topNGroups,firstPassCollector);
     }
     if (VERBOSE) {
-      System.out.println("  shard=" + shardIDX);
+      System.out.println("  shard=" + shardIDX + " groupField="+ groupField);
       System.out.println("    1st pass collector=" + firstPassCollector);
     }
     firstPassGroupingCollectors.add(firstPassCollector);
@@ -52,7 +63,7 @@
   if (mergedTopGroups != null) {
     @SuppressWarnings({"unchecked","rawtypes"}) final TopGroups<BytesRef>[] shardTopGroups=new TopGroups[subSearchers.length];
     for (int shardIDX=0; shardIDX < subSearchers.length; shardIDX++) {
-      final AbstractSecondPassGroupingCollector<?> secondPassCollector=createSecondPassCollector(firstPassGroupingCollectors.get(shardIDX),"group",mergedTopGroups,groupSort,docSort,docOffset + topNDocs,getScores,getMaxScores,true);
+      final AbstractSecondPassGroupingCollector<?> secondPassCollector=createSecondPassCollector(firstPassGroupingCollectors.get(shardIDX),groupField,mergedTopGroups,groupSort,docSort,docOffset + topNDocs,getScores,getMaxScores,true);
       subSearchers[shardIDX].search(w,secondPassCollector);
       shardTopGroups[shardIDX]=getTopGroups(secondPassCollector,0);
       if (VERBOSE) {
