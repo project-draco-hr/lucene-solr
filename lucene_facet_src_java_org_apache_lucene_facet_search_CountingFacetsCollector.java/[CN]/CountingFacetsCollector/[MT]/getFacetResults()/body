@@ -1,0 +1,77 @@
+{
+  try {
+    countFacets();
+    ParallelTaxonomyArrays arrays=taxoReader.getParallelTaxonomyArrays();
+    if (fsp.indexingParams.getOrdinalPolicy() == OrdinalPolicy.NO_PARENTS) {
+      countParents(arrays.parents());
+    }
+    final int[] children=arrays.children();
+    final int[] siblings=arrays.siblings();
+    List<FacetResult> res=new ArrayList<FacetResult>();
+    for (    FacetRequest fr : fsp.facetRequests) {
+      int rootOrd=taxoReader.getOrdinal(fr.categoryPath);
+      if (rootOrd == TaxonomyReader.INVALID_ORDINAL) {
+        continue;
+      }
+      FacetResultNode root=new FacetResultNode();
+      root.ordinal=rootOrd;
+      root.label=fr.categoryPath;
+      root.value=counts[rootOrd];
+      if (fr.getNumResults() > taxoReader.getSize()) {
+        ArrayList<FacetResultNode> nodes=new ArrayList<FacetResultNode>();
+        int child=children[rootOrd];
+        while (child != TaxonomyReader.INVALID_ORDINAL) {
+          int count=counts[child];
+          if (count > 0) {
+            FacetResultNode node=new FacetResultNode();
+            node.label=taxoReader.getPath(child);
+            node.value=count;
+            nodes.add(node);
+          }
+          child=siblings[child];
+        }
+        root.residue=0;
+        root.subResults=nodes;
+        res.add(new FacetResult(fr,root,nodes.size()));
+        continue;
+      }
+      FacetResultNodeQueue pq=new FacetResultNodeQueue(fr.getNumResults(),true);
+      FacetResultNode top=pq.top();
+      int child=children[rootOrd];
+      int numResults=0;
+      int residue=0;
+      while (child != TaxonomyReader.INVALID_ORDINAL) {
+        int count=counts[child];
+        if (count > top.value) {
+          residue+=top.value;
+          top.value=count;
+          top.ordinal=child;
+          top=pq.updateTop();
+          ++numResults;
+        }
+ else {
+          residue+=count;
+        }
+        child=siblings[child];
+      }
+      int pqsize=pq.size();
+      int size=numResults < pqsize ? numResults : pqsize;
+      for (int i=pqsize - size; i > 0; i--) {
+        pq.pop();
+      }
+      FacetResultNode[] subResults=new FacetResultNode[size];
+      for (int i=size - 1; i >= 0; i--) {
+        FacetResultNode node=pq.pop();
+        node.label=taxoReader.getPath(node.ordinal);
+        subResults[i]=node;
+      }
+      root.residue=residue;
+      root.subResults=Arrays.asList(subResults);
+      res.add(new FacetResult(fr,root,size));
+    }
+    return res;
+  }
+  finally {
+    facetArrays.free();
+  }
+}
