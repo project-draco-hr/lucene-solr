@@ -1,0 +1,23 @@
+{
+  DirectoryReader indexReader=DirectoryReader.open(indexDir);
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
+  IndexSearcher searcher=new IndexSearcher(indexReader);
+  FacetSearchParams fsp=new FacetSearchParams(new CountFacetRequest(CP_A,1),new CountFacetRequest(CP_B,1));
+  FacetsCollector fc=new CountingFacetsCollector(fsp,taxoReader);
+  TermQuery q=new TermQuery(A);
+  searcher.search(q,fc);
+  List<FacetResult> facetResults=fc.getFacetResults();
+  assertEquals("invalid number of facet results",2,facetResults.size());
+  for (  FacetResult res : facetResults) {
+    FacetResultNode root=res.getFacetResultNode();
+    assertEquals("wrong count for " + root.label,termExpectedCounts.get(root.label),(int)root.value);
+    int numChildrenIndexed=res.getFacetRequest().categoryPath == CP_A ? numChildrenIndexedA : numChildrenIndexedB;
+    if (numChildrenIndexed > 1) {
+      assertTrue("expected residue",root.residue > 0);
+    }
+    for (    FacetResultNode child : root.subResults) {
+      assertEquals("wrong count for " + child.label,termExpectedCounts.get(child.label),(int)child.value);
+    }
+  }
+  IOUtils.close(indexReader,taxoReader);
+}

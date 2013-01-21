@@ -1,0 +1,56 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMaxBufferedDocs(2);
+  conf.setMergePolicy(NoMergePolicy.COMPOUND_FILES);
+  IndexWriter indexWriter=new IndexWriter(indexDir,conf);
+  TaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir);
+  FacetIndexingParams fip=new FacetIndexingParams(){
+    @Override public OrdinalPolicy getOrdinalPolicy(){
+      return OrdinalPolicy.NO_PARENTS;
+    }
+  }
+;
+  FacetFields facetFields=new FacetFields(taxoWriter,fip);
+  ObjectToIntMap<CategoryPath> expCounts=newCounts();
+  int numDocs=atLeast(10);
+  final CategoryPath cpc=new CategoryPath("L1","L2","L3");
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    ArrayList<CategoryPath> categories=new ArrayList<CategoryPath>();
+    CategoryPath cpa=CATEGORIES_A[random().nextInt(NUM_CHILDREN_CP_A)];
+    CategoryPath cpb=CATEGORIES_B[random().nextInt(NUM_CHILDREN_CP_B)];
+    categories.add(cpa);
+    categories.add(cpb);
+    categories.add(cpc);
+    expCounts.put(cpa,expCounts.get(cpa) + 1);
+    expCounts.put(cpb,expCounts.get(cpb) + 1);
+    facetFields.addFields(doc,categories);
+    indexWriter.addDocument(doc);
+  }
+  expCounts.put(CP_A,numDocs);
+  expCounts.put(CP_B,numDocs);
+  for (int i=0; i < cpc.length; i++) {
+    expCounts.put(cpc.subpath(i + 1),numDocs);
+  }
+  IOUtils.close(indexWriter,taxoWriter);
+  DirectoryReader indexReader=DirectoryReader.open(indexDir);
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
+  IndexSearcher searcher=new IndexSearcher(indexReader);
+  FacetSearchParams fsp=new FacetSearchParams(fip,new CountFacetRequest(CP_A,NUM_CHILDREN_CP_A),new CountFacetRequest(CP_B,NUM_CHILDREN_CP_B),new CountFacetRequest(cpc.subpath(1),10));
+  FacetsCollector fc=new CountingFacetsCollector(fsp,taxoReader);
+  searcher.search(new MatchAllDocsQuery(),fc);
+  List<FacetResult> facetResults=fc.getFacetResults();
+  assertEquals("invalid number of facet results",3,facetResults.size());
+  for (  FacetResult res : facetResults) {
+    FacetResultNode root=res.getFacetResultNode();
+    assertEquals("wrong count for " + root.label,expCounts.get(root.label),(int)root.value);
+    assertEquals("invalid residue",0,(int)root.residue);
+    for (    FacetResultNode child : root.subResults) {
+      assertEquals("wrong count for " + child.label,expCounts.get(child.label),(int)child.value);
+    }
+  }
+  IOUtils.close(indexReader,taxoReader);
+  IOUtils.close(indexDir,taxoDir);
+}
