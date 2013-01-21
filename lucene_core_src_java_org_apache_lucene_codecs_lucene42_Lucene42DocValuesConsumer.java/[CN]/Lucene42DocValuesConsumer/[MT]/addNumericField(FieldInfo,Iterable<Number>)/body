@@ -19,15 +19,9 @@
       }
     }
   }
-  long delta=maxValue - minValue;
-  final int bitsPerValue;
-  if (delta < 0) {
-    bitsPerValue=64;
-    meta.writeByte((byte)0);
-  }
- else   if (uniqueValues != null && PackedInts.bitsRequired(uniqueValues.size() - 1) < PackedInts.bitsRequired(delta)) {
-    bitsPerValue=PackedInts.bitsRequired(uniqueValues.size() - 1);
-    minValue=0;
+  final long delta=maxValue - minValue;
+  if (uniqueValues != null && (delta < 0 || PackedInts.bitsRequired(uniqueValues.size() - 1) < PackedInts.bitsRequired(delta))) {
+    final int bitsPerValue=PackedInts.bitsRequired(uniqueValues.size() - 1);
     meta.writeByte((byte)1);
     Long[] decode=uniqueValues.toArray(new Long[uniqueValues.size()]);
     final HashMap<Long,Integer> encode=new HashMap<Long,Integer>();
@@ -36,34 +30,24 @@
       data.writeLong(decode[i]);
       encode.put(decode[i],i);
     }
-    final Iterable<Number> original=values;
-    values=new Iterable<Number>(){
-      @Override public Iterator<Number> iterator(){
-        final Iterator<Number> inner=original.iterator();
-        return new Iterator<Number>(){
-          @Override public boolean hasNext(){
-            return inner.hasNext();
-          }
-          @Override public Number next(){
-            return encode.get(inner.next());
-          }
-          @Override public void remove(){
-            throw new UnsupportedOperationException();
-          }
-        }
-;
-      }
+    data.writeVInt(PackedInts.VERSION_CURRENT);
+    data.writeVInt(count);
+    data.writeVInt(bitsPerValue);
+    final PackedInts.Writer writer=PackedInts.getWriterNoHeader(data,PackedInts.Format.PACKED,count,bitsPerValue,PackedInts.DEFAULT_BUFFER_SIZE);
+    for (    Number nv : values) {
+      writer.add(encode.get(nv));
     }
-;
+    writer.finish();
   }
  else {
-    bitsPerValue=PackedInts.bitsRequired(delta);
     meta.writeByte((byte)0);
+    data.writeVInt(PackedInts.VERSION_CURRENT);
+    data.writeVInt(count);
+    data.writeVInt(BLOCK_SIZE);
+    final BlockPackedWriter writer=new BlockPackedWriter(data,BLOCK_SIZE);
+    for (    Number nv : values) {
+      writer.add(nv.longValue());
+    }
+    writer.finish();
   }
-  data.writeLong(minValue);
-  final PackedInts.Writer writer=PackedInts.getWriter(data,count,bitsPerValue,PackedInts.COMPACT);
-  for (  Number nv : values) {
-    writer.add(nv.longValue() - minValue);
-  }
-  writer.finish();
 }
