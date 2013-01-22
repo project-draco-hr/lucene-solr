@@ -1,16 +1,17 @@
 {
   final IndexInput data=this.data.clone();
-  final NumericDocValues addresses=getNumeric(field);
+  data.seek(bytes.addressesOffset);
+  final MonotonicBlockPackedReader addresses=new MonotonicBlockPackedReader(data,bytes.packedIntsVersion,bytes.blockSize,bytes.count,true);
   return new BinaryDocValues(){
     @Override public void get(    int docID,    BytesRef result){
-      long startAddress=docID == 0 ? bytes.offset : bytes.offset + addresses.get(docID - 1);
+      long startAddress=bytes.offset + (docID == 0 ? 0 : +addresses.get(docID - 1));
       long endAddress=bytes.offset + addresses.get(docID);
       int length=(int)(endAddress - startAddress);
       try {
         data.seek(startAddress);
         if (result.bytes.length < length) {
           result.offset=0;
-          result.bytes=new byte[length];
+          result.bytes=new byte[ArrayUtil.oversize(length,1)];
         }
         data.readBytes(result.bytes,result.offset,length);
         result.length=length;
