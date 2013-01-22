@@ -34,10 +34,20 @@
         storePayloads=false;
       }
       byte val=input.readByte();
-      final DocValuesType docValuesType=getDocValuesTypeFake((byte)(val & 0x0F));
-      final DocValuesType normsType=getDocValuesTypeFake((byte)((val >>> 4) & 0x0F));
+      final LegacyDocValuesType oldValuesType=getDocValuesType((byte)(val & 0x0F));
+      final LegacyDocValuesType oldNormsType=getDocValuesType((byte)((val >>> 4) & 0x0F));
       final Map<String,String> attributes=input.readStringStringMap();
-      infos[i]=new FieldInfo(name,isIndexed,fieldNumber,storeTermVector,omitNorms,storePayloads,indexOptions,docValuesType,normsType,Collections.unmodifiableMap(attributes));
+      ;
+      if (oldValuesType.mapping != null) {
+        attributes.put(LEGACY_DV_TYPE_KEY,oldValuesType.name());
+      }
+      if (oldNormsType.mapping != null) {
+        if (oldNormsType.mapping != DocValuesType.NUMERIC) {
+          throw new CorruptIndexException("invalid norm type: " + oldNormsType);
+        }
+        attributes.put(LEGACY_NORM_TYPE_KEY,oldNormsType.name());
+      }
+      infos[i]=new FieldInfo(name,isIndexed,fieldNumber,storeTermVector,omitNorms,storePayloads,indexOptions,oldValuesType.mapping,oldNormsType.mapping,Collections.unmodifiableMap(attributes));
     }
     if (input.getFilePointer() != input.length()) {
       throw new CorruptIndexException("did not read all bytes from file \"" + fileName + "\": read "+ input.getFilePointer()+ " vs size "+ input.length()+ " (resource: "+ input+ ")");
