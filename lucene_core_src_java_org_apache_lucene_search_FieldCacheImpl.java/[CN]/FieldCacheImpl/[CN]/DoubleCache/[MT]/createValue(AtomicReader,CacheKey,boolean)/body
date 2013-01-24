@@ -1,5 +1,4 @@
 {
-  final double[] values;
   final DoubleParser parser=(DoubleParser)key.custom;
   if (parser == null) {
     try {
@@ -9,11 +8,16 @@
       return wrapper.getDoubles(reader,key.field,NUMERIC_UTILS_DOUBLE_PARSER,setDocsWithField);
     }
   }
-  values=new double[reader.maxDoc()];
+  final HoldsOneThing<double[]> valuesRef=new HoldsOneThing<double[]>();
   Uninvert u=new Uninvert(){
     private double currentValue;
+    private double[] values;
     @Override public void visitTerm(    BytesRef term){
       currentValue=parser.parseDouble(term);
+      if (values == null) {
+        values=new double[reader.maxDoc()];
+        valuesRef.set(values);
+      }
     }
     @Override public void visitDoc(    int docID){
       values[docID]=currentValue;
@@ -23,6 +27,10 @@
   u.uninvert(reader,key.field,setDocsWithField);
   if (setDocsWithField) {
     wrapper.setDocsWithField(reader,key.field,u.docsWithField);
+  }
+  double[] values=valuesRef.get();
+  if (values == null) {
+    values=new double[reader.maxDoc()];
   }
   return new DoublesFromArray(values);
 }

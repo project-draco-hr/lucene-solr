@@ -1,5 +1,4 @@
 {
-  final long[] values;
   final LongParser parser=(LongParser)key.custom;
   if (parser == null) {
     try {
@@ -9,11 +8,16 @@
       return wrapper.getLongs(reader,key.field,NUMERIC_UTILS_LONG_PARSER,setDocsWithField);
     }
   }
-  values=new long[reader.maxDoc()];
+  final HoldsOneThing<long[]> valuesRef=new HoldsOneThing<long[]>();
   Uninvert u=new Uninvert(){
     private long currentValue;
+    private long[] values;
     @Override public void visitTerm(    BytesRef term){
       currentValue=parser.parseLong(term);
+      if (values == null) {
+        values=new long[reader.maxDoc()];
+        valuesRef.set(values);
+      }
     }
     @Override public void visitDoc(    int docID){
       values[docID]=currentValue;
@@ -23,6 +27,10 @@
   u.uninvert(reader,key.field,setDocsWithField);
   if (setDocsWithField) {
     wrapper.setDocsWithField(reader,key.field,u.docsWithField);
+  }
+  long[] values=valuesRef.get();
+  if (values == null) {
+    values=new long[reader.maxDoc()];
   }
   return new LongsFromArray(values);
 }
