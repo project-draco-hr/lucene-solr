@@ -1,0 +1,25 @@
+{
+  assumeFalse("3.x codec does not support docvalues",Codec.getDefault().getName().equals("Lucene3x"));
+  Directory dir=newDirectory();
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  Field field=newField("field","",StringField.TYPE_STORED);
+  ICUCollationDocValuesField collationField=new ICUCollationDocValuesField("collated",Collator.getInstance(ULocale.ENGLISH));
+  doc.add(field);
+  doc.add(collationField);
+  field.setStringValue("ABC");
+  collationField.setStringValue("ABC");
+  iw.addDocument(doc);
+  field.setStringValue("abc");
+  collationField.setStringValue("abc");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher is=newSearcher(ir);
+  SortField sortField=new SortField("collated",SortField.Type.STRING);
+  TopDocs td=is.search(new MatchAllDocsQuery(),5,new Sort(sortField));
+  assertEquals("abc",ir.document(td.scoreDocs[0].doc).get("field"));
+  assertEquals("ABC",ir.document(td.scoreDocs[1].doc).get("field"));
+  ir.close();
+  dir.close();
+}
