@@ -1,20 +1,15 @@
 {
-  log.info("Process current queue of collection messages");
+  log.info("Process current queue of collection creations");
   while (amILeader() && !isClosed) {
     try {
-      byte[] head=workQueue.peek(true);
-      final ZkNodeProps message=ZkNodeProps.load(head);
+      QueueEvent head=workQueue.peek(true);
+      final ZkNodeProps message=ZkNodeProps.load(head.getBytes());
+      log.info("Overseer Collection Processor: Get the message id:" + head.getId() + " message:"+ message.toString());
       final String operation=message.getStr(QUEUE_OPERATION);
-      try {
-        boolean success=processMessage(message,operation);
-        if (!success) {
-          SolrException.log(log,"Collection " + operation + " of "+ message.getStr("name")+ " failed");
-        }
-      }
- catch (      Throwable t) {
-        SolrException.log(log,"Collection " + operation + " of "+ message.getStr("name")+ " failed",t);
-      }
-      workQueue.poll();
+      SolrResponse response=processMessage(message,operation);
+      head.setBytes(SolrResponse.serializable(response));
+      workQueue.remove(head);
+      log.info("Overseer Collection Processor: Message id:" + head.getId() + " complete, response:"+ response.getResponse().toString());
     }
  catch (    KeeperException e) {
       if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
@@ -27,6 +22,9 @@
 catch (    InterruptedException e) {
       Thread.currentThread().interrupt();
       return;
+    }
+catch (    Throwable e) {
+      SolrException.log(log,"",e);
     }
   }
 }
