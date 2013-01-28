@@ -11,8 +11,9 @@
     CodecUtil.checkHeader(index,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_CODEC_NAME_IDX,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_VERSION_START,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_VERSION_CURRENT);
     final int fixedLength=data.readInt();
     final int valueCount=index.readInt();
-    final byte bytes[]=new byte[fixedLength * valueCount];
-    data.readBytes(bytes,0,bytes.length);
+    PagedBytes bytes=new PagedBytes(16);
+    bytes.copy(data,fixedLength * (long)valueCount);
+    final PagedBytes.Reader bytesReader=bytes.freeze(true);
     final PackedInts.Reader reader=PackedInts.getReader(index);
     if (data.getFilePointer() != data.length()) {
       throw new CorruptIndexException("did not read all bytes from file \"" + dataName + "\": read "+ data.getFilePointer()+ " vs size "+ data.length()+ " (resource: "+ data+ ")");
@@ -23,10 +24,8 @@
     success=true;
     return new BinaryDocValues(){
       @Override public void get(      int docID,      BytesRef result){
-        int ord=(int)reader.get(docID);
-        result.bytes=bytes;
-        result.offset=ord * fixedLength;
-        result.length=fixedLength;
+        final long offset=fixedLength * reader.get(docID);
+        bytesReader.fillSlice(result,offset,fixedLength);
       }
     }
 ;

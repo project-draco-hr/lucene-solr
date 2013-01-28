@@ -10,8 +10,9 @@
     index=dir.openInput(indexName,state.context);
     CodecUtil.checkHeader(index,Lucene40DocValuesFormat.BYTES_VAR_DEREF_CODEC_NAME_IDX,Lucene40DocValuesFormat.BYTES_VAR_DEREF_VERSION_START,Lucene40DocValuesFormat.BYTES_VAR_DEREF_VERSION_CURRENT);
     final long totalBytes=index.readLong();
-    final byte bytes[]=new byte[(int)totalBytes];
-    data.readBytes(bytes,0,bytes.length);
+    final PagedBytes bytes=new PagedBytes(16);
+    bytes.copy(data,totalBytes);
+    final PagedBytes.Reader bytesReader=bytes.freeze(true);
     final PackedInts.Reader reader=PackedInts.getReader(index);
     if (data.getFilePointer() != data.length()) {
       throw new CorruptIndexException("did not read all bytes from file \"" + dataName + "\": read "+ data.getFilePointer()+ " vs size "+ data.length()+ " (resource: "+ data+ ")");
@@ -22,16 +23,17 @@
     success=true;
     return new BinaryDocValues(){
       @Override public void get(      int docID,      BytesRef result){
-        int startAddress=(int)reader.get(docID);
-        result.bytes=bytes;
-        result.offset=startAddress;
-        if ((bytes[startAddress] & 128) == 0) {
-          result.offset++;
-          result.length=bytes[startAddress];
+        long startAddress=reader.get(docID);
+        BytesRef lengthBytes=new BytesRef();
+        bytesReader.fillSlice(lengthBytes,startAddress,1);
+        byte code=lengthBytes.bytes[lengthBytes.offset];
+        if ((code & 128) == 0) {
+          bytesReader.fillSlice(result,startAddress + 1,(int)code);
         }
  else {
-          result.offset+=2;
-          result.length=((bytes[startAddress] & 0x7f) << 8) | ((bytes[startAddress + 1] & 0xff));
+          bytesReader.fillSlice(lengthBytes,startAddress + 1,1);
+          int length=((code & 0x7f) << 8) | (lengthBytes.bytes[lengthBytes.offset] & 0xff);
+          bytesReader.fillSlice(result,startAddress + 2,length);
         }
       }
     }
