@@ -1,16 +1,15 @@
 {
-  DocValuesType type=DocValuesType.SORTED;
-  final Directory d=newDirectory();
+  Directory dir=newDirectory();
   IndexWriterConfig cfg=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
-  IndexWriter w=new IndexWriter(d,cfg);
+  IndexWriter w=new IndexWriter(dir,cfg);
   int numDocs=atLeast(100);
   BytesRefHash hash=new BytesRefHash();
   Map<String,String> docToString=new HashMap<String,String>();
-  int len=1 + random().nextInt(50);
+  int maxLength=_TestUtil.nextInt(random(),1,50);
   for (int i=0; i < numDocs; i++) {
     Document doc=new Document();
     doc.add(newTextField("id","" + i,Field.Store.YES));
-    String string=_TestUtil.randomRealisticUnicodeString(random(),1,len);
+    String string=_TestUtil.randomRealisticUnicodeString(random(),1,maxLength);
     BytesRef br=new BytesRef(string);
     doc.add(new SortedDocValuesField("field",br));
     hash.add(br);
@@ -35,7 +34,7 @@
     Document doc=new Document();
     String id="" + i + numDocs;
     doc.add(newTextField("id",id,Field.Store.YES));
-    String string=_TestUtil.randomRealisticUnicodeString(random(),1,len);
+    String string=_TestUtil.randomRealisticUnicodeString(random(),1,maxLength);
     BytesRef br=new BytesRef(string);
     hash.add(br);
     docToString.put(id,string);
@@ -59,12 +58,13 @@
   AtomicReader slowR=SlowCompositeReaderWrapper.wrap(reader);
   Set<Entry<String,String>> entrySet=docToString.entrySet();
   for (  Entry<String,String> entry : entrySet) {
-    int docId=docId(slowR,new Term("id",entry.getKey()));
+    DocsEnum termDocsEnum=slowR.termDocsEnum(new Term("id",entry.getKey()));
+    int docId=termDocsEnum.nextDoc();
     expected=new BytesRef(entry.getValue());
     docValues.get(docId,actual);
     assertEquals(expected,actual);
   }
   reader.close();
   w.close();
-  d.close();
+  dir.close();
 }
