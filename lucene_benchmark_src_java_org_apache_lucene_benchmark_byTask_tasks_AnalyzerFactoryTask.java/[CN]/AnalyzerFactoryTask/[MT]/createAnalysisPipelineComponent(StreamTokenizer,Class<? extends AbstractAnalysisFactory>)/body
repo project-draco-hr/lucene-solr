@@ -1,0 +1,116 @@
+{
+  final AbstractAnalysisFactory instance;
+  try {
+    instance=clazz.newInstance();
+  }
+ catch (  Exception e) {
+    throw new RuntimeException("Line #" + lineno(stok) + ": ",e);
+  }
+  Version luceneMatchVersion=null;
+  Map<String,String> argMap=new HashMap<String,String>();
+  boolean parenthetical=false;
+  try {
+    WHILE_LOOP:     while (stok.nextToken() != StreamTokenizer.TT_EOF) {
+switch (stok.ttype) {
+case ',':
+{
+          if (parenthetical) {
+            break;
+          }
+ else {
+            break WHILE_LOOP;
+          }
+        }
+case '(':
+{
+        if (parenthetical) {
+          throw new RuntimeException("Line #" + lineno(stok) + ": Unexpected opening parenthesis.");
+        }
+        parenthetical=true;
+        break;
+      }
+case ')':
+{
+      if (parenthetical) {
+        parenthetical=false;
+      }
+ else {
+        throw new RuntimeException("Line #" + lineno(stok) + ": Unexpected closing parenthesis.");
+      }
+      break;
+    }
+case StreamTokenizer.TT_WORD:
+{
+    if (!parenthetical) {
+      throw new RuntimeException("Line #" + lineno(stok) + ": Unexpected token '"+ stok.sval+ "'");
+    }
+    String argName=stok.sval;
+    stok.nextToken();
+    if (stok.ttype != ':') {
+      throw new RuntimeException("Line #" + lineno(stok) + ": Missing ':' after '"+ argName+ "' param to "+ clazz.getSimpleName());
+    }
+    stok.nextToken();
+    String argValue=stok.sval;
+switch (stok.ttype) {
+case StreamTokenizer.TT_NUMBER:
+{
+        argValue=Double.toString(stok.nval);
+        argValue=TRAILING_DOT_ZERO_PATTERN.matcher(argValue).replaceFirst("");
+      }
+case '"':
+case '\'':
+case StreamTokenizer.TT_WORD:
+{
+      if (argName.equalsIgnoreCase("luceneMatchVersion")) {
+        try {
+          luceneMatchVersion=Version.parseLeniently(argValue);
+        }
+ catch (        IllegalArgumentException e) {
+          throw new RuntimeException("Line #" + lineno(stok) + ": Unrecognized luceneMatchVersion '"+ argValue+ "'",e);
+        }
+      }
+ else {
+        argMap.put(argName,argValue);
+      }
+      break;
+    }
+case StreamTokenizer.TT_EOF:
+{
+    throw new RuntimeException("Unexpected EOF: " + stok.toString());
+  }
+default :
+{
+  throw new RuntimeException("Line #" + lineno(stok) + ": Unexpected token: "+ stok.toString());
+}
+}
+}
+}
+}
+instance.setLuceneMatchVersion(null == luceneMatchVersion ? Version.LUCENE_CURRENT : luceneMatchVersion);
+instance.init(argMap);
+if (instance instanceof ResourceLoaderAware) {
+File baseDir=new File(getRunData().getConfig().get("work.dir","work")).getAbsoluteFile();
+((ResourceLoaderAware)instance).inform(new FilesystemResourceLoader(baseDir));
+}
+if (CharFilterFactory.class.isAssignableFrom(clazz)) {
+charFilterFactories.add((CharFilterFactory)instance);
+}
+ else if (TokenizerFactory.class.isAssignableFrom(clazz)) {
+tokenizerFactory=(TokenizerFactory)instance;
+}
+ else if (TokenFilterFactory.class.isAssignableFrom(clazz)) {
+tokenFilterFactories.add((TokenFilterFactory)instance);
+}
+}
+ catch (RuntimeException e) {
+if (e.getMessage().startsWith("Line #")) {
+throw (e);
+}
+ else {
+throw new RuntimeException("Line #" + lineno(stok) + ": ",e);
+}
+}
+catch (Throwable t) {
+throw new RuntimeException("Line #" + lineno(stok) + ": ",t);
+}
+}
