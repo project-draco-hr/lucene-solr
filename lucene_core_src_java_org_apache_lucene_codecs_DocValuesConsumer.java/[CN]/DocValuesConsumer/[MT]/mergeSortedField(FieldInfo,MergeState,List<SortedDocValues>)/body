@@ -3,10 +3,17 @@
   merger.merge(mergeState,toMerge);
   addSortedField(fieldInfo,new Iterable<BytesRef>(){
     @Override public Iterator<BytesRef> iterator(){
+      final AppendingLongBuffer.Iterator readerIDs=merger.ordToReaderId.iterator();
+      final AppendingLongBuffer.Iterator ordDeltas[]=new AppendingLongBuffer.Iterator[merger.segStates.size()];
+      final int lastOrds[]=new int[ordDeltas.length];
+      for (int i=0; i < ordDeltas.length; i++) {
+        ordDeltas[i]=merger.segStates.get(i).ordDeltas.iterator();
+      }
+      final BytesRef scratch=new BytesRef();
       return new Iterator<BytesRef>(){
         int ordUpto;
         @Override public boolean hasNext(){
-          return ordUpto < merger.mergedTerms.size();
+          return ordUpto < merger.numMergedTerms;
         }
         @Override public void remove(){
           throw new UnsupportedOperationException();
@@ -15,7 +22,12 @@
           if (!hasNext()) {
             throw new NoSuchElementException();
           }
-          return merger.mergedTerms.get(ordUpto++);
+          int readerID=(int)readerIDs.next();
+          int ord=lastOrds[readerID] + (int)ordDeltas[readerID].next();
+          merger.segStates.get(readerID).values.lookupOrd(ord,scratch);
+          lastOrds[readerID]=ord;
+          ordUpto++;
+          return scratch;
         }
       }
 ;
