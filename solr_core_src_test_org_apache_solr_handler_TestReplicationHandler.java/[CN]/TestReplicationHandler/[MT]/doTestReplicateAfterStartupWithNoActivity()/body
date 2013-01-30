@@ -1,0 +1,43 @@
+{
+  String factory=System.getProperty("solr.directoryFactory");
+  System.out.println("factory:" + factory);
+  useFactory(null);
+  try {
+    slaveJetty.stop();
+    nDocs--;
+    masterClient.deleteByQuery("*:*");
+    masterClient.commit();
+    master.copyConfigFile(CONF_DIR + "solrconfig-master2.xml","solrconfig.xml");
+    masterJetty.stop();
+    masterJetty=createJetty(master);
+    masterClient=createNewSolrServer(masterJetty.getLocalPort());
+    for (int i=0; i < nDocs; i++)     index(masterClient,"id",i,"name","name = " + i);
+    masterClient.commit();
+    masterJetty.stop();
+    masterJetty.start(true);
+    NamedList masterQueryRsp=rQuery(nDocs,"*:*",masterClient);
+    SolrDocumentList masterQueryResult=(SolrDocumentList)masterQueryRsp.get("response");
+    assertEquals(nDocs,masterQueryResult.getNumFound());
+    slave.setTestPort(masterJetty.getLocalPort());
+    slave.copyConfigFile(slave.getSolrConfigFile(),"solrconfig.xml");
+    slaveJetty=createJetty(slave);
+    slaveClient=createNewSolrServer(slaveJetty.getLocalPort());
+    NamedList slaveQueryRsp=rQuery(nDocs,"*:*",slaveClient);
+    SolrDocumentList slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
+    assertEquals(nDocs,slaveQueryResult.getNumFound());
+    String cmp=BaseDistributedSearchTestCase.compare(masterQueryResult,slaveQueryResult,0,null);
+    assertEquals(null,cmp);
+    master.copyConfigFile(CONF_DIR + "solrconfig-master.xml","solrconfig.xml");
+    masterJetty.stop();
+    masterJetty=createJetty(master);
+    masterClient=createNewSolrServer(masterJetty.getLocalPort());
+    slave.setTestPort(masterJetty.getLocalPort());
+    slave.copyConfigFile(slave.getSolrConfigFile(),"solrconfig.xml");
+    slaveJetty.stop();
+    slaveJetty=createJetty(slave);
+    slaveClient=createNewSolrServer(slaveJetty.getLocalPort());
+  }
+  finally {
+    resetFactory();
+  }
+}
