@@ -9,11 +9,10 @@
   BytesRef data=new BytesRef(bytes);
   SortedDocValuesField dvField=new SortedDocValuesField("dv",data);
   doc.add(dvField);
+  long seed=random().nextLong();
+  Random random=new Random(seed);
   for (int i=0; i < Integer.MAX_VALUE; i++) {
-    bytes[0]=(byte)(i >> 24);
-    bytes[1]=(byte)(i >> 16);
-    bytes[2]=(byte)(i >> 8);
-    bytes[3]=(byte)i;
+    random.nextBytes(bytes);
     w.addDocument(doc);
     if (i % 100000 == 0) {
       System.out.println("indexed: " + i);
@@ -25,19 +24,15 @@
   System.out.println("verifying...");
   System.out.flush();
   DirectoryReader r=DirectoryReader.open(dir);
-  int expectedValue=0;
+  random.setSeed(seed);
   for (  AtomicReaderContext context : r.leaves()) {
     AtomicReader reader=context.reader();
     BytesRef scratch=new BytesRef();
     BinaryDocValues dv=reader.getSortedDocValues("dv");
     for (int i=0; i < reader.maxDoc(); i++) {
-      bytes[0]=(byte)(expectedValue >> 24);
-      bytes[1]=(byte)(expectedValue >> 16);
-      bytes[2]=(byte)(expectedValue >> 8);
-      bytes[3]=(byte)expectedValue;
+      random.nextBytes(bytes);
       dv.get(i,scratch);
       assertEquals(data,scratch);
-      expectedValue++;
     }
   }
   r.close();
