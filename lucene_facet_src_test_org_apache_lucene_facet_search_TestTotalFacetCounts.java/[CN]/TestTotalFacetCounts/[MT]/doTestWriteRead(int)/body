@@ -1,32 +1,41 @@
 {
-  initCache(1);
-  Directory[][] dirs=FacetTestUtils.createIndexTaxonomyDirs(1);
-  IndexTaxonomyWriterPair[] writers=FacetTestUtils.createIndexTaxonomyWriterPair(dirs);
+  initCache();
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  IndexWriter indexWriter=new IndexWriter(indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,null));
+  TaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir);
   FacetIndexingParams iParams=new FacetIndexingParams(){
     @Override public int getPartitionSize(){
       return partitionSize;
     }
+    @Override public CategoryListParams getCategoryListParams(    CategoryPath category){
+      return new CategoryListParams(){
+        @Override public OrdinalPolicy getOrdinalPolicy(        String dimension){
+          return OrdinalPolicy.ALL_PARENTS;
+        }
+      }
+;
+    }
   }
 ;
   int[] expectedCounts=new int[]{0,3,1,3,1,1,1,1,1,2,1,1,1,1};
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"a","b");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"c","d");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"a","e");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"a","d");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"c","g");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"c","z");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"b","a");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"1","2");
-  TestTotalFacetCountsCache.addFacets(iParams,writers[0].indexWriter,writers[0].taxWriter,"b","c");
-  writers[0].close();
-  IndexTaxonomyReaderPair[] readers=FacetTestUtils.createIndexTaxonomyReaderPair(dirs);
+  String[] categories=new String[]{"a/b","c/d","a/e","a/d","c/g","c/z","b/a","1/2","b/c"};
+  FacetFields facetFields=new FacetFields(taxoWriter,iParams);
+  for (  String cat : categories) {
+    Document doc=new Document();
+    facetFields.addFields(doc,Collections.singletonList(new CategoryPath(cat,'/')));
+    indexWriter.addDocument(doc);
+  }
+  IOUtils.close(indexWriter,taxoWriter);
+  DirectoryReader indexReader=DirectoryReader.open(indexDir);
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
   int[] intArray=new int[iParams.getPartitionSize()];
   TotalFacetCountsCache tfcc=TotalFacetCountsCache.getSingleton();
   File tmpFile=_TestUtil.createTempFile("test","tmp",TEMP_DIR);
-  tfcc.store(tmpFile,readers[0].indexReader,readers[0].taxReader,iParams);
+  tfcc.store(tmpFile,indexReader,taxoReader,iParams);
   tfcc.clear();
-  tfcc.load(tmpFile,readers[0].indexReader,readers[0].taxReader,iParams);
-  TotalFacetCounts totalCounts=tfcc.getTotalCounts(readers[0].indexReader,readers[0].taxReader,iParams);
+  tfcc.load(tmpFile,indexReader,taxoReader,iParams);
+  TotalFacetCounts totalCounts=tfcc.getTotalCounts(indexReader,taxoReader,iParams);
   int partition=0;
   for (int i=0; i < expectedCounts.length; i+=partitionSize) {
     totalCounts.fillTotalCountsForPartition(intArray,partition);
@@ -36,7 +45,7 @@
     assertTrue("Wrong counts! for partition " + partition + "\nExpected:\n"+ Arrays.toString(partitionExpectedCounts)+ "\nActual:\n"+ Arrays.toString(intArray),Arrays.equals(partitionExpectedCounts,intArray));
     ++partition;
   }
-  readers[0].close();
-  IOUtils.close(dirs[0]);
+  IOUtils.close(indexReader,taxoReader);
+  IOUtils.close(indexDir,taxoDir);
   tmpFile.delete();
 }
