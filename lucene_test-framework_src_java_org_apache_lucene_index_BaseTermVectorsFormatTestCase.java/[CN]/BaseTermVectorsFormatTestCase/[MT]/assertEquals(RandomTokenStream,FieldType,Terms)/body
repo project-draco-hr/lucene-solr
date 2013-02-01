@@ -1,0 +1,108 @@
+{
+  assertEquals(1,terms.getDocCount());
+  final int termCount=new HashSet<String>(Arrays.asList(tk.terms)).size();
+  assertEquals(termCount,terms.size());
+  assertEquals(termCount,terms.getSumDocFreq());
+  assertEquals(ft.storeTermVectorPositions(),terms.hasPositions());
+  assertEquals(ft.storeTermVectorOffsets(),terms.hasOffsets());
+  assertEquals(ft.storeTermVectorPayloads() && tk.hasPayloads(),terms.hasPayloads());
+  final Set<BytesRef> uniqueTerms=new HashSet<BytesRef>();
+  for (  String term : tk.freqs.keySet()) {
+    uniqueTerms.add(new BytesRef(term));
+  }
+  final BytesRef[] sortedTerms=uniqueTerms.toArray(new BytesRef[0]);
+  Arrays.sort(sortedTerms,terms.getComparator());
+  termsEnum=terms.iterator(random().nextBoolean() ? null : termsEnum);
+  for (int i=0; i < sortedTerms.length; ++i) {
+    final BytesRef nextTerm=termsEnum.next();
+    assertEquals(sortedTerms[i],nextTerm);
+    assertEquals(sortedTerms[i],termsEnum.term());
+    assertEquals(1,termsEnum.docFreq());
+    final FixedBitSet bits=new FixedBitSet(1);
+    docsEnum=termsEnum.docs(bits,random().nextBoolean() ? null : docsEnum);
+    assertEquals(DocsEnum.NO_MORE_DOCS,docsEnum.nextDoc());
+    bits.set(0);
+    docsEnum=termsEnum.docs(random().nextBoolean() ? bits : null,random().nextBoolean() ? null : docsEnum);
+    assertNotNull(docsEnum);
+    assertEquals(0,docsEnum.nextDoc());
+    assertEquals(0,docsEnum.docID());
+    assertEquals(tk.freqs.get(termsEnum.term().utf8ToString()),(Integer)docsEnum.freq());
+    assertEquals(DocsEnum.NO_MORE_DOCS,docsEnum.nextDoc());
+    bits.clear(0);
+    docsAndPositionsEnum=termsEnum.docsAndPositions(bits,random().nextBoolean() ? null : docsAndPositionsEnum);
+    assertEquals(ft.storeTermVectorOffsets() || ft.storeTermVectorPositions(),docsAndPositionsEnum != null);
+    if (docsAndPositionsEnum != null) {
+      assertEquals(DocsEnum.NO_MORE_DOCS,docsAndPositionsEnum.nextDoc());
+    }
+    bits.set(0);
+    docsAndPositionsEnum=termsEnum.docsAndPositions(random().nextBoolean() ? bits : null,random().nextBoolean() ? null : docsAndPositionsEnum);
+    assertEquals(ft.storeTermVectorOffsets() || ft.storeTermVectorPositions(),docsAndPositionsEnum != null);
+    if (terms.hasPositions() || terms.hasOffsets()) {
+      assertEquals(0,docsAndPositionsEnum.nextDoc());
+      final int freq=docsAndPositionsEnum.freq();
+      assertEquals(tk.freqs.get(termsEnum.term().utf8ToString()),(Integer)freq);
+      if (docsAndPositionsEnum != null) {
+        for (int k=0; k < freq; ++k) {
+          final int position=docsAndPositionsEnum.nextPosition();
+          final Set<Integer> indexes;
+          if (terms.hasPositions()) {
+            indexes=tk.positionToTerms.get(position);
+            assertNotNull(indexes);
+          }
+ else {
+            indexes=tk.startOffsetToTerms.get(docsAndPositionsEnum.startOffset());
+            assertNotNull(indexes);
+          }
+          if (terms.hasPositions()) {
+            boolean foundPosition=false;
+            for (            int index : indexes) {
+              if (tk.termBytes[index].equals(termsEnum.term()) && tk.positions[index] == position) {
+                foundPosition=true;
+                break;
+              }
+            }
+            assertTrue(foundPosition);
+          }
+          if (terms.hasOffsets()) {
+            boolean foundOffset=false;
+            for (            int index : indexes) {
+              if (tk.termBytes[index].equals(termsEnum.term()) && tk.startOffsets[index] == docsAndPositionsEnum.startOffset() && tk.endOffsets[index] == docsAndPositionsEnum.endOffset()) {
+                foundOffset=true;
+                break;
+              }
+            }
+            assertTrue(foundOffset);
+          }
+          if (terms.hasPayloads()) {
+            boolean foundPayload=false;
+            for (            int index : indexes) {
+              if (tk.termBytes[index].equals(termsEnum.term()) && equals(tk.payloads[index],docsAndPositionsEnum.getPayload())) {
+                foundPayload=true;
+                break;
+              }
+            }
+            assertTrue(foundPayload);
+          }
+        }
+        try {
+          docsAndPositionsEnum.nextPosition();
+          fail();
+        }
+ catch (        Exception e) {
+        }
+catch (        AssertionError e) {
+        }
+      }
+      assertEquals(DocsEnum.NO_MORE_DOCS,docsAndPositionsEnum.nextDoc());
+    }
+  }
+  assertNull(termsEnum.next());
+  for (int i=0; i < 5; ++i) {
+    if (random().nextBoolean()) {
+      assertTrue(termsEnum.seekExact(RandomPicks.randomFrom(random(),tk.termBytes),random().nextBoolean()));
+    }
+ else {
+      assertEquals(SeekStatus.FOUND,termsEnum.seekCeil(RandomPicks.randomFrom(random(),tk.termBytes),random().nextBoolean()));
+    }
+  }
+}
