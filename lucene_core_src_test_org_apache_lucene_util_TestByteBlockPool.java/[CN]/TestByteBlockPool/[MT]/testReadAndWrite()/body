@@ -1,0 +1,32 @@
+{
+  Counter bytesUsed=Counter.newCounter();
+  ByteBlockPool pool=new ByteBlockPool(new ByteBlockPool.DirectTrackingAllocator(bytesUsed));
+  pool.nextBuffer();
+  boolean reuseFirst=random().nextBoolean();
+  for (int j=0; j < 2; j++) {
+    List<BytesRef> list=new ArrayList<BytesRef>();
+    int maxLength=atLeast(500);
+    final int numValues=atLeast(100);
+    BytesRef ref=new BytesRef();
+    for (int i=0; i < numValues; i++) {
+      final String value=_TestUtil.randomRealisticUnicodeString(random(),maxLength);
+      list.add(new BytesRef(value));
+      ref.copyChars(value);
+      pool.append(ref);
+    }
+    long position=0;
+    for (    BytesRef expected : list) {
+      pool.readBytes(ref,position,expected.length);
+      assertEquals(expected,ref);
+      position+=ref.length;
+    }
+    pool.reset(random().nextBoolean(),reuseFirst);
+    if (reuseFirst) {
+      assertEquals(ByteBlockPool.BYTE_BLOCK_SIZE,bytesUsed.get());
+    }
+ else {
+      assertEquals(0,bytesUsed.get());
+      pool.nextBuffer();
+    }
+  }
+}
