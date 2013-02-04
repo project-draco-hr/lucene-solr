@@ -1,37 +1,36 @@
 {
   final List<AtomicReaderContext> leaves=r.leaves();
-  if (leaves.size() == 1) {
+  final int size=leaves.size();
+  if (size == 0) {
+    return null;
+  }
+ else   if (size == 1) {
     return leaves.get(0).reader().getBinaryDocValues(field);
   }
   boolean anyReal=false;
-  for (  AtomicReaderContext ctx : leaves) {
-    BinaryDocValues values=ctx.reader().getBinaryDocValues(field);
-    if (values != null) {
+  final BinaryDocValues[] values=new BinaryDocValues[size];
+  final int[] starts=new int[size + 1];
+  for (int i=0; i < size; i++) {
+    AtomicReaderContext context=leaves.get(i);
+    BinaryDocValues v=context.reader().getBinaryDocValues(field);
+    if (v == null) {
+      v=BinaryDocValues.EMPTY;
+    }
+ else {
       anyReal=true;
     }
+    values[i]=v;
+    starts[i]=context.docBase;
   }
+  starts[size]=r.maxDoc();
   if (!anyReal) {
     return null;
   }
  else {
     return new BinaryDocValues(){
       @Override public void get(      int docID,      BytesRef result){
-        int subIndex=ReaderUtil.subIndex(docID,leaves);
-        BinaryDocValues values;
-        try {
-          values=leaves.get(subIndex).reader().getBinaryDocValues(field);
-        }
- catch (        IOException ioe) {
-          throw new RuntimeException(ioe);
-        }
-        if (values != null) {
-          values.get(docID - leaves.get(subIndex).docBase,result);
-        }
- else {
-          result.length=0;
-          result.offset=0;
-          result.bytes=BinaryDocValues.MISSING;
-        }
+        int subIndex=ReaderUtil.subIndex(docID,starts);
+        values[subIndex].get(docID - starts[subIndex],result);
       }
     }
 ;

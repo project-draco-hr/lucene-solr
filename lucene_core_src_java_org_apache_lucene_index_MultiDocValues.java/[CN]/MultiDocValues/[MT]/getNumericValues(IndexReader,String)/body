@@ -1,35 +1,36 @@
 {
   final List<AtomicReaderContext> leaves=r.leaves();
-  if (leaves.size() == 1) {
+  final int size=leaves.size();
+  if (size == 0) {
+    return null;
+  }
+ else   if (size == 1) {
     return leaves.get(0).reader().getNumericDocValues(field);
   }
   boolean anyReal=false;
-  for (  AtomicReaderContext ctx : leaves) {
-    NumericDocValues values=ctx.reader().getNumericDocValues(field);
-    if (values != null) {
+  final NumericDocValues[] values=new NumericDocValues[size];
+  final int[] starts=new int[size + 1];
+  for (int i=0; i < size; i++) {
+    AtomicReaderContext context=leaves.get(i);
+    NumericDocValues v=context.reader().getNumericDocValues(field);
+    if (v == null) {
+      v=NumericDocValues.EMPTY;
+    }
+ else {
       anyReal=true;
     }
+    values[i]=v;
+    starts[i]=context.docBase;
   }
+  starts[size]=r.maxDoc();
   if (!anyReal) {
     return null;
   }
  else {
     return new NumericDocValues(){
       @Override public long get(      int docID){
-        int subIndex=ReaderUtil.subIndex(docID,leaves);
-        NumericDocValues values;
-        try {
-          values=leaves.get(subIndex).reader().getNumericDocValues(field);
-        }
- catch (        IOException ioe) {
-          throw new RuntimeException(ioe);
-        }
-        if (values == null) {
-          return 0;
-        }
- else {
-          return values.get(docID - leaves.get(subIndex).docBase);
-        }
+        int subIndex=ReaderUtil.subIndex(docID,starts);
+        return values[subIndex].get(docID - starts[subIndex]);
       }
     }
 ;

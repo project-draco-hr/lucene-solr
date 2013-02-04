@@ -1,6 +1,10 @@
 {
   final List<AtomicReaderContext> leaves=r.leaves();
-  if (leaves.size() == 1) {
+  final int size=leaves.size();
+  if (size == 0) {
+    return null;
+  }
+ else   if (size == 1) {
     return leaves.get(0).reader().getNormValues(field);
   }
   FieldInfo fi=MultiFields.getMergedFieldInfos(r).fieldInfo(field);
@@ -8,29 +12,26 @@
     return null;
   }
   boolean anyReal=false;
-  for (  AtomicReaderContext ctx : leaves) {
-    NumericDocValues norms=ctx.reader().getNormValues(field);
-    if (norms != null) {
+  final NumericDocValues[] values=new NumericDocValues[size];
+  final int[] starts=new int[size + 1];
+  for (int i=0; i < size; i++) {
+    AtomicReaderContext context=leaves.get(i);
+    NumericDocValues v=context.reader().getNormValues(field);
+    if (v == null) {
+      v=NumericDocValues.EMPTY;
+    }
+ else {
       anyReal=true;
     }
+    values[i]=v;
+    starts[i]=context.docBase;
   }
+  starts[size]=r.maxDoc();
   assert anyReal;
   return new NumericDocValues(){
     @Override public long get(    int docID){
-      int subIndex=ReaderUtil.subIndex(docID,leaves);
-      NumericDocValues norms;
-      try {
-        norms=leaves.get(subIndex).reader().getNormValues(field);
-      }
- catch (      IOException ioe) {
-        throw new RuntimeException(ioe);
-      }
-      if (norms == null) {
-        return 0;
-      }
- else {
-        return norms.get(docID - leaves.get(subIndex).docBase);
-      }
+      int subIndex=ReaderUtil.subIndex(docID,starts);
+      return values[subIndex].get(docID - starts[subIndex]);
     }
   }
 ;
