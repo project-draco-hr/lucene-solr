@@ -1,0 +1,30 @@
+{
+  Directory dir=newDirectory();
+  Document doc=new Document();
+  Field field=new NumericDocValuesField("numbers",0);
+  doc.add(field);
+  IndexWriterConfig iwc=newIndexWriterConfig(random(),TEST_VERSION_CURRENT,null);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  int numDocs=atLeast(500);
+  for (int i=0; i < numDocs; i++) {
+    field.setLongValue(random().nextLong());
+    iw.addDocument(doc);
+    if (random().nextInt(17) == 0) {
+      iw.commit();
+    }
+  }
+  DirectoryReader ir=iw.getReader();
+  iw.forceMerge(1);
+  DirectoryReader ir2=iw.getReader();
+  AtomicReader merged=getOnlySegmentReader(ir2);
+  iw.close();
+  NumericDocValues multi=MultiDocValues.getNumericValues(ir,"numbers");
+  NumericDocValues single=merged.getNumericDocValues("numbers");
+  for (int i=0; i < numDocs; i++) {
+    assertEquals(single.get(i),multi.get(i));
+  }
+  ir.close();
+  ir2.close();
+  dir.close();
+}
