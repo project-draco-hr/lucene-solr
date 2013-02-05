@@ -17,27 +17,36 @@
       }
     }
   }
-  final long delta=maxValue - minValue;
-  if (uniqueValues != null && (delta < 0 || PackedInts.bitsRequired(uniqueValues.size() - 1) < PackedInts.bitsRequired(delta))) {
+  if (uniqueValues != null) {
     final int bitsPerValue=PackedInts.bitsRequired(uniqueValues.size() - 1);
-    meta.writeByte((byte)1);
-    Long[] decode=uniqueValues.toArray(new Long[uniqueValues.size()]);
-    final HashMap<Long,Integer> encode=new HashMap<Long,Integer>();
-    data.writeVInt(decode.length);
-    for (int i=0; i < decode.length; i++) {
-      data.writeLong(decode[i]);
-      encode.put(decode[i],i);
+    FormatAndBits formatAndBits=PackedInts.fastestFormatAndBits(maxDoc,bitsPerValue,acceptableOverheadRatio);
+    if (formatAndBits.bitsPerValue == 8 && minValue >= Byte.MIN_VALUE && maxValue <= Byte.MAX_VALUE) {
+      meta.writeByte(UNCOMPRESSED);
+      for (      Number nv : values) {
+        data.writeByte((byte)nv.longValue());
+      }
     }
-    meta.writeVInt(PackedInts.VERSION_CURRENT);
-    data.writeVInt(bitsPerValue);
-    final PackedInts.Writer writer=PackedInts.getWriterNoHeader(data,PackedInts.Format.PACKED,maxDoc,bitsPerValue,PackedInts.DEFAULT_BUFFER_SIZE);
-    for (    Number nv : values) {
-      writer.add(encode.get(nv));
+ else {
+      meta.writeByte(TABLE_COMPRESSED);
+      Long[] decode=uniqueValues.toArray(new Long[uniqueValues.size()]);
+      final HashMap<Long,Integer> encode=new HashMap<Long,Integer>();
+      data.writeVInt(decode.length);
+      for (int i=0; i < decode.length; i++) {
+        data.writeLong(decode[i]);
+        encode.put(decode[i],i);
+      }
+      meta.writeVInt(PackedInts.VERSION_CURRENT);
+      data.writeVInt(formatAndBits.format.getId());
+      data.writeVInt(formatAndBits.bitsPerValue);
+      final PackedInts.Writer writer=PackedInts.getWriterNoHeader(data,formatAndBits.format,maxDoc,formatAndBits.bitsPerValue,PackedInts.DEFAULT_BUFFER_SIZE);
+      for (      Number nv : values) {
+        writer.add(encode.get(nv.longValue()));
+      }
+      writer.finish();
     }
-    writer.finish();
   }
  else {
-    meta.writeByte((byte)0);
+    meta.writeByte(DELTA_COMPRESSED);
     meta.writeVInt(PackedInts.VERSION_CURRENT);
     data.writeVInt(BLOCK_SIZE);
     final BlockPackedWriter writer=new BlockPackedWriter(data,BLOCK_SIZE);
