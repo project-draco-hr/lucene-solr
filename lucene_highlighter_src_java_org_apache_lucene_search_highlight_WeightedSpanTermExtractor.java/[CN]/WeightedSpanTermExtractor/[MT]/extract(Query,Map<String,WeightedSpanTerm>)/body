@@ -55,21 +55,12 @@
       extract(q,terms);
     }
   }
+ else   if (query instanceof CommonTermsQuery) {
+    extractWeightedTerms(terms,query);
+  }
  else   if (query instanceof DisjunctionMaxQuery) {
     for (Iterator<Query> iterator=((DisjunctionMaxQuery)query).iterator(); iterator.hasNext(); ) {
       extract(iterator.next(),terms);
-    }
-  }
- else   if (query instanceof MultiTermQuery && expandMultiTermQuery) {
-    MultiTermQuery mtq=((MultiTermQuery)query);
-    if (mtq.getRewriteMethod() != MultiTermQuery.SCORING_BOOLEAN_QUERY_REWRITE) {
-      mtq=(MultiTermQuery)mtq.clone();
-      mtq.setRewriteMethod(MultiTermQuery.SCORING_BOOLEAN_QUERY_REWRITE);
-      query=mtq;
-    }
-    if (mtq.getField() != null) {
-      IndexReader ir=getLeafContextForField(mtq.getField()).reader();
-      extract(query.rewrite(ir),terms);
     }
   }
  else   if (query instanceof MultiPhraseQuery) {
@@ -113,6 +104,22 @@
       SpanNearQuery sp=new SpanNearQuery(clauses,slop + positionGaps,inorder);
       sp.setBoost(query.getBoost());
       extractWeightedSpanTerms(terms,sp);
+    }
+  }
+ else {
+    Query origQuery=query;
+    if (query instanceof MultiTermQuery) {
+      if (!expandMultiTermQuery) {
+        return;
+      }
+      MultiTermQuery copy=(MultiTermQuery)query.clone();
+      copy.setRewriteMethod(MultiTermQuery.SCORING_BOOLEAN_QUERY_REWRITE);
+      origQuery=copy;
+    }
+    final IndexReader reader=getLeafContext().reader();
+    Query rewritten=origQuery.rewrite(reader);
+    if (rewritten != origQuery) {
+      extract(rewritten,terms);
     }
   }
   extractUnknownQuery(query,terms);
