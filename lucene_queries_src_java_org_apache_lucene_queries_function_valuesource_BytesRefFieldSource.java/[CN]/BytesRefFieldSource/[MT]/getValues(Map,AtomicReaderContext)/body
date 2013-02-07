@@ -1,14 +1,40 @@
 {
-  return new DocTermsIndexDocValues(this,readerContext,field){
-    @Override protected String toTerm(    String readableValue){
-      return readableValue;
+  final FieldInfo fieldInfo=readerContext.reader().getFieldInfos().fieldInfo(field);
+  if (fieldInfo != null && fieldInfo.getDocValuesType() == DocValuesType.BINARY) {
+    final BinaryDocValues binaryValues=FieldCache.DEFAULT.getTerms(readerContext.reader(),field);
+    return new FunctionValues(){
+      @Override public boolean exists(      int doc){
+        return true;
+      }
+      @Override public boolean bytesVal(      int doc,      BytesRef target){
+        binaryValues.get(doc,target);
+        return target.length > 0;
+      }
+      public String strVal(      int doc){
+        final BytesRef bytes=new BytesRef();
+        return bytesVal(doc,bytes) ? bytes.utf8ToString() : null;
+      }
+      @Override public Object objectVal(      int doc){
+        return strVal(doc);
+      }
+      @Override public String toString(      int doc){
+        return description() + '=' + strVal(doc);
+      }
     }
-    @Override public Object objectVal(    int doc){
-      return strVal(doc);
-    }
-    @Override public String toString(    int doc){
-      return description() + '=' + strVal(doc);
-    }
-  }
 ;
+  }
+ else {
+    return new DocTermsIndexDocValues(this,readerContext,field){
+      @Override protected String toTerm(      String readableValue){
+        return readableValue;
+      }
+      @Override public Object objectVal(      int doc){
+        return strVal(doc);
+      }
+      @Override public String toString(      int doc){
+        return description() + '=' + strVal(doc);
+      }
+    }
+;
+  }
 }

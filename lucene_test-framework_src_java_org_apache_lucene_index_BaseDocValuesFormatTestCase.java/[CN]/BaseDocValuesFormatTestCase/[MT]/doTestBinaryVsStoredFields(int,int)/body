@@ -1,0 +1,50 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,conf);
+  Document doc=new Document();
+  Field idField=new StringField("id","",Field.Store.NO);
+  Field storedField=new StoredField("stored",new byte[0]);
+  Field dvField=new BinaryDocValuesField("dv",new BytesRef());
+  doc.add(idField);
+  doc.add(storedField);
+  doc.add(dvField);
+  int numDocs=atLeast(1000);
+  for (int i=0; i < numDocs; i++) {
+    idField.setStringValue(Integer.toString(i));
+    final int length;
+    if (minLength == maxLength) {
+      length=minLength;
+    }
+ else {
+      length=_TestUtil.nextInt(random(),minLength,maxLength);
+    }
+    byte buffer[]=new byte[length];
+    random().nextBytes(buffer);
+    storedField.setBytesValue(buffer);
+    dvField.setBytesValue(buffer);
+    writer.addDocument(doc);
+    if (random().nextInt(31) == 0) {
+      writer.commit();
+    }
+  }
+  int numDeletions=random().nextInt(numDocs / 10);
+  for (int i=0; i < numDeletions; i++) {
+    int id=random().nextInt(numDocs);
+    writer.deleteDocuments(new Term("id",Integer.toString(id)));
+  }
+  writer.close();
+  DirectoryReader ir=DirectoryReader.open(dir);
+  for (  AtomicReaderContext context : ir.leaves()) {
+    AtomicReader r=context.reader();
+    BinaryDocValues docValues=r.getBinaryDocValues("dv");
+    for (int i=0; i < r.maxDoc(); i++) {
+      BytesRef binaryValue=r.document(i).getBinaryValue("stored");
+      BytesRef scratch=new BytesRef();
+      docValues.get(i,scratch);
+      assertEquals(binaryValue,scratch);
+    }
+  }
+  ir.close();
+  dir.close();
+}

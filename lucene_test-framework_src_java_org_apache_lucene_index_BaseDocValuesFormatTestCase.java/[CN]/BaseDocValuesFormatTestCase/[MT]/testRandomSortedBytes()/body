@@ -1,0 +1,70 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig cfg=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,cfg);
+  int numDocs=atLeast(100);
+  BytesRefHash hash=new BytesRefHash();
+  Map<String,String> docToString=new HashMap<String,String>();
+  int maxLength=_TestUtil.nextInt(random(),1,50);
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    doc.add(newTextField("id","" + i,Field.Store.YES));
+    String string=_TestUtil.randomRealisticUnicodeString(random(),1,maxLength);
+    BytesRef br=new BytesRef(string);
+    doc.add(new SortedDocValuesField("field",br));
+    hash.add(br);
+    docToString.put("" + i,string);
+    w.addDocument(doc);
+  }
+  if (rarely()) {
+    w.commit();
+  }
+  int numDocsNoValue=atLeast(10);
+  for (int i=0; i < numDocsNoValue; i++) {
+    Document doc=new Document();
+    doc.add(newTextField("id","noValue",Field.Store.YES));
+    w.addDocument(doc);
+  }
+  BytesRef bytesRef=new BytesRef();
+  hash.add(bytesRef);
+  if (rarely()) {
+    w.commit();
+  }
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    String id="" + i + numDocs;
+    doc.add(newTextField("id",id,Field.Store.YES));
+    String string=_TestUtil.randomRealisticUnicodeString(random(),1,maxLength);
+    BytesRef br=new BytesRef(string);
+    hash.add(br);
+    docToString.put(id,string);
+    doc.add(new SortedDocValuesField("field",br));
+    w.addDocument(doc);
+  }
+  w.commit();
+  IndexReader reader=w.getReader();
+  SortedDocValues docValues=MultiDocValues.getSortedValues(reader,"field");
+  int[] sort=hash.sort(BytesRef.getUTF8SortedAsUnicodeComparator());
+  BytesRef expected=new BytesRef();
+  BytesRef actual=new BytesRef();
+  assertEquals(hash.size(),docValues.getValueCount());
+  for (int i=0; i < hash.size(); i++) {
+    hash.get(sort[i],expected);
+    docValues.lookupOrd(i,actual);
+    assertEquals(expected.utf8ToString(),actual.utf8ToString());
+    int ord=docValues.lookupTerm(expected);
+    assertEquals(i,ord);
+  }
+  AtomicReader slowR=SlowCompositeReaderWrapper.wrap(reader);
+  Set<Entry<String,String>> entrySet=docToString.entrySet();
+  for (  Entry<String,String> entry : entrySet) {
+    DocsEnum termDocsEnum=slowR.termDocsEnum(new Term("id",entry.getKey()));
+    int docId=termDocsEnum.nextDoc();
+    expected=new BytesRef(entry.getValue());
+    docValues.get(docId,actual);
+    assertEquals(expected,actual);
+  }
+  reader.close();
+  w.close();
+  dir.close();
+}

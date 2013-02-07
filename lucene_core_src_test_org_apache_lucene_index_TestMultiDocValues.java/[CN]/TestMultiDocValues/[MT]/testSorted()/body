@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  Document doc=new Document();
+  BytesRef ref=new BytesRef();
+  Field field=new SortedDocValuesField("bytes",ref);
+  doc.add(field);
+  IndexWriterConfig iwc=newIndexWriterConfig(random(),TEST_VERSION_CURRENT,null);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  int numDocs=atLeast(500);
+  for (int i=0; i < numDocs; i++) {
+    ref.copyChars(_TestUtil.randomUnicodeString(random()));
+    iw.addDocument(doc);
+    if (random().nextInt(17) == 0) {
+      iw.commit();
+    }
+  }
+  DirectoryReader ir=iw.getReader();
+  iw.forceMerge(1);
+  DirectoryReader ir2=iw.getReader();
+  AtomicReader merged=getOnlySegmentReader(ir2);
+  iw.close();
+  SortedDocValues multi=MultiDocValues.getSortedValues(ir,"bytes");
+  SortedDocValues single=merged.getSortedDocValues("bytes");
+  assertEquals(single.getValueCount(),multi.getValueCount());
+  BytesRef actual=new BytesRef();
+  BytesRef expected=new BytesRef();
+  for (int i=0; i < numDocs; i++) {
+    assertEquals(single.getOrd(i),multi.getOrd(i));
+    single.get(i,expected);
+    multi.get(i,actual);
+    assertEquals(expected,actual);
+  }
+  ir.close();
+  ir2.close();
+  dir.close();
+}

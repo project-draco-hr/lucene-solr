@@ -1,0 +1,41 @@
+{
+  String dataName=IndexFileNames.segmentFileName(state.segmentInfo.name + "_" + Integer.toString(field.number),segmentSuffix,"dat");
+  String indexName=IndexFileNames.segmentFileName(state.segmentInfo.name + "_" + Integer.toString(field.number),segmentSuffix,"idx");
+  IndexInput data=null;
+  IndexInput index=null;
+  boolean success=false;
+  try {
+    data=dir.openInput(dataName,state.context);
+    CodecUtil.checkHeader(data,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_CODEC_NAME_DAT,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_VERSION_START,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_VERSION_CURRENT);
+    index=dir.openInput(indexName,state.context);
+    CodecUtil.checkHeader(index,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_CODEC_NAME_IDX,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_VERSION_START,Lucene40DocValuesFormat.BYTES_FIXED_DEREF_VERSION_CURRENT);
+    final int fixedLength=data.readInt();
+    final int valueCount=index.readInt();
+    PagedBytes bytes=new PagedBytes(16);
+    bytes.copy(data,fixedLength * (long)valueCount);
+    final PagedBytes.Reader bytesReader=bytes.freeze(true);
+    final PackedInts.Reader reader=PackedInts.getReader(index);
+    if (data.getFilePointer() != data.length()) {
+      throw new CorruptIndexException("did not read all bytes from file \"" + dataName + "\": read "+ data.getFilePointer()+ " vs size "+ data.length()+ " (resource: "+ data+ ")");
+    }
+    if (index.getFilePointer() != index.length()) {
+      throw new CorruptIndexException("did not read all bytes from file \"" + indexName + "\": read "+ index.getFilePointer()+ " vs size "+ index.length()+ " (resource: "+ index+ ")");
+    }
+    success=true;
+    return new BinaryDocValues(){
+      @Override public void get(      int docID,      BytesRef result){
+        final long offset=fixedLength * reader.get(docID);
+        bytesReader.fillSlice(result,offset,fixedLength);
+      }
+    }
+;
+  }
+  finally {
+    if (success) {
+      IOUtils.close(data,index);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(data,index);
+    }
+  }
+}

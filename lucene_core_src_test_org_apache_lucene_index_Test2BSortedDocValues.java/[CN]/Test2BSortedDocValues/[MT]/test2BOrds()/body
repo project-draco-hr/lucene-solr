@@ -1,0 +1,40 @@
+{
+  BaseDirectoryWrapper dir=newFSDirectory(_TestUtil.getTempDir("2BOrds"));
+  if (dir instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir).setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+  }
+  IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH).setRAMBufferSizeMB(256.0).setMergeScheduler(new ConcurrentMergeScheduler()).setMergePolicy(newLogMergePolicy(false,10)).setOpenMode(IndexWriterConfig.OpenMode.CREATE));
+  Document doc=new Document();
+  byte bytes[]=new byte[4];
+  BytesRef data=new BytesRef(bytes);
+  SortedDocValuesField dvField=new SortedDocValuesField("dv",data);
+  doc.add(dvField);
+  long seed=random().nextLong();
+  Random random=new Random(seed);
+  for (int i=0; i < Integer.MAX_VALUE; i++) {
+    random.nextBytes(bytes);
+    w.addDocument(doc);
+    if (i % 100000 == 0) {
+      System.out.println("indexed: " + i);
+      System.out.flush();
+    }
+  }
+  w.forceMerge(1);
+  w.close();
+  System.out.println("verifying...");
+  System.out.flush();
+  DirectoryReader r=DirectoryReader.open(dir);
+  random.setSeed(seed);
+  for (  AtomicReaderContext context : r.leaves()) {
+    AtomicReader reader=context.reader();
+    BytesRef scratch=new BytesRef();
+    BinaryDocValues dv=reader.getSortedDocValues("dv");
+    for (int i=0; i < reader.maxDoc(); i++) {
+      random.nextBytes(bytes);
+      dv.get(i,scratch);
+      assertEquals(data,scratch);
+    }
+  }
+  r.close();
+  dir.close();
+}

@@ -1,0 +1,44 @@
+{
+  Directory dir=newDirectory();
+  final IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  final CountDownLatch startingGun=new CountDownLatch(1);
+  final AtomicBoolean hitExc=new AtomicBoolean();
+  Thread[] threads=new Thread[3];
+  for (int i=0; i < 3; i++) {
+    Field field;
+    if (i == 0) {
+      field=new SortedDocValuesField("foo",new BytesRef("hello"));
+    }
+ else     if (i == 1) {
+      field=new NumericDocValuesField("foo",0);
+    }
+ else {
+      field=new BinaryDocValuesField("foo",new BytesRef("bazz"));
+    }
+    final Document doc=new Document();
+    doc.add(field);
+    threads[i]=new Thread(){
+      @Override public void run(){
+        try {
+          startingGun.await();
+          w.addDocument(doc);
+        }
+ catch (        IllegalArgumentException iae) {
+          hitExc.set(true);
+        }
+catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    threads[i].start();
+  }
+  startingGun.countDown();
+  for (  Thread t : threads) {
+    t.join();
+  }
+  assertTrue(hitExc.get());
+  w.close();
+  dir.close();
+}

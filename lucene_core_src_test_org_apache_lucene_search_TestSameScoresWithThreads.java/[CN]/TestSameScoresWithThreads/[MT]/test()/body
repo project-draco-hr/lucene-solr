@@ -1,0 +1,71 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  LineFileDocs docs=new LineFileDocs(random());
+  int charsToIndex=atLeast(100000);
+  int charsIndexed=0;
+  while (charsIndexed < charsToIndex) {
+    Document doc=docs.nextDoc();
+    charsIndexed+=doc.get("body").length();
+    w.addDocument(doc);
+  }
+  IndexReader r=w.getReader();
+  w.close();
+  final IndexSearcher s=new IndexSearcher(r);
+  Terms terms=MultiFields.getFields(r).terms("body");
+  int termCount=0;
+  TermsEnum termsEnum=terms.iterator(null);
+  while (termsEnum.next() != null) {
+    termCount++;
+  }
+  assertTrue(termCount > 0);
+  double chance=10.0 / termCount;
+  termsEnum=terms.iterator(termsEnum);
+  final Map<BytesRef,TopDocs> answers=new HashMap<BytesRef,TopDocs>();
+  while (termsEnum.next() != null) {
+    if (random().nextDouble() <= chance) {
+      BytesRef term=BytesRef.deepCopyOf(termsEnum.term());
+      answers.put(term,s.search(new TermQuery(new Term("body",term)),100));
+    }
+  }
+  if (!answers.isEmpty()) {
+    final CountDownLatch startingGun=new CountDownLatch(1);
+    int numThreads=_TestUtil.nextInt(random(),2,5);
+    Thread[] threads=new Thread[numThreads];
+    for (int threadID=0; threadID < numThreads; threadID++) {
+      Thread thread=new Thread(){
+        @Override public void run(){
+          try {
+            startingGun.await();
+            for (int i=0; i < 20; i++) {
+              List<Map.Entry<BytesRef,TopDocs>> shuffled=new ArrayList<Map.Entry<BytesRef,TopDocs>>(answers.entrySet());
+              Collections.shuffle(shuffled);
+              for (              Map.Entry<BytesRef,TopDocs> ent : shuffled) {
+                TopDocs actual=s.search(new TermQuery(new Term("body",ent.getKey())),100);
+                TopDocs expected=ent.getValue();
+                assertEquals(expected.totalHits,actual.totalHits);
+                assertEquals("query=" + ent.getKey().utf8ToString(),expected.scoreDocs.length,actual.scoreDocs.length);
+                for (int hit=0; hit < expected.scoreDocs.length; hit++) {
+                  assertEquals(expected.scoreDocs[hit].doc,actual.scoreDocs[hit].doc);
+                  assertTrue(expected.scoreDocs[hit].score == actual.scoreDocs[hit].score);
+                }
+              }
+            }
+          }
+ catch (          Exception e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
+;
+      threads[threadID]=thread;
+      thread.start();
+    }
+    startingGun.countDown();
+    for (    Thread thread : threads) {
+      thread.join();
+    }
+    r.close();
+  }
+  dir.close();
+}

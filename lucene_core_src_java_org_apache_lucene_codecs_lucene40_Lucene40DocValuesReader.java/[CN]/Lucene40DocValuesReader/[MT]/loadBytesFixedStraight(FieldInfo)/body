@@ -1,0 +1,30 @@
+{
+  String fileName=IndexFileNames.segmentFileName(state.segmentInfo.name + "_" + Integer.toString(field.number),segmentSuffix,"dat");
+  IndexInput input=dir.openInput(fileName,state.context);
+  boolean success=false;
+  try {
+    CodecUtil.checkHeader(input,Lucene40DocValuesFormat.BYTES_FIXED_STRAIGHT_CODEC_NAME,Lucene40DocValuesFormat.BYTES_FIXED_STRAIGHT_VERSION_START,Lucene40DocValuesFormat.BYTES_FIXED_STRAIGHT_VERSION_CURRENT);
+    final int fixedLength=input.readInt();
+    PagedBytes bytes=new PagedBytes(16);
+    bytes.copy(input,fixedLength * (long)state.segmentInfo.getDocCount());
+    final PagedBytes.Reader bytesReader=bytes.freeze(true);
+    if (input.getFilePointer() != input.length()) {
+      throw new CorruptIndexException("did not read all bytes from file \"" + fileName + "\": read "+ input.getFilePointer()+ " vs size "+ input.length()+ " (resource: "+ input+ ")");
+    }
+    success=true;
+    return new BinaryDocValues(){
+      @Override public void get(      int docID,      BytesRef result){
+        bytesReader.fillSlice(result,fixedLength * (long)docID,fixedLength);
+      }
+    }
+;
+  }
+  finally {
+    if (success) {
+      IOUtils.close(input);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(input);
+    }
+  }
+}

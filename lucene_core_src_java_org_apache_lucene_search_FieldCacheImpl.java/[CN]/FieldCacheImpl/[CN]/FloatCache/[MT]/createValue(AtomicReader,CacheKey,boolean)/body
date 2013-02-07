@@ -1,0 +1,39 @@
+{
+  final FloatParser parser=(FloatParser)key.custom;
+  if (parser == null) {
+    try {
+      return wrapper.getFloats(reader,key.field,DEFAULT_FLOAT_PARSER,setDocsWithField);
+    }
+ catch (    NumberFormatException ne) {
+      return wrapper.getFloats(reader,key.field,NUMERIC_UTILS_FLOAT_PARSER,setDocsWithField);
+    }
+  }
+  final HoldsOneThing<float[]> valuesRef=new HoldsOneThing<float[]>();
+  Uninvert u=new Uninvert(){
+    private float currentValue;
+    private float[] values;
+    @Override public void visitTerm(    BytesRef term){
+      currentValue=parser.parseFloat(term);
+      if (values == null) {
+        values=new float[reader.maxDoc()];
+        valuesRef.set(values);
+      }
+    }
+    @Override public void visitDoc(    int docID){
+      values[docID]=currentValue;
+    }
+    @Override protected TermsEnum termsEnum(    Terms terms) throws IOException {
+      return parser.termsEnum(terms);
+    }
+  }
+;
+  u.uninvert(reader,key.field,setDocsWithField);
+  if (setDocsWithField) {
+    wrapper.setDocsWithField(reader,key.field,u.docsWithField);
+  }
+  float[] values=valuesRef.get();
+  if (values == null) {
+    values=new float[reader.maxDoc()];
+  }
+  return new FloatsFromArray(values);
+}

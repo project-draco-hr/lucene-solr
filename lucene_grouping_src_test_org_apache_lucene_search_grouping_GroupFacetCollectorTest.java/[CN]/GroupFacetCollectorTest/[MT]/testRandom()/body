@@ -5,8 +5,14 @@
     boolean multipleFacetsPerDocument=random.nextBoolean();
     IndexContext context=createIndexContext(multipleFacetsPerDocument);
     final IndexSearcher searcher=newSearcher(context.indexReader);
+    if (VERBOSE) {
+      System.out.println("TEST: searcher=" + searcher);
+    }
     for (int searchIter=0; searchIter < 100; searchIter++) {
-      boolean useDv=context.useDV && random.nextBoolean();
+      if (VERBOSE) {
+        System.out.println("TEST: searchIter=" + searchIter);
+      }
+      boolean useDv=!multipleFacetsPerDocument && context.useDV && random.nextBoolean();
       String searchTerm=context.contentStrings[random.nextInt(context.contentStrings.length)];
       int limit=random.nextInt(context.facetValues.size());
       int offset=random.nextInt(context.facetValues.size() - limit);
@@ -30,12 +36,13 @@
         }
       }
       GroupedFacetResult expectedFacetResult=createExpectedFacetResult(searchTerm,context,offset,limit,minCount,orderByCount,facetPrefix);
-      AbstractGroupFacetCollector groupFacetCollector=createRandomCollector("group","facet",facetPrefix,multipleFacetsPerDocument,useDv);
+      AbstractGroupFacetCollector groupFacetCollector=createRandomCollector(useDv ? "group_dv" : "group",useDv ? "facet_dv" : "facet",facetPrefix,multipleFacetsPerDocument);
       searcher.search(new TermQuery(new Term("content",searchTerm)),groupFacetCollector);
       TermGroupFacetCollector.GroupedFacetResult actualFacetResult=groupFacetCollector.mergeSegmentResults(size,minCount,orderByCount);
       List<TermGroupFacetCollector.FacetEntry> expectedFacetEntries=expectedFacetResult.getFacetEntries();
       List<TermGroupFacetCollector.FacetEntry> actualFacetEntries=actualFacetResult.getFacetEntries(offset,limit);
       if (VERBOSE) {
+        System.out.println("Use DV: " + useDv);
         System.out.println("Collector: " + groupFacetCollector.getClass().getSimpleName());
         System.out.println("Num group: " + context.numGroups);
         System.out.println("Num doc: " + context.numDocs);
@@ -51,14 +58,14 @@
         System.out.println("\n=== Expected: \n");
         System.out.println("Total count " + expectedFacetResult.getTotalCount());
         System.out.println("Total missing count " + expectedFacetResult.getTotalMissingCount());
-        int counter=1;
+        int counter=0;
         for (        TermGroupFacetCollector.FacetEntry expectedFacetEntry : expectedFacetEntries) {
           System.out.println(String.format(Locale.ROOT,"%d. Expected facet value %s with count %d",counter++,expectedFacetEntry.getValue().utf8ToString(),expectedFacetEntry.getCount()));
         }
         System.out.println("\n=== Actual: \n");
         System.out.println("Total count " + actualFacetResult.getTotalCount());
         System.out.println("Total missing count " + actualFacetResult.getTotalMissingCount());
-        counter=1;
+        counter=0;
         for (        TermGroupFacetCollector.FacetEntry actualFacetEntry : actualFacetEntries) {
           System.out.println(String.format(Locale.ROOT,"%d. Actual facet value %s with count %d",counter++,actualFacetEntry.getValue().utf8ToString(),actualFacetEntry.getCount()));
         }
@@ -70,8 +77,8 @@
       for (int i=0; i < expectedFacetEntries.size(); i++) {
         TermGroupFacetCollector.FacetEntry expectedFacetEntry=expectedFacetEntries.get(i);
         TermGroupFacetCollector.FacetEntry actualFacetEntry=actualFacetEntries.get(i);
-        assertEquals(expectedFacetEntry.getValue().utf8ToString() + " != " + actualFacetEntry.getValue().utf8ToString(),expectedFacetEntry.getValue(),actualFacetEntry.getValue());
-        assertEquals(expectedFacetEntry.getCount() + " != " + actualFacetEntry.getCount(),expectedFacetEntry.getCount(),actualFacetEntry.getCount());
+        assertEquals("i=" + i + ": "+ expectedFacetEntry.getValue().utf8ToString()+ " != "+ actualFacetEntry.getValue().utf8ToString(),expectedFacetEntry.getValue(),actualFacetEntry.getValue());
+        assertEquals("i=" + i + ": "+ expectedFacetEntry.getCount()+ " != "+ actualFacetEntry.getCount(),expectedFacetEntry.getCount(),actualFacetEntry.getCount());
       }
     }
     context.indexReader.close();

@@ -37,7 +37,7 @@
     Directory dir=newDirectory();
     RandomIndexWriter w=new RandomIndexWriter(random(),dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
     boolean canUseIDV=true;
-    Type valueType=vts[random().nextInt(vts.length)];
+    DocValuesType valueType=vts[random().nextInt(vts.length)];
     Document doc=new Document();
     Document docNoGroup=new Document();
     Field group=newStringField("group","",Field.Store.NO);
@@ -45,15 +45,12 @@
     Field valuesField=null;
     if (canUseIDV) {
 switch (valueType) {
-case BYTES_VAR_DEREF:
-        valuesField=new DerefBytesDocValuesField("group",new BytesRef());
+case BINARY:
+        valuesField=new BinaryDocValuesField("group_dv",new BytesRef());
       break;
-case BYTES_VAR_STRAIGHT:
-    valuesField=new StraightBytesDocValuesField("group",new BytesRef());
+case SORTED:
+    valuesField=new SortedDocValuesField("group_dv",new BytesRef());
   break;
-case BYTES_VAR_SORTED:
-valuesField=new SortedBytesDocValuesField("group",new BytesRef());
-break;
 default :
 fail("unhandled type");
 }
@@ -108,10 +105,10 @@ w.addDocument(doc);
 }
 final DirectoryReader r=w.getReader();
 w.close();
-final int[] docIdToFieldId=FieldCache.DEFAULT.getInts(new SlowCompositeReaderWrapper(r),"id",false);
+final FieldCache.Ints docIdToFieldId=FieldCache.DEFAULT.getInts(new SlowCompositeReaderWrapper(r),"id",false);
 final int[] fieldIdToDocID=new int[numDocs];
-for (int i=0; i < docIdToFieldId.length; i++) {
-int fieldId=docIdToFieldId[i];
+for (int i=0; i < numDocs; i++) {
+int fieldId=docIdToFieldId.get(i);
 fieldIdToDocID[fieldId]=i;
 }
 try {
@@ -125,11 +122,11 @@ canUseIDV=true;
 for (int contentID=0; contentID < 3; contentID++) {
 final ScoreDoc[] hits=s.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
 for (ScoreDoc hit : hits) {
-final GroupDoc gd=groupDocs[docIdToFieldId[hit.doc]];
+final GroupDoc gd=groupDocs[docIdToFieldId.get(hit.doc)];
 assertTrue(gd.score == 0.0);
 gd.score=hit.score;
 int docId=gd.id;
-assertEquals(docId,docIdToFieldId[hit.doc]);
+assertEquals(docId,docIdToFieldId.get(hit.doc));
 }
 }
 for (GroupDoc gd : groupDocs) {
@@ -147,7 +144,7 @@ s.search(new TermQuery(new Term("content",searchTerm)),allGroupHeadsCollector);
 int[] expectedGroupHeads=createExpectedGroupHeads(searchTerm,groupDocs,sortWithinGroup,sortByScoreOnly,fieldIdToDocID);
 int[] actualGroupHeads=allGroupHeadsCollector.retrieveGroupHeads();
 for (int i=0; i < actualGroupHeads.length; i++) {
-actualGroupHeads[i]=docIdToFieldId[actualGroupHeads[i]];
+actualGroupHeads[i]=docIdToFieldId.get(actualGroupHeads[i]);
 }
 Arrays.sort(expectedGroupHeads);
 Arrays.sort(actualGroupHeads);
@@ -158,15 +155,15 @@ System.out.println("Num group: " + numGroups);
 System.out.println("Num doc: " + numDocs);
 System.out.println("\n=== Expected: \n");
 for (int expectedDocId : expectedGroupHeads) {
-GroupDoc expectedGroupDoc=groupDocs[expectedDocId];
-String expectedGroup=expectedGroupDoc.group == null ? null : expectedGroupDoc.group.utf8ToString();
-System.out.println(String.format(Locale.ROOT,"Group:%10s score%5f Sort1:%10s Sort2:%10s Sort3:%10s doc:%5d",expectedGroup,expectedGroupDoc.score,expectedGroupDoc.sort1.utf8ToString(),expectedGroupDoc.sort2.utf8ToString(),expectedGroupDoc.sort3.utf8ToString(),expectedDocId));
+  GroupDoc expectedGroupDoc=groupDocs[expectedDocId];
+  String expectedGroup=expectedGroupDoc.group == null ? null : expectedGroupDoc.group.utf8ToString();
+  System.out.println(String.format(Locale.ROOT,"Group:%10s score%5f Sort1:%10s Sort2:%10s Sort3:%10s doc:%5d",expectedGroup,expectedGroupDoc.score,expectedGroupDoc.sort1.utf8ToString(),expectedGroupDoc.sort2.utf8ToString(),expectedGroupDoc.sort3.utf8ToString(),expectedDocId));
 }
 System.out.println("\n=== Actual: \n");
 for (int actualDocId : actualGroupHeads) {
-GroupDoc actualGroupDoc=groupDocs[actualDocId];
-String actualGroup=actualGroupDoc.group == null ? null : actualGroupDoc.group.utf8ToString();
-System.out.println(String.format(Locale.ROOT,"Group:%10s score%5f Sort1:%10s Sort2:%10s Sort3:%10s doc:%5d",actualGroup,actualGroupDoc.score,actualGroupDoc.sort1.utf8ToString(),actualGroupDoc.sort2.utf8ToString(),actualGroupDoc.sort3.utf8ToString(),actualDocId));
+  GroupDoc actualGroupDoc=groupDocs[actualDocId];
+  String actualGroup=actualGroupDoc.group == null ? null : actualGroupDoc.group.utf8ToString();
+  System.out.println(String.format(Locale.ROOT,"Group:%10s score%5f Sort1:%10s Sort2:%10s Sort3:%10s doc:%5d",actualGroup,actualGroupDoc.score,actualGroupDoc.sort1.utf8ToString(),actualGroupDoc.sort2.utf8ToString(),actualGroupDoc.sort3.utf8ToString(),actualDocId));
 }
 System.out.println("\n===================================================================================");
 }

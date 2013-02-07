@@ -1,0 +1,41 @@
+{
+  SortedDocValues instance=sortedInstances.get(field.number);
+  if (instance == null) {
+    String dataName=IndexFileNames.segmentFileName(state.segmentInfo.name + "_" + Integer.toString(field.number),segmentSuffix,"dat");
+    String indexName=IndexFileNames.segmentFileName(state.segmentInfo.name + "_" + Integer.toString(field.number),segmentSuffix,"idx");
+    IndexInput data=null;
+    IndexInput index=null;
+    boolean success=false;
+    try {
+      data=dir.openInput(dataName,state.context);
+      index=dir.openInput(indexName,state.context);
+switch (LegacyDocValuesType.valueOf(field.getAttribute(legacyKey))) {
+case BYTES_FIXED_SORTED:
+        instance=loadBytesFixedSorted(field,data,index);
+      break;
+case BYTES_VAR_SORTED:
+    instance=loadBytesVarSorted(field,data,index);
+  break;
+default :
+throw new AssertionError();
+}
+if (data.getFilePointer() != data.length()) {
+throw new CorruptIndexException("did not read all bytes from file \"" + dataName + "\": read "+ data.getFilePointer()+ " vs size "+ data.length()+ " (resource: "+ data+ ")");
+}
+if (index.getFilePointer() != index.length()) {
+throw new CorruptIndexException("did not read all bytes from file \"" + indexName + "\": read "+ index.getFilePointer()+ " vs size "+ index.length()+ " (resource: "+ index+ ")");
+}
+success=true;
+}
+  finally {
+if (success) {
+IOUtils.close(data,index);
+}
+ else {
+IOUtils.closeWhileHandlingException(data,index);
+}
+}
+sortedInstances.put(field.number,instance);
+}
+return instance;
+}

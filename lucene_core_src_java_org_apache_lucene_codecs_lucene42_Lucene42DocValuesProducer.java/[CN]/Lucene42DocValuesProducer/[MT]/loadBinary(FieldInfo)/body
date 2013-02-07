@@ -1,0 +1,27 @@
+{
+  BinaryEntry entry=binaries.get(field.number);
+  data.seek(entry.offset);
+  PagedBytes bytes=new PagedBytes(16);
+  bytes.copy(data,entry.numBytes);
+  final PagedBytes.Reader bytesReader=bytes.freeze(true);
+  if (entry.minLength == entry.maxLength) {
+    final int fixedLength=entry.minLength;
+    return new BinaryDocValues(){
+      @Override public void get(      int docID,      BytesRef result){
+        bytesReader.fillSlice(result,fixedLength * (long)docID,fixedLength);
+      }
+    }
+;
+  }
+ else {
+    final MonotonicBlockPackedReader addresses=new MonotonicBlockPackedReader(data,entry.packedIntsVersion,entry.blockSize,maxDoc,false);
+    return new BinaryDocValues(){
+      @Override public void get(      int docID,      BytesRef result){
+        long startAddress=docID == 0 ? 0 : addresses.get(docID - 1);
+        long endAddress=addresses.get(docID);
+        bytesReader.fillSlice(result,startAddress,(int)(endAddress - startAddress));
+      }
+    }
+;
+  }
+}

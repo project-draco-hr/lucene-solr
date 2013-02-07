@@ -7,7 +7,7 @@
     sis.read(dir);
   }
  catch (  Throwable t) {
-    msg("ERROR: could not read any segments file in directory");
+    msg(infoStream,"ERROR: could not read any segments file in directory");
     result.missingSegments=true;
     if (infoStream != null)     t.printStackTrace(infoStream);
     return result;
@@ -38,7 +38,7 @@
     input=dir.openInput(segmentsFileName,IOContext.DEFAULT);
   }
  catch (  Throwable t) {
-    msg("ERROR: could not open segments file in directory");
+    msg(infoStream,"ERROR: could not open segments file in directory");
     if (infoStream != null)     t.printStackTrace(infoStream);
     result.cantOpenSegments=true;
     return result;
@@ -48,7 +48,7 @@
     format=input.readInt();
   }
  catch (  Throwable t) {
-    msg("ERROR: could not read segment file version in directory");
+    msg(infoStream,"ERROR: could not read segment file version in directory");
     if (infoStream != null)     t.printStackTrace(infoStream);
     result.missingSegmentVersion=true;
     return result;
@@ -80,7 +80,7 @@
  else {
     versionString=oldest.equals(newest) ? ("version=" + oldest) : ("versions=[" + oldest + " .. "+ newest+ "]");
   }
-  msg("Segments file=" + segmentsFileName + " numSegments="+ numSegments+ " "+ versionString+ " format="+ sFormat+ userDataString);
+  msg(infoStream,"Segments file=" + segmentsFileName + " numSegments="+ numSegments+ " "+ versionString+ " format="+ sFormat+ userDataString);
   if (onlySegments != null) {
     result.partial=true;
     if (infoStream != null)     infoStream.print("\nChecking only these segments:");
@@ -88,10 +88,10 @@
       if (infoStream != null)       infoStream.print(" " + s);
     }
     result.segmentsChecked.addAll(onlySegments);
-    msg(":");
+    msg(infoStream,":");
   }
   if (skip) {
-    msg("\nERROR: this index appears to be created by a newer version of Lucene than this tool was compiled on; please re-compile this tool on the matching version of Lucene; exiting");
+    msg(infoStream,"\nERROR: this index appears to be created by a newer version of Lucene than this tool was compiled on; please re-compile this tool on the matching version of Lucene; exiting");
     result.toolOutOfDate=true;
     return result;
   }
@@ -109,32 +109,36 @@
     }
     Status.SegmentInfoStatus segInfoStat=new Status.SegmentInfoStatus();
     result.segmentInfos.add(segInfoStat);
-    msg("  " + (1 + i) + " of "+ numSegments+ ": name="+ info.info.name+ " docCount="+ info.info.getDocCount());
+    msg(infoStream,"  " + (1 + i) + " of "+ numSegments+ ": name="+ info.info.name+ " docCount="+ info.info.getDocCount());
     segInfoStat.name=info.info.name;
     segInfoStat.docCount=info.info.getDocCount();
     int toLoseDocCount=info.info.getDocCount();
-    SegmentReader reader=null;
+    AtomicReader reader=null;
     try {
       final Codec codec=info.info.getCodec();
-      msg("    codec=" + codec);
+      msg(infoStream,"    codec=" + codec);
       segInfoStat.codec=codec;
-      msg("    compound=" + info.info.getUseCompoundFile());
+      msg(infoStream,"    compound=" + info.info.getUseCompoundFile());
       segInfoStat.compound=info.info.getUseCompoundFile();
-      msg("    numFiles=" + info.files().size());
+      msg(infoStream,"    numFiles=" + info.files().size());
       segInfoStat.numFiles=info.files().size();
       segInfoStat.sizeMB=info.sizeInBytes() / (1024. * 1024.);
-      msg("    size (MB)=" + nf.format(segInfoStat.sizeMB));
+      msg(infoStream,"    size (MB)=" + nf.format(segInfoStat.sizeMB));
       Map<String,String> diagnostics=info.info.getDiagnostics();
       segInfoStat.diagnostics=diagnostics;
       if (diagnostics.size() > 0) {
-        msg("    diagnostics = " + diagnostics);
+        msg(infoStream,"    diagnostics = " + diagnostics);
+      }
+      Map<String,String> atts=info.info.attributes();
+      if (atts != null && !atts.isEmpty()) {
+        msg(infoStream,"    attributes = " + atts);
       }
       if (!info.hasDeletions()) {
-        msg("    no deletions");
+        msg(infoStream,"    no deletions");
         segInfoStat.hasDeletions=false;
       }
  else {
-        msg("    has deletions [delGen=" + info.getDelGen() + "]");
+        msg(infoStream,"    has deletions [delGen=" + info.getDelGen() + "]");
         segInfoStat.hasDeletions=true;
         segInfoStat.deletionsGen=info.getDelGen();
       }
@@ -169,7 +173,7 @@
           }
         }
         segInfoStat.numDeleted=info.info.getDocCount() - numDocs;
-        msg("OK [" + (segInfoStat.numDeleted) + " deleted docs]");
+        msg(infoStream,"OK [" + (segInfoStat.numDeleted) + " deleted docs]");
       }
  else {
         if (info.getDelCount() != 0) {
@@ -183,7 +187,7 @@
             }
           }
         }
-        msg("OK");
+        msg(infoStream,"OK");
       }
       if (reader.maxDoc() != info.info.getDocCount()) {
         throw new RuntimeException("SegmentReader.maxDoc() " + reader.maxDoc() + " != SegmentInfos.docCount "+ info.info.getDocCount());
@@ -192,13 +196,13 @@
         infoStream.print("    test: fields..............");
       }
       FieldInfos fieldInfos=reader.getFieldInfos();
-      msg("OK [" + fieldInfos.size() + " fields]");
+      msg(infoStream,"OK [" + fieldInfos.size() + " fields]");
       segInfoStat.numFields=fieldInfos.size();
-      segInfoStat.fieldNormStatus=testFieldNorms(fieldInfos,reader);
-      segInfoStat.termIndexStatus=testPostings(fieldInfos,reader);
-      segInfoStat.storedFieldStatus=testStoredFields(info,reader,nf);
-      segInfoStat.termVectorStatus=testTermVectors(fieldInfos,info,reader,nf);
-      segInfoStat.docValuesStatus=testDocValues(info,fieldInfos,reader);
+      segInfoStat.fieldNormStatus=testFieldNorms(reader,infoStream);
+      segInfoStat.termIndexStatus=testPostings(reader,infoStream,verbose);
+      segInfoStat.storedFieldStatus=testStoredFields(reader,infoStream);
+      segInfoStat.termVectorStatus=testTermVectors(reader,infoStream,verbose,crossCheckTermVectors);
+      segInfoStat.docValuesStatus=testDocValues(reader,infoStream);
       if (segInfoStat.fieldNormStatus.error != null) {
         throw new RuntimeException("Field Norm test failed");
       }
@@ -214,15 +218,15 @@
  else       if (segInfoStat.docValuesStatus.error != null) {
         throw new RuntimeException("DocValues test failed");
       }
-      msg("");
+      msg(infoStream,"");
     }
  catch (    Throwable t) {
-      msg("FAILED");
+      msg(infoStream,"FAILED");
       String comment;
       comment="fixIndex() would remove reference to this segment";
-      msg("    WARNING: " + comment + "; full exception:");
+      msg(infoStream,"    WARNING: " + comment + "; full exception:");
       if (infoStream != null)       t.printStackTrace(infoStream);
-      msg("");
+      msg(infoStream,"");
       result.totLoseDocCount+=toLoseDocCount;
       result.numBadSegments++;
       continue;
@@ -235,14 +239,14 @@
   if (0 == result.numBadSegments) {
     result.clean=true;
   }
- else   msg("WARNING: " + result.numBadSegments + " broken segments (containing "+ result.totLoseDocCount+ " documents) detected");
+ else   msg(infoStream,"WARNING: " + result.numBadSegments + " broken segments (containing "+ result.totLoseDocCount+ " documents) detected");
   if (!(result.validCounter=(result.maxSegmentName < sis.counter))) {
     result.clean=false;
     result.newSegments.counter=result.maxSegmentName + 1;
-    msg("ERROR: Next segment name counter " + sis.counter + " is not greater than max segment name "+ result.maxSegmentName);
+    msg(infoStream,"ERROR: Next segment name counter " + sis.counter + " is not greater than max segment name "+ result.maxSegmentName);
   }
   if (result.clean) {
-    msg("No problems were detected with this index.\n");
+    msg(infoStream,"No problems were detected with this index.\n");
   }
   return result;
 }
