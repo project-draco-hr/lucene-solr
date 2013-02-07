@@ -1,0 +1,26 @@
+{
+  DirectoryReader indexReader=DirectoryReader.open(indexDir);
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
+  IndexSearcher searcher=new IndexSearcher(indexReader);
+  FacetSearchParams fsp=new FacetSearchParams(new CountFacetRequest(CP_A,NUM_CHILDREN_CP_A),new CountFacetRequest(CP_B,NUM_CHILDREN_CP_B));
+  FacetsCollector fc=FacetsCollector.create(randomAccumulator(fsp,indexReader,taxoReader));
+  searcher.search(new MatchAllDocsQuery(),fc);
+  List<FacetResult> facetResults=fc.getFacetResults();
+  assertEquals("invalid number of facet results",2,facetResults.size());
+  for (  FacetResult res : facetResults) {
+    FacetResultNode root=res.getFacetResultNode();
+    assertEquals("wrong count for " + root.label,allExpectedCounts.get(root.label),(int)root.value);
+    int prevValue=Integer.MAX_VALUE;
+    int prevOrdinal=Integer.MAX_VALUE;
+    for (    FacetResultNode child : root.subResults) {
+      assertEquals("wrong count for " + child.label,allExpectedCounts.get(child.label),(int)child.value);
+      assertTrue("wrong sort order of sub results: child.value=" + child.value + " prevValue="+ prevValue,child.value <= prevValue);
+      if (child.value == prevValue) {
+        assertTrue("wrong sort order of sub results",child.ordinal < prevOrdinal);
+      }
+      prevValue=(int)child.value;
+      prevOrdinal=child.ordinal;
+    }
+  }
+  IOUtils.close(indexReader,taxoReader);
+}

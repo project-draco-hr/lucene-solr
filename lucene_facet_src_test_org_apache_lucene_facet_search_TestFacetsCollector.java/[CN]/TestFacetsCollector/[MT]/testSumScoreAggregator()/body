@@ -1,0 +1,32 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  TaxonomyWriter taxonomyWriter=new DirectoryTaxonomyWriter(taxoDir);
+  IndexWriter iw=new IndexWriter(indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  FacetFields facetFields=new FacetFields(taxonomyWriter);
+  for (int i=atLeast(30); i > 0; --i) {
+    Document doc=new Document();
+    doc.add(new StringField("f","v",Store.NO));
+    facetFields.addFields(doc,Collections.singletonList(new CategoryPath("a")));
+    iw.addDocument(doc);
+  }
+  taxonomyWriter.close();
+  iw.close();
+  DirectoryReader r=DirectoryReader.open(indexDir);
+  DirectoryTaxonomyReader taxo=new DirectoryTaxonomyReader(taxoDir);
+  FacetSearchParams sParams=new FacetSearchParams(new SumScoreFacetRequest(new CategoryPath("a"),10));
+  FacetsAccumulator fa=new FacetsAccumulator(sParams,r,taxo){
+    @Override public FacetsAggregator getAggregator(){
+      return new SumScoreFacetsAggregator();
+    }
+  }
+;
+  FacetsCollector fc=FacetsCollector.create(fa);
+  TopScoreDocCollector topDocs=TopScoreDocCollector.create(10,false);
+  new IndexSearcher(r).search(new MatchAllDocsQuery(),MultiCollector.wrap(fc,topDocs));
+  List<FacetResult> res=fc.getFacetResults();
+  double value=res.get(0).getFacetResultNode().value;
+  double expected=topDocs.topDocs().getMaxScore() * r.numDocs();
+  assertEquals(expected,value,1E-10);
+  IOUtils.close(taxo,taxoDir,r,indexDir);
+}
