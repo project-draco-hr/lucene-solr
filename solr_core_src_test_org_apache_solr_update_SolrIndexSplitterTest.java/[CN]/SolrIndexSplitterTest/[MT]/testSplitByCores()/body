@@ -1,0 +1,45 @@
+{
+  String id1="dorothy";
+  assertU(adoc("id",id1));
+  String id2="kansas";
+  assertU(adoc("id",id2));
+  assertU(commit());
+  assertJQ(req("q","*:*"),"/response/numFound==2");
+  List<DocRouter.Range> ranges=getRanges(id1,id2);
+  SolrCore core1=null, core2=null;
+  try {
+    CoreDescriptor dcore1=new CoreDescriptor(h.getCoreContainer(),"split1",h.getCore().getCoreDescriptor().getInstanceDir());
+    dcore1.setDataDir(indexDir1.getAbsolutePath());
+    dcore1.setSchemaName("schema12.xml");
+    core1=h.getCoreContainer().create(dcore1);
+    h.getCoreContainer().register(core1,false);
+    CoreDescriptor dcore2=new CoreDescriptor(h.getCoreContainer(),"split2",h.getCore().getCoreDescriptor().getInstanceDir());
+    dcore2.setDataDir(indexDir2.getAbsolutePath());
+    dcore2.setSchemaName("schema12.xml");
+    core2=h.getCoreContainer().create(dcore2);
+    h.getCoreContainer().register(core2,false);
+    LocalSolrQueryRequest request=null;
+    try {
+      request=lrf.makeRequest("q","dummy");
+      SplitIndexCommand command=new SplitIndexCommand(request,null,Lists.newArrayList(core1,core2),ranges);
+      new SolrIndexSplitter(command).split();
+    }
+  finally {
+      if (request != null)       request.close();
+    }
+    EmbeddedSolrServer server1=new EmbeddedSolrServer(h.getCoreContainer(),"split1");
+    EmbeddedSolrServer server2=new EmbeddedSolrServer(h.getCoreContainer(),"split2");
+    server1.commit(true,true);
+    server2.commit(true,true);
+    assertEquals("id:dorothy should be present in split index1",1,server1.query(new SolrQuery("id:dorothy")).getResults().getNumFound());
+    assertEquals("id:kansas should not be present in split index1",0,server1.query(new SolrQuery("id:kansas")).getResults().getNumFound());
+    assertEquals("id:dorothy should not be present in split index2",0,server2.query(new SolrQuery("id:dorothy")).getResults().getNumFound());
+    assertEquals("id:kansas should be present in split index2",1,server2.query(new SolrQuery("id:kansas")).getResults().getNumFound());
+  }
+  finally {
+    h.getCoreContainer().remove("split2");
+    h.getCoreContainer().remove("split1");
+    if (core2 != null)     core2.close();
+    if (core1 != null)     core1.close();
+  }
+}
