@@ -16,17 +16,23 @@ synchronized (this) {
   final Arc<Long> scratchArc=new Arc<Long>();
   final IntsRef scratchInts=new IntsRef();
   final BytesRefFSTEnum<Long> fstEnum=new BytesRefFSTEnum<Long>(fst);
+  final BytesRef ref=new BytesRef();
+  final ByteArrayDataInput input=new ByteArrayDataInput();
   return new SortedSetDocValues(){
-    @Override public OrdIterator getOrds(    int docID,    OrdIterator reuse){
-      final Lucene42OrdsIterator iterator;
-      if (reuse instanceof Lucene42OrdsIterator) {
-        iterator=(Lucene42OrdsIterator)reuse;
+    long currentOrd;
+    @Override public long nextOrd(){
+      if (input.eof()) {
+        return NO_MORE_ORDS;
       }
  else {
-        iterator=new Lucene42OrdsIterator(docToOrds);
+        currentOrd+=input.readVLong();
+        return currentOrd;
       }
-      iterator.reset(docToOrds,docID);
-      return iterator;
+    }
+    @Override public void setDocument(    int docID){
+      docToOrds.get(docID,ref);
+      input.reset(ref.bytes,ref.offset,ref.length);
+      currentOrd=0;
     }
     @Override public void lookupOrd(    long ord,    BytesRef result){
       try {
