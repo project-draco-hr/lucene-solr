@@ -1,12 +1,12 @@
 {
   int groupOrd=groupFieldTermsIndex.getOrd(doc);
-  if (facetFieldDocTermOrds.isEmpty()) {
-    int segmentGroupedFacetsIndex=groupOrd * (facetFieldDocTermOrds.numTerms() + 1);
+  if (facetFieldNumTerms == 0) {
+    int segmentGroupedFacetsIndex=groupOrd * (facetFieldNumTerms + 1);
     if (facetPrefix != null || segmentGroupedFacetHits.exists(segmentGroupedFacetsIndex)) {
       return;
     }
     segmentTotalCount++;
-    segmentFacetCounts[facetFieldDocTermOrds.numTerms()]++;
+    segmentFacetCounts[facetFieldNumTerms]++;
     segmentGroupedFacetHits.put(segmentGroupedFacetsIndex);
     BytesRef groupKey;
     if (groupOrd == -1) {
@@ -19,41 +19,14 @@
     groupedFacetHits.add(new GroupedFacetHit(groupKey,null));
     return;
   }
-  if (facetOrdTermsEnum != null) {
-    reuse=facetFieldDocTermOrds.lookup(doc,reuse);
+  facetFieldDocTermOrds.setDocument(doc);
+  long ord;
+  boolean empty=true;
+  while ((ord=facetFieldDocTermOrds.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+    process(groupOrd,(int)ord);
+    empty=false;
   }
-  int chunk;
-  boolean first=true;
-  int[] buffer=new int[5];
-  do {
-    chunk=reuse != null ? reuse.read(buffer) : 0;
-    if (first && chunk == 0) {
-      chunk=1;
-      buffer[0]=facetFieldDocTermOrds.numTerms();
-    }
-    first=false;
-    for (int pos=0; pos < chunk; pos++) {
-      int facetOrd=buffer[pos];
-      if (facetOrd < startFacetOrd || facetOrd >= endFacetOrd) {
-        continue;
-      }
-      int segmentGroupedFacetsIndex=groupOrd * (facetFieldDocTermOrds.numTerms() + 1) + facetOrd;
-      if (segmentGroupedFacetHits.exists(segmentGroupedFacetsIndex)) {
-        continue;
-      }
-      segmentTotalCount++;
-      segmentFacetCounts[facetOrd]++;
-      segmentGroupedFacetHits.put(segmentGroupedFacetsIndex);
-      BytesRef groupKey;
-      if (groupOrd == -1) {
-        groupKey=null;
-      }
- else {
-        groupKey=new BytesRef();
-        groupFieldTermsIndex.lookupOrd(groupOrd,groupKey);
-      }
-      groupedFacetHits.add(new GroupedFacetHit(groupKey,facetOrd == facetFieldDocTermOrds.numTerms() ? null : BytesRef.deepCopyOf(facetFieldDocTermOrds.lookupTerm(facetOrdTermsEnum,facetOrd))));
-    }
+  if (empty) {
+    process(groupOrd,facetFieldNumTerms);
   }
- while (chunk >= buffer.length);
 }
