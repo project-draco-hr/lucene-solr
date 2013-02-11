@@ -1,0 +1,67 @@
+{
+  final FSTEntry entry=fsts.get(field.number);
+  FST<Long> instance;
+synchronized (this) {
+    instance=fstInstances.get(field.number);
+    if (instance == null) {
+      data.seek(entry.offset);
+      instance=new FST<Long>(data,PositiveIntOutputs.getSingleton(true));
+      fstInstances.put(field.number,instance);
+    }
+  }
+  final BinaryDocValues docToOrds=getBinary(field);
+  final FST<Long> fst=instance;
+  final BytesReader in=fst.getBytesReader();
+  final Arc<Long> firstArc=new Arc<Long>();
+  final Arc<Long> scratchArc=new Arc<Long>();
+  final IntsRef scratchInts=new IntsRef();
+  final BytesRefFSTEnum<Long> fstEnum=new BytesRefFSTEnum<Long>(fst);
+  return new SortedSetDocValues(){
+    @Override public OrdIterator getOrds(    int docID,    OrdIterator reuse){
+      final Lucene42OrdsIterator iterator;
+      if (reuse instanceof Lucene42OrdsIterator) {
+        iterator=(Lucene42OrdsIterator)reuse;
+      }
+ else {
+        iterator=new Lucene42OrdsIterator(docToOrds);
+      }
+      iterator.reset(docID);
+      return iterator;
+    }
+    @Override public void lookupOrd(    long ord,    BytesRef result){
+      try {
+        in.setPosition(0);
+        fst.getFirstArc(firstArc);
+        IntsRef output=Util.getByOutput(fst,ord,in,firstArc,scratchArc,scratchInts);
+        result.bytes=new byte[output.length];
+        result.offset=0;
+        result.length=0;
+        Util.toBytesRef(output,result);
+      }
+ catch (      IOException bogus) {
+        throw new RuntimeException(bogus);
+      }
+    }
+    @Override public long lookupTerm(    BytesRef key){
+      try {
+        InputOutput<Long> o=fstEnum.seekCeil(key);
+        if (o == null) {
+          return -getValueCount() - 1;
+        }
+ else         if (o.input.equals(key)) {
+          return o.output.intValue();
+        }
+ else {
+          return -o.output - 1;
+        }
+      }
+ catch (      IOException bogus) {
+        throw new RuntimeException(bogus);
+      }
+    }
+    @Override public long getValueCount(){
+      return entry.numOrds;
+    }
+  }
+;
+}
