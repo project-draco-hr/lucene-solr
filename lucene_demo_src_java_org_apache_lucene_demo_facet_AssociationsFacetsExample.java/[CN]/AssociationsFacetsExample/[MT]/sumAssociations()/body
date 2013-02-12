@@ -1,0 +1,23 @@
+{
+  DirectoryReader indexReader=DirectoryReader.open(indexDir);
+  IndexSearcher searcher=new IndexSearcher(indexReader);
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
+  CategoryPath tags=new CategoryPath("tags");
+  CategoryPath genre=new CategoryPath("genre");
+  FacetSearchParams fsp=new FacetSearchParams(new AssociationIntSumFacetRequest(tags,10),new AssociationFloatSumFacetRequest(genre,10));
+  final Map<CategoryPath,FacetsAggregator> aggregators=new HashMap<CategoryPath,FacetsAggregator>();
+  aggregators.put(tags,new SumIntAssociationFacetsAggregator());
+  aggregators.put(genre,new SumFloatAssociationFacetsAggregator());
+  FacetsAccumulator fa=new FacetsAccumulator(fsp,indexReader,taxoReader){
+    @Override public FacetsAggregator getAggregator(){
+      return new MultiAssociationsFacetsAggregator(aggregators);
+    }
+  }
+;
+  FacetsCollector fc=FacetsCollector.create(fa);
+  searcher.search(new MatchAllDocsQuery(),fc);
+  List<FacetResult> facetResults=fc.getFacetResults();
+  indexReader.close();
+  taxoReader.close();
+  return facetResults;
+}
