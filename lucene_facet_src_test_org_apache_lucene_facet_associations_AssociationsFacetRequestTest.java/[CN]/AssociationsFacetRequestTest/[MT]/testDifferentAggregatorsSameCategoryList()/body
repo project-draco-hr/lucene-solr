@@ -2,14 +2,27 @@
   DirectoryTaxonomyReader taxo=new DirectoryTaxonomyReader(taxoDir);
   FacetSearchParams fsp=new FacetSearchParams(new AssociationIntSumFacetRequest(aint,10),new AssociationIntSumFacetRequest(bint,10),new AssociationFloatSumFacetRequest(afloat,10),new AssociationFloatSumFacetRequest(bfloat,10));
   Query q=new MatchAllDocsQuery();
-  FacetsCollector fc=FacetsCollector.create(fsp,reader,taxo);
+  final SumIntAssociationFacetsAggregator sumInt=new SumIntAssociationFacetsAggregator();
+  final SumFloatAssociationFacetsAggregator sumFloat=new SumFloatAssociationFacetsAggregator();
+  final Map<CategoryPath,FacetsAggregator> aggregators=new HashMap<CategoryPath,FacetsAggregator>();
+  aggregators.put(aint,sumInt);
+  aggregators.put(bint,sumInt);
+  aggregators.put(afloat,sumFloat);
+  aggregators.put(bfloat,sumFloat);
+  FacetsAccumulator fa=new FacetsAccumulator(fsp,reader,taxo){
+    @Override public FacetsAggregator getAggregator(){
+      return new MultiAssociationsFacetsAggregator(aggregators);
+    }
+  }
+;
+  FacetsCollector fc=FacetsCollector.create(fa);
   IndexSearcher searcher=newSearcher(reader);
   searcher.search(q,fc);
-  try {
-    fc.getFacetResults();
-    fail("different aggregators for same category list should not be supported");
-  }
- catch (  RuntimeException e) {
-  }
+  List<FacetResult> res=fc.getFacetResults();
+  assertEquals("Wrong number of results!",4,res.size());
+  assertEquals("Wrong count for category 'a'!",200,(int)res.get(0).getFacetResultNode().value);
+  assertEquals("Wrong count for category 'b'!",150,(int)res.get(1).getFacetResultNode().value);
+  assertEquals("Wrong count for category 'a'!",50f,(float)res.get(2).getFacetResultNode().value,0.00001);
+  assertEquals("Wrong count for category 'b'!",10f,(float)res.get(3).getFacetResultNode().value,0.00001);
   taxo.close();
 }
