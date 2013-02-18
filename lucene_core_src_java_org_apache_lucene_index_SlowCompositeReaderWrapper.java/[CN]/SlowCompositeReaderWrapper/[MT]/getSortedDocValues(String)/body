@@ -1,2 +1,34 @@
 {
+  ensureOpen();
+  OrdinalMap map=null;
+synchronized (cachedOrdMaps) {
+    map=cachedOrdMaps.get(field);
+    if (map == null) {
+      SortedDocValues dv=MultiDocValues.getSortedValues(in,field);
+      if (dv instanceof MultiSortedDocValues) {
+        map=((MultiSortedDocValues)dv).mapping;
+        if (map.owner == getCoreCacheKey()) {
+          cachedOrdMaps.put(field,map);
+        }
+      }
+      return dv;
+    }
+  }
+  if (getFieldInfos().fieldInfo(field).getDocValuesType() != DocValuesType.SORTED) {
+    return null;
+  }
+  int size=in.leaves().size();
+  final SortedDocValues[] values=new SortedDocValues[size];
+  final int[] starts=new int[size + 1];
+  for (int i=0; i < size; i++) {
+    AtomicReaderContext context=in.leaves().get(i);
+    SortedDocValues v=context.reader().getSortedDocValues(field);
+    if (v == null) {
+      v=SortedDocValues.EMPTY;
+    }
+    values[i]=v;
+    starts[i]=context.docBase;
+  }
+  starts[size]=maxDoc();
+  return new MultiSortedDocValues(values,starts,map);
 }
