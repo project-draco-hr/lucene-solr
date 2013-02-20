@@ -41,29 +41,23 @@
       }
     }
   }
-  TermOrdsIterator iter=null;
-  final int[] buffer=new int[5];
+  SortedSetDocValues iter=dto.iterator(te);
   for (int docID=0; docID < r.maxDoc(); docID++) {
     if (VERBOSE) {
       System.out.println("TEST: docID=" + docID + " of "+ r.maxDoc()+ " (id="+ docIDToID.get(docID)+ ")");
     }
-    iter=dto.lookup(docID,iter);
+    iter.setDocument(docID);
     final int[] answers=idToOrds[docIDToID.get(docID)];
     int upto=0;
-    while (true) {
-      final int chunk=iter.read(buffer);
-      for (int idx=0; idx < chunk; idx++) {
-        te.seekExact((long)buffer[idx]);
-        final BytesRef expected=termsArray[answers[upto++]];
-        if (VERBOSE) {
-          System.out.println("  exp=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString());
-        }
-        assertEquals("expected=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString()+ " ord="+ buffer[idx],expected,te.term());
+    long ord;
+    while ((ord=iter.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+      te.seekExact(ord);
+      final BytesRef expected=termsArray[answers[upto++]];
+      if (VERBOSE) {
+        System.out.println("  exp=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString());
       }
-      if (chunk < buffer.length) {
-        assertEquals(answers.length,upto);
-        break;
-      }
+      assertEquals("expected=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString()+ " ord="+ ord,expected,te.term());
     }
+    assertEquals(answers.length,upto);
   }
 }

@@ -1,33 +1,45 @@
 {
-  final SortedBytesMerger merger=new SortedBytesMerger();
-  merger.merge(mergeState,toMerge);
+  final AtomicReader readers[]=mergeState.readers.toArray(new AtomicReader[toMerge.size()]);
+  final SortedDocValues dvs[]=toMerge.toArray(new SortedDocValues[toMerge.size()]);
+  TermsEnum liveTerms[]=new TermsEnum[dvs.length];
+  for (int sub=0; sub < liveTerms.length; sub++) {
+    AtomicReader reader=readers[sub];
+    SortedDocValues dv=dvs[sub];
+    Bits liveDocs=reader.getLiveDocs();
+    if (liveDocs == null) {
+      liveTerms[sub]=new SortedDocValuesTermsEnum(dv);
+    }
+ else {
+      OpenBitSet bitset=new OpenBitSet(dv.getValueCount());
+      for (int i=0; i < reader.maxDoc(); i++) {
+        if (liveDocs.get(i)) {
+          bitset.set(dv.getOrd(i));
+        }
+      }
+      liveTerms[sub]=new BitsFilteredTermsEnum(new SortedDocValuesTermsEnum(dv),bitset);
+    }
+  }
+  final OrdinalMap map=new OrdinalMap(this,liveTerms);
   addSortedField(fieldInfo,new Iterable<BytesRef>(){
     @Override public Iterator<BytesRef> iterator(){
-      final AppendingLongBuffer.Iterator readerIDs=merger.ordToReaderId.iterator();
-      final AppendingLongBuffer.Iterator ordDeltas[]=new AppendingLongBuffer.Iterator[merger.segStates.size()];
-      final int lastOrds[]=new int[ordDeltas.length];
-      for (int i=0; i < ordDeltas.length; i++) {
-        ordDeltas[i]=merger.segStates.get(i).ordDeltas.iterator();
-      }
-      final BytesRef scratch=new BytesRef();
       return new Iterator<BytesRef>(){
-        int ordUpto;
+        final BytesRef scratch=new BytesRef();
+        int currentOrd;
         @Override public boolean hasNext(){
-          return ordUpto < merger.numMergedTerms;
-        }
-        @Override public void remove(){
-          throw new UnsupportedOperationException();
+          return currentOrd < map.getValueCount();
         }
         @Override public BytesRef next(){
           if (!hasNext()) {
             throw new NoSuchElementException();
           }
-          int readerID=(int)readerIDs.next();
-          int ord=lastOrds[readerID] + (int)ordDeltas[readerID].next();
-          merger.segStates.get(readerID).values.lookupOrd(ord,scratch);
-          lastOrds[readerID]=ord;
-          ordUpto++;
+          int segmentNumber=map.getSegmentNumber(currentOrd);
+          int segmentOrd=(int)map.getSegmentOrd(segmentNumber,currentOrd);
+          dvs[segmentNumber].lookupOrd(segmentOrd,scratch);
+          currentOrd++;
           return scratch;
+        }
+        @Override public void remove(){
+          throw new UnsupportedOperationException();
         }
       }
 ;
@@ -39,7 +51,7 @@
         int readerUpto=-1;
         int docIDUpto;
         int nextValue;
-        SortedBytesMerger.SegmentState currentReader;
+        AtomicReader currentReader;
         Bits currentLiveDocs;
         boolean nextIsSet;
         @Override public boolean hasNext(){
@@ -58,22 +70,22 @@
         }
         private boolean setNext(){
           while (true) {
-            if (readerUpto == merger.segStates.size()) {
+            if (readerUpto == readers.length) {
               return false;
             }
-            if (currentReader == null || docIDUpto == currentReader.reader.maxDoc()) {
+            if (currentReader == null || docIDUpto == currentReader.maxDoc()) {
               readerUpto++;
-              if (readerUpto < merger.segStates.size()) {
-                currentReader=merger.segStates.get(readerUpto);
-                currentLiveDocs=currentReader.reader.getLiveDocs();
+              if (readerUpto < readers.length) {
+                currentReader=readers[readerUpto];
+                currentLiveDocs=currentReader.getLiveDocs();
               }
               docIDUpto=0;
               continue;
             }
             if (currentLiveDocs == null || currentLiveDocs.get(docIDUpto)) {
               nextIsSet=true;
-              int segOrd=currentReader.values.getOrd(docIDUpto);
-              nextValue=(int)(segOrd + currentReader.segOrdToMergedOrd.get(segOrd));
+              int segOrd=dvs[readerUpto].getOrd(docIDUpto);
+              nextValue=(int)map.getGlobalOrd(readerUpto,segOrd);
               docIDUpto++;
               return true;
             }

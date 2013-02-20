@@ -1,0 +1,42 @@
+{
+  final long valueCount=binaries.get(field.number).count;
+  final LongBinaryDocValues binary=(LongBinaryDocValues)getBinary(field);
+  final LongNumericDocValues ordinals=getNumeric(ords.get(field.number));
+  final MonotonicBlockPackedReader ordIndex;
+synchronized (ordIndexInstances) {
+    MonotonicBlockPackedReader ordIndexInstance=ordIndexInstances.get(field.number);
+    if (ordIndexInstance == null) {
+      NumericEntry entry=ordIndexes.get(field.number);
+      IndexInput data=this.data.clone();
+      data.seek(entry.offset);
+      ordIndexInstance=new MonotonicBlockPackedReader(data,entry.packedIntsVersion,entry.blockSize,entry.count,false);
+      ordIndexInstances.put(field.number,ordIndexInstance);
+    }
+    ordIndex=ordIndexInstance;
+  }
+  return new SortedSetDocValues(){
+    long offset;
+    long endOffset;
+    @Override public long nextOrd(){
+      if (offset == endOffset) {
+        return NO_MORE_ORDS;
+      }
+ else {
+        long ord=ordinals.get(offset);
+        offset++;
+        return ord;
+      }
+    }
+    @Override public void setDocument(    int docID){
+      offset=(docID == 0 ? 0 : ordIndex.get(docID - 1));
+      endOffset=ordIndex.get(docID);
+    }
+    @Override public void lookupOrd(    long ord,    BytesRef result){
+      binary.get(ord,result);
+    }
+    @Override public long getValueCount(){
+      return valueCount;
+    }
+  }
+;
+}
