@@ -1,0 +1,61 @@
+{
+  final Weight baseWeight=baseQuery.createWeight(searcher);
+  return new Weight(){
+    @Override public Explanation explain(    AtomicReaderContext context,    int doc) throws IOException {
+      return baseWeight.explain(context,doc);
+    }
+    @Override public Query getQuery(){
+      return baseQuery;
+    }
+    @Override public float getValueForNormalization() throws IOException {
+      return baseWeight.getValueForNormalization();
+    }
+    @Override public void normalize(    float norm,    float topLevelBoost){
+      baseWeight.normalize(norm,topLevelBoost);
+    }
+    @Override public boolean scoresDocsOutOfOrder(){
+      return false;
+    }
+    @Override public Scorer scorer(    AtomicReaderContext context,    boolean scoreDocsInOrder,    boolean topScorer,    Bits acceptDocs) throws IOException {
+      DrillSidewaysScorer.DocsEnumsAndFreq[] dims=new DrillSidewaysScorer.DocsEnumsAndFreq[drillDownTerms.length];
+      TermsEnum termsEnum=null;
+      String lastField=null;
+      int nullCount=0;
+      for (int dim=0; dim < dims.length; dim++) {
+        dims[dim]=new DrillSidewaysScorer.DocsEnumsAndFreq();
+        dims[dim].sidewaysCollector=drillSidewaysCollectors[dim];
+        String field=drillDownTerms[dim][0].field();
+        dims[dim].dim=drillDownTerms[dim][0].text();
+        if (lastField == null || !lastField.equals(field)) {
+          AtomicReader reader=context.reader();
+          Terms terms=reader.terms(field);
+          if (terms != null) {
+            termsEnum=terms.iterator(null);
+          }
+          lastField=field;
+        }
+        if (termsEnum == null) {
+          nullCount++;
+          continue;
+        }
+        dims[dim].docsEnums=new DocsEnum[drillDownTerms[dim].length];
+        for (int i=0; i < drillDownTerms[dim].length; i++) {
+          if (termsEnum.seekExact(drillDownTerms[dim][i].bytes(),false)) {
+            dims[dim].freq=Math.max(dims[dim].freq,termsEnum.docFreq());
+            dims[dim].docsEnums[i]=termsEnum.docs(null,null);
+          }
+        }
+      }
+      if (nullCount > 1) {
+        return null;
+      }
+      Arrays.sort(dims);
+      Scorer baseScorer=baseWeight.scorer(context,scoreDocsInOrder,false,acceptDocs);
+      if (baseScorer == null) {
+        return null;
+      }
+      return new DrillSidewaysScorer(this,context,baseScorer,drillDownCollector,dims);
+    }
+  }
+;
+}
