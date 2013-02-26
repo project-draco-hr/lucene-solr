@@ -1,0 +1,37 @@
+{
+  super.setUp();
+  dir=newDirectory();
+  fieldName=random().nextBoolean() ? "field" : "";
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random(),MockTokenizer.KEYWORD,false)).setMaxBufferedDocs(_TestUtil.nextInt(random(),50,1000)));
+  List<String> terms=new ArrayList<String>();
+  int num=atLeast(200);
+  for (int i=0; i < num; i++) {
+    Document doc=new Document();
+    doc.add(newStringField("id",Integer.toString(i),Field.Store.NO));
+    int numTerms=random().nextInt(4);
+    for (int j=0; j < numTerms; j++) {
+      String s=_TestUtil.randomUnicodeString(random());
+      doc.add(newStringField(fieldName,s,Field.Store.NO));
+      if (defaultCodecSupportsSortedSet()) {
+        doc.add(new SortedSetDocValuesField(fieldName,new BytesRef(s)));
+      }
+      terms.add(s);
+    }
+    writer.addDocument(doc);
+  }
+  if (VERBOSE) {
+    Collections.sort(terms);
+    System.out.println("UTF16 order:");
+    for (    String s : terms) {
+      System.out.println("  " + UnicodeUtil.toHexString(s));
+    }
+  }
+  int numDeletions=random().nextInt(num / 10);
+  for (int i=0; i < numDeletions; i++) {
+    writer.deleteDocuments(new Term("id",Integer.toString(random().nextInt(num))));
+  }
+  reader=writer.getReader();
+  searcher1=newSearcher(reader);
+  searcher2=newSearcher(reader);
+  writer.close();
+}
