@@ -1,0 +1,61 @@
+{
+  try {
+    String urlstr=coreUrl;
+    String queryString=req.getQueryString();
+    urlstr+=queryString == null ? "" : "?" + queryString;
+    URL url=new URL(urlstr);
+    HttpURLConnection con=(HttpURLConnection)url.openConnection();
+    con.setRequestMethod(req.getMethod());
+    con.setUseCaches(true);
+    con.setDoOutput(true);
+    con.setDoInput(true);
+    for (Enumeration e=req.getHeaderNames(); e.hasMoreElements(); ) {
+      String headerName=e.nextElement().toString();
+      con.setRequestProperty(headerName,req.getHeader(headerName));
+    }
+    try {
+      con.connect();
+      int theByte;
+      if (req.getMethod().equals("POST")) {
+        BufferedInputStream bis=new BufferedInputStream(req.getInputStream());
+        BufferedOutputStream os=new BufferedOutputStream(con.getOutputStream());
+        try {
+          while ((theByte=bis.read()) != -1) {
+            os.write(theByte);
+          }
+          os.flush();
+        }
+  finally {
+          IOUtils.closeQuietly(os);
+          IOUtils.closeQuietly(bis);
+        }
+      }
+      resp.setStatus(con.getResponseCode());
+      for (Iterator i=con.getHeaderFields().entrySet().iterator(); i.hasNext(); ) {
+        Map.Entry mapEntry=(Map.Entry)i.next();
+        if (mapEntry.getKey() != null)         resp.setHeader(mapEntry.getKey().toString(),((List)mapEntry.getValue()).get(0).toString());
+      }
+      resp.setCharacterEncoding(con.getContentEncoding());
+      resp.setContentType(con.getContentType());
+      BufferedInputStream bis=new BufferedInputStream(con.getInputStream());
+      ServletOutputStream os=resp.getOutputStream();
+      try {
+        while ((theByte=bis.read()) != -1) {
+          os.write(theByte);
+        }
+        os.flush();
+      }
+  finally {
+        IOUtils.closeQuietly(os);
+        IOUtils.closeQuietly(bis);
+      }
+    }
+  finally {
+      con.disconnect();
+    }
+  }
+ catch (  IOException e) {
+    resp.getWriter().println(e.getStackTrace().toString());
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"This node forword query failed: " + coreUrl);
+  }
+}

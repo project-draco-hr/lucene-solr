@@ -1,0 +1,31 @@
+{
+  ClusterState clusterState=cores.getZkController().getClusterState();
+  Collection<Slice> slices=clusterState.getSlices(collectionName);
+  if (slices == null) {
+    Set<String> collections=clusterState.getCollections();
+    for (    String collection : collections) {
+      slices=new ArrayList<Slice>();
+      slices.addAll(clusterState.getSlices(collection));
+    }
+  }
+  Set<String> liveNodes=clusterState.getLiveNodes();
+  Iterator<Slice> it=slices.iterator();
+  while (it.hasNext()) {
+    Slice slice=it.next();
+    Map<String,Replica> sliceShards=slice.getReplicasMap();
+    for (    ZkNodeProps nodeProps : sliceShards.values()) {
+      ZkCoreNodeProps coreNodeProps=new ZkCoreNodeProps(nodeProps);
+      if (liveNodes.contains(coreNodeProps.getNodeName()) && coreNodeProps.getState().equals(ZkStateReader.ACTIVE)) {
+        String coreUrl=coreNodeProps.getCoreUrl();
+        if (coreUrl.endsWith("/")) {
+          coreUrl=coreUrl.substring(0,coreUrl.length() - 1);
+        }
+        if (coreNodeProps.getBaseUrl().equals(cores.getZkController().getBaseUrl())) {
+          return null;
+        }
+        return coreUrl;
+      }
+    }
+  }
+  return null;
+}
