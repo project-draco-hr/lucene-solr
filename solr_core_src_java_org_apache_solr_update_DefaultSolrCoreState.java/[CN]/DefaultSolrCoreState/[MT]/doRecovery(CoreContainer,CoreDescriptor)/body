@@ -1,0 +1,31 @@
+{
+  if (SKIP_AUTO_RECOVERY) {
+    log.warn("Skipping recovery according to sys prop solrcloud.skip.autorecovery");
+    return;
+  }
+  if (cc.isShutDown()) {
+    log.warn("Skipping recovery because Solr is shutdown");
+    return;
+  }
+synchronized (recoveryLock) {
+    log.info("Running recovery - first canceling any ongoing recovery");
+    cancelRecovery();
+    while (recoveryRunning) {
+      try {
+        recoveryLock.wait(1000);
+      }
+ catch (      InterruptedException e) {
+      }
+      if (cc.isShutDown()) {
+        log.warn("Skipping recovery because Solr is shutdown");
+        return;
+      }
+      if (closed)       return;
+    }
+    boolean recoveringAfterStartup=recoveryStrat == null;
+    recoveryStrat=new RecoveryStrategy(cc,cd,this);
+    recoveryStrat.setRecoveringAfterStartup(recoveringAfterStartup);
+    recoveryStrat.start();
+    recoveryRunning=true;
+  }
+}

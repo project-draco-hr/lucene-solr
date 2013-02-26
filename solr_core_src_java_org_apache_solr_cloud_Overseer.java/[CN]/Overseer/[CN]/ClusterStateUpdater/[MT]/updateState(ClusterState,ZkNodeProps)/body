@@ -1,6 +1,9 @@
 {
   final String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
-  final String zkCoreNodeName=message.getStr(ZkStateReader.NODE_NAME_PROP) + "_" + message.getStr(ZkStateReader.CORE_NAME_PROP);
+  String coreNodeName=message.getStr(ZkStateReader.CORE_NODE_NAME_PROP);
+  if (coreNodeName == null) {
+    coreNodeName=message.getStr(ZkStateReader.NODE_NAME_PROP) + "_" + message.getStr(ZkStateReader.CORE_NAME_PROP);
+  }
   Integer numShards=message.getStr(ZkStateReader.NUM_SHARDS_PROP) != null ? Integer.parseInt(message.getStr(ZkStateReader.NUM_SHARDS_PROP)) : null;
   log.info("Update state numShards={} message={}",numShards,message);
   boolean collectionExists=state.getCollections().contains(collection);
@@ -9,8 +12,7 @@
   }
   String sliceName=message.getStr(ZkStateReader.SHARD_ID_PROP);
   if (sliceName == null) {
-    String nodeName=message.getStr(ZkStateReader.NODE_NAME_PROP);
-    sliceName=getAssignedId(state,nodeName,message);
+    sliceName=getAssignedId(state,coreNodeName,message);
     if (sliceName != null) {
       log.info("shard=" + sliceName + " is already registered");
     }
@@ -27,14 +29,25 @@
   Map<String,Object> replicaProps=new LinkedHashMap<String,Object>();
   replicaProps.putAll(message.getProperties());
   if (slice != null) {
-    Replica oldReplica=slice.getReplicasMap().get(zkCoreNodeName);
+    Replica oldReplica=slice.getReplicasMap().get(coreNodeName);
     if (oldReplica != null && oldReplica.containsKey(ZkStateReader.LEADER_PROP)) {
       replicaProps.put(ZkStateReader.LEADER_PROP,oldReplica.get(ZkStateReader.LEADER_PROP));
     }
   }
   replicaProps.remove(ZkStateReader.NUM_SHARDS_PROP);
   replicaProps.remove(QUEUE_OPERATION);
-  Replica replica=new Replica(zkCoreNodeName,replicaProps);
+  Set<Entry<String,Object>> entrySet=replicaProps.entrySet();
+  List<String> removeKeys=new ArrayList<String>();
+  for (  Entry<String,Object> entry : entrySet) {
+    if (entry.getValue() == null) {
+      removeKeys.add(entry.getKey());
+    }
+  }
+  for (  String removeKey : removeKeys) {
+    replicaProps.remove(removeKey);
+  }
+  replicaProps.remove(ZkStateReader.CORE_NODE_NAME_PROP);
+  Replica replica=new Replica(coreNodeName,replicaProps);
   Map<String,Object> sliceProps=null;
   Map<String,Replica> replicas;
   if (slice != null) {
