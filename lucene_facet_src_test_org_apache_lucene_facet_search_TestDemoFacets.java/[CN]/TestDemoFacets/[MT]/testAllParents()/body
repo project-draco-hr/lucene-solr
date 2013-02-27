@@ -1,0 +1,32 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  CategoryListParams clp=new CategoryListParams("$facets"){
+    @Override public OrdinalPolicy getOrdinalPolicy(    String fieldName){
+      return OrdinalPolicy.ALL_PARENTS;
+    }
+  }
+;
+  FacetIndexingParams fip=new FacetIndexingParams(clp);
+  FacetFields facetFields=new FacetFields(taxoWriter,fip);
+  Document doc=new Document();
+  doc.add(newTextField("field","text",Field.Store.NO));
+  facetFields.addFields(doc,Collections.singletonList(new CategoryPath("a/path",'/')));
+  writer.addDocument(doc);
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  writer.close();
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  taxoWriter.close();
+  FacetSearchParams fsp=new FacetSearchParams(fip,new CountFacetRequest(new CategoryPath("a",'/'),10));
+  FacetsCollector c=FacetsCollector.create(fsp,searcher.getIndexReader(),taxoReader);
+  searcher.search(new MatchAllDocsQuery(),c);
+  List<FacetResult> results=c.getFacetResults();
+  assertEquals(1,results.size());
+  assertEquals(1,(int)results.get(0).getFacetResultNode().value);
+  searcher.getIndexReader().close();
+  taxoReader.close();
+  dir.close();
+  taxoDir.close();
+}
