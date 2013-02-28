@@ -5,10 +5,10 @@
   long deadShardCount=shardToJetty.get(SHARD2).get(0).client.solrClient.query(query).getResults().getNumFound();
   query("q","*:*","sort","n_tl1 desc");
   int oldLiveNodes=cloudClient.getZkStateReader().getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE,null,true).size();
-  assertEquals(5,oldLiveNodes);
-  CloudJettyRunner deadShard=chaosMonkey.stopShard(SHARD2,0);
+  assertEquals(4,oldLiveNodes);
+  CloudJettyRunner deadShard=chaosMonkey.stopShard(SHARD1,0);
   Set<CloudJettyRunner> jetties=new HashSet<CloudJettyRunner>();
-  jetties.addAll(shardToJetty.get(SHARD2));
+  jetties.addAll(shardToJetty.get(SHARD1));
   jetties.remove(deadShard);
   try {
     index_specific(deadShard.client.solrClient,id,999,i1,107,t1,"specific doc!");
@@ -17,10 +17,10 @@
  catch (  SolrServerException e) {
   }
   commit();
-  printLayout();
   query("q","*:*","sort","n_tl1 desc");
   long numFound1=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
-  index_specific(shardToJetty.get(SHARD2).get(1).client.solrClient,id,1000,i1,108,t1,"specific doc!");
+  cloudClient.getZkStateReader().getLeaderRetry(DEFAULT_COLLECTION,SHARD1,15000);
+  index_specific(shardToJetty.get(SHARD1).get(1).client.solrClient,id,1000,i1,108,t1,"specific doc!");
   commit();
   checkShardConsistency(true,false);
   query("q","*:*","sort","n_tl1 desc");
@@ -59,7 +59,7 @@
   ChaosMonkey.start(deadShard.jetty);
   Thread.sleep(1500);
   waitForRecoveriesToFinish(false);
-  deadShardCount=shardToJetty.get(SHARD2).get(0).client.solrClient.query(query).getResults().getNumFound();
+  deadShardCount=shardToJetty.get(SHARD1).get(0).client.solrClient.query(query).getResults().getNumFound();
   checkShardConsistency(true,false);
   chaosMonkey.stopJetty(deadShard);
   for (int i=0; i < 226; i++) {
@@ -79,12 +79,10 @@
   waitForRecoveriesToFinish(false);
   checkShardConsistency(true,false);
   final HttpSolrServer client=(HttpSolrServer)shardToJetty.get(SHARD2).get(0).client.solrClient;
-  System.out.println("base url: " + client.getBaseURL());
   ModifiableSolrParams params=new ModifiableSolrParams();
   params.set("qt","/replication");
   params.set("command","backup");
   QueryRequest request=new QueryRequest(params);
   NamedList<Object> results=client.request(request);
-  System.out.println("results:" + results);
   checkForBackupSuccess(client);
 }
