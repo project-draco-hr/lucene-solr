@@ -7,7 +7,7 @@
     int cnt=this.jettyIntCntr.incrementAndGet();
     File jettyDir=new File(TEMP_DIR,getClass().getName() + "-jetty" + cnt+ "-"+ System.currentTimeMillis());
     jettyDir.mkdirs();
-    org.apache.commons.io.FileUtils.copyDirectory(new File(getSolrHome()),jettyDir);
+    setupJettySolrHome(jettyDir);
     JettySolrRunner j=createJetty(jettyDir,testDir + "/jetty" + cnt,null,"solrconfig.xml",null);
     jettys.add(j);
     SolrServer client=createNewSolrServer(j.getLocalPort());
@@ -15,8 +15,8 @@
   }
   this.jettys.addAll(jettys);
   this.clients.addAll(clients);
+  int numShards=getTotalReplicas(DEFAULT_COLLECTION);
   if (checkCreatedVsState) {
-    int numShards=getTotalReplicas(DEFAULT_COLLECTION);
     int retries=0;
     while (numShards != shardCount) {
       numShards=getTotalReplicas(DEFAULT_COLLECTION);
@@ -32,7 +32,9 @@
       zkStateReader.getLeaderRetry(DEFAULT_COLLECTION,"shard" + i,10000);
     }
   }
-  updateMappingsFromZk(this.jettys,this.clients);
+  if (numShards > 0) {
+    updateMappingsFromZk(this.jettys,this.clients);
+  }
   for (int i=1; i <= numJettys / 2; i++) {
     JettySolrRunner j=this.jettys.get(i);
     JettySolrRunner j2=this.jettys.get(i + (numJettys / 2 - 1));
