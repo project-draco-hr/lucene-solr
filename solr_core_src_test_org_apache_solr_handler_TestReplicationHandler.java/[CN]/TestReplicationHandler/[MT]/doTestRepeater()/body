@@ -1,0 +1,40 @@
+{
+  slave.copyConfigFile(CONF_DIR + "solrconfig-slave1.xml","solrconfig.xml");
+  slaveJetty.stop();
+  slaveJetty=createJetty(slave);
+  slaveClient=createNewSolrServer(slaveJetty.getLocalPort());
+  try {
+    repeater=new SolrInstance("repeater",null);
+    repeater.setUp();
+    repeater.copyConfigFile(CONF_DIR + "solrconfig-repeater.xml","solrconfig.xml");
+    repeaterJetty=createJetty(repeater);
+    repeaterClient=createNewSolrServer(repeaterJetty.getLocalPort());
+    for (int i=0; i < 3; i++)     index(masterClient,"id",i,"name","name = " + i);
+    masterClient.commit();
+    pullFromTo(masterJetty,repeaterJetty);
+    rQuery(3,"*:*",repeaterClient);
+    pullFromTo(repeaterJetty,slaveJetty);
+    rQuery(3,"*:*",slaveClient);
+    assertVersions(masterClient,repeaterClient);
+    assertVersions(repeaterClient,slaveClient);
+    for (int i=0; i < 4; i++)     index(repeaterClient,"id",i,"name","name = " + i);
+    repeaterClient.commit();
+    pullFromTo(masterJetty,repeaterJetty);
+    rQuery(3,"*:*",repeaterClient);
+    pullFromTo(repeaterJetty,slaveJetty);
+    rQuery(3,"*:*",slaveClient);
+    for (int i=3; i < 6; i++)     index(masterClient,"id",i,"name","name = " + i);
+    masterClient.commit();
+    pullFromTo(masterJetty,repeaterJetty);
+    rQuery(6,"*:*",repeaterClient);
+    pullFromTo(repeaterJetty,slaveJetty);
+    rQuery(6,"*:*",slaveClient);
+  }
+  finally {
+    if (repeater != null) {
+      repeaterJetty.stop();
+      repeater.tearDown();
+      repeaterJetty=null;
+    }
+  }
+}
