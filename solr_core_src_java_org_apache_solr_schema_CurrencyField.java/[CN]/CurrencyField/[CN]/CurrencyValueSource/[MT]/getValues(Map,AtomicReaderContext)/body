@@ -18,7 +18,7 @@
         if (currency == null) {
           currency=defaultCurrency;
         }
-        if (targetCurrencyOrd == -1 && currency.equals(targetCurrencyCode)) {
+        if (targetCurrencyOrd == -1 && currency.equals(targetCurrency.getCurrencyCode())) {
           targetCurrencyOrd=currencyOrd;
         }
         return currency;
@@ -26,6 +26,17 @@
  else {
         return currencies.strVal(doc);
       }
+    }
+    /** 
+ * throws a (Server Error) SolrException if the code is not valid 
+ */
+    private Currency getDocCurrency(    int doc,    int currencyOrd){
+      String code=getDocCurrencyCode(doc,currencyOrd);
+      Currency c=getCurrency(code);
+      if (null == c) {
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Currency code of document is not supported by this JVM: " + code);
+      }
+      return c;
     }
     @Override public boolean exists(    int doc){
       return amounts.exists(doc);
@@ -48,24 +59,23 @@
       double exchangeRate;
       int sourceFractionDigits;
       if (targetFractionDigits == -1) {
-        targetFractionDigits=Currency.getInstance(targetCurrencyCode).getDefaultFractionDigits();
+        targetFractionDigits=targetCurrency.getDefaultFractionDigits();
       }
       if (currencyOrd < MAX_CURRENCIES_TO_CACHE) {
         exchangeRate=exchangeRateCache[currencyOrd];
         if (exchangeRate <= 0.0) {
           String sourceCurrencyCode=getDocCurrencyCode(doc,currencyOrd);
-          exchangeRate=exchangeRateCache[currencyOrd]=provider.getExchangeRate(sourceCurrencyCode,targetCurrencyCode);
+          exchangeRate=exchangeRateCache[currencyOrd]=provider.getExchangeRate(sourceCurrencyCode,targetCurrency.getCurrencyCode());
         }
         sourceFractionDigits=fractionDigitCache[currencyOrd];
         if (sourceFractionDigits == -1) {
-          String sourceCurrencyCode=getDocCurrencyCode(doc,currencyOrd);
-          sourceFractionDigits=fractionDigitCache[currencyOrd]=Currency.getInstance(sourceCurrencyCode).getDefaultFractionDigits();
+          sourceFractionDigits=fractionDigitCache[currencyOrd]=getDocCurrency(doc,currencyOrd).getDefaultFractionDigits();
         }
       }
  else {
-        String sourceCurrencyCode=getDocCurrencyCode(doc,currencyOrd);
-        exchangeRate=provider.getExchangeRate(sourceCurrencyCode,targetCurrencyCode);
-        sourceFractionDigits=Currency.getInstance(sourceCurrencyCode).getDefaultFractionDigits();
+        Currency source=getDocCurrency(doc,currencyOrd);
+        exchangeRate=provider.getExchangeRate(source.getCurrencyCode(),targetCurrency.getCurrencyCode());
+        sourceFractionDigits=source.getDefaultFractionDigits();
       }
       return CurrencyValue.convertAmount(exchangeRate,sourceFractionDigits,amount,targetFractionDigits);
     }
