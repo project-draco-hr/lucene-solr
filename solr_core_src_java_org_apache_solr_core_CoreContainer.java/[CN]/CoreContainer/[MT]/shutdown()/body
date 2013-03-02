@@ -14,30 +14,24 @@ catch (    InterruptedException e) {
   }
   isShutDown=true;
   if (isZooKeeperAware()) {
+    coreMaps.publishCoresAsDown(zkController);
     cancelCoreRecoveries();
   }
   try {
-synchronized (cores) {
-      for (      SolrCore core : cores.values()) {
-        try {
-          core.close();
-        }
- catch (        Throwable t) {
-          SolrException.log(log,"Error shutting down core",t);
-        }
-      }
-      cores.clear();
+synchronized (coreMaps.getLocker()) {
+      coreMaps.getLocker().notifyAll();
     }
-synchronized (transientCores) {
-      for (      SolrCore core : transientCores.values()) {
-        try {
-          core.close();
-        }
- catch (        Throwable t) {
-          SolrException.log(log,"Error shutting down core",t);
-        }
+    if (backgroundCloser != null) {
+      try {
+        backgroundCloser.join();
       }
-      transientCores.clear();
+ catch (      InterruptedException e) {
+        ;
+      }
+    }
+    coreMaps.clearMaps(cfg);
+synchronized (coreMaps.getLocker()) {
+      coreMaps.getLocker().notifyAll();
     }
   }
   finally {

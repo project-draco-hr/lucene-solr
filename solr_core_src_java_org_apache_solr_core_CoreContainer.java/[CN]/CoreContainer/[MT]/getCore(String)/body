@@ -1,48 +1,25 @@
 {
   name=checkDefault(name);
-  SolrCore core=getCoreFromAnyList(name);
+  SolrCore core=coreMaps.getCoreFromAnyList(name);
   if (core != null)   return core;
-  CoreDescriptor desc=dynamicDescriptors.get(name);
+  CoreDescriptor desc=coreMaps.getDynamicDescriptor(name);
   if (desc == null) {
     return null;
   }
-  try {
-    boolean isPending;
-synchronized (pendingDynamicCoreLoads) {
-      isPending=pendingDynamicCoreLoads.contains(name);
-      if (!isPending) {
-        pendingDynamicCoreLoads.add(name);
-      }
-    }
-    while (isPending) {
-      try {
-        Thread.sleep(100);
-      }
- catch (      InterruptedException e) {
-        return null;
-      }
-synchronized (pendingDynamicCoreLoads) {
-        if (!pendingDynamicCoreLoads.contains(name)) {
-          return getCoreFromAnyList(name);
-        }
-      }
-    }
+  core=coreMaps.waitPendingCoreOps(name);
+  if (isShutDown)   return null;
+  if (core == null) {
     try {
       core=create(desc);
       core.open();
-      if (desc.isTransient()) {
-        registerLazyCore(name,core,false);
-      }
- else {
-        register(name,core,false);
-      }
+      registerCore(desc.isTransient(),name,core,false);
     }
  catch (    Exception ex) {
-      throw recordAndThrow(name,"Unable to create core" + name,ex);
+      throw recordAndThrow(name,"Unable to create core: " + name,ex);
     }
-  }
-  finally {
-    pendingDynamicCoreLoads.remove(name);
+ finally {
+      coreMaps.releasePending(name);
+    }
   }
   return core;
 }

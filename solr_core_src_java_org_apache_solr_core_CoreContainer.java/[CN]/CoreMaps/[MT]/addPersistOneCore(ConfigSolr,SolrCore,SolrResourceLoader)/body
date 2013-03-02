@@ -1,0 +1,70 @@
+{
+  CoreDescriptor dcore=solrCore.getCoreDescriptor();
+  String coreName=dcore.getProperty(CoreDescriptor.CORE_NAME);
+  String origCoreName=null;
+  Map<String,String> coreAttribs=new HashMap<String,String>();
+  Properties persistProps=new Properties();
+  CloudDescriptor cd=dcore.getCloudDescriptor();
+  String collection=null;
+  if (cd != null)   collection=cd.getCollectionName();
+  String instDir=dcore.getRawInstanceDir();
+  if (cfg == null) {
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_NAME,coreName);
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_CONFIG,dcore.getDefaultConfigName());
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_SCHEMA,dcore.getDefaultSchemaName());
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_DATADIR,dcore.getProperty(CoreDescriptor.CORE_DATADIR));
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_ULOGDIR,dcore.getProperty(CoreDescriptor.CORE_ULOGDIR));
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_TRANSIENT,dcore.getProperty(CoreDescriptor.CORE_TRANSIENT));
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_LOADONSTARTUP,dcore.getProperty(CoreDescriptor.CORE_LOADONSTARTUP));
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_PROPERTIES,dcore.getPropertiesName());
+    Set<String> std=new TreeSet<String>();
+    Properties allProps=dcore.getCoreProperties();
+    std.addAll(Arrays.asList(CoreDescriptor.standardPropNames));
+    for (    String prop : allProps.stringPropertyNames()) {
+      if (!std.contains(prop)) {
+        persistProps.put(prop,dcore.getProperty(prop));
+      }
+    }
+    if (StringUtils.isNotBlank(collection) && !collection.equals(coreName)) {
+      coreAttribs.put(CoreDescriptor.CORE_COLLECTION,collection);
+    }
+  }
+ else {
+    origCoreName=getCoreToOrigName(solrCore);
+    if (origCoreName == null) {
+      origCoreName=coreName;
+    }
+    String tmp=cfg.getCoreNameFromOrig(origCoreName,loader,coreName);
+    if (tmp != null)     coreName=tmp;
+    coreAttribs=cfg.readCoreAttributes(origCoreName);
+    persistProps=cfg.readCoreProperties(origCoreName);
+    if (coreAttribs != null) {
+      coreAttribs.put(CoreDescriptor.CORE_NAME,coreName);
+      if (coreAttribs.containsKey(CoreDescriptor.CORE_COLLECTION))       collection=coreAttribs.get(CoreDescriptor.CORE_COLLECTION);
+      if (coreAttribs.containsKey(CoreDescriptor.CORE_INSTDIR))       instDir=coreAttribs.get(CoreDescriptor.CORE_INSTDIR);
+    }
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_INSTDIR,dcore.getRawInstanceDir());
+    coreAttribs.put(CoreDescriptor.CORE_COLLECTION,StringUtils.isNotBlank(collection) ? collection : dcore.getName());
+  }
+  addIfNotNull(coreAttribs,CoreDescriptor.CORE_INSTDIR,instDir);
+  if (cd != null) {
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_SHARD,cd.getShardId());
+    addIfNotNull(coreAttribs,CoreDescriptor.CORE_ROLES,cd.getRoles());
+  }
+  coreAttribs.put(CoreDescriptor.CORE_LOADONSTARTUP,Boolean.toString(dcore.isLoadOnStartup()));
+  coreAttribs.put(CoreDescriptor.CORE_TRANSIENT,Boolean.toString(dcore.isTransient()));
+  Properties implicit=dcore.initImplicitProperties();
+  if (!coreName.equals(container.getDefaultCoreName())) {
+    for (    String prop : implicit.stringPropertyNames()) {
+      if (coreAttribs.get(prop) == null) {
+        coreAttribs.put(prop,implicit.getProperty(prop));
+      }
+    }
+  }
+  if (cfg != null) {
+    cfg.addPersistCore(coreName,persistProps,coreAttribs);
+  }
+ else {
+    ConfigSolrXmlBackCompat.addPersistCore(persistProps,coreAttribs);
+  }
+}

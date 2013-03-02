@@ -1,17 +1,14 @@
 {
   try {
     name=checkDefault(name);
-    SolrCore core;
-synchronized (cores) {
-      core=cores.get(name);
-    }
+    SolrCore core=coreMaps.getCore(name);
     if (core == null)     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core: " + name);
     CoreDescriptor cd=core.getCoreDescriptor();
     File instanceDir=new File(cd.getInstanceDir());
     log.info("Reloading SolrCore '{}' using instanceDir: {}",cd.getName(),instanceDir.getAbsolutePath());
     SolrResourceLoader solrLoader;
     if (zkController == null) {
-      solrLoader=new SolrResourceLoader(instanceDir.getAbsolutePath(),libLoader,getCoreProps(instanceDir.getAbsolutePath(),cd.getPropertiesName(),cd.getCoreProperties()));
+      solrLoader=new SolrResourceLoader(instanceDir.getAbsolutePath(),libLoader,SolrProperties.getCoreProperties(instanceDir.getAbsolutePath(),cd));
     }
  else {
       try {
@@ -22,7 +19,7 @@ synchronized (cores) {
           log.error("Could not find config name for collection:" + collection);
           throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"Could not find config name for collection:" + collection);
         }
-        solrLoader=new ZkSolrResourceLoader(instanceDir.getAbsolutePath(),zkConfigName,libLoader,getCoreProps(instanceDir.getAbsolutePath(),cd.getPropertiesName(),cd.getCoreProperties()),zkController);
+        solrLoader=new ZkSolrResourceLoader(instanceDir.getAbsolutePath(),zkConfigName,libLoader,SolrProperties.getCoreProperties(instanceDir.getAbsolutePath(),cd),zkController);
       }
  catch (      KeeperException e) {
         log.error("",e);
@@ -35,11 +32,8 @@ catch (      InterruptedException e) {
       }
     }
     SolrCore newCore=core.reload(solrLoader,core);
-    String origName=coreToOrigName.remove(core);
-    if (origName != null) {
-      coreToOrigName.put(newCore,origName);
-    }
-    register(name,newCore,false);
+    coreMaps.removeCoreToOrigName(newCore,core);
+    registerCore(false,name,newCore,false);
   }
  catch (  Exception ex) {
     throw recordAndThrow(name,"Unable to reload core: " + name,ex);

@@ -1,0 +1,219 @@
+{
+  ThreadPoolExecutor coreLoadExecutor=null;
+  if (null == dir) {
+    dir=SolrResourceLoader.locateSolrHome();
+  }
+  log.info("Loading CoreContainer using Solr Home: '{}'",dir);
+  this.loader=new SolrResourceLoader(dir);
+  solrHome=loader.getInstanceDir();
+  ConfigSolr cfg;
+  try {
+    if (isXmlFile) {
+      cfg=new ConfigSolrXmlBackCompat(loader,null,is,null,false);
+      this.cfg=new ConfigSolrXmlBackCompat(loader,(ConfigSolrXmlBackCompat)cfg);
+    }
+ else {
+      cfg=new SolrProperties(this,is,fileName);
+      this.cfg=new SolrProperties(this,loader,(SolrProperties)cfg);
+    }
+  }
+ catch (  Exception e) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"",e);
+  }
+  cfg.substituteProperties();
+  shardHandlerFactory=cfg.initShardHandler();
+  coreMaps.allocateLazyCores(cfg,loader);
+  if (cfg.getBool(ConfigSolr.ConfLevel.SOLR_LOGGING,"enabled",true)) {
+    String slf4jImpl=null;
+    String fname=cfg.get(ConfigSolr.ConfLevel.SOLR_LOGGING,"class",null);
+    try {
+      slf4jImpl=StaticLoggerBinder.getSingleton().getLoggerFactoryClassStr();
+      if (fname == null) {
+        if (slf4jImpl.indexOf("Log4j") > 0) {
+          log.warn("Log watching is not yet implemented for log4j");
+        }
+ else         if (slf4jImpl.indexOf("JDK") > 0) {
+          fname="JUL";
+        }
+      }
+    }
+ catch (    Throwable ex) {
+      log.warn("Unable to read SLF4J version.  LogWatcher will be disabled: " + ex);
+    }
+    if (fname != null) {
+      if ("JUL".equalsIgnoreCase(fname)) {
+        logging=new JulWatcher(slf4jImpl);
+      }
+ else {
+        try {
+          logging=loader.newInstance(fname,LogWatcher.class);
+        }
+ catch (        Throwable e) {
+          log.warn("Unable to load LogWatcher",e);
+        }
+      }
+      if (logging != null) {
+        ListenerConfig v=new ListenerConfig();
+        v.size=cfg.getInt(ConfigSolr.ConfLevel.SOLR_LOGGING_WATCHER,"size",50);
+        v.threshold=cfg.get(ConfigSolr.ConfLevel.SOLR_LOGGING_WATCHER,"threshold",null);
+        if (v.size > 0) {
+          log.info("Registering Log Listener");
+          logging.registerListener(v,this);
+        }
+      }
+    }
+  }
+  String dcoreName=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"defaultCoreName",null);
+  if (dcoreName != null && !dcoreName.isEmpty()) {
+    defaultCoreName=dcoreName;
+  }
+  persistent=cfg.getBool(ConfigSolr.ConfLevel.SOLR,"persistent",false);
+  libDir=cfg.get(ConfigSolr.ConfLevel.SOLR,"sharedLib",null);
+  zkHost=cfg.get(ConfigSolr.ConfLevel.SOLR,"zkHost",null);
+  coreLoadThreads=cfg.getInt(ConfigSolr.ConfLevel.SOLR,"coreLoadThreads",CORE_LOAD_THREADS);
+  adminPath=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"adminPath",null);
+  shareSchema=cfg.getBool(ConfigSolr.ConfLevel.SOLR_CORES,"shareSchema",DEFAULT_SHARE_SCHEMA);
+  zkClientTimeout=cfg.getInt(ConfigSolr.ConfLevel.SOLR_CORES,"zkClientTimeout",DEFAULT_ZK_CLIENT_TIMEOUT);
+  distribUpdateConnTimeout=cfg.getInt(ConfigSolr.ConfLevel.SOLR_CORES,"distribUpdateConnTimeout",0);
+  distribUpdateSoTimeout=cfg.getInt(ConfigSolr.ConfLevel.SOLR_CORES,"distribUpdateSoTimeout",0);
+  hostPort=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"hostPort",DEFAULT_HOST_PORT);
+  hostContext=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"hostContext",DEFAULT_HOST_CONTEXT);
+  host=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"host",null);
+  leaderVoteWait=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"leaderVoteWait",LEADER_VOTE_WAIT);
+  if (shareSchema) {
+    indexSchemaCache=new ConcurrentHashMap<String,IndexSchema>();
+  }
+  adminHandler=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"adminHandler",null);
+  managementPath=cfg.get(ConfigSolr.ConfLevel.SOLR_CORES,"managementPath",null);
+  zkClientTimeout=Integer.parseInt(System.getProperty("zkClientTimeout",Integer.toString(zkClientTimeout)));
+  initZooKeeper(zkHost,zkClientTimeout);
+  if (isZooKeeperAware() && coreLoadThreads <= 1) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCloud requires a value of at least 2 in solr.xml for coreLoadThreads");
+  }
+  if (libDir != null) {
+    File f=FileUtils.resolvePath(new File(dir),libDir);
+    log.info("loading shared library: " + f.getAbsolutePath());
+    libLoader=SolrResourceLoader.createClassLoader(f,null);
+  }
+  if (adminPath != null) {
+    if (adminHandler == null) {
+      coreAdminHandler=new CoreAdminHandler(this);
+    }
+ else {
+      coreAdminHandler=this.createMultiCoreHandler(adminHandler);
+    }
+  }
+  collectionsHandler=new CollectionsHandler(this);
+  containerProperties=cfg.getSolrProperties(cfg,DEFAULT_HOST_CONTEXT);
+  coreLoadExecutor=new ThreadPoolExecutor(coreLoadThreads,coreLoadThreads,1,TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>(),new DefaultSolrThreadFactory("coreLoadExecutor"));
+  try {
+    CompletionService<SolrCore> completionService=new ExecutorCompletionService<SolrCore>(coreLoadExecutor);
+    Set<Future<SolrCore>> pending=new HashSet<Future<SolrCore>>();
+    List<String> allCores=cfg.getAllCoreNames();
+    for (    String oneCoreName : allCores) {
+      try {
+        String rawName=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_NAME,null);
+        if (null == rawName) {
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Each core in solr.xml must have a 'name'");
+        }
+        final String name=rawName;
+        final CoreDescriptor p=new CoreDescriptor(this,name,cfg.getProperty(oneCoreName,CoreDescriptor.CORE_INSTDIR,null));
+        String opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_CONFIG,null);
+        if (opt != null) {
+          p.setConfigName(opt);
+        }
+        opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_SCHEMA,null);
+        if (opt != null) {
+          p.setSchemaName(opt);
+        }
+        if (zkController != null) {
+          opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_SHARD,null);
+          if (opt != null && opt.length() > 0) {
+            p.getCloudDescriptor().setShardId(opt);
+          }
+          opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_COLLECTION,null);
+          if (opt != null) {
+            p.getCloudDescriptor().setCollectionName(opt);
+          }
+          opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_ROLES,null);
+          if (opt != null) {
+            p.getCloudDescriptor().setRoles(opt);
+          }
+          opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_NODE_NAME,null);
+          if (opt != null && opt.length() > 0) {
+            p.getCloudDescriptor().setCoreNodeName(opt);
+          }
+        }
+        opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_PROPERTIES,null);
+        if (opt != null) {
+          p.setPropertiesName(opt);
+        }
+        opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_DATADIR,null);
+        if (opt != null) {
+          p.setDataDir(opt);
+        }
+        p.setCoreProperties(cfg.readCoreProperties(oneCoreName));
+        opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_LOADONSTARTUP,null);
+        if (opt != null) {
+          p.setLoadOnStartup(("true".equalsIgnoreCase(opt) || "on".equalsIgnoreCase(opt)) ? true : false);
+        }
+        opt=cfg.getProperty(oneCoreName,CoreDescriptor.CORE_TRANSIENT,null);
+        if (opt != null) {
+          p.setTransient(("true".equalsIgnoreCase(opt) || "on".equalsIgnoreCase(opt)) ? true : false);
+        }
+        if (p.isLoadOnStartup()) {
+          Callable<SolrCore> task=new Callable<SolrCore>(){
+            @Override public SolrCore call(){
+              SolrCore c=null;
+              try {
+                c=create(p);
+                registerCore(p.isTransient(),name,c,false);
+              }
+ catch (              Throwable t) {
+                SolrException.log(log,null,t);
+                if (c != null) {
+                  c.close();
+                }
+              }
+              return c;
+            }
+          }
+;
+          pending.add(completionService.submit(task));
+        }
+ else {
+          coreMaps.putDynamicDescriptor(rawName,p);
+        }
+      }
+ catch (      Throwable ex) {
+        SolrException.log(log,null,ex);
+      }
+    }
+    while (pending != null && pending.size() > 0) {
+      try {
+        Future<SolrCore> future=completionService.take();
+        if (future == null)         return;
+        pending.remove(future);
+        try {
+          SolrCore c=future.get();
+          if (c != null) {
+            coreMaps.putCoreToOrigName(c,c.getName());
+          }
+        }
+ catch (        ExecutionException e) {
+          SolrException.log(SolrCore.log,"Error loading core",e);
+        }
+      }
+ catch (      InterruptedException e) {
+        throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"interrupted while loading core",e);
+      }
+    }
+    backgroundCloser=new CloserThread(this,coreMaps,cfg);
+    backgroundCloser.start();
+  }
+  finally {
+    if (coreLoadExecutor != null) {
+      ExecutorUtil.shutdownNowAndAwaitTermination(coreLoadExecutor);
+    }
+  }
+}
