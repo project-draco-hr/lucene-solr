@@ -1,0 +1,49 @@
+{
+  verbose(String.format(Locale.ROOT,"Starting indexing thread: " + getId()));
+  String core=OCCST.getRandomCore();
+  while (Indexer.stopTime > System.currentTimeMillis()) {
+    int myId=Indexer.idUnique.incrementAndGet();
+    Indexer.docsThisCycle.incrementAndGet();
+    core=OCCST.getRandomCore();
+    OCCST.incrementCoreCount(core);
+    Indexer.progress(myId,core);
+    for (int idx=0; idx < 3; ++idx) {
+      SolrInputDocument doc=new SolrInputDocument();
+      doc.addField("id","id" + Integer.toString(myId));
+      doc.addField("text","text " + Integer.toString(myId));
+      UpdateRequest update=new UpdateRequest();
+      update.add(doc);
+      try {
+        server.setBaseURL(baseUrl + core);
+        UpdateResponse response=server.add(doc,OpenCloseCoreStressTest.COMMIT_WITHIN);
+        if (response.getStatus() != 0) {
+          verbose("Failed to index a document with status " + response.getStatus());
+        }
+ else {
+          Indexer.qTimesAccum.addAndGet(response.getQTime());
+          Indexer.updateCounts.incrementAndGet();
+        }
+        server.commit(true,true);
+        Thread.sleep(100L);
+        break;
+      }
+ catch (      Exception e) {
+        if (e instanceof InterruptedException)         return;
+        Indexer.errors.incrementAndGet();
+        if (idx == 2) {
+          fail("Could not reach server while querying for three tries, quitting " + e.getMessage());
+        }
+ else {
+          verbose("Indexing thread " + Thread.currentThread().getId() + " swallowed one exception "+ e.getMessage());
+          try {
+            Thread.sleep(100);
+          }
+ catch (          InterruptedException tex) {
+            return;
+          }
+        }
+      }
+    }
+  }
+  verbose("Leaving indexing thread " + getId());
+}
