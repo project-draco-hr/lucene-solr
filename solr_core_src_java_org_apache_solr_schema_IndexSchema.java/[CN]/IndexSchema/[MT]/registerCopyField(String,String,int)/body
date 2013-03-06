@@ -1,41 +1,73 @@
 {
-  boolean sourceIsPattern=isWildCard(source);
-  boolean destIsPattern=isWildCard(dest);
-  log.debug("copyField source='" + source + "' dest='"+ dest+ "' maxChars='"+ maxChars);
-  SchemaField d=getFieldOrNull(dest);
-  if (d == null) {
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"copyField destination :'" + dest + "' does not exist");
-  }
-  if (sourceIsPattern) {
-    if (destIsPattern) {
-      DynamicField df=null;
-      for (      DynamicField dd : dynamicFields) {
-        if (dd.regex.equals(dest)) {
-          df=dd;
-          break;
+  log.debug("copyField source='" + source + "' dest='"+ dest+ "' maxChars="+ maxChars);
+  DynamicField destDynamicField=null;
+  SchemaField destSchemaField=fields.get(dest);
+  SchemaField sourceSchemaField=fields.get(source);
+  DynamicField sourceDynamicBase=null;
+  DynamicField destDynamicBase=null;
+  boolean sourceIsDynamicFieldReference=false;
+  if (null == destSchemaField || null == sourceSchemaField) {
+    for (    DynamicField dynamicField : dynamicFields) {
+      if (null == sourceSchemaField && !sourceIsDynamicFieldReference) {
+        if (dynamicField.matches(source)) {
+          sourceIsDynamicFieldReference=true;
+          if (!source.equals(dynamicField.getRegex())) {
+            sourceDynamicBase=dynamicField;
+          }
         }
       }
-      if (df == null) {
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"copyField dynamic destination must match a dynamicField.");
+      if (null == destSchemaField) {
+        if (dest.equals(dynamicField.getRegex())) {
+          destDynamicField=dynamicField;
+          destSchemaField=dynamicField.prototype;
+        }
+ else         if (dynamicField.matches(dest)) {
+          destSchemaField=dynamicField.makeSchemaField(dest);
+          destDynamicField=new DynamicField(destSchemaField);
+          destDynamicBase=dynamicField;
+        }
       }
-      registerDynamicCopyField(new DynamicDestCopy(source,df,maxChars));
-    }
- else {
-      registerDynamicCopyField(new DynamicCopy(source,d,maxChars));
+      if (null != destSchemaField && (null != sourceSchemaField || sourceIsDynamicFieldReference))       break;
     }
   }
- else   if (destIsPattern) {
-    String msg="copyField only supports a dynamic destination if the source is also dynamic";
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg);
+  if (null == sourceSchemaField && !sourceIsDynamicFieldReference) {
+    String msg="copyField source :'" + source + "' is not an explicit field and doesn't match a dynamicField.";
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+  }
+  if (null == destSchemaField) {
+    String msg="copyField dest :'" + dest + "' is not an explicit field and doesn't match a dynamicField.";
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+  }
+  if (sourceIsDynamicFieldReference) {
+    if (null != destDynamicField) {
+      registerDynamicCopyField(new DynamicCopy(source,destDynamicField,maxChars,sourceDynamicBase,destDynamicBase));
+      incrementCopyFieldTargetCount(destSchemaField);
+    }
+ else {
+      destDynamicField=new DynamicField(destSchemaField);
+      registerDynamicCopyField(new DynamicCopy(source,destDynamicField,maxChars,sourceDynamicBase,null));
+      incrementCopyFieldTargetCount(destSchemaField);
+    }
   }
  else {
-    SchemaField f=getField(source);
-    List<CopyField> copyFieldList=copyFieldsMap.get(source);
-    if (copyFieldList == null) {
-      copyFieldList=new ArrayList<CopyField>();
-      copyFieldsMap.put(source,copyFieldList);
+    if (null != destDynamicField) {
+      if (destDynamicField.pattern instanceof DynamicReplacement.DynamicPattern.NameEquals) {
+        registerDynamicCopyField(new DynamicCopy(source,destDynamicField,maxChars,sourceDynamicBase,destDynamicBase));
+        incrementCopyFieldTargetCount(destSchemaField);
+      }
+ else {
+        String msg="copyField only supports a dynamic destination with an asterisk " + "if the source is also dynamic with an asterisk";
+        throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+      }
     }
-    copyFieldList.add(new CopyField(f,d,maxChars));
-    copyFieldTargetCounts.put(d,(copyFieldTargetCounts.containsKey(d) ? copyFieldTargetCounts.get(d) + 1 : 1));
+ else {
+      List<CopyField> copyFieldList=copyFieldsMap.get(source);
+      if (copyFieldList == null) {
+        copyFieldList=new ArrayList<CopyField>();
+        copyFieldsMap.put(source,copyFieldList);
+      }
+      copyFieldList.add(new CopyField(sourceSchemaField,destSchemaField,maxChars));
+      incrementCopyFieldTargetCount(destSchemaField);
+    }
   }
 }
