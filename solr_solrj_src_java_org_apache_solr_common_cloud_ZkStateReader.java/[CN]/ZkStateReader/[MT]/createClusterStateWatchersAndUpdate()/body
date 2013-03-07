@@ -1,6 +1,7 @@
 {
 synchronized (getUpdateLock()) {
     cmdExecutor.ensureExists(CLUSTER_STATE,zkClient);
+    cmdExecutor.ensureExists(ALIASES,zkClient);
     log.info("Updating cluster state from ZooKeeper... ");
     zkClient.exists(CLUSTER_STATE,new Watcher(){
       @Override public void process(      WatchedEvent event){
@@ -74,5 +75,36 @@ catch (        InterruptedException e) {
     liveNodeSet.addAll(liveNodes);
     ClusterState clusterState=ClusterState.load(zkClient,liveNodeSet);
     this.clusterState=clusterState;
+    zkClient.exists(ALIASES,new Watcher(){
+      @Override public void process(      WatchedEvent event){
+        if (EventType.None.equals(event.getType())) {
+          return;
+        }
+        try {
+synchronized (ZkStateReader.this.getUpdateLock()) {
+            log.info("Updating aliases... ");
+            final Watcher thisWatch=this;
+            Stat stat=new Stat();
+            byte[] data=zkClient.getData(ALIASES,thisWatch,stat,true);
+            Aliases aliases=ClusterState.load(data);
+            ZkStateReader.this.aliases=aliases;
+          }
+        }
+ catch (        KeeperException e) {
+          if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+            log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+            return;
+          }
+          log.error("",e);
+          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+        }
+catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          log.warn("",e);
+          return;
+        }
+      }
+    }
+,true);
   }
 }

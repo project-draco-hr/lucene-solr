@@ -1,0 +1,175 @@
+{
+  if (abortErrorMessage != null) {
+    ((HttpServletResponse)response).sendError(500,abortErrorMessage);
+    return;
+  }
+  if (this.cores == null) {
+    ((HttpServletResponse)response).sendError(503,"Server is shutting down");
+    return;
+  }
+  CoreContainer cores=this.cores;
+  SolrCore core=null;
+  SolrQueryRequest solrReq=null;
+  Aliases aliases=null;
+  if (request instanceof HttpServletRequest) {
+    HttpServletRequest req=(HttpServletRequest)request;
+    HttpServletResponse resp=(HttpServletResponse)response;
+    SolrRequestHandler handler=null;
+    String corename="";
+    String origCorename=null;
+    try {
+      req.setAttribute("org.apache.solr.CoreContainer",cores);
+      String path=req.getServletPath();
+      if (req.getPathInfo() != null) {
+        path+=req.getPathInfo();
+      }
+      if (pathPrefix != null && path.startsWith(pathPrefix)) {
+        path=path.substring(pathPrefix.length());
+      }
+      String alternate=cores.getManagementPath();
+      if (alternate != null && path.startsWith(alternate)) {
+        path=path.substring(0,alternate.length());
+      }
+      int idx=path.indexOf(':');
+      if (idx > 0) {
+        path=path.substring(0,idx);
+      }
+      if (path.equals(cores.getAdminPath())) {
+        handler=cores.getMultiCoreHandler();
+        solrReq=SolrRequestParsers.DEFAULT.parse(null,path,req);
+        handleAdminRequest(req,response,handler,solrReq);
+        return;
+      }
+      boolean usingAliases=false;
+      List<String> collectionsList=null;
+      if (path.equals("/admin/collections")) {
+        handler=cores.getCollectionsHandler();
+        solrReq=SolrRequestParsers.DEFAULT.parse(null,path,req);
+        handleAdminRequest(req,response,handler,solrReq);
+        return;
+      }
+ else {
+        idx=path.indexOf("/",1);
+        if (idx > 1) {
+          corename=path.substring(1,idx);
+          if (cores.isZooKeeperAware()) {
+            origCorename=corename;
+            ZkStateReader reader=cores.getZkController().getZkStateReader();
+            aliases=reader.getAliases();
+            if (aliases != null && aliases.collectionAliasSize() > 0) {
+              usingAliases=true;
+              String alias=aliases.getCollectionAlias(corename);
+              if (alias != null) {
+                collectionsList=StrUtils.splitSmart(alias,",",true);
+                corename=collectionsList.get(0);
+              }
+            }
+          }
+          core=cores.getCore(corename);
+          if (core != null) {
+            path=path.substring(idx);
+          }
+        }
+        if (core == null) {
+          if (!cores.isZooKeeperAware()) {
+            core=cores.getCore("");
+          }
+        }
+      }
+      if (core == null && cores.isZooKeeperAware()) {
+        core=getCoreByCollection(cores,corename,path);
+        if (core != null) {
+          path=path.substring(idx);
+        }
+        if (core == null && idx > 0) {
+          String coreUrl=getRemotCoreUrl(cores,corename,origCorename);
+          if (coreUrl != null) {
+            path=path.substring(idx);
+            remoteQuery(coreUrl + path,req,solrReq,resp);
+            return;
+          }
+ else {
+            if (!retry) {
+              ZkStateReader reader=cores.getZkController().getZkStateReader();
+              reader.updateAliases();
+              doFilter(request,response,chain,true);
+            }
+          }
+        }
+        if (core == null) {
+          core=cores.getCore("");
+        }
+      }
+      if (core != null) {
+        final SolrConfig config=core.getSolrConfig();
+        SolrRequestParsers parser=null;
+        parser=parsers.get(config);
+        if (parser == null) {
+          parser=new SolrRequestParsers(config);
+          parsers.put(config,parser);
+        }
+        if (path.startsWith("/schema")) {
+          solrReq=parser.parse(core,path,req);
+          SolrRequestInfo.setRequestInfo(new SolrRequestInfo(solrReq,new SolrQueryResponse()));
+          if (path.equals(req.getServletPath())) {
+            chain.doFilter(request,response);
+          }
+ else {
+            req.getRequestDispatcher(path).forward(request,response);
+          }
+          return;
+        }
+        if (handler == null && path.length() > 1) {
+          handler=core.getRequestHandler(path);
+          if (handler == null && parser.isHandleSelect()) {
+            if ("/select".equals(path) || "/select/".equals(path)) {
+              solrReq=parser.parse(core,path,req);
+              String qt=solrReq.getParams().get(CommonParams.QT);
+              handler=core.getRequestHandler(qt);
+              if (handler == null) {
+                throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+              }
+              if (qt != null && qt.startsWith("/") && (handler instanceof ContentStreamHandlerBase)) {
+                throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid Request Handler ('qt').  Do not use /select to access: " + qt);
+              }
+            }
+          }
+        }
+        if (handler != null) {
+          if (solrReq == null) {
+            solrReq=parser.parse(core,path,req);
+          }
+          if (usingAliases) {
+            processAliases(solrReq,aliases,collectionsList);
+          }
+          final Method reqMethod=Method.getMethod(req.getMethod());
+          HttpCacheHeaderUtil.setCacheControlHeader(config,resp,reqMethod);
+          if (config.getHttpCachingConfig().isNever304() || !HttpCacheHeaderUtil.doCacheHeaderValidation(solrReq,req,reqMethod,resp)) {
+            SolrQueryResponse solrRsp=new SolrQueryResponse();
+            SolrRequestInfo.setRequestInfo(new SolrRequestInfo(solrReq,solrRsp));
+            this.execute(req,handler,solrReq,solrRsp);
+            HttpCacheHeaderUtil.checkHttpCachingVeto(solrRsp,resp,reqMethod);
+            QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
+            writeResponse(solrRsp,response,responseWriter,solrReq,reqMethod);
+          }
+          return;
+        }
+      }
+      log.debug("no handler or core retrieved for " + path + ", follow through...");
+    }
+ catch (    Throwable ex) {
+      sendError(core,solrReq,request,(HttpServletResponse)response,ex);
+      return;
+    }
+ finally {
+      if (solrReq != null) {
+        solrReq.close();
+      }
+      if (core != null) {
+        core.close();
+      }
+      SolrRequestInfo.clearRequestInfo();
+    }
+  }
+  chain.doFilter(request,response);
+}
