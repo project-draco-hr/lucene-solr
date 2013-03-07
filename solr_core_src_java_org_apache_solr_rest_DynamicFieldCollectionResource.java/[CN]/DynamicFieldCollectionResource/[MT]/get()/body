@@ -1,28 +1,29 @@
 {
   try {
-    SchemaField[] dynamicFields=getSchema().getDynamicFieldPrototypes();
-    List<SimpleOrderedMap<Object>> props=new ArrayList<SimpleOrderedMap<Object>>(dynamicFields.length);
-    if (null != getRequestedFields()) {
-      if (0 == getRequestedFields().size()) {
-        String message="Empty " + CommonParams.FL + " parameter value";
-        throw new SolrException(ErrorCode.BAD_REQUEST,message);
-      }
-      for (      SchemaField prototype : dynamicFields) {
-        if (getRequestedFields().containsKey(prototype.getName())) {
-          getRequestedFields().put(prototype.getName(),getFieldProperties(prototype));
-        }
-      }
-      for (      Map.Entry<String,SimpleOrderedMap<Object>> requestedField : getRequestedFields().entrySet()) {
-        SimpleOrderedMap<Object> fieldProperties=requestedField.getValue();
-        if (null != fieldProperties) {
-          props.add(fieldProperties);
+    List<SimpleOrderedMap<Object>> props=new ArrayList<SimpleOrderedMap<Object>>();
+    if (null == getRequestedFields()) {
+      for (      IndexSchema.DynamicField dynamicField : getSchema().getDynamicFields()) {
+        if (!dynamicField.getRegex().startsWith(INTERNAL_POLY_FIELD_PREFIX)) {
+          props.add(getFieldProperties(dynamicField.getPrototype()));
         }
       }
     }
  else {
-      for (      SchemaField prototype : dynamicFields) {
-        if (!prototype.getName().startsWith(INTERNAL_POLY_FIELD_PREFIX)) {
-          props.add(getFieldProperties(prototype));
+      if (0 == getRequestedFields().size()) {
+        String message="Empty " + CommonParams.FL + " parameter value";
+        throw new SolrException(ErrorCode.BAD_REQUEST,message);
+      }
+      Map<String,SchemaField> dynamicFieldsByName=new HashMap<String,SchemaField>();
+      for (      IndexSchema.DynamicField dynamicField : getSchema().getDynamicFields()) {
+        dynamicFieldsByName.put(dynamicField.getRegex(),dynamicField.getPrototype());
+      }
+      for (      String dynamicFieldName : getRequestedFields()) {
+        final SchemaField dynamicSchemaField=dynamicFieldsByName.get(dynamicFieldName);
+        if (null == dynamicSchemaField) {
+          log.info("Requested dynamic field '" + dynamicFieldName + "' not found.");
+        }
+ else {
+          props.add(getFieldProperties(dynamicSchemaField));
         }
       }
     }
