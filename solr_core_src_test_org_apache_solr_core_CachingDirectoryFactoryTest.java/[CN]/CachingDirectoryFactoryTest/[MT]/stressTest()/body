@@ -1,0 +1,38 @@
+{
+  final CachingDirectoryFactory df=new RAMDirectoryFactory();
+  List<Thread> threads=new ArrayList<Thread>();
+  int threadCount=3;
+  for (int i=0; i < threadCount; i++) {
+    Thread getDirThread=new GetDirThread(df);
+    threads.add(getDirThread);
+    getDirThread.start();
+  }
+  for (int i=0; i < 2; i++) {
+    Thread releaseDirThread=new ReleaseDirThread(df);
+    threads.add(releaseDirThread);
+    releaseDirThread.start();
+  }
+  for (int i=0; i < 1; i++) {
+    Thread incRefThread=new IncRefThread(df);
+    threads.add(incRefThread);
+    incRefThread.start();
+  }
+  Thread.sleep(TEST_NIGHTLY ? 30000 : 8000);
+  stop=true;
+  for (  Thread thread : threads) {
+    thread.join();
+  }
+synchronized (dirs) {
+    int sz=dirs.size();
+    if (sz > 0) {
+      for (      Tracker tracker : dirs.values()) {
+        int cnt=tracker.refCnt.get();
+        for (int i=0; i < cnt; i++) {
+          tracker.refCnt.decrementAndGet();
+          df.release(tracker.dir);
+        }
+      }
+    }
+  }
+  df.close();
+}
