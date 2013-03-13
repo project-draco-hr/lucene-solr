@@ -3,7 +3,15 @@
   final List<TermFreq2> slowCompletor=new ArrayList<TermFreq2>();
   final TreeSet<String> allPrefixes=new TreeSet<String>();
   final Set<String> seen=new HashSet<String>();
-  TermFreq[] keys=new TermFreq[numQueries];
+  boolean doPayloads=random().nextBoolean();
+  TermFreq[] keys=null;
+  TermFreqPayload[] payloadKeys=null;
+  if (doPayloads) {
+    payloadKeys=new TermFreqPayload[numQueries];
+  }
+ else {
+    keys=new TermFreq[numQueries];
+  }
   boolean preserveSep=random().nextBoolean();
   final int numStopChars=random().nextInt(10);
   final boolean preserveHoles=random().nextBoolean();
@@ -57,8 +65,18 @@
       allPrefixes.add(key.substring(0,j));
     }
     int weight=random().nextInt(1 << 24);
-    keys[i]=new TermFreq(key,weight);
-    slowCompletor.add(new TermFreq2(key,analyzedKey,weight));
+    BytesRef payload;
+    if (doPayloads) {
+      byte[] bytes=new byte[random().nextInt(10)];
+      random().nextBytes(bytes);
+      payload=new BytesRef(bytes);
+      payloadKeys[i]=new TermFreqPayload(key,weight,payload);
+    }
+ else {
+      keys[i]=new TermFreq(key,weight);
+      payload=null;
+    }
+    slowCompletor.add(new TermFreq2(key,analyzedKey,weight,payload));
   }
   if (VERBOSE) {
     List<TermFreq2> sorted=new ArrayList<TermFreq2>(slowCompletor);
@@ -69,7 +87,12 @@
   }
   Analyzer a=new MockTokenEatingAnalyzer(numStopChars,preserveHoles);
   AnalyzingSuggester suggester=new AnalyzingSuggester(a,a,preserveSep ? AnalyzingSuggester.PRESERVE_SEP : 0,256,-1);
-  suggester.build(new TermFreqArrayIterator(keys));
+  if (doPayloads) {
+    suggester.build(new TermFreqPayloadArrayIterator(payloadKeys));
+  }
+ else {
+    suggester.build(new TermFreqArrayIterator(keys));
+  }
   for (  String prefix : allPrefixes) {
     if (VERBOSE) {
       System.out.println("\nTEST: prefix=" + prefix);
@@ -150,6 +173,9 @@
     for (int hit=0; hit < r.size(); hit++) {
       assertEquals(matches.get(hit).surfaceForm.toString(),r.get(hit).key.toString());
       assertEquals(matches.get(hit).weight,r.get(hit).value,0f);
+      if (doPayloads) {
+        assertEquals(matches.get(hit).payload,r.get(hit).payload);
+      }
     }
   }
 }
