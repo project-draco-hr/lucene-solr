@@ -6,9 +6,19 @@
   DynamicField sourceDynamicBase=null;
   DynamicField destDynamicBase=null;
   boolean sourceIsDynamicFieldReference=false;
-  if (null == destSchemaField || null == sourceSchemaField) {
+  boolean sourceIsExplicitFieldGlob=false;
+  if (null == sourceSchemaField && isValidFieldGlob(source)) {
+    Pattern pattern=Pattern.compile(source.replace("*",".*"));
+    for (    String field : fields.keySet()) {
+      if (pattern.matcher(field).matches()) {
+        sourceIsExplicitFieldGlob=true;
+        break;
+      }
+    }
+  }
+  if (null == destSchemaField || (null == sourceSchemaField && !sourceIsExplicitFieldGlob)) {
     for (    DynamicField dynamicField : dynamicFields) {
-      if (null == sourceSchemaField && !sourceIsDynamicFieldReference) {
+      if (null == sourceSchemaField && !sourceIsDynamicFieldReference && !sourceIsExplicitFieldGlob) {
         if (dynamicField.matches(source)) {
           sourceIsDynamicFieldReference=true;
           if (!source.equals(dynamicField.getRegex())) {
@@ -27,18 +37,20 @@
           destDynamicBase=dynamicField;
         }
       }
-      if (null != destSchemaField && (null != sourceSchemaField || sourceIsDynamicFieldReference))       break;
+      if (null != destSchemaField && (null != sourceSchemaField || sourceIsDynamicFieldReference || sourceIsExplicitFieldGlob)) {
+        break;
+      }
     }
   }
-  if (null == sourceSchemaField && !sourceIsDynamicFieldReference) {
-    String msg="copyField source :'" + source + "' is not an explicit field and doesn't match a dynamicField.";
+  if (null == sourceSchemaField && !sourceIsDynamicFieldReference && !sourceIsExplicitFieldGlob) {
+    String msg="copyField source :'" + source + "' doesn't match any explicit field or dynamicField.";
     throw new SolrException(ErrorCode.SERVER_ERROR,msg);
   }
   if (null == destSchemaField) {
     String msg="copyField dest :'" + dest + "' is not an explicit field and doesn't match a dynamicField.";
     throw new SolrException(ErrorCode.SERVER_ERROR,msg);
   }
-  if (sourceIsDynamicFieldReference) {
+  if (sourceIsDynamicFieldReference || sourceIsExplicitFieldGlob) {
     if (null != destDynamicField) {
       registerDynamicCopyField(new DynamicCopy(source,destDynamicField,maxChars,sourceDynamicBase,destDynamicBase));
       incrementCopyFieldTargetCount(destSchemaField);
@@ -56,7 +68,7 @@
         incrementCopyFieldTargetCount(destSchemaField);
       }
  else {
-        String msg="copyField only supports a dynamic destination with an asterisk " + "if the source is also dynamic with an asterisk";
+        String msg="copyField only supports a dynamic destination with an asterisk " + "if the source also has an asterisk";
         throw new SolrException(ErrorCode.SERVER_ERROR,msg);
       }
     }
