@@ -1,8 +1,7 @@
 {
   String collectionName=message.getStr("name");
   if (clusterState.getCollections().contains(collectionName)) {
-    SolrException.log(log,"collection already exists: " + collectionName);
-    return false;
+    throw new SolrException(ErrorCode.BAD_REQUEST,"collection already exists: " + collectionName);
   }
   try {
     int repFactor=msgStrToInt(message,REPLICATION_FACTOR,1);
@@ -12,11 +11,10 @@
     List<String> createNodeList=((createNodeSetStr=message.getStr(CREATE_NODE_SET)) == null) ? null : StrUtils.splitSmart(createNodeSetStr,",",true);
     if (repFactor <= 0) {
       SolrException.log(log,REPLICATION_FACTOR + " must be > 0");
-      return false;
+      throw new SolrException(ErrorCode.BAD_REQUEST,"collection already exists: " + collectionName);
     }
     if (numSlices < 0) {
-      SolrException.log(log,NUM_SLICES + " must be > 0");
-      return false;
+      throw new SolrException(ErrorCode.BAD_REQUEST,NUM_SLICES + " must be > 0");
     }
     String configName=message.getStr("collection.configName");
     Set<String> nodes=clusterState.getLiveNodes();
@@ -25,8 +23,7 @@
     if (createNodeList != null)     nodeList.retainAll(createNodeList);
     Collections.shuffle(nodeList);
     if (nodeList.size() <= 0) {
-      log.error("Cannot create collection " + collectionName + ". No live Solr-instaces"+ ((createNodeList != null) ? " among Solr-instances specified in " + CREATE_NODE_SET : ""));
-      return false;
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Cannot create collection " + collectionName + ". No live Solr-instances"+ ((createNodeList != null) ? " among Solr-instances specified in " + CREATE_NODE_SET + ":"+ createNodeSetStr : ""));
     }
     if (repFactor > nodeList.size()) {
       log.warn("Specified " + REPLICATION_FACTOR + " of "+ repFactor+ " on collection "+ collectionName+ " is higher than or equal to the number of Solr instances currently live ("+ nodeList.size()+ "). Its unusual to run two replica of the same slice on the same Solr-instance.");
@@ -34,8 +31,7 @@
     int maxShardsAllowedToCreate=maxShardsPerNode * nodeList.size();
     int requestedShardsToCreate=numSlices * repFactor;
     if (maxShardsAllowedToCreate < requestedShardsToCreate) {
-      log.error("Cannot create collection " + collectionName + ". Value of "+ MAX_SHARDS_PER_NODE+ " is "+ maxShardsPerNode+ ", and the number of live nodes is "+ nodeList.size()+ ". This allows a maximum of "+ maxShardsAllowedToCreate+ " to be created. Value of "+ NUM_SLICES+ " is "+ numSlices+ " and value of "+ REPLICATION_FACTOR+ " is "+ repFactor+ ". This requires "+ requestedShardsToCreate+ " shards to be created (higher than the allowed number)");
-      return false;
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Cannot create collection " + collectionName + ". Value of "+ MAX_SHARDS_PER_NODE+ " is "+ maxShardsPerNode+ ", and the number of live nodes is "+ nodeList.size()+ ". This allows a maximum of "+ maxShardsAllowedToCreate+ " to be created. Value of "+ NUM_SLICES+ " is "+ numSlices+ " and value of "+ REPLICATION_FACTOR+ " is "+ repFactor+ ". This requires "+ requestedShardsToCreate+ " shards to be created (higher than the allowed number)");
     }
     for (int i=1; i <= numSlices; i++) {
       for (int j=1; j <= repFactor; j++) {
@@ -51,6 +47,7 @@
         params.set(CoreAdminParams.SHARD,sliceName);
         params.set(ZkStateReader.NUM_SHARDS_PROP,numSlices);
         ShardRequest sreq=new ShardRequest();
+        sreq.nodeName=nodeName;
         params.set("qt",adminPath);
         sreq.purpose=1;
         String replica=zkStateReader.getZkClient().getBaseUrlForNodeName(nodeName);
@@ -61,26 +58,20 @@
         shardHandler.submit(sreq,replica,sreq.params);
       }
     }
-    int failed=0;
     ShardResponse srsp;
     do {
       srsp=shardHandler.takeCompletedOrError();
       if (srsp != null) {
-        Throwable e=srsp.getException();
-        if (e != null) {
-          failed++;
-          log.error("Error talking to shard: " + srsp.getShard(),e);
-        }
+        processResponse(results,srsp);
       }
     }
  while (srsp != null);
-    if (failed > 0) {
-      return false;
-    }
-    log.info("Successfully created all shards for collection " + collectionName);
-    return true;
+    log.info("Finished create command on all shards for collection: " + collectionName);
   }
- catch (  Exception ex) {
-    return false;
+ catch (  SolrException ex) {
+    throw ex;
+  }
+catch (  Exception ex) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,null,ex);
   }
 }
