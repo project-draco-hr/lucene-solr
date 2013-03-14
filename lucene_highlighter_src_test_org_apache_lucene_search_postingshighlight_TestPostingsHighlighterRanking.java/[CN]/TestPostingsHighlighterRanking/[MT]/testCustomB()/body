@@ -1,0 +1,25 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random(),MockTokenizer.SIMPLE,true));
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  FieldType offsetsType=new FieldType(TextField.TYPE_STORED);
+  offsetsType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+  Field body=new Field("body","",offsetsType);
+  Document doc=new Document();
+  doc.add(body);
+  body.setStringValue("This is a test.  This test is a better test but the sentence is excruiatingly long, " + "you have no idea how painful it was for me to type this long sentence into my IDE.");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  PostingsHighlighter highlighter=new PostingsHighlighter(10000,BreakIterator.getSentenceInstance(Locale.ROOT),new PassageScorer(1.2f,0,87),new PassageFormatter());
+  Query query=new TermQuery(new Term("body","test"));
+  TopDocs topDocs=searcher.search(query,null,10,Sort.INDEXORDER);
+  assertEquals(1,topDocs.totalHits);
+  String snippets[]=highlighter.highlight("body",query,searcher,topDocs,1);
+  assertEquals(1,snippets.length);
+  assertTrue(snippets[0].startsWith("This <b>test</b> is a better <b>test</b>"));
+  ir.close();
+  dir.close();
+}
