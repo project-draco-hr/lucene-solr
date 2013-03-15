@@ -1,0 +1,58 @@
+{
+  assumeTrue("Test requires SortedSetDV support",defaultCodecSupportsSortedSet());
+  Directory dir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  final char delim=':';
+  FacetIndexingParams fip=new FacetIndexingParams(){
+    @Override public char getFacetDelimChar(){
+      return delim;
+    }
+  }
+;
+  Document doc=new Document();
+  List<CategoryPath> paths=new ArrayList<CategoryPath>();
+  paths.add(new CategoryPath("a","foo"));
+  paths.add(new CategoryPath("a","bar"));
+  paths.add(new CategoryPath("a","zoo"));
+  Collections.shuffle(paths,random());
+  for (  CategoryPath cp : paths) {
+    doc.add(new SortedSetDocValuesFacetField(fip,cp));
+  }
+  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("b","baz")));
+  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("b","baz" + delim + "foo")));
+  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("b" + FacetIndexingParams.DEFAULT_FACET_DELIM_CHAR,"bazfoo")));
+  writer.addDocument(doc);
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("a","foo")));
+  writer.addDocument(doc);
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  writer.close();
+  List<FacetRequest> requests=new ArrayList<FacetRequest>();
+  requests.add(new CountFacetRequest(new CategoryPath("a"),10));
+  requests.add(new CountFacetRequest(new CategoryPath("b"),10));
+  requests.add(new CountFacetRequest(new CategoryPath("b" + FacetIndexingParams.DEFAULT_FACET_DELIM_CHAR),10));
+  final boolean doDimCount=random().nextBoolean();
+  CategoryListParams clp=new CategoryListParams(){
+    @Override public OrdinalPolicy getOrdinalPolicy(    String dimension){
+      return doDimCount ? OrdinalPolicy.NO_PARENTS : OrdinalPolicy.ALL_BUT_DIMENSION;
+    }
+  }
+;
+  FacetSearchParams fsp=new FacetSearchParams(new FacetIndexingParams(clp),requests);
+  SortedSetDocValuesReaderState state=new SortedSetDocValuesReaderState(fip,searcher.getIndexReader());
+  FacetsCollector c=FacetsCollector.create(new SortedSetDocValuesAccumulator(fsp,state));
+  searcher.search(new MatchAllDocsQuery(),c);
+  List<FacetResult> results=c.getFacetResults();
+  assertEquals(3,results.size());
+  int dimCount=doDimCount ? 4 : 0;
+  assertEquals("a (" + dimCount + ")\n  foo (2)\n  bar (1)\n  zoo (1)\n",FacetTestUtils.toSimpleString(results.get(0)));
+  dimCount=doDimCount ? 2 : 0;
+  assertEquals("b (" + dimCount + ")\n  baz (1)\n  baz"+ delim+ "foo (1)\n",FacetTestUtils.toSimpleString(results.get(1)));
+  dimCount=doDimCount ? 1 : 0;
+  assertEquals("b" + FacetIndexingParams.DEFAULT_FACET_DELIM_CHAR + " ("+ dimCount+ ")\n  bazfoo (1)\n",FacetTestUtils.toSimpleString(results.get(2)));
+  searcher.getIndexReader().close();
+  dir.close();
+}
