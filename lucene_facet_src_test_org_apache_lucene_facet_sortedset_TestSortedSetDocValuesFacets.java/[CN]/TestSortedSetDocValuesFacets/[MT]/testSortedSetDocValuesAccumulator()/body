@@ -9,24 +9,22 @@
     }
   }
 ;
+  SortedSetDocValuesFacetFields dvFields=new SortedSetDocValuesFacetFields(fip);
   Document doc=new Document();
   List<CategoryPath> paths=new ArrayList<CategoryPath>();
   paths.add(new CategoryPath("a","foo"));
   paths.add(new CategoryPath("a","bar"));
   paths.add(new CategoryPath("a","zoo"));
   Collections.shuffle(paths,random());
-  for (  CategoryPath cp : paths) {
-    doc.add(new SortedSetDocValuesFacetField(fip,cp));
-  }
-  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("b","baz")));
-  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("b","baz" + delim + "foo")));
-  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("b" + FacetIndexingParams.DEFAULT_FACET_DELIM_CHAR,"bazfoo")));
+  paths.add(new CategoryPath("b","baz"));
+  paths.add(new CategoryPath("b" + FacetIndexingParams.DEFAULT_FACET_DELIM_CHAR,"bazfoo"));
+  dvFields.addFields(doc,paths);
   writer.addDocument(doc);
   if (random().nextBoolean()) {
     writer.commit();
   }
   doc=new Document();
-  doc.add(new SortedSetDocValuesFacetField(fip,new CategoryPath("a","foo")));
+  dvFields.addFields(doc,Collections.singletonList(new CategoryPath("a","foo")));
   writer.addDocument(doc);
   IndexSearcher searcher=newSearcher(writer.getReader());
   writer.close();
@@ -49,10 +47,19 @@
   assertEquals(3,results.size());
   int dimCount=doDimCount ? 4 : 0;
   assertEquals("a (" + dimCount + ")\n  foo (2)\n  bar (1)\n  zoo (1)\n",FacetTestUtils.toSimpleString(results.get(0)));
-  dimCount=doDimCount ? 2 : 0;
-  assertEquals("b (" + dimCount + ")\n  baz (1)\n  baz"+ delim+ "foo (1)\n",FacetTestUtils.toSimpleString(results.get(1)));
+  dimCount=doDimCount ? 1 : 0;
+  assertEquals("b (" + dimCount + ")\n  baz (1)\n",FacetTestUtils.toSimpleString(results.get(1)));
   dimCount=doDimCount ? 1 : 0;
   assertEquals("b" + FacetIndexingParams.DEFAULT_FACET_DELIM_CHAR + " ("+ dimCount+ ")\n  bazfoo (1)\n",FacetTestUtils.toSimpleString(results.get(2)));
+  DrillDownQuery q=new DrillDownQuery(fip);
+  q.add(new CategoryPath("a","foo"));
+  q.add(new CategoryPath("b","baz"));
+  TopDocs hits=searcher.search(q,1);
+  assertEquals(1,hits.totalHits);
+  q=new DrillDownQuery(fip);
+  q.add(new CategoryPath("a"));
+  hits=searcher.search(q,1);
+  assertEquals(2,hits.totalHits);
   searcher.getIndexReader().close();
   dir.close();
 }
