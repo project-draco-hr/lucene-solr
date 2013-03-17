@@ -10,17 +10,34 @@
       }
     }
   }
-  try {
-    log.info("Closing directory: " + cacheValue.path);
-    cacheValue.directory.close();
-  }
- catch (  Throwable t) {
-    SolrException.log(log,"Error closing directory",t);
-  }
+  cacheValue.closeDirectoryCalled=true;
   if (cacheValue.deleteOnClose) {
+    Collection<CacheValue> values=byPathCache.values();
+    Collection<CacheValue> cacheValues=new ArrayList<CacheValue>();
+    cacheValues.addAll(values);
+    cacheValues.remove(cacheValue);
+    for (    CacheValue otherCacheValue : cacheValues) {
+      if (otherCacheValue.path.startsWith(cacheValue.path) && !otherCacheValue.closeDirectoryCalled) {
+        otherCacheValue.removeEntries.addAll(cacheValue.removeEntries);
+        otherCacheValue.closeEntries.addAll(cacheValue.closeEntries);
+        cacheValue.closeEntries.clear();
+        break;
+      }
+    }
+  }
+  for (  CacheValue val : cacheValue.removeEntries) {
     try {
-      log.info("Removing directory: " + cacheValue.path);
-      removeDirectory(cacheValue);
+      log.info("Removing directory: " + val.path);
+      removeDirectory(val);
+    }
+ catch (    Throwable t) {
+      SolrException.log(log,"Error removing directory",t);
+    }
+  }
+  for (  CacheValue val : cacheValue.closeEntries) {
+    try {
+      log.info("Closing directory: " + val.path);
+      val.directory.close();
     }
  catch (    Throwable t) {
       SolrException.log(log,"Error closing directory",t);
