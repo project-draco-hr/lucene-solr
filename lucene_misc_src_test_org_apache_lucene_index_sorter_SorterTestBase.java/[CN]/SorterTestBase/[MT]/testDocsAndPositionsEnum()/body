@@ -1,6 +1,7 @@
 {
-  Term term=new Term(DOC_POSITIONS_FIELD,DOC_POSITIONS_TERM);
-  DocsAndPositionsEnum sortedPositions=reader.termPositionsEnum(term);
+  TermsEnum termsEnum=reader.terms(DOC_POSITIONS_FIELD).iterator(null);
+  assertEquals(SeekStatus.FOUND,termsEnum.seekCeil(new BytesRef(DOC_POSITIONS_TERM)));
+  DocsAndPositionsEnum sortedPositions=termsEnum.docsAndPositions(null,null);
   int doc;
   while ((doc=sortedPositions.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
     int freq=sortedPositions.freq();
@@ -14,7 +15,11 @@
       assertEquals("incorrect payload for doc=" + doc,freq - i,Integer.parseInt(sortedPositions.getPayload().utf8ToString()));
     }
   }
-  sortedPositions=reader.termPositionsEnum(term);
+  final DocsAndPositionsEnum reuse=sortedPositions;
+  sortedPositions=termsEnum.docsAndPositions(null,reuse);
+  if (sortedPositions instanceof SortingDocsAndPositionsEnum) {
+    assertTrue(((SortingDocsAndPositionsEnum)sortedPositions).reused(reuse));
+  }
   doc=0;
   while ((doc=sortedPositions.advance(doc)) != DocIdSetIterator.NO_MORE_DOCS) {
     int freq=sortedPositions.freq();
