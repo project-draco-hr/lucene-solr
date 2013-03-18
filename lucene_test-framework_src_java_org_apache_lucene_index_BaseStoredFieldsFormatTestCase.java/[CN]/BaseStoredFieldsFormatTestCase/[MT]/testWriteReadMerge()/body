@@ -1,0 +1,80 @@
+{
+  final Codec otherCodec;
+  if ("SimpleText".equals(Codec.getDefault().getName())) {
+    otherCodec=new Lucene42Codec();
+  }
+ else {
+    otherCodec=new SimpleTextCodec();
+  }
+  Directory dir=newDirectory();
+  IndexWriterConfig iwConf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwConf.setMaxBufferedDocs(RandomInts.randomIntBetween(random(),2,30));
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwConf);
+  final int docCount=atLeast(200);
+  final byte[][][] data=new byte[docCount][][];
+  for (int i=0; i < docCount; ++i) {
+    final int fieldCount=rarely() ? RandomInts.randomIntBetween(random(),1,500) : RandomInts.randomIntBetween(random(),1,5);
+    data[i]=new byte[fieldCount][];
+    for (int j=0; j < fieldCount; ++j) {
+      final int length=rarely() ? random().nextInt(1000) : random().nextInt(10);
+      final int max=rarely() ? 256 : 2;
+      data[i][j]=randomByteArray(length,max);
+    }
+  }
+  final FieldType type=new FieldType(StringField.TYPE_STORED);
+  type.setIndexed(false);
+  type.freeze();
+  IntField id=new IntField("id",0,Store.YES);
+  for (int i=0; i < data.length; ++i) {
+    Document doc=new Document();
+    doc.add(id);
+    id.setIntValue(i);
+    for (int j=0; j < data[i].length; ++j) {
+      Field f=new Field("bytes" + j,data[i][j],type);
+      doc.add(f);
+    }
+    iw.w.addDocument(doc);
+    if (random().nextBoolean() && (i % (data.length / 10) == 0)) {
+      iw.w.close();
+      if (iwConf.getCodec() == otherCodec) {
+        iwConf.setCodec(Codec.getDefault());
+      }
+ else {
+        iwConf.setCodec(otherCodec);
+      }
+      iw=new RandomIndexWriter(random(),dir,iwConf);
+    }
+  }
+  for (int i=0; i < 10; ++i) {
+    final int min=random().nextInt(data.length);
+    final int max=min + random().nextInt(20);
+    iw.deleteDocuments(NumericRangeQuery.newIntRange("id",min,max,true,false));
+  }
+  iw.forceMerge(2);
+  iw.commit();
+  final DirectoryReader ir=DirectoryReader.open(dir);
+  assertTrue(ir.numDocs() > 0);
+  int numDocs=0;
+  for (int i=0; i < ir.maxDoc(); ++i) {
+    final StoredDocument doc=ir.document(i);
+    if (doc == null) {
+      continue;
+    }
+    ++numDocs;
+    final int docId=doc.getField("id").numericValue().intValue();
+    assertEquals(data[docId].length + 1,doc.getFields().size());
+    for (int j=0; j < data[docId].length; ++j) {
+      final byte[] arr=data[docId][j];
+      final BytesRef arr2Ref=doc.getBinaryValue("bytes" + j);
+      final byte[] arr2=Arrays.copyOfRange(arr2Ref.bytes,arr2Ref.offset,arr2Ref.offset + arr2Ref.length);
+      assertArrayEquals(arr,arr2);
+    }
+  }
+  assertTrue(ir.numDocs() <= numDocs);
+  ir.close();
+  iw.deleteAll();
+  iw.commit();
+  iw.forceMerge(1);
+  iw.close();
+  dir.close();
+}

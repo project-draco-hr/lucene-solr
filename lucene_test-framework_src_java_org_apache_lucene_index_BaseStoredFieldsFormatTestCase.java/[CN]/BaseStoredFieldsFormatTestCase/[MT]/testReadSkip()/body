@@ -1,0 +1,41 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwConf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwConf.setMaxBufferedDocs(RandomInts.randomIntBetween(random(),2,30));
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwConf);
+  FieldType ft=new FieldType();
+  ft.setStored(true);
+  ft.freeze();
+  final String string=_TestUtil.randomSimpleString(random(),50);
+  final byte[] bytes=string.getBytes("UTF-8");
+  final long l=random().nextBoolean() ? random().nextInt(42) : random().nextLong();
+  final int i=random().nextBoolean() ? random().nextInt(42) : random().nextInt();
+  final float f=random().nextFloat();
+  final double d=random().nextDouble();
+  List<Field> fields=Arrays.asList(new Field("bytes",bytes,ft),new Field("string",string,ft),new LongField("long",l,Store.YES),new IntField("int",i,Store.YES),new FloatField("float",f,Store.YES),new DoubleField("double",d,Store.YES));
+  for (int k=0; k < 100; ++k) {
+    Document doc=new Document();
+    for (    Field fld : fields) {
+      doc.add(fld);
+    }
+    iw.w.addDocument(doc);
+  }
+  iw.commit();
+  final DirectoryReader reader=DirectoryReader.open(dir);
+  final int docID=random().nextInt(100);
+  for (  Field fld : fields) {
+    String fldName=fld.name();
+    final StoredDocument sDoc=reader.document(docID,Collections.singleton(fldName));
+    final StorableField sField=sDoc.getField(fldName);
+    if (Field.class.equals(fld.getClass())) {
+      assertEquals(fld.binaryValue(),sField.binaryValue());
+      assertEquals(fld.stringValue(),sField.stringValue());
+    }
+ else {
+      assertEquals(fld.numericValue(),sField.numericValue());
+    }
+  }
+  reader.close();
+  iw.close();
+  dir.close();
+}
