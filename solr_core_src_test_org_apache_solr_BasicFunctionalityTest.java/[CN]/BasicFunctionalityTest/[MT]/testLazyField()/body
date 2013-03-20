@@ -1,16 +1,42 @@
 {
-  for (int i=0; i < 10; i++) {
-    assertU(adoc("id",new Integer(i).toString(),"title","keyword","test_hlt",mkstr(20000)));
-  }
+  assertU(adoc("id","7777","title","keyword","test_hlt",mkstr(10000),"test_hlt",mkstr(20000),"test_hlt",mkstr(30000),"test_hlt",mkstr(40000)));
   assertU(commit());
   SolrCore core=h.getCore();
-  SolrQueryRequest req=req("q","title:keyword","fl","id,title");
+  SolrQueryRequest req=req("q","id:7777","fl","id,title");
   SolrQueryResponse rsp=new SolrQueryResponse();
   core.execute(core.getRequestHandler(req.getParams().get(CommonParams.QT)),req,rsp);
   DocList dl=((ResultContext)rsp.getValues().get("response")).docs;
   DocIterator di=dl.iterator();
-  StoredDocument d=req.getSearcher().doc(di.nextDoc());
-  assertTrue((d.getField("test_hlt")).getClass().getSimpleName().equals("LazyField"));
-  assertFalse((d.getField("title")).getClass().getSimpleName().equals("LazyField"));
+  StoredDocument d1=req.getSearcher().doc(di.nextDoc());
+  StorableField[] values1=null;
+  assertFalse(d1.getField("title") instanceof LazyDocument.LazyField);
+  assertFalse(d1.getField("id") instanceof LazyDocument.LazyField);
+  values1=d1.getFields("test_hlt");
+  assertEquals(4,values1.length);
+  for (int i=0; i < values1.length; i++) {
+    assertTrue(values1[i] instanceof LazyDocument.LazyField);
+    LazyDocument.LazyField f=(LazyDocument.LazyField)values1[i];
+    assertFalse(f.hasBeenLoaded());
+  }
+  req.close();
+  req=req("q","id:7777","fl","id,test_hlt");
+  rsp=new SolrQueryResponse();
+  core.execute(core.getRequestHandler(req.getParams().get(CommonParams.QT)),req,rsp);
+  dl=((ResultContext)rsp.getValues().get("response")).docs;
+  di=dl.iterator();
+  StoredDocument d2=req.getSearcher().doc(di.nextDoc());
+  assertTrue("Doc was not cached",d1 == d2);
+  StorableField[] values2=d2.getFields("test_hlt");
+  assertEquals(values1.length,values2.length);
+  for (int i=0; i < values1.length; i++) {
+    assertSame("LazyField wasn't reused",values1[i],values2[i]);
+    LazyDocument.LazyField f=(LazyDocument.LazyField)values1[i];
+    assertFalse(f.hasBeenLoaded());
+  }
+  assertNotNull(values2[0].stringValue());
+  for (int i=0; i < values2.length; i++) {
+    LazyDocument.LazyField f=(LazyDocument.LazyField)values2[i];
+    assertTrue(f.hasBeenLoaded());
+  }
   req.close();
 }
