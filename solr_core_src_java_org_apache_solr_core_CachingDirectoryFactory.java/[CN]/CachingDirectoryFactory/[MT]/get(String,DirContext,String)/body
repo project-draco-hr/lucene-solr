@@ -1,3 +1,26 @@
 {
-  return get(path,dirContext,rawLockType,false);
+  String fullPath=normalize(path);
+synchronized (this) {
+    if (closed) {
+      throw new RuntimeException("Already closed");
+    }
+    final CacheValue cacheValue=byPathCache.get(fullPath);
+    Directory directory=null;
+    if (cacheValue != null) {
+      directory=cacheValue.directory;
+    }
+    if (directory == null) {
+      directory=create(fullPath,dirContext);
+      directory=rateLimit(directory);
+      CacheValue newCacheValue=new CacheValue(fullPath,directory);
+      injectLockFactory(directory,fullPath,rawLockType);
+      byDirectoryCache.put(directory,newCacheValue);
+      byPathCache.put(fullPath,newCacheValue);
+      log.info("return new directory for " + fullPath);
+    }
+ else {
+      cacheValue.refCnt++;
+    }
+    return directory;
+  }
 }
