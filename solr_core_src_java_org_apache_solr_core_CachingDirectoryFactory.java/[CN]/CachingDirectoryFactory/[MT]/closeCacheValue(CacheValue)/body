@@ -1,4 +1,5 @@
 {
+  log.info("looking to close " + cacheValue.path + " "+ cacheValue.closeEntries.toString());
   List<CloseListener> listeners=closeListeners.remove(cacheValue.directory);
   if (listeners != null) {
     for (    CloseListener listener : listeners) {
@@ -10,28 +11,35 @@
       }
     }
   }
-  cacheValue.closeDirectoryCalled=true;
+  cacheValue.closeCacheValueCalled=true;
   if (cacheValue.deleteOnClose) {
     Collection<CacheValue> values=byPathCache.values();
-    Collection<CacheValue> cacheValues=new ArrayList<CacheValue>();
-    cacheValues.addAll(values);
+    Collection<CacheValue> cacheValues=new ArrayList<CacheValue>(values);
     cacheValues.remove(cacheValue);
     for (    CacheValue otherCacheValue : cacheValues) {
-      if (otherCacheValue.path.startsWith(cacheValue.path) && !otherCacheValue.closeDirectoryCalled) {
+      if (isSubPath(cacheValue,otherCacheValue) && !otherCacheValue.closeCacheValueCalled) {
         if (!otherCacheValue.deleteAfterCoreClose && cacheValue.deleteAfterCoreClose) {
           otherCacheValue.deleteAfterCoreClose=true;
         }
         otherCacheValue.removeEntries.addAll(cacheValue.removeEntries);
         otherCacheValue.closeEntries.addAll(cacheValue.closeEntries);
         cacheValue.closeEntries.clear();
-        break;
+        cacheValue.removeEntries.clear();
+        return false;
       }
+    }
+  }
+  boolean cl=false;
+  for (  CacheValue val : cacheValue.closeEntries) {
+    close(val);
+    if (val == cacheValue) {
+      cl=true;
     }
   }
   for (  CacheValue val : cacheValue.removeEntries) {
     if (!val.deleteAfterCoreClose) {
+      log.info("Removing directory before core close: " + val.path);
       try {
-        log.info("Removing directory: " + val.path);
         removeDirectory(val);
       }
  catch (      Throwable t) {
@@ -40,15 +48,6 @@
     }
  else {
       removeEntries.add(val);
-    }
-  }
-  for (  CacheValue val : cacheValue.closeEntries) {
-    try {
-      log.info("Closing directory: " + val.path);
-      val.directory.close();
-    }
- catch (    Throwable t) {
-      SolrException.log(log,"Error closing directory",t);
     }
   }
   if (listeners != null) {
@@ -61,4 +60,5 @@
       }
     }
   }
+  return cl;
 }

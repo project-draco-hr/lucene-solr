@@ -62,9 +62,8 @@
     String tmpIdxDirName="index." + new SimpleDateFormat(SnapShooter.DATE_FMT,Locale.ROOT).format(new Date());
     tmpIndex=createTempindexDir(core,tmpIdxDirName);
     tmpIndexDir=core.getDirectoryFactory().get(tmpIndex,DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
-    indexDirPath=core.getNewIndexDir();
+    indexDirPath=core.getIndexDir();
     indexDir=core.getDirectoryFactory().get(indexDirPath,DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
-    Directory oldDirectory=null;
     try {
       if (isIndexStale(indexDir)) {
         isFullCopyNeeded=true;
@@ -84,6 +83,13 @@
           successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
         }
         if (successfulInstall) {
+          if (isFullCopyNeeded) {
+            if (indexDir != null) {
+              LOG.info("removing old index directory " + indexDir);
+              core.getDirectoryFactory().doneWithDirectory(indexDir);
+              core.getDirectoryFactory().remove(indexDir);
+            }
+          }
           LOG.info("Configuration files are modified, core will be reloaded");
           logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
           reloadCore();
@@ -94,13 +100,6 @@
         if (isFullCopyNeeded) {
           successfulInstall=modifyIndexProps(tmpIdxDirName);
           deleteTmpIdxDir=false;
-          RefCounted<IndexWriter> iw=core.getUpdateHandler().getSolrCoreState().getIndexWriter(core);
-          try {
-            oldDirectory=iw.get().getDirectory();
-          }
-  finally {
-            iw.decref();
-          }
         }
  else {
           successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
@@ -109,36 +108,13 @@
           logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
         }
       }
-      if (isFullCopyNeeded) {
-        final Directory freezeIndexDir=indexDir;
-        final String freezeIndexDirPath=indexDirPath;
-        core.getDirectoryFactory().addCloseListener(oldDirectory,new CloseListener(){
-          @Override public void preClose(){
-            LOG.info("removing old index files " + freezeIndexDir);
-            try {
-              if (core.getDirectoryFactory().exists(freezeIndexDirPath)) {
-                DirectoryFactory.empty(freezeIndexDir);
-              }
-            }
- catch (            IOException e) {
-              SolrException.log(LOG,null,e);
-            }
-          }
-          @Override public void postClose(){
-            LOG.info("removing old index directory " + freezeIndexDir);
-            try {
-              core.getDirectoryFactory().remove(freezeIndexDir);
-            }
- catch (            IOException e) {
-              SolrException.log(LOG,"Error removing directory " + freezeIndexDir,e);
-            }
-          }
-        }
-);
-      }
       if (successfulInstall) {
         if (isFullCopyNeeded) {
-          core.getDirectoryFactory().doneWithDirectory(oldDirectory);
+          if (indexDir != null) {
+            LOG.info("removing old index directory " + indexDir);
+            core.getDirectoryFactory().doneWithDirectory(indexDir);
+            core.getDirectoryFactory().remove(indexDir);
+          }
         }
         openNewWriterAndSearcher(isFullCopyNeeded);
       }
@@ -176,6 +152,7 @@ catch (    Exception e) {
   finally {
       if (deleteTmpIdxDir && tmpIndexDir != null) {
         try {
+          core.getDirectoryFactory().doneWithDirectory(tmpIndexDir);
           core.getDirectoryFactory().remove(tmpIndexDir);
         }
  catch (        IOException e) {
