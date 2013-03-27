@@ -1,25 +1,33 @@
 {
   dir1=newDirectory();
   dir2=newDirectory();
-  final int numDocs=atLeast(100);
+  final int numDocs=atLeast(150);
+  final int numTerms=_TestUtil.nextInt(random(),1,numDocs / 5);
+  Set<String> randomTerms=new HashSet<String>();
+  while (randomTerms.size() < numTerms) {
+    randomTerms.add(_TestUtil.randomSimpleString(random()));
+  }
+  terms=new ArrayList<String>(randomTerms);
   final long seed=random().nextLong();
   final IndexWriterConfig iwc1=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(new Random(seed)));
   final IndexWriterConfig iwc2=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(new Random(seed)));
-  iwc2.setMergePolicy(new SortingMergePolicy(iwc2.getMergePolicy(),sorter));
-  iwc2.setMergeScheduler(new SerialMergeScheduler());
+  iwc2.setMergePolicy(newSortingMergePolicy(sorter));
   final RandomIndexWriter iw1=new RandomIndexWriter(new Random(seed),dir1,iwc1);
   final RandomIndexWriter iw2=new RandomIndexWriter(new Random(seed),dir2,iwc2);
   for (int i=0; i < numDocs; ++i) {
     final Document doc=randomDocument();
     iw1.addDocument(doc);
     iw2.addDocument(doc);
-    if (i == numDocs / 2 || (i != numDocs - 1 && rarely())) {
+    if (i == numDocs / 2 || (i != numDocs - 1 && random().nextInt(8) == 0)) {
       iw1.commit();
       iw2.commit();
     }
+    if (random().nextInt(5) == 0) {
+      final String term=RandomPicks.randomFrom(random(),terms);
+      iw1.deleteDocuments(new Term("s",term));
+      iw2.deleteDocuments(new Term("s",term));
+    }
   }
-  iw1.deleteDocuments(new Term("s",DELETE_TERM));
-  iw2.deleteDocuments(new Term("s",DELETE_TERM));
   iw1.forceMerge(1);
   iw2.forceMerge(1);
   iw1.close();
