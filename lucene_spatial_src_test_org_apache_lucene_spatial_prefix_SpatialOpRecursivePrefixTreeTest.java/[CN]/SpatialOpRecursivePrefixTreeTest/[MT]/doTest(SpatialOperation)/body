@@ -1,0 +1,51 @@
+{
+  Map<String,Shape> indexedShapes=new LinkedHashMap<String,Shape>();
+  final int numIndexedShapes=randomIntBetween(1,6);
+  for (int i=0; i < numIndexedShapes; i++) {
+    String id="" + i;
+    Shape indexedShape;
+    if (random().nextInt(4) == 0) {
+      indexedShape=new ShapePair(gridSnapp(randomRectangle()),gridSnapp(randomRectangle()));
+    }
+ else {
+      indexedShape=gridSnapp(randomRectangle());
+    }
+    indexedShapes.put(id,indexedShape);
+    adoc(id,indexedShape);
+    if (random().nextInt(10) == 0)     commit();
+  }
+  Iterator<String> idIter=indexedShapes.keySet().iterator();
+  while (idIter.hasNext()) {
+    String id=idIter.next();
+    if (random().nextInt(10) == 0) {
+      deleteDoc(id);
+      idIter.remove();
+    }
+  }
+  commit();
+  final int numQueryShapes=atLeast(20);
+  for (int i=0; i < numQueryShapes; i++) {
+    int scanLevel=randomInt(grid.getMaxLevels());
+    ((RecursivePrefixTreeStrategy)strategy).setPrefixGridScanLevel(scanLevel);
+    Shape queryShape=gridSnapp(randomRectangle());
+    Set<String> expectedIds=new TreeSet<String>();
+    for (    Map.Entry<String,Shape> entry : indexedShapes.entrySet()) {
+      if (operation.evaluate(entry.getValue(),queryShape))       expectedIds.add(entry.getKey());
+    }
+    Query query=strategy.makeQuery(new SpatialArgs(operation,queryShape));
+    SearchResults got=executeQuery(query,100);
+    Set<String> remainingExpectedIds=new TreeSet<String>(expectedIds);
+    String msg=queryShape.toString() + " Expect: " + expectedIds;
+    for (    SearchResult result : got.results) {
+      String id=result.getId();
+      Object removed=remainingExpectedIds.remove(id);
+      if (removed == null) {
+        fail("Shouldn't match " + id + " ("+ indexedShapes.get(id)+ ") in "+ msg);
+      }
+    }
+    if (!remainingExpectedIds.isEmpty()) {
+      Shape firstFailedMatch=indexedShapes.get(remainingExpectedIds.iterator().next());
+      fail("Didn't match " + firstFailedMatch + " in "+ msg+ " (of "+ remainingExpectedIds.size()+ ")");
+    }
+  }
+}
