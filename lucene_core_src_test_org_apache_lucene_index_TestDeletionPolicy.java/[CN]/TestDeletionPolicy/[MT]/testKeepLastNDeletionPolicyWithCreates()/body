@@ -2,14 +2,14 @@
   final int N=10;
   for (int pass=0; pass < 2; pass++) {
     boolean useCompoundFile=(pass % 2) != 0;
-    KeepLastNDeletionPolicy policy=new KeepLastNDeletionPolicy(N);
     Directory dir=newDirectory();
-    IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setOpenMode(OpenMode.CREATE).setIndexDeletionPolicy(policy).setMaxBufferedDocs(10);
+    IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setOpenMode(OpenMode.CREATE).setIndexDeletionPolicy(new KeepLastNDeletionPolicy(N)).setMaxBufferedDocs(10);
     MergePolicy mp=conf.getMergePolicy();
     if (mp instanceof LogMergePolicy) {
       ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
     }
     IndexWriter writer=new IndexWriter(dir,conf);
+    KeepLastNDeletionPolicy policy=(KeepLastNDeletionPolicy)writer.getConfig().getIndexDeletionPolicy();
     writer.close();
     Term searchTerm=new Term("content","aaa");
     Query query=new TermQuery(searchTerm);
@@ -20,12 +20,14 @@
         ((LogMergePolicy)mp).setUseCompoundFile(useCompoundFile);
       }
       writer=new IndexWriter(dir,conf);
+      policy=(KeepLastNDeletionPolicy)writer.getConfig().getIndexDeletionPolicy();
       for (int j=0; j < 17; j++) {
         addDocWithID(writer,i * (N + 1) + j);
       }
       writer.close();
       conf=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setIndexDeletionPolicy(policy).setMergePolicy(NoMergePolicy.COMPOUND_FILES);
       writer=new IndexWriter(dir,conf);
+      policy=(KeepLastNDeletionPolicy)writer.getConfig().getIndexDeletionPolicy();
       writer.deleteDocuments(new Term("id","" + (i * (N + 1) + 3)));
       writer.close();
       IndexReader reader=DirectoryReader.open(dir);
@@ -34,6 +36,7 @@
       assertEquals(16,hits.length);
       reader.close();
       writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setOpenMode(OpenMode.CREATE).setIndexDeletionPolicy(policy));
+      policy=(KeepLastNDeletionPolicy)writer.getConfig().getIndexDeletionPolicy();
       writer.close();
     }
     assertEquals(3 * (N + 1),policy.numOnInit);
