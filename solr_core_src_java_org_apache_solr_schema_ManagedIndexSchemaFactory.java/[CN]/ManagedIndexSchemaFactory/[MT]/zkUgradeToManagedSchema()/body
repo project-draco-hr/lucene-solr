@@ -1,0 +1,55 @@
+{
+  ZkSolrResourceLoader zkLoader=(ZkSolrResourceLoader)config.getResourceLoader();
+  ZkCmdExecutor zkCmdExecutor=new ZkCmdExecutor(30);
+  ZkController zkController=zkLoader.getZkController();
+  final String managedSchemaPath=zkLoader.getCollectionZkPath() + "/" + managedSchemaResourceName;
+  try {
+    zkCmdExecutor.ensureExists(managedSchemaPath,zkController.getZkClient());
+    StringWriter writer=new StringWriter();
+    schema.persist(writer);
+    zkController.getZkClient().setData(managedSchemaPath,writer.toString().getBytes("UTF-8"),true);
+    log.info("Upgraded to managed schema at " + managedSchemaPath + "");
+  }
+ catch (  Exception e) {
+    if (e instanceof InterruptedException) {
+      Thread.currentThread().interrupt();
+      log.error("",e);
+      throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+    }
+ else {
+      final String msg="Error persisting managed schema resource " + managedSchemaResourceName;
+      log.error(msg,e);
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg,e);
+    }
+  }
+  if (resourceName.equals(managedSchemaResourceName)) {
+    log.info("On upgrading to managed schema, did not rename non-managed schema " + resourceName + " because it's the same as the managed schema's name.");
+  }
+ else {
+    final String nonManagedSchemaPath=zkLoader.getCollectionZkPath() + "/" + resourceName;
+    try {
+      if (zkController.pathExists(nonManagedSchemaPath)) {
+        byte[] bytes=zkController.getZkClient().getData(nonManagedSchemaPath,null,null,true);
+        final String upgradedSchemaPath=nonManagedSchemaPath + UPGRADED_SCHEMA_EXTENSION;
+        zkCmdExecutor.ensureExists(upgradedSchemaPath,zkController.getZkClient());
+        zkController.getZkClient().setData(upgradedSchemaPath,bytes,true);
+        zkController.getZkClient().delete(nonManagedSchemaPath,-1,true);
+        schema.setResourceName(managedSchemaResourceName);
+        log.info("After upgrading to managed schema in ZooKeeper, renamed the non-managed schema " + nonManagedSchemaPath + " to "+ upgradedSchemaPath);
+      }
+ else {
+        log.info("After upgrading to managed schema in ZooKeeper, the non-managed schema " + nonManagedSchemaPath + " no longer exists.");
+      }
+    }
+ catch (    Exception e) {
+      if (e instanceof InterruptedException) {
+        Thread.currentThread().interrupt();
+        log.warn("",e);
+      }
+ else {
+        final String msg="Error persisting managed schema resource " + managedSchemaResourceName;
+        log.warn(msg,e);
+      }
+    }
+  }
+}
