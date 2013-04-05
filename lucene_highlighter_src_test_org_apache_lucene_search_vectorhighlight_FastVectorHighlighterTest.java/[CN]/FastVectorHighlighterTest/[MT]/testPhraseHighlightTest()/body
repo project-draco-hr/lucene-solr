@@ -1,0 +1,103 @@
+{
+  Directory dir=newDirectory();
+  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  Document doc=new Document();
+  FieldType type=new FieldType(TextField.TYPE_STORED);
+  type.setStoreTermVectorOffsets(true);
+  type.setStoreTermVectorPositions(true);
+  type.setStoreTermVectors(true);
+  type.freeze();
+  Field longTermField=new Field("long_term","This is a test thisisaverylongwordandmakessurethisfails where foo is highlighed and should be highlighted",type);
+  Field noLongTermField=new Field("no_long_term","This is a test where foo is highlighed and should be highlighted",type);
+  doc.add(longTermField);
+  doc.add(noLongTermField);
+  writer.addDocument(doc);
+  FastVectorHighlighter highlighter=new FastVectorHighlighter();
+  IndexReader reader=DirectoryReader.open(writer,true);
+  int docId=0;
+  String field="no_long_term";
+{
+    BooleanQuery query=new BooleanQuery();
+    query.add(new TermQuery(new Term(field,"test")),Occur.MUST);
+    query.add(new TermQuery(new Term(field,"foo")),Occur.MUST);
+    query.add(new TermQuery(new Term(field,"highlighed")),Occur.MUST);
+    FieldQuery fieldQuery=highlighter.getFieldQuery(query,reader);
+    String[] bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,18,1);
+    assertEquals(1,bestFragments.length);
+    assertEquals("<b>foo</b> is <b>highlighed</b> and",bestFragments[0]);
+  }
+{
+    BooleanQuery query=new BooleanQuery();
+    PhraseQuery pq=new PhraseQuery();
+    pq.add(new Term(field,"test"));
+    pq.add(new Term(field,"foo"));
+    pq.add(new Term(field,"highlighed"));
+    pq.setSlop(5);
+    query.add(new TermQuery(new Term(field,"foo")),Occur.MUST);
+    query.add(pq,Occur.MUST);
+    query.add(new TermQuery(new Term(field,"highlighed")),Occur.MUST);
+    FieldQuery fieldQuery=highlighter.getFieldQuery(query,reader);
+    String[] bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,18,1);
+    assertEquals(0,bestFragments.length);
+    bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,30,1);
+    assertEquals(1,bestFragments.length);
+    assertEquals("a <b>test</b> where <b>foo</b> is <b>highlighed</b> and",bestFragments[0]);
+  }
+{
+    PhraseQuery query=new PhraseQuery();
+    query.add(new Term(field,"test"));
+    query.add(new Term(field,"foo"));
+    query.add(new Term(field,"highlighed"));
+    query.setSlop(3);
+    FieldQuery fieldQuery=highlighter.getFieldQuery(query,reader);
+    String[] bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,18,1);
+    assertEquals(0,bestFragments.length);
+    bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,30,1);
+    assertEquals(1,bestFragments.length);
+    assertEquals("a <b>test</b> where <b>foo</b> is <b>highlighed</b> and",bestFragments[0]);
+  }
+{
+    PhraseQuery query=new PhraseQuery();
+    query.add(new Term(field,"test"));
+    query.add(new Term(field,"foo"));
+    query.add(new Term(field,"highlighted"));
+    query.setSlop(30);
+    FieldQuery fieldQuery=highlighter.getFieldQuery(query,reader);
+    String[] bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,18,1);
+    assertEquals(0,bestFragments.length);
+  }
+{
+    BooleanQuery query=new BooleanQuery();
+    PhraseQuery pq=new PhraseQuery();
+    pq.add(new Term(field,"test"));
+    pq.add(new Term(field,"foo"));
+    pq.add(new Term(field,"highlighed"));
+    pq.setSlop(5);
+    BooleanQuery inner=new BooleanQuery();
+    inner.add(pq,Occur.MUST);
+    inner.add(new TermQuery(new Term(field,"foo")),Occur.MUST);
+    query.add(inner,Occur.MUST);
+    query.add(pq,Occur.MUST);
+    query.add(new TermQuery(new Term(field,"highlighed")),Occur.MUST);
+    FieldQuery fieldQuery=highlighter.getFieldQuery(query,reader);
+    String[] bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,18,1);
+    assertEquals(0,bestFragments.length);
+    bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,30,1);
+    assertEquals(1,bestFragments.length);
+    assertEquals("a <b>test</b> where <b>foo</b> is <b>highlighed</b> and",bestFragments[0]);
+  }
+  field="long_term";
+{
+    BooleanQuery query=new BooleanQuery();
+    query.add(new TermQuery(new Term(field,"thisisaverylongwordandmakessurethisfails")),Occur.MUST);
+    query.add(new TermQuery(new Term(field,"foo")),Occur.MUST);
+    query.add(new TermQuery(new Term(field,"highlighed")),Occur.MUST);
+    FieldQuery fieldQuery=highlighter.getFieldQuery(query,reader);
+    String[] bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,field,18,1);
+    assertEquals(1,bestFragments.length);
+    assertEquals("<b>thisisaverylongwordandmakessurethisfails</b>",bestFragments[0]);
+  }
+  reader.close();
+  writer.close();
+  dir.close();
+}
