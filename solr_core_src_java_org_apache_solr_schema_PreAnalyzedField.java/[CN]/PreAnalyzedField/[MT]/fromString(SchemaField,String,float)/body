@@ -4,20 +4,48 @@
   }
   PreAnalyzedTokenizer parse=new PreAnalyzedTokenizer(new StringReader(val),parser);
   parse.reset();
-  Field f=(Field)super.createField(field,val,boost);
+  org.apache.lucene.document.FieldType type=createFieldType(field);
+  if (type == null) {
+    parse.close();
+    return null;
+  }
+  Field f=null;
   if (parse.getStringValue() != null) {
-    f.setStringValue(parse.getStringValue());
+    if (field.stored()) {
+      f=new Field(field.getName(),parse.getStringValue(),type);
+    }
+ else {
+      type.setStored(false);
+    }
   }
  else   if (parse.getBinaryValue() != null) {
-    f.setBytesValue(parse.getBinaryValue());
+    if (field.isBinary()) {
+      f=new Field(field.getName(),parse.getBinaryValue(),type);
+    }
   }
  else {
-    f.fieldType().setStored(false);
+    type.setStored(false);
   }
   if (parse.hasTokenStream()) {
-    f.fieldType().setIndexed(true);
-    f.fieldType().setTokenized(true);
-    f.setTokenStream(parse);
+    if (field.indexed()) {
+      type.setIndexed(true);
+      type.setTokenized(true);
+      if (f != null) {
+        f.setTokenStream(parse);
+      }
+ else {
+        f=new Field(field.getName(),parse,type);
+      }
+    }
+ else {
+      if (f != null) {
+        f.fieldType().setIndexed(false);
+        f.fieldType().setTokenized(false);
+      }
+    }
+  }
+  if (f != null) {
+    f.setBoost(boost);
   }
   return f;
 }
