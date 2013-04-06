@@ -1,13 +1,39 @@
 {
-  SolrParams params=req.getParams();
+  final SolrParams params=req.getParams();
   if (isHighlightingEnabled(params)) {
     SolrIndexSearcher searcher=req.getSearcher();
     int[] docIDs=toDocIDs(docs);
     String[] keys=getUniqueKeys(searcher,docIDs);
+    int maxLength=params.getInt(HighlightParams.MAX_CHARS,PostingsHighlighter.DEFAULT_MAX_LENGTH);
     String[] fieldNames=getHighlightFields(query,req,defaultFields);
-    int numSnippets=params.getInt(HighlightParams.SNIPPETS,1);
     int maxPassages[]=new int[fieldNames.length];
-    Arrays.fill(maxPassages,numSnippets);
+    for (int i=0; i < fieldNames.length; i++) {
+      maxPassages[i]=params.getFieldInt(fieldNames[i],HighlightParams.SNIPPETS,1);
+    }
+    PostingsHighlighter highlighter=new PostingsHighlighter(maxLength){
+      @Override protected Passage[] getEmptyHighlight(      String fieldName,      BreakIterator bi,      int maxPassages){
+        boolean defaultSummary=params.getFieldBool(fieldName,HighlightParams.DEFAULT_SUMMARY,true);
+        if (defaultSummary) {
+          return super.getEmptyHighlight(fieldName,bi,maxPassages);
+        }
+ else {
+          return new Passage[0];
+        }
+      }
+      @Override protected PassageFormatter getFormatter(      String fieldName){
+        String preTag=params.getFieldParam(fieldName,HighlightParams.TAG_PRE,"<em>");
+        String postTag=params.getFieldParam(fieldName,HighlightParams.TAG_POST,"</em>");
+        String ellipsis=params.getFieldParam(fieldName,HighlightParams.TAG_ELLIPSIS,"... ");
+        return new PassageFormatter(preTag,postTag,ellipsis);
+      }
+      @Override protected PassageScorer getScorer(      String fieldName){
+        float k1=params.getFieldFloat(fieldName,HighlightParams.SCORE_K1,1.2f);
+        float b=params.getFieldFloat(fieldName,HighlightParams.SCORE_B,0.75f);
+        float pivot=params.getFieldFloat(fieldName,HighlightParams.SCORE_PIVOT,87f);
+        return new PassageScorer(k1,b,pivot);
+      }
+    }
+;
     Map<String,String[]> snippets=highlighter.highlightFields(fieldNames,query,searcher,docIDs,maxPassages);
     return encodeSnippets(keys,fieldNames,snippets);
   }
