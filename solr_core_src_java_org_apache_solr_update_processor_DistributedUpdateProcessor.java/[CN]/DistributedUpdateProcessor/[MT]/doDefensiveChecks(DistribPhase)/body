@@ -2,10 +2,24 @@
   boolean isReplayOrPeersync=(updateCommand.getFlags() & (UpdateCommand.REPLAY | UpdateCommand.REPLAY)) != 0;
   if (isReplayOrPeersync)   return;
   String from=req.getParams().get("distrib.from");
-  boolean localIsLeader=req.getCore().getCoreDescriptor().getCloudDescriptor().isLeader();
+  ClusterState clusterState=zkController.getClusterState();
+  CloudDescriptor cloudDescriptor=req.getCore().getCoreDescriptor().getCloudDescriptor();
+  Slice mySlice=clusterState.getSlice(collection,cloudDescriptor.getShardId());
+  boolean localIsLeader=cloudDescriptor.isLeader();
   if (DistribPhase.FROMLEADER == phase && localIsLeader && from != null) {
-    log.error("Request says it is coming from leader, but we are the leader: " + req.getParamString());
-    throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Request says it is coming from leader, but we are the leader");
+    String fromShard=req.getParams().get("distrib.from.parent");
+    if (fromShard != null) {
+      Slice fromSlice=zkController.getClusterState().getCollection(collection).getSlice(fromShard);
+      DocRouter.Range parentRange=fromSlice.getRange();
+      if (parentRange == null)       parentRange=new DocRouter.Range(Integer.MIN_VALUE,Integer.MAX_VALUE);
+      if (mySlice.getRange() != null && !mySlice.getRange().isSubsetOf(parentRange)) {
+        throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Request says it is coming from parent shard leader but parent hash range is not superset of my range");
+      }
+    }
+ else {
+      log.error("Request says it is coming from leader, but we are the leader: " + req.getParamString());
+      throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Request says it is coming from leader, but we are the leader");
+    }
   }
   if (isLeader && !localIsLeader) {
     log.error("ClusterState says we are the leader, but locally we don't think so");

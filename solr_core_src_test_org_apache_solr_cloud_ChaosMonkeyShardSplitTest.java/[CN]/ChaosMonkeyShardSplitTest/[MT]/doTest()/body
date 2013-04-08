@@ -1,0 +1,114 @@
+{
+  handle.clear();
+  handle.put("QTime",SKIPVAL);
+  handle.put("timestamp",SKIPVAL);
+  waitForThingsToLevelOut(15);
+  printLayout();
+  PlainIdRouter router=new PlainIdRouter();
+  final List<DocRouter.Range> ranges=router.partitionRange(2,router.fullRange());
+  final int[] docCounts=new int[ranges.size()];
+  Thread indexThread=null;
+  OverseerRestarter killer=null;
+  Thread killerThread=null;
+  final SolrServer solrServer=clients.get(0);
+  try {
+    solrServer.deleteByQuery("*:*");
+    for (int i=0; i < 100; i++) {
+      SolrInputDocument doc=new SolrInputDocument();
+      doc.addField("id",i);
+      solrServer.add(doc);
+      byte[] bytes=String.valueOf(i).getBytes("UTF-8");
+      int hash=Hash.murmurhash3_x86_32(bytes,0,bytes.length,0);
+      for (int i2=0; i2 < ranges.size(); i2++) {
+        DocRouter.Range range=ranges.get(i2);
+        if (range.includes(hash))         docCounts[i2]++;
+      }
+    }
+    solrServer.commit();
+    waitForRecoveriesToFinish(false);
+    indexThread=new Thread(){
+      @Override public void run(){
+        for (int i=101; i < 201; i++) {
+          try {
+            SolrInputDocument doc=new SolrInputDocument();
+            doc.addField("id",i);
+            solrServer.add(doc);
+            byte[] bytes=String.valueOf(i).getBytes("UTF-8");
+            int hash=Hash.murmurhash3_x86_32(bytes,0,bytes.length,0);
+            for (int i2=0; i2 < ranges.size(); i2++) {
+              DocRouter.Range range=ranges.get(i2);
+              if (range.includes(hash))               docCounts[i2]++;
+            }
+            Thread.sleep(100);
+          }
+ catch (          Exception e) {
+            log.error("Exception while adding doc",e);
+          }
+        }
+      }
+    }
+;
+    indexThread.start();
+    CloudJettyRunner leaderJetty=shardToLeaderJetty.get("shard1");
+    log.info("Cluster State: " + cloudClient.getZkStateReader().getClusterState());
+    chaosMonkey.killJetty(leaderJetty);
+    Thread.sleep(2000);
+    waitForThingsToLevelOut(90);
+    Thread.sleep(1000);
+    checkShardConsistency(false,true);
+    CloudJettyRunner deadJetty=leaderJetty;
+    while (deadJetty == leaderJetty) {
+      updateMappingsFromZk(this.jettys,this.clients);
+      leaderJetty=shardToLeaderJetty.get("shard1");
+    }
+    ChaosMonkey.start(deadJetty.jetty);
+    waitTillRecovered();
+    killer=new OverseerRestarter(zkServer.getZkAddress());
+    killerThread=new Thread(killer);
+    killerThread.start();
+    killCounter.incrementAndGet();
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set("action",CollectionParams.CollectionAction.SPLITSHARD.toString());
+    params.set("collection","collection1");
+    params.set("shard","shard1");
+    SolrRequest request=new QueryRequest(params);
+    request.setPath("/admin/collections");
+    String baseUrl=((HttpSolrServer)shardToJetty.get("shard1").get(0).client.solrClient).getBaseURL();
+    baseUrl=baseUrl.substring(0,baseUrl.length() - "collection1".length());
+    HttpSolrServer baseServer=new HttpSolrServer(baseUrl);
+    baseServer.setConnectionTimeout(15000);
+    baseServer.setSoTimeout((int)(CollectionsHandler.DEFAULT_ZK_TIMEOUT * 5));
+    baseServer.request(request);
+    System.out.println("Layout after split: \n");
+    printLayout();
+  }
+  finally {
+    if (indexThread != null)     indexThread.join();
+    if (solrServer != null)     solrServer.commit();
+    if (killer != null) {
+      killer.run=false;
+      if (killerThread != null) {
+        killerThread.join();
+      }
+    }
+  }
+  SolrQuery query=new SolrQuery("*:*").setRows(0).setFields("id");
+  query.set("distrib",false);
+  String shard1_0_url=cloudClient.getZkStateReader().getLeaderUrl(AbstractFullDistribZkTestBase.DEFAULT_COLLECTION,"shard1_0",DEFAULT_CONNECTION_TIMEOUT);
+  HttpSolrServer shard1_0Server=new HttpSolrServer(shard1_0_url);
+  QueryResponse response=shard1_0Server.query(query);
+  long shard10Count=response.getResults().getNumFound();
+  System.out.println("Resp: shard: shard1_0 url: " + shard1_0_url + "\n"+ response.getResponse());
+  String shard1_1_url=cloudClient.getZkStateReader().getLeaderUrl(AbstractFullDistribZkTestBase.DEFAULT_COLLECTION,"shard1_1",DEFAULT_CONNECTION_TIMEOUT);
+  HttpSolrServer shard1_1Server=new HttpSolrServer(shard1_1_url);
+  response=shard1_1Server.query(query);
+  long shard11Count=response.getResults().getNumFound();
+  System.out.println("Resp: shard: shard1_1 url: " + shard1_1_url + "\n"+ response.getResponse());
+  for (int i=0; i < docCounts.length; i++) {
+    int docCount=docCounts[i];
+    System.out.println("Expected docCount for shard1_" + i + " = "+ docCount);
+  }
+  assertEquals("Wrong doc count on shard1_0",docCounts[0],shard10Count);
+  assertEquals("Wrong doc count on shard1_1",docCounts[1],shard11Count);
+  waitForRecoveriesToFinish(true);
+}

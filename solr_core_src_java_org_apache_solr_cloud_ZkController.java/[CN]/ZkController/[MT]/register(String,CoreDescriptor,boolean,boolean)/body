@@ -34,17 +34,24 @@ catch (  IOException e) {
     core=cc.getCore(desc.getName());
     UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
     if (!core.isReloaded() && ulog != null) {
-      Future<UpdateLog.RecoveryInfo> recoveryFuture=core.getUpdateHandler().getUpdateLog().recoverFromLog();
-      if (recoveryFuture != null) {
-        recoveryFuture.get();
+      Slice slice=getClusterState().getSlice(collection,shardId);
+      if (Slice.CONSTRUCTION.equals(slice.getState())) {
+        core.getUpdateHandler().getUpdateLog().bufferUpdates();
+        publish(desc,ZkStateReader.ACTIVE);
       }
  else {
-        log.info("No LogReplay needed for core=" + core.getName() + " baseURL="+ baseUrl);
+        Future<UpdateLog.RecoveryInfo> recoveryFuture=core.getUpdateHandler().getUpdateLog().recoverFromLog();
+        if (recoveryFuture != null) {
+          recoveryFuture.get();
+        }
+ else {
+          log.info("No LogReplay needed for core=" + core.getName() + " baseURL="+ baseUrl);
+        }
+        boolean didRecovery=checkRecovery(coreName,desc,recoverReloadedCores,isLeader,cloudDesc,collection,coreZkNodeName,shardId,leaderProps,core,cc);
+        if (!didRecovery) {
+          publish(desc,ZkStateReader.ACTIVE);
+        }
       }
-    }
-    boolean didRecovery=checkRecovery(coreName,desc,recoverReloadedCores,isLeader,cloudDesc,collection,coreZkNodeName,shardId,leaderProps,core,cc);
-    if (!didRecovery) {
-      publish(desc,ZkStateReader.ACTIVE);
     }
   }
   finally {
