@@ -1,0 +1,20 @@
+{
+  createRandomIndexes(5);
+  final int numHits=_TestUtil.nextInt(random(),1,numDocs / 10);
+  final Sort sort=new Sort(new SortField("ndv1",SortField.Type.LONG,false));
+  final boolean fillFields=random().nextBoolean();
+  final boolean trackDocScores=random().nextBoolean();
+  final boolean trackMaxScore=random().nextBoolean();
+  final boolean inOrder=random().nextBoolean();
+  final TopFieldCollector collector1=TopFieldCollector.create(sort,numHits,fillFields,trackDocScores,trackMaxScore,inOrder);
+  final TopFieldCollector collector2=TopFieldCollector.create(sort,numHits,fillFields,trackDocScores,trackMaxScore,inOrder);
+  final IndexSearcher searcher=newSearcher(reader);
+  final int iters=atLeast(5);
+  for (int i=0; i < iters; ++i) {
+    final TermQuery query=new TermQuery(new Term("s",RandomPicks.randomFrom(random(),terms)));
+    searcher.search(query,collector1);
+    searcher.search(query,new EarlyTerminatingSortingCollector(collector2,sorter,numHits));
+  }
+  assertTrue(collector1.getTotalHits() >= collector2.getTotalHits());
+  assertTopDocsEquals(collector1.topDocs().scoreDocs,collector2.topDocs().scoreDocs);
+}
