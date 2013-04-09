@@ -5,11 +5,9 @@
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Core name is mandatory to CREATE a SolrCore");
   }
   try {
-    if (coreContainer.isZooKeeperAware()) {
-      if (coreContainer.getCoreNames().contains(name)) {
-        log.info("Re-creating a core with existing name is not allowed in cloud mode");
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Core with name '" + name + "' already exists.");
-      }
+    if (coreContainer.getAllCoreNames().contains(name)) {
+      log.warn("Re-creating a core with existing name is not allowed");
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Core with name '" + name + "' already exists.");
     }
     String instanceDir=params.get(CoreAdminParams.INSTANCE_DIR);
     if (instanceDir == null) {
@@ -64,6 +62,12 @@
     }
     dcore.setCoreProperties(coreProperties);
     SolrCore core=coreContainer.create(dcore);
+    String sameDirCore=coreContainer.checkUniqueDataDir(core.getDataDir());
+    if (sameDirCore != null) {
+      if (core != null)       core.close();
+      log.warn("Creating a core that points to the same data dir as core {} is not allowed",sameDirCore);
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Core with same data dir '" + sameDirCore + "' already exists.");
+    }
     coreContainer.register(name,core,false);
     rsp.add("core",core.getName());
     return coreContainer.isPersistent();
