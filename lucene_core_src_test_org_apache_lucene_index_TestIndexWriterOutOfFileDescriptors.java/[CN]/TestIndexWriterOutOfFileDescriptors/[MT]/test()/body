@@ -1,0 +1,102 @@
+{
+  MockDirectoryWrapper dir=newMockFSDirectory(_TestUtil.getTempDir("TestIndexWriterOutOfFileDescriptors"));
+  dir.setPreventDoubleWrite(false);
+  double rate=random().nextDouble() * 0.01;
+  dir.setRandomIOExceptionRateOnOpen(rate);
+  int iters=atLeast(20);
+  LineFileDocs docs=new LineFileDocs(random());
+  IndexReader r=null;
+  DirectoryReader r2=null;
+  boolean any=false;
+  MockDirectoryWrapper dirCopy=null;
+  int lastNumDocs=0;
+  for (int iter=0; iter < iters; iter++) {
+    IndexWriter w=null;
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + iter);
+    }
+    try {
+      IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+      if (VERBOSE) {
+        iwc.setInfoStream(new PrintStreamInfoStream(System.out));
+      }
+      MergeScheduler ms=iwc.getMergeScheduler();
+      if (ms instanceof ConcurrentMergeScheduler) {
+        ((ConcurrentMergeScheduler)ms).setSuppressExceptions();
+      }
+      w=new IndexWriter(dir,iwc);
+      if (r != null && random().nextInt(5) == 3) {
+        if (random().nextBoolean()) {
+          if (VERBOSE) {
+            System.out.println("TEST: addIndexes IR[]");
+          }
+          w.addIndexes(new IndexReader[]{r});
+        }
+ else {
+          if (VERBOSE) {
+            System.out.println("TEST: addIndexes Directory[]");
+          }
+          w.addIndexes(new Directory[]{dirCopy});
+        }
+      }
+ else {
+        if (VERBOSE) {
+          System.out.println("TEST: addDocument");
+        }
+        w.addDocument(docs.nextDoc());
+      }
+      w.close();
+      w=null;
+      dir.setRandomIOExceptionRateOnOpen(0.0);
+      assertTrue(DirectoryReader.indexExists(dir));
+      if (r2 == null) {
+        r2=DirectoryReader.open(dir);
+      }
+ else {
+        DirectoryReader r3=DirectoryReader.openIfChanged(r2);
+        if (r3 != null) {
+          r2.close();
+          r2=r3;
+        }
+      }
+      assertTrue("before=" + lastNumDocs + " after="+ r2.numDocs(),r2.numDocs() >= lastNumDocs);
+      lastNumDocs=r2.numDocs();
+      dir.setRandomIOExceptionRateOnOpen(rate);
+      any=true;
+      if (VERBOSE) {
+        System.out.println("TEST: iter=" + iter + ": success");
+      }
+    }
+ catch (    IOException ioe) {
+      if (VERBOSE) {
+        System.out.println("TEST: iter=" + iter + ": exception");
+        ioe.printStackTrace();
+      }
+      if (w != null) {
+        w.rollback();
+      }
+    }
+    if (any && r == null && random().nextBoolean()) {
+      dir.setRandomIOExceptionRateOnOpen(0.0);
+      r=DirectoryReader.open(dir);
+      dirCopy=newMockFSDirectory(_TestUtil.getTempDir("TestIndexWriterOutOfFileDescriptors.copy"));
+      Set<String> files=new HashSet<String>();
+      for (      String file : dir.listAll()) {
+        dir.copy(dirCopy,file,file,IOContext.DEFAULT);
+        files.add(file);
+      }
+      dirCopy.sync(files);
+      new IndexWriter(dirCopy,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()))).close();
+      dirCopy.setRandomIOExceptionRate(rate);
+      dir.setRandomIOExceptionRateOnOpen(rate);
+    }
+  }
+  if (r2 != null) {
+    r2.close();
+  }
+  if (r != null) {
+    r.close();
+    dirCopy.close();
+  }
+  dir.close();
+}
