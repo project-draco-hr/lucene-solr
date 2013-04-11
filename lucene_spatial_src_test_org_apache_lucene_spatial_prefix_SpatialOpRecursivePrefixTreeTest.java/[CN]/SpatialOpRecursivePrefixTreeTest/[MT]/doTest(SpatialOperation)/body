@@ -1,16 +1,29 @@
 {
+  final boolean biasContains=(operation == SpatialOperation.Contains);
   Map<String,Shape> indexedShapes=new LinkedHashMap<String,Shape>();
+  Map<String,Shape> indexedShapesGS=new LinkedHashMap<String,Shape>();
   final int numIndexedShapes=randomIntBetween(1,6);
   for (int i=0; i < numIndexedShapes; i++) {
     String id="" + i;
     Shape indexedShape;
-    if (random().nextInt(4) == 0) {
-      indexedShape=new ShapePair(gridSnapp(randomRectangle()),gridSnapp(randomRectangle()));
+    Shape indexedShapeGS;
+    int R=random().nextInt(12);
+    if (R == 0) {
+      indexedShape=null;
+      indexedShapeGS=null;
+    }
+ else     if (R % 4 == 0) {
+      Rectangle shape1=randomRectangle();
+      Rectangle shape2=randomRectangle();
+      indexedShape=new ShapePair(shape1,shape2,biasContains);
+      indexedShapeGS=new ShapePair(gridSnap(shape1),gridSnap(shape2),biasContains);
     }
  else {
-      indexedShape=gridSnapp(randomRectangle());
+      indexedShape=randomRectangle();
+      indexedShapeGS=gridSnap(indexedShape);
     }
     indexedShapes.put(id,indexedShape);
+    indexedShapesGS.put(id,indexedShapeGS);
     adoc(id,indexedShape);
     if (random().nextInt(10) == 0)     commit();
   }
@@ -20,6 +33,7 @@
     if (random().nextInt(10) == 0) {
       deleteDoc(id);
       idIter.remove();
+      indexedShapesGS.remove(id);
     }
   }
   commit();
@@ -27,25 +41,52 @@
   for (int i=0; i < numQueryShapes; i++) {
     int scanLevel=randomInt(grid.getMaxLevels());
     ((RecursivePrefixTreeStrategy)strategy).setPrefixGridScanLevel(scanLevel);
-    Shape queryShape=gridSnapp(randomRectangle());
-    Set<String> expectedIds=new TreeSet<String>();
+    final Shape queryShape=randomRectangle();
+    final boolean DISJOINT=operation.equals(SpatialOperation.IsDisjointTo);
+    Set<String> expectedIds=new LinkedHashSet<String>();
+    Set<String> secondaryIds=new LinkedHashSet<String>();
     for (    Map.Entry<String,Shape> entry : indexedShapes.entrySet()) {
-      if (operation.evaluate(entry.getValue(),queryShape))       expectedIds.add(entry.getKey());
-    }
-    Query query=strategy.makeQuery(new SpatialArgs(operation,queryShape));
-    SearchResults got=executeQuery(query,100);
-    Set<String> remainingExpectedIds=new TreeSet<String>(expectedIds);
-    String msg=queryShape.toString() + " Expect: " + expectedIds;
-    for (    SearchResult result : got.results) {
-      String id=result.getId();
-      Object removed=remainingExpectedIds.remove(id);
-      if (removed == null) {
-        fail("Shouldn't match " + id + " ("+ indexedShapes.get(id)+ ") in "+ msg);
+      Shape indexedShapeCompare=entry.getValue();
+      if (indexedShapeCompare == null)       continue;
+      Shape queryShapeCompare=queryShape;
+      String id=entry.getKey();
+      if (operation.evaluate(indexedShapeCompare,queryShapeCompare)) {
+        expectedIds.add(id);
+        if (DISJOINT) {
+          indexedShapeCompare=indexedShapesGS.get(entry.getKey());
+          queryShapeCompare=gridSnap(queryShape);
+          if (!operation.evaluate(indexedShapeCompare,queryShapeCompare))           secondaryIds.add(id);
+        }
+      }
+ else       if (!DISJOINT) {
+        if (operation.equals(SpatialOperation.Intersects)) {
+          indexedShapeCompare=indexedShapesGS.get(entry.getKey());
+          queryShapeCompare=gridSnap(queryShape);
+        }
+ else         if (operation.equals(SpatialOperation.Contains)) {
+          indexedShapeCompare=indexedShapesGS.get(entry.getKey());
+        }
+ else         if (operation.equals(SpatialOperation.IsWithin)) {
+          queryShapeCompare=gridSnap(queryShape);
+        }
+        if (operation.evaluate(indexedShapeCompare,queryShapeCompare))         secondaryIds.add(id);
       }
     }
+    SpatialArgs args=new SpatialArgs(operation,queryShape);
+    Query query=strategy.makeQuery(args);
+    SearchResults got=executeQuery(query,100);
+    Set<String> remainingExpectedIds=new LinkedHashSet<String>(expectedIds);
+    for (    SearchResult result : got.results) {
+      String id=result.getId();
+      boolean removed=remainingExpectedIds.remove(id);
+      if (!removed && (!DISJOINT && !secondaryIds.contains(id))) {
+        fail("Shouldn't match",id,indexedShapes,indexedShapesGS,queryShape);
+      }
+    }
+    if (DISJOINT)     remainingExpectedIds.removeAll(secondaryIds);
     if (!remainingExpectedIds.isEmpty()) {
-      Shape firstFailedMatch=indexedShapes.get(remainingExpectedIds.iterator().next());
-      fail("Didn't match " + firstFailedMatch + " in "+ msg+ " (of "+ remainingExpectedIds.size()+ ")");
+      String id=remainingExpectedIds.iterator().next();
+      fail("Should have matched",id,indexedShapes,indexedShapesGS,queryShape);
     }
   }
 }
