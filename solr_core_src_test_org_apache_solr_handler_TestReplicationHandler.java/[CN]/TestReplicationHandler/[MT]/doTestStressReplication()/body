@@ -3,8 +3,12 @@
   if (useStraightStandardDirectory) {
     useFactory(null);
   }
+  final String SLAVE_SCHEMA_1="schema-replication1.xml";
+  final String SLAVE_SCHEMA_2="schema-replication2.xml";
+  String slaveSchema=SLAVE_SCHEMA_1;
   try {
     slave.copyConfigFile(CONF_DIR + "solrconfig-slave1.xml","solrconfig.xml");
+    slave.copyConfigFile(CONF_DIR + slaveSchema,"schema.xml");
     slaveJetty.stop();
     slaveJetty=createJetty(slave);
     slaveClient=createNewSolrServer(slaveJetty.getLocalPort());
@@ -20,7 +24,11 @@
     int totalDocs=0;
     int id=0;
     for (int x=0; x < rounds; x++) {
-      master.copyConfigFile(CONF_DIR + "schema-replication" + (random().nextInt(2) + 1)+ ".xml","schema.xml");
+      final boolean confCoreReload=random().nextBoolean();
+      if (confCoreReload) {
+        slaveSchema=slaveSchema.equals(SLAVE_SCHEMA_1) ? SLAVE_SCHEMA_2 : SLAVE_SCHEMA_1;
+        master.copyConfigFile(CONF_DIR + slaveSchema,"schema.xml");
+      }
       int docs=random().nextInt(maxDocs);
       for (int i=0; i < docs; i++) {
         index(masterClient,"id",id++,"name","name = " + i);
@@ -30,7 +38,11 @@
       NamedList masterQueryRsp=rQuery(totalDocs,"*:*",masterClient);
       SolrDocumentList masterQueryResult=(SolrDocumentList)masterQueryRsp.get("response");
       assertEquals(totalDocs,masterQueryResult.getNumFound());
+      Date slaveCoreStart=watchCoreStartAt(slaveClient,30 * 1000,null);
       pullFromMasterToSlave();
+      if (confCoreReload) {
+        watchCoreStartAt(slaveClient,30 * 1000,slaveCoreStart);
+      }
       NamedList slaveQueryRsp=rQuery(totalDocs,"*:*",slaveClient);
       SolrDocumentList slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
       assertEquals(totalDocs,slaveQueryResult.getNumFound());

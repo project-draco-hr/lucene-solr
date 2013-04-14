@@ -13,6 +13,7 @@
   assertEquals(null,cmp);
   masterClient.deleteByQuery("*:*");
   masterClient.commit();
+  rQuery(0,"*:*",masterClient);
   master.copyConfigFile(CONF_DIR + "solrconfig-master1.xml","solrconfig.xml");
   master.copyConfigFile(CONF_DIR + "schema-replication2.xml","schema.xml");
   master.copyConfigFile(CONF_DIR + "schema-replication2.xml","schema-replication2.xml");
@@ -26,20 +27,23 @@
   slaveClient=createNewSolrServer(slaveJetty.getLocalPort());
   slaveClient.deleteByQuery("*:*");
   slaveClient.commit();
-  index(masterClient,"id","2000","name","name = " + 2000,"newname","newname = " + 2000);
+  rQuery(0,"*:*",slaveClient);
+  final Date slaveStartTime=watchCoreStartAt(slaveClient,30 * 1000,null);
+  index(masterClient,"id","2000","name","name = " + 2000,"newname","n2000");
   masterClient.commit();
-  NamedList masterQueryRsp2=rQuery(1,"*:*",masterClient);
+  rQuery(1,"newname:n2000",masterClient);
+  watchCoreStartAt(slaveClient,30 * 1000,slaveStartTime);
+  NamedList masterQueryRsp2=rQuery(1,"id:2000",masterClient);
   SolrDocumentList masterQueryResult2=(SolrDocumentList)masterQueryRsp2.get("response");
   assertEquals(1,masterQueryResult2.getNumFound());
-  NamedList slaveQueryRsp2=rQuery(1,"*:*",slaveClient);
+  NamedList slaveQueryRsp2=rQuery(1,"id:2000",slaveClient);
   SolrDocumentList slaveQueryResult2=(SolrDocumentList)slaveQueryRsp2.get("response");
   assertEquals(1,slaveQueryResult2.getNumFound());
-  rQuery(1,"*:*",slaveClient);
-  index(slaveClient,"id","2000","name","name = " + 2001,"newname","newname = " + 2001);
+  index(slaveClient,"id","2001","name","name = " + 2001,"newname","n2001");
   slaveClient.commit();
-  slaveQueryRsp=rQuery(1,"*:*",slaveClient);
+  slaveQueryRsp=rQuery(1,"id:2001",slaveClient);
   SolrDocument d=((SolrDocumentList)slaveQueryRsp.get("response")).get(0);
-  assertEquals("newname = 2001",(String)d.getFieldValue("newname"));
+  assertEquals("n2001",(String)d.getFieldValue("newname"));
   checkForSingleIndex(masterJetty);
   checkForSingleIndex(slaveJetty);
 }
