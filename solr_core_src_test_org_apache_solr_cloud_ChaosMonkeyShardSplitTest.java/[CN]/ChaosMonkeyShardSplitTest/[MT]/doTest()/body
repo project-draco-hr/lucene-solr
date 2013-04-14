@@ -101,12 +101,37 @@
   System.out.println("Resp: shard: shard1_0 url: " + shard1_0_url + "\n"+ response.getResponse());
   String shard1_1_url=cloudClient.getZkStateReader().getLeaderUrl(AbstractFullDistribZkTestBase.DEFAULT_COLLECTION,"shard1_1",DEFAULT_CONNECTION_TIMEOUT);
   HttpSolrServer shard1_1Server=new HttpSolrServer(shard1_1_url);
-  response=shard1_1Server.query(query);
-  long shard11Count=response.getResults().getNumFound();
-  System.out.println("Resp: shard: shard1_1 url: " + shard1_1_url + "\n"+ response.getResponse());
+  QueryResponse response2=shard1_1Server.query(query);
+  long shard11Count=response2.getResults().getNumFound();
+  System.out.println("Resp: shard: shard1_1 url: " + shard1_1_url + "\n"+ response2.getResponse());
   for (int i=0; i < docCounts.length; i++) {
     int docCount=docCounts[i];
     System.out.println("Expected docCount for shard1_" + i + " = "+ docCount);
+  }
+  log.info("Actual docCount for shard1_0 = {}",shard10Count);
+  log.info("Actual docCount for shard1_1 = {}",shard11Count);
+  Map<String,String> idVsVersion=new HashMap<String,String>();
+  Map<String,SolrDocument> shard10Docs=new HashMap<String,SolrDocument>();
+  Map<String,SolrDocument> shard11Docs=new HashMap<String,SolrDocument>();
+  for (int i=0; i < response.getResults().size(); i++) {
+    SolrDocument document=response.getResults().get(i);
+    idVsVersion.put(document.getFieldValue("id").toString(),document.getFieldValue("_version_").toString());
+    SolrDocument old=shard10Docs.put(document.getFieldValue("id").toString(),document);
+    if (old != null) {
+      log.error("EXTRA: ID: " + document.getFieldValue("id") + " on shard1_0. Old version: "+ old.getFieldValue("_version_")+ " new version: "+ document.getFieldValue("_version_"));
+    }
+  }
+  for (int i=0; i < response2.getResults().size(); i++) {
+    SolrDocument document=response2.getResults().get(i);
+    String value=document.getFieldValue("id").toString();
+    String version=idVsVersion.get(value);
+    if (version != null) {
+      log.error("DUPLICATE: ID: " + value + " , shard1_0Version: "+ version+ " shard1_1Version:"+ document.getFieldValue("_version_"));
+    }
+    SolrDocument old=shard11Docs.put(document.getFieldValue("id").toString(),document);
+    if (old != null) {
+      log.error("EXTRA: ID: " + document.getFieldValue("id") + " on shard1_1. Old version: "+ old.getFieldValue("_version_")+ " new version: "+ document.getFieldValue("_version_"));
+    }
   }
   assertEquals("Wrong doc count on shard1_0",docCounts[0],shard10Count);
   assertEquals("Wrong doc count on shard1_1",docCounts[1],shard11Count);
