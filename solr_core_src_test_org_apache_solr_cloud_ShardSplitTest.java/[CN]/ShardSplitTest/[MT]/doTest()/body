@@ -1,6 +1,5 @@
 {
   waitForThingsToLevelOut(15);
-  printLayout();
   ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
   DocRouter router=clusterState.getCollection(AbstractDistribZkTestBase.DEFAULT_COLLECTION).getRouter();
   Slice shard1=clusterState.getSlice(AbstractDistribZkTestBase.DEFAULT_COLLECTION,SHARD1);
@@ -8,31 +7,17 @@
   final List<DocRouter.Range> ranges=router.partitionRange(2,shard1Range);
   final int[] docCounts=new int[ranges.size()];
   int numReplicas=shard1.getReplicas().size();
-  final SolrServer solrServer=clients.get(0);
-  solrServer.deleteByQuery("*:*");
-  for (int i=0; i < 100; i++) {
-    indexr("id",i);
-    byte[] bytes=String.valueOf(i).getBytes("UTF-8");
-    int hash=Hash.murmurhash3_x86_32(bytes,0,bytes.length,0);
-    for (int i2=0; i2 < ranges.size(); i2++) {
-      DocRouter.Range range=ranges.get(i2);
-      if (range.includes(hash))       docCounts[i2]++;
-    }
+  del("*:*");
+  for (int id=0; id < 100; id++) {
+    indexAndUpdateCount(ranges,docCounts,id);
   }
-  solrServer.commit();
-  waitForRecoveriesToFinish(false);
+  commit();
   Thread indexThread=new Thread(){
     @Override public void run(){
-      for (int i=101; i < 201; i++) {
+      for (int id=101; id < atLeast(401); id++) {
         try {
-          indexr("id",i);
-          byte[] bytes=String.valueOf(i).getBytes("UTF-8");
-          int hash=Hash.murmurhash3_x86_32(bytes,0,bytes.length,0);
-          for (int i2=0; i2 < ranges.size(); i2++) {
-            DocRouter.Range range=ranges.get(i2);
-            if (range.includes(hash))             docCounts[i2]++;
-          }
-          Thread.sleep(100);
+          indexAndUpdateCount(ranges,docCounts,id);
+          Thread.sleep(atLeast(25));
         }
  catch (        Exception e) {
           log.error("Exception while adding doc",e);
@@ -42,80 +27,11 @@
   }
 ;
   indexThread.start();
-  ModifiableSolrParams params=new ModifiableSolrParams();
-  params.set("action",CollectionParams.CollectionAction.SPLITSHARD.toString());
-  params.set("collection","collection1");
-  params.set("shard",SHARD1);
-  SolrRequest request=new QueryRequest(params);
-  request.setPath("/admin/collections");
-  String baseUrl=((HttpSolrServer)shardToJetty.get(SHARD1).get(0).client.solrClient).getBaseURL();
-  baseUrl=baseUrl.substring(0,baseUrl.length() - "collection1".length());
-  HttpSolrServer baseServer=new HttpSolrServer(baseUrl);
-  baseServer.setConnectionTimeout(15000);
-  baseServer.setSoTimeout((int)(CollectionsHandler.DEFAULT_ZK_TIMEOUT * 5));
-  baseServer.request(request);
+  splitShard(SHARD1);
   log.info("Layout after split: \n");
   printLayout();
   indexThread.join();
-  solrServer.commit();
-  SolrQuery query=new SolrQuery("*:*").setRows(1000).setFields("id","_version_");
-  query.set("distrib",false);
-  ZkCoreNodeProps shard1_0=getLeaderUrlFromZk(AbstractDistribZkTestBase.DEFAULT_COLLECTION,SHARD1_0);
-  HttpSolrServer shard1_0Server=new HttpSolrServer(shard1_0.getCoreUrl());
-  QueryResponse response=shard1_0Server.query(query);
-  long shard10Count=response.getResults().getNumFound();
-  ZkCoreNodeProps shard1_1=getLeaderUrlFromZk(AbstractDistribZkTestBase.DEFAULT_COLLECTION,SHARD1_1);
-  HttpSolrServer shard1_1Server=new HttpSolrServer(shard1_1.getCoreUrl());
-  QueryResponse response2=shard1_1Server.query(query);
-  long shard11Count=response2.getResults().getNumFound();
-  for (int i=0; i < docCounts.length; i++) {
-    int docCount=docCounts[i];
-    log.info("Expected docCount for shard1_{} = {}",i,docCount);
-  }
-  log.info("Actual docCount for shard1_0 = {}",shard10Count);
-  log.info("Actual docCount for shard1_1 = {}",shard11Count);
-  Map<String,String> idVsVersion=new HashMap<String,String>();
-  Map<String,SolrDocument> shard10Docs=new HashMap<String,SolrDocument>();
-  Map<String,SolrDocument> shard11Docs=new HashMap<String,SolrDocument>();
-  for (int i=0; i < response.getResults().size(); i++) {
-    SolrDocument document=response.getResults().get(i);
-    idVsVersion.put(document.getFieldValue("id").toString(),document.getFieldValue("_version_").toString());
-    SolrDocument old=shard10Docs.put(document.getFieldValue("id").toString(),document);
-    if (old != null) {
-      log.error("EXTRA: ID: " + document.getFieldValue("id") + " on shard1_0. Old version: "+ old.getFieldValue("_version_")+ " new version: "+ document.getFieldValue("_version_"));
-    }
-  }
-  for (int i=0; i < response2.getResults().size(); i++) {
-    SolrDocument document=response2.getResults().get(i);
-    String value=document.getFieldValue("id").toString();
-    String version=idVsVersion.get(value);
-    if (version != null) {
-      log.error("DUPLICATE: ID: " + value + " , shard1_0Version: "+ version+ " shard1_1Version:"+ document.getFieldValue("_version_"));
-    }
-    SolrDocument old=shard11Docs.put(document.getFieldValue("id").toString(),document);
-    if (old != null) {
-      log.error("EXTRA: ID: " + document.getFieldValue("id") + " on shard1_1. Old version: "+ old.getFieldValue("_version_")+ " new version: "+ document.getFieldValue("_version_"));
-    }
-  }
-  assertEquals("Wrong doc count on shard1_0",docCounts[0],shard10Count);
-  assertEquals("Wrong doc count on shard1_1",docCounts[1],shard11Count);
-  Slice slice1_0=null, slice1_1=null;
-  int i=0;
-  for (i=0; i < 10; i++) {
-    ZkStateReader zkStateReader=cloudClient.getZkStateReader();
-    zkStateReader.updateClusterState(true);
-    clusterState=zkStateReader.getClusterState();
-    slice1_0=clusterState.getSlice(AbstractDistribZkTestBase.DEFAULT_COLLECTION,"shard1_0");
-    slice1_1=clusterState.getSlice(AbstractDistribZkTestBase.DEFAULT_COLLECTION,"shard1_1");
-    if (Slice.ACTIVE.equals(slice1_0.getState()) && Slice.ACTIVE.equals(slice1_1.getState()))     break;
-    Thread.sleep(500);
-  }
-  log.info("ShardSplitTest waited for {} ms for shard state to be set to active",i * 500);
-  assertNotNull("Cluster state does not contain shard1_0",slice1_0);
-  assertNotNull("Cluster state does not contain shard1_0",slice1_1);
-  assertEquals("shard1_0 is not active",Slice.ACTIVE,slice1_0.getState());
-  assertEquals("shard1_1 is not active",Slice.ACTIVE,slice1_1.getState());
-  assertEquals("Wrong number of replicas created for shard1_0",numReplicas,slice1_0.getReplicas().size());
-  assertEquals("Wrong number of replicas created for shard1_1",numReplicas,slice1_1.getReplicas().size());
+  commit();
+  checkDocCountsAndShardStates(docCounts,numReplicas);
   waitForRecoveriesToFinish(true);
 }
