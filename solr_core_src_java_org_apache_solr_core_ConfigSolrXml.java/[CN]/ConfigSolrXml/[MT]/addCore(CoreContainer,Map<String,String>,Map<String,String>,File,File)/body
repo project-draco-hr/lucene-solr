@@ -1,0 +1,54 @@
+{
+  log.info("Discovered properties file {}, adding to cores",propFile.getAbsolutePath());
+  Properties propsOrig=new Properties();
+  InputStream is=new FileInputStream(propFile);
+  try {
+    propsOrig.load(is);
+  }
+  finally {
+    IOUtils.closeQuietly(is);
+  }
+  Properties props=new Properties();
+  for (  String prop : propsOrig.stringPropertyNames()) {
+    props.put(prop,PropertiesUtil.substituteProperty(propsOrig.getProperty(prop),null));
+  }
+  props.setProperty(CoreDescriptor.CORE_INSTDIR,childFile.getPath());
+  if (props.getProperty(CoreDescriptor.CORE_NAME) == null) {
+    props.setProperty(CoreDescriptor.CORE_NAME,childFile.getName());
+  }
+  CoreDescriptor desc=new CoreDescriptor(container,props);
+  CoreDescriptorPlus plus=new CoreDescriptorPlus(propFile.getAbsolutePath(),desc,propsOrig);
+  if (!seenCores.containsKey(desc.getName()) && !seenDirs.containsKey(desc.getAbsoluteDataDir())) {
+    coreDescriptorPlusMap.put(desc.getName(),plus);
+    seenCores.put(desc.getName(),propFile.getAbsolutePath());
+    seenDirs.put(desc.getAbsoluteDataDir(),propFile.getAbsolutePath());
+    return;
+  }
+  if (seenCores.containsKey(desc.getName())) {
+    String msg=String.format(Locale.ROOT,"More than one core defined for core named '%s', paths are '%s' and '%s'  Removing both cores.",desc.getName(),propFile.getAbsolutePath(),seenCores.get(desc.getName()));
+    log.error(msg);
+    if (badCores.containsKey(desc.getName()))     msg+=" " + badCores.get(desc.getName());
+    badCores.put(desc.getName(),msg);
+  }
+  if (seenDirs.containsKey(desc.getAbsoluteDataDir())) {
+    String msg=String.format(Locale.ROOT,"More than one core points to data dir '%s'. They are in '%s' and '%s'. Removing all offending cores.",desc.getAbsoluteDataDir(),propFile.getAbsolutePath(),seenDirs.get(desc.getAbsoluteDataDir()));
+    if (badCores.containsKey(desc.getName()))     msg+=" " + badCores.get(desc.getName());
+    log.error(msg);
+    badCores.put(desc.getName(),msg);
+    List<String> badNames=new ArrayList<String>();
+    for (    Map.Entry<String,CoreDescriptorPlus> ent : coreDescriptorPlusMap.entrySet()) {
+      if (ent.getValue().getCoreDescriptor().getAbsoluteDataDir().equals(desc.getAbsoluteDataDir())) {
+        badNames.add(ent.getKey());
+        if (!badCores.containsKey(ent.getKey())) {
+          badCores.put(ent.getKey(),msg);
+          log.error(msg);
+        }
+        break;
+      }
+    }
+    for (    String badName : badNames) {
+      coreDescriptorPlusMap.remove(badName);
+    }
+  }
+  coreDescriptorPlusMap.remove(desc.getName());
+}
