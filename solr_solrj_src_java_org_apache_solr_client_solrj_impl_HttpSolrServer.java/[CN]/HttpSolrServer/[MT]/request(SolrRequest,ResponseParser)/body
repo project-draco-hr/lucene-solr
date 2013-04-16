@@ -19,6 +19,7 @@
   if (invariantParams != null) {
     wparams.add(invariantParams);
   }
+  params=wparams;
   int tries=maxRetries + 1;
   try {
     while (tries-- > 0) {
@@ -27,7 +28,7 @@
           if (streams != null) {
             throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"GET can't send streams!");
           }
-          method=new HttpGet(baseUrl + path + ClientUtils.toQueryString(wparams,false));
+          method=new HttpGet(baseUrl + path + ClientUtils.toQueryString(params,false));
         }
  else         if (SolrRequest.METHOD.POST == request.getMethod()) {
           String url=baseUrl + path;
@@ -40,10 +41,10 @@
               post.addHeader("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
             }
             List<FormBodyPart> parts=new LinkedList<FormBodyPart>();
-            Iterator<String> iter=wparams.getParameterNamesIterator();
+            Iterator<String> iter=params.getParameterNamesIterator();
             while (iter.hasNext()) {
               String p=iter.next();
-              String[] vals=wparams.getParams(p);
+              String[] vals=params.getParams(p);
               if (vals != null) {
                 for (                String v : vals) {
                   if (this.useMultiPartPost || isMultipart) {
@@ -64,13 +65,6 @@
                 parts.add(new FormBodyPart(content.getName(),new InputStreamBody(content.getStream(),contentType,content.getName())));
               }
             }
- else {
-              for (              ContentStream content : streams) {
-                if (content.getName() != null) {
-                  postParams.add(new BasicNameValuePair(RESOURCE_NAME,content.getName()));
-                }
-              }
-            }
             if (parts.size() > 0) {
               MultipartEntity entity=new MultipartEntity(HttpMultipartMode.STRICT);
               for (              FormBodyPart p : parts) {
@@ -84,16 +78,13 @@
             method=post;
           }
  else {
+            String pstr=ClientUtils.toQueryString(params,false);
+            HttpPost post=new HttpPost(url + pstr);
             final ContentStream[] contentStream=new ContentStream[1];
             for (            ContentStream content : streams) {
               contentStream[0]=content;
               break;
             }
-            if (contentStream[0] != null && contentStream[0].getName() != null) {
-              wparams.set(RESOURCE_NAME,contentStream[0].getName());
-            }
-            String pstr=ClientUtils.toQueryString(wparams,false);
-            HttpPost post=new HttpPost(url + pstr);
             if (contentStream[0] instanceof RequestWriter.LazyContentStream) {
               post.setEntity(new InputStreamEntity(contentStream[0].getStream(),-1){
                 @Override public Header getContentType(){
