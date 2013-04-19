@@ -32,12 +32,21 @@
         }
  else         if (SolrRequest.METHOD.POST == request.getMethod()) {
           String url=baseUrl + path;
-          boolean isMultipart=(streams != null && streams.size() > 1);
+          boolean hasNullStreamName=false;
+          if (streams != null) {
+            for (            ContentStream cs : streams) {
+              if (cs.getName() == null) {
+                hasNullStreamName=true;
+                break;
+              }
+            }
+          }
+          boolean isMultipart=(this.useMultiPartPost || (streams != null && streams.size() > 1)) && !hasNullStreamName;
           LinkedList<NameValuePair> postParams=new LinkedList<NameValuePair>();
           if (streams == null || isMultipart) {
             HttpPost post=new HttpPost(url);
             post.setHeader("Content-Charset","UTF-8");
-            if (!this.useMultiPartPost && !isMultipart) {
+            if (!isMultipart) {
               post.addHeader("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
             }
             List<FormBodyPart> parts=new LinkedList<FormBodyPart>();
@@ -47,7 +56,7 @@
               String[] vals=params.getParams(p);
               if (vals != null) {
                 for (                String v : vals) {
-                  if (this.useMultiPartPost || isMultipart) {
+                  if (isMultipart) {
                     parts.add(new FormBodyPart(p,new StringBody(v,Charset.forName("UTF-8"))));
                   }
  else {
@@ -56,13 +65,17 @@
                 }
               }
             }
-            if (isMultipart) {
+            if (isMultipart && streams != null) {
               for (              ContentStream content : streams) {
                 String contentType=content.getContentType();
                 if (contentType == null) {
                   contentType="application/octet-stream";
                 }
-                parts.add(new FormBodyPart(content.getName(),new InputStreamBody(content.getStream(),contentType,content.getName())));
+                String name=content.getName();
+                if (name == null) {
+                  name="";
+                }
+                parts.add(new FormBodyPart(name,new InputStreamBody(content.getStream(),contentType,content.getName())));
               }
             }
             if (parts.size() > 0) {
