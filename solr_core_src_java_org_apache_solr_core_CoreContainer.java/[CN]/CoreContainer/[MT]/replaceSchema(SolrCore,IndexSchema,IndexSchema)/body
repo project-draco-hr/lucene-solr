@@ -1,0 +1,29 @@
+{
+  if (null != indexSchemaCache) {
+    for (Iterator<Map.Entry<String,IndexSchema>> iter=indexSchemaCache.entrySet().iterator(); iter.hasNext(); ) {
+      Map.Entry<String,IndexSchema> entry=iter.next();
+      if (oldSchema == entry.getValue()) {
+        iter.remove();
+      }
+    }
+    final String newSchemaResourceName=IndexSchemaFactory.getResourceNameToBeUsed(newSchema.getResourceName(),initiatingCore.getSolrConfig());
+    File schemaFile=new File(newSchemaResourceName);
+    if (!schemaFile.isAbsolute()) {
+      schemaFile=new File(initiatingCore.getResourceLoader().getConfigDir(),schemaFile.getPath());
+    }
+    if (schemaFile.exists()) {
+      String key=schemaFile.getAbsolutePath() + ":" + new SimpleDateFormat("yyyyMMddHHmmss",Locale.ROOT).format(new Date(schemaFile.lastModified()));
+      indexSchemaCache.put(key,newSchema);
+    }
+    for (    String coreName : coreMaps.getAllCoreNames()) {
+      SolrCore activeCore=coreMaps.getCoreFromAnyList(coreName);
+      if (null != activeCore) {
+        if (initiatingCore != activeCore) {
+          if (oldSchema == activeCore.getLatestSchema()) {
+            activeCore.setLatestSchema(newSchema);
+          }
+        }
+      }
+    }
+  }
+}

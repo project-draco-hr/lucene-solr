@@ -1,0 +1,30 @@
+{
+  deleteCore();
+  File managedSchemaFile=new File(tmpConfDir,"managed-schema");
+  assertTrue(managedSchemaFile.delete());
+  initCore("solrconfig-mutable-managed-schema.xml","schema-one-field-no-dynamic-field.xml",tmpSolrHome.getPath());
+  Map<String,Object> options=new HashMap<String,Object>();
+  options.put("stored","false");
+  IndexSchema oldSchema=h.getCore().getLatestSchema();
+  String fieldName="new_field";
+  String fieldType="text";
+  SchemaField newField=oldSchema.newField(fieldName,fieldType,options);
+  IndexSchema newSchema=oldSchema.addField(newField);
+  h.getCore().setLatestSchema(newSchema);
+  String errString="Field 'new_field' already exists.";
+  ignoreException(Pattern.quote(errString));
+  try {
+    newSchema=newSchema.addField(newField);
+    h.getCore().setLatestSchema(newSchema);
+    fail("Should fail when adding the same field twice");
+  }
+ catch (  Exception e) {
+    for (Throwable t=e; t != null; t=t.getCause()) {
+      if (t.getMessage() != null && -1 != t.getMessage().indexOf(errString))       return;
+    }
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unexpected error, expected error matching: " + errString,e);
+  }
+ finally {
+    resetExceptionIgnores();
+  }
+}

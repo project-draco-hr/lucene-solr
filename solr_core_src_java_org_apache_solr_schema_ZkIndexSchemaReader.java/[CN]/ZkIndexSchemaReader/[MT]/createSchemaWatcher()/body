@@ -1,0 +1,38 @@
+{
+  log.info("Creating ZooKeeper watch for the managed schema at " + managedSchemaPath + " ...");
+  try {
+    zkClient.exists(managedSchemaPath,new Watcher(){
+      @Override public void process(      WatchedEvent event){
+        if (Event.EventType.None.equals(event.getType())) {
+          return;
+        }
+        log.info("A schema change: {}, has occurred - updating schema from ZooKeeper ...",event);
+        try {
+          updateSchema(this);
+        }
+ catch (        KeeperException e) {
+          if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
+            log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
+            return;
+          }
+          log.error("",e);
+          throw new ZooKeeperException(ErrorCode.SERVER_ERROR,"",e);
+        }
+catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          log.warn("",e);
+        }
+      }
+    }
+,true);
+  }
+ catch (  KeeperException e) {
+    final String msg="Error creating ZooKeeper watch for the managed schema";
+    log.error(msg,e);
+    throw new ZooKeeperException(ErrorCode.SERVER_ERROR,msg,e);
+  }
+catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    log.warn("",e);
+  }
+}

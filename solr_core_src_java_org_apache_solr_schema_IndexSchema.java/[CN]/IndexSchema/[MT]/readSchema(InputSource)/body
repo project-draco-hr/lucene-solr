@@ -4,7 +4,6 @@
     Config schemaConf=new Config(loader,SCHEMA,is,SLASH + SCHEMA + SLASH);
     Document document=schemaConf.getDocument();
     final XPath xpath=schemaConf.getXPath();
-    final List<SchemaAware> schemaAware=new ArrayList<SchemaAware>();
     String expression=stepsToPath(SCHEMA,AT + NAME);
     Node nd=(Node)xpath.evaluate(expression,document,XPathConstants.NODE);
     if (nd == null) {
@@ -20,58 +19,7 @@
     expression=stepsToPath(SCHEMA,TYPES,FIELD_TYPE.toLowerCase(Locale.ROOT)) + XPATH_OR + stepsToPath(SCHEMA,TYPES,FIELD_TYPE);
     NodeList nodes=(NodeList)xpath.evaluate(expression,document,XPathConstants.NODESET);
     typeLoader.load(loader,nodes);
-    Map<String,Boolean> explicitRequiredProp=new HashMap<String,Boolean>();
-    ArrayList<DynamicField> dFields=new ArrayList<DynamicField>();
-    expression=stepsToPath(SCHEMA,FIELDS,FIELD) + XPATH_OR + stepsToPath(SCHEMA,FIELDS,DYNAMIC_FIELD);
-    nodes=(NodeList)xpath.evaluate(expression,document,XPathConstants.NODESET);
-    for (int i=0; i < nodes.getLength(); i++) {
-      Node node=nodes.item(i);
-      NamedNodeMap attrs=node.getAttributes();
-      String name=DOMUtil.getAttr(attrs,NAME,"field definition");
-      log.trace("reading field def " + name);
-      String type=DOMUtil.getAttr(attrs,TYPE,"field " + name);
-      FieldType ft=fieldTypes.get(type);
-      if (ft == null) {
-        throw new SolrException(ErrorCode.BAD_REQUEST,"Unknown " + FIELD_TYPE + " '"+ type+ "' specified on field "+ name);
-      }
-      Map<String,String> args=DOMUtil.toMapExcept(attrs,NAME,TYPE);
-      if (null != args.get(REQUIRED)) {
-        explicitRequiredProp.put(name,Boolean.valueOf(args.get(REQUIRED)));
-      }
-      SchemaField f=SchemaField.create(name,ft,args);
-      if (node.getNodeName().equals(FIELD)) {
-        SchemaField old=fields.put(f.getName(),f);
-        if (old != null) {
-          String msg="[schema.xml] Duplicate field definition for '" + f.getName() + "' [[["+ old.toString()+ "]]] and [[["+ f.toString()+ "]]]";
-          throw new SolrException(ErrorCode.SERVER_ERROR,msg);
-        }
-        log.debug("field defined: " + f);
-        if (f.getDefaultValue() != null) {
-          log.debug(name + " contains default value: " + f.getDefaultValue());
-          fieldsWithDefaultValue.add(f);
-        }
-        if (f.isRequired()) {
-          log.debug(name + " is required in this schema");
-          requiredFields.add(f);
-        }
-      }
- else       if (node.getNodeName().equals(DYNAMIC_FIELD)) {
-        if (isValidFieldGlob(name)) {
-          addDynamicField(dFields,f);
-        }
- else {
-          String msg="Dynamic field name '" + name + "' should have either a leading or a trailing asterisk, and no others.";
-          throw new SolrException(ErrorCode.SERVER_ERROR,msg);
-        }
-      }
- else {
-        throw new RuntimeException("Unknown field type");
-      }
-    }
-    requiredFields.addAll(getFieldsWithDefaultValue());
-    Collections.sort(dFields);
-    log.trace("Dynamic Field Ordering:" + dFields);
-    dynamicFields=dFields.toArray(new DynamicField[dFields.size()]);
+    Map<String,Boolean> explicitRequiredProp=loadFields(document,xpath);
     expression=stepsToPath(SCHEMA,SIMILARITY);
     Node node=(Node)xpath.evaluate(expression,document,XPathConstants.NODE);
     similarityFactory=readSimilarity(loader,node);
@@ -81,10 +29,7 @@
  else {
       isExplicitSimilarity=true;
     }
-    if (similarityFactory instanceof SchemaAware) {
-      ((SchemaAware)similarityFactory).inform(this);
-    }
- else {
+    if (!(similarityFactory instanceof SolrCoreAware)) {
       for (      FieldType ft : fieldTypes.values()) {
         if (null != ft.getSimilarity()) {
           String msg="FieldType '" + ft.getTypeName() + "' is configured with a similarity, but the global similarity does not support it: "+ similarityFactory.getClass();
@@ -93,7 +38,6 @@
         }
       }
     }
-    similarity=similarityFactory.getSimilarity();
     expression=stepsToPath(SCHEMA,DEFAULT_SEARCH_FIELD,TEXT_FUNCTION);
     node=(Node)xpath.evaluate(expression,document,XPathConstants.NODE);
     if (node == null) {

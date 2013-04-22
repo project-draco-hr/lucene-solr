@@ -1,47 +1,77 @@
 {
   this.resourceName=resourceName;
   this.config=config;
-  SolrResourceLoader loader=config.getResourceLoader();
-  this.loader=loader;
+  this.loader=config.getResourceLoader();
   InputStream schemaInputStream=null;
-  boolean shouldUpgrade=false;
-  String loadedResource=null;
   if (null == resourceName) {
     resourceName=IndexSchema.DEFAULT_SCHEMA_FILE;
   }
-  try {
-    schemaInputStream=loader.openSchema(managedSchemaResourceName);
-    loadedResource=managedSchemaResourceName;
-    if (!resourceName.equals(managedSchemaResourceName)) {
-      if (nonManagedSchemaExists()) {
-        log.warn("The schema has been upgraded to managed, but the non-managed schema " + resourceName + " is still loadable.  PLEASE REMOVE THIS FILE.");
-      }
-    }
+  int schemaZkVersion=-1;
+  if (!(loader instanceof ZkSolrResourceLoader)) {
+    schemaInputStream=readSchemaLocally();
   }
- catch (  IOException e) {
-    log.info("SolrConfig.isManagedSchema = true, but managed schema resource " + managedSchemaResourceName + " not found - loading non-managed schema "+ resourceName+ " instead");
-  }
-  if (null == schemaInputStream) {
+ else {
+    final ZkSolrResourceLoader zkLoader=(ZkSolrResourceLoader)loader;
+    final SolrZkClient zkClient=zkLoader.getZkController().getZkClient();
+    final String managedSchemaPath=zkLoader.getCollectionZkPath() + "/" + managedSchemaResourceName;
+    Stat stat=new Stat();
     try {
-      schemaInputStream=loader.openSchema(resourceName);
-      loadedResource=resourceName;
-      shouldUpgrade=true;
+      byte[] data=zkClient.getData(managedSchemaPath,null,stat,true);
+      schemaZkVersion=stat.getVersion();
+      schemaInputStream=new ByteArrayInputStream(data);
+      loadedResource=managedSchemaResourceName;
+      warnIfNonManagedSchemaExists();
     }
- catch (    Exception e) {
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.warn("",e);
+    }
+catch (    KeeperException.NoNodeException e) {
+      log.info("The schema is configured as managed, but managed schema resource " + managedSchemaResourceName + " not found - loading non-managed schema "+ resourceName+ " instead");
+    }
+catch (    KeeperException e) {
+      String msg="Error attempting to access " + managedSchemaPath;
+      log.error(msg,e);
+      throw new SolrException(ErrorCode.SERVER_ERROR,msg,e);
+    }
+    if (null == schemaInputStream) {
       try {
-        schemaInputStream=loader.openSchema(managedSchemaResourceName);
-        loadedResource=managedSchemaResourceName;
+        schemaInputStream=loader.openSchema(resourceName);
+        loadedResource=resourceName;
+        shouldUpgrade=true;
       }
- catch (      IOException e1) {
-        final String msg="Error loading both non-managed schema '" + resourceName + "' and managed schema '"+ managedSchemaResourceName+ "'";
-        log.error(msg,e);
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg,e);
+ catch (      Exception e) {
+        try {
+          byte[] data=zkClient.getData(managedSchemaPath,null,stat,true);
+          schemaZkVersion=stat.getVersion();
+          schemaInputStream=new ByteArrayInputStream(data);
+          warnIfNonManagedSchemaExists();
+        }
+ catch (        Exception e1) {
+          if (e1 instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+          }
+          final String msg="Error loading both non-managed schema '" + resourceName + "' and managed schema '"+ managedSchemaResourceName+ "'";
+          log.error(msg,e);
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg,e);
+        }
       }
     }
   }
   InputSource inputSource=new InputSource(schemaInputStream);
   inputSource.setSystemId(SystemIdResolver.createSystemIdFromResourceName(loadedResource));
-  schema=new ManagedIndexSchema(config,loadedResource,inputSource,isMutable);
+  try {
+    schema=new ManagedIndexSchema(config,loadedResource,inputSource,isMutable,managedSchemaResourceName,schemaZkVersion,getSchemaUpdateLock());
+  }
+ catch (  KeeperException e) {
+    final String msg="Error instantiating ManagedIndexSchema";
+    log.error(msg,e);
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,msg,e);
+  }
+catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    log.warn("",e);
+  }
   if (shouldUpgrade) {
     upgradeToManagedSchema();
   }

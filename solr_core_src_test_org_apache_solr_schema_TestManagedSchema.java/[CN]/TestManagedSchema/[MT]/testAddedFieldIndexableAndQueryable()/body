@@ -1,0 +1,39 @@
+{
+  assertSchemaResource(collection,"managed-schema");
+  deleteCore();
+  File managedSchemaFile=new File(tmpConfDir,"managed-schema");
+  assertTrue(managedSchemaFile.delete());
+  initCore("solrconfig-mutable-managed-schema.xml","schema-one-field-no-dynamic-field.xml",tmpSolrHome.getPath());
+  assertTrue(managedSchemaFile.exists());
+  String managedSchemaContents=FileUtils.readFileToString(managedSchemaFile,"UTF-8");
+  assertFalse(managedSchemaContents.contains("\"new_field\""));
+  clearIndex();
+  String errString="unknown field 'new_field'";
+  ignoreException(Pattern.quote(errString));
+  try {
+    assertU(adoc("new_field","thing1 thing2","str","X"));
+    fail();
+  }
+ catch (  Exception e) {
+    for (Throwable t=e; t != null; t=t.getCause()) {
+      if (t.getMessage() != null && -1 != t.getMessage().indexOf(errString))       return;
+    }
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unexpected error, expected error matching: " + errString,e);
+  }
+ finally {
+    resetExceptionIgnores();
+  }
+  assertU(commit());
+  assertQ(req("new_field:thing1"),"//*[@numFound='0']");
+  Map<String,Object> options=new HashMap<String,Object>();
+  options.put("stored","false");
+  IndexSchema oldSchema=h.getCore().getLatestSchema();
+  String fieldName="new_field";
+  String fieldType="text";
+  SchemaField newField=oldSchema.newField(fieldName,fieldType,options);
+  IndexSchema newSchema=oldSchema.addField(newField);
+  h.getCore().setLatestSchema(newSchema);
+  assertU(adoc("new_field","thing1 thing2","str","X"));
+  assertU(commit());
+  assertQ(req("new_field:thing1"),"//*[@numFound='1']");
+}
