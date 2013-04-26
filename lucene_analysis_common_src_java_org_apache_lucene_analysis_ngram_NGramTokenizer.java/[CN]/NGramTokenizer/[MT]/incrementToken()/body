@@ -1,42 +1,32 @@
 {
   clearAttributes();
-  if (!started) {
-    started=true;
-    gramSize=minGram;
-    char[] chars=new char[1024];
-    charsRead=0;
-    while (charsRead < chars.length) {
-      int inc=input.read(chars,charsRead,chars.length - charsRead);
-      if (inc == -1) {
-        break;
-      }
-      charsRead+=inc;
-    }
-    inStr=new String(chars,0,charsRead).trim();
-    if (charsRead == chars.length) {
-      char[] throwaway=new char[1024];
-      while (true) {
-        final int inc=input.read(throwaway,0,throwaway.length);
-        if (inc == -1) {
+  if (bufferStart >= buffer.length - maxGram) {
+    System.arraycopy(buffer,bufferStart,buffer,0,bufferEnd - bufferStart);
+    bufferEnd-=bufferStart;
+    bufferStart=0;
+    if (!exhausted) {
+      while (bufferEnd < buffer.length) {
+        final int read=input.read(buffer,bufferEnd,buffer.length - bufferEnd);
+        if (read == -1) {
+          exhausted=true;
           break;
         }
-        charsRead+=inc;
+        bufferEnd+=read;
       }
     }
-    inLen=inStr.length();
-    if (inLen == 0) {
-      return false;
-    }
   }
-  if (pos + gramSize > inLen) {
-    pos=0;
-    gramSize++;
-    if (gramSize > maxGram)     return false;
-    if (pos + gramSize > inLen)     return false;
+  if (gramSize > maxGram || bufferStart + gramSize > bufferEnd) {
+    bufferStart++;
+    offset++;
+    gramSize=minGram;
   }
-  int oldPos=pos;
-  pos++;
-  termAtt.setEmpty().append(inStr,oldPos,oldPos + gramSize);
-  offsetAtt.setOffset(correctOffset(oldPos),correctOffset(oldPos + gramSize));
+  if (bufferStart + gramSize > bufferEnd) {
+    return false;
+  }
+  termAtt.copyBuffer(buffer,bufferStart,gramSize);
+  posIncAtt.setPositionIncrement(1);
+  posLenAtt.setPositionLength(1);
+  offsetAtt.setOffset(correctOffset(offset),correctOffset(offset + gramSize));
+  ++gramSize;
   return true;
 }
