@@ -1,0 +1,30 @@
+{
+  List<FacetResult> results=new ArrayList<FacetResult>();
+  for (int i=0; i < requests.size(); i++) {
+    RangeSet ranges=requests.get(i);
+    int[] counts=new int[ranges.ranges.length];
+    for (    MatchingDocs hits : matchingDocs) {
+      NumericDocValues ndv=hits.context.reader().getNumericDocValues(ranges.field);
+      final int length=hits.bits.length();
+      int doc=0;
+      while (doc < length && (doc=hits.bits.nextSetBit(doc)) != -1) {
+        long v=ndv.get(doc);
+        for (int j=0; j < ranges.ranges.length; j++) {
+          if (ranges.ranges[j].accept(v)) {
+            counts[j]++;
+          }
+        }
+        doc++;
+      }
+    }
+    List<FacetResultNode> nodes=new ArrayList<FacetResultNode>(ranges.ranges.length);
+    for (int j=0; j < ranges.ranges.length; j++) {
+      nodes.add(new RangeFacetResultNode(ranges.field,ranges.ranges[j],counts[j]));
+    }
+    FacetResultNode rootNode=new FacetResultNode(-1,0);
+    rootNode.label=new CategoryPath(ranges.field);
+    rootNode.subResults=nodes;
+    results.add(new FacetResult(searchParams.facetRequests.get(i),rootNode,nodes.size()));
+  }
+  return results;
+}

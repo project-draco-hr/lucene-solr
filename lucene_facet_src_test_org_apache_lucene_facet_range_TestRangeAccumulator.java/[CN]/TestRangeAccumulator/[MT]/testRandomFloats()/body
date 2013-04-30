@@ -1,0 +1,77 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  int numDocs=atLeast(1000);
+  float[] values=new float[numDocs];
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    float v=random().nextFloat();
+    values[i]=v;
+    doc.add(new FloatDocValuesField("field",v));
+    doc.add(new FloatField("field",v,Field.Store.NO));
+    w.addDocument(doc);
+  }
+  IndexReader r=w.getReader();
+  w.close();
+  IndexSearcher s=newSearcher(r);
+  int numIters=atLeast(10);
+  for (int iter=0; iter < numIters; iter++) {
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + iter);
+    }
+    int numRange=_TestUtil.nextInt(random(),1,5);
+    FloatRange[] ranges=new FloatRange[numRange];
+    int[] expectedCounts=new int[numRange];
+    for (int rangeID=0; rangeID < numRange; rangeID++) {
+      float min=random().nextFloat();
+      float max=random().nextFloat();
+      if (min > max) {
+        float x=min;
+        min=max;
+        max=x;
+      }
+      boolean minIncl=random().nextBoolean();
+      boolean maxIncl=random().nextBoolean();
+      ranges[rangeID]=new FloatRange("r" + rangeID,min,minIncl,max,maxIncl);
+      for (int i=0; i < numDocs; i++) {
+        boolean accept=true;
+        if (minIncl) {
+          accept&=values[i] >= min;
+        }
+ else {
+          accept&=values[i] > min;
+        }
+        if (maxIncl) {
+          accept&=values[i] <= max;
+        }
+ else {
+          accept&=values[i] < max;
+        }
+        if (accept) {
+          expectedCounts[rangeID]++;
+        }
+      }
+    }
+    FacetSearchParams fsp=new FacetSearchParams(new RangeFacetRequest<FloatRange>("field",ranges));
+    FacetsCollector fc=FacetsCollector.create(new RangeAccumulator(fsp,r));
+    s.search(new MatchAllDocsQuery(),fc);
+    List<FacetResult> results=fc.getFacetResults();
+    assertEquals(1,results.size());
+    List<FacetResultNode> nodes=results.get(0).getFacetResultNode().subResults;
+    assertEquals(numRange,nodes.size());
+    for (int rangeID=0; rangeID < numRange; rangeID++) {
+      if (VERBOSE) {
+        System.out.println("  range " + rangeID + " expectedCount="+ expectedCounts[rangeID]);
+      }
+      FacetResultNode subNode=nodes.get(rangeID);
+      assertEquals("field/r" + rangeID,subNode.label.toString('/'));
+      assertEquals(expectedCounts[rangeID],(int)subNode.value);
+      FloatRange range=(FloatRange)((RangeFacetRequest)results.get(0).getFacetRequest()).ranges[rangeID];
+      DrillDownQuery ddq=new DrillDownQuery(FacetIndexingParams.DEFAULT);
+      ddq.add("field",NumericRangeQuery.newFloatRange("field",range.min,range.max,range.minInclusive,range.maxInclusive));
+      assertEquals(expectedCounts[rangeID],s.search(ddq,10).totalHits);
+    }
+  }
+  r.close();
+  dir.close();
+}
