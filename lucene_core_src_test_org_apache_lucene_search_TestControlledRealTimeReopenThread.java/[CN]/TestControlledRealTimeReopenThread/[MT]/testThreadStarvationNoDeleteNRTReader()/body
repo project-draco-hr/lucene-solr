@@ -1,0 +1,71 @@
+{
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMergePolicy(random().nextBoolean() ? NoMergePolicy.COMPOUND_FILES : NoMergePolicy.NO_COMPOUND_FILES);
+  Directory d=newDirectory();
+  final CountDownLatch latch=new CountDownLatch(1);
+  final CountDownLatch signal=new CountDownLatch(1);
+  LatchedIndexWriter _writer=new LatchedIndexWriter(d,conf,latch,signal);
+  final TrackingIndexWriter writer=new TrackingIndexWriter(_writer);
+  final SearcherManager manager=new SearcherManager(_writer,false,null);
+  Document doc=new Document();
+  doc.add(newTextField("test","test",Field.Store.YES));
+  writer.addDocument(doc);
+  manager.maybeRefresh();
+  Thread t=new Thread(){
+    @Override public void run(){
+      try {
+        signal.await();
+        manager.maybeRefresh();
+        writer.deleteDocuments(new TermQuery(new Term("foo","barista")));
+        manager.maybeRefresh();
+      }
+ catch (      Exception e) {
+        e.printStackTrace();
+      }
+ finally {
+        latch.countDown();
+      }
+    }
+  }
+;
+  t.start();
+  _writer.waitAfterUpdate=true;
+  final long lastGen=writer.updateDocument(new Term("foo","bar"),doc);
+  assertFalse(manager.isSearcherCurrent());
+  IndexSearcher searcher=manager.acquire();
+  try {
+    assertEquals(2,searcher.getIndexReader().numDocs());
+  }
+  finally {
+    manager.release(searcher);
+  }
+  final ControlledRealTimeReopenThread<IndexSearcher> thread=new ControlledRealTimeReopenThread<IndexSearcher>(writer,manager,0.01,0.01);
+  thread.start();
+  if (VERBOSE) {
+    System.out.println("waiting now for generation " + lastGen);
+  }
+  final AtomicBoolean finished=new AtomicBoolean(false);
+  Thread waiter=new Thread(){
+    @Override public void run(){
+      try {
+        thread.waitForGeneration(lastGen);
+      }
+ catch (      InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(ie);
+      }
+      finished.set(true);
+    }
+  }
+;
+  waiter.start();
+  manager.maybeRefresh();
+  waiter.join(1000);
+  if (!finished.get()) {
+    waiter.interrupt();
+    fail("thread deadlocked on waitForGeneration");
+  }
+  thread.close();
+  thread.join();
+  IOUtils.close(manager,_writer,d);
+}
