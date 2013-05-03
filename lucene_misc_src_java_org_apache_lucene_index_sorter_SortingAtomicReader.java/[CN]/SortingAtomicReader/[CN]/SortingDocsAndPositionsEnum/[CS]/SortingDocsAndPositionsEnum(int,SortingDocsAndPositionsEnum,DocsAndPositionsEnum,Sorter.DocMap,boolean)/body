@@ -1,0 +1,43 @@
+{
+  super(in);
+  this.maxDoc=maxDoc;
+  this.storeOffsets=storeOffsets;
+  if (reuse != null) {
+    docs=reuse.docs;
+    offsets=reuse.offsets;
+    payload=reuse.payload;
+    file=reuse.file;
+    if (reuse.maxDoc == maxDoc) {
+      sorter=reuse.sorter;
+    }
+ else {
+      sorter=new DocOffsetSorter(maxDoc);
+    }
+  }
+ else {
+    docs=new int[32];
+    offsets=new long[32];
+    payload=new BytesRef(32);
+    file=new RAMFile();
+    sorter=new DocOffsetSorter(maxDoc);
+  }
+  final IndexOutput out=new RAMOutputStream(file);
+  int doc;
+  int i=0;
+  while ((doc=in.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+    if (i == docs.length) {
+      final int newLength=ArrayUtil.oversize(i + 1,4);
+      docs=Arrays.copyOf(docs,newLength);
+      offsets=Arrays.copyOf(offsets,newLength);
+    }
+    docs[i]=docMap.oldToNew(doc);
+    offsets[i]=out.getFilePointer();
+    addPositions(in,out);
+    i++;
+  }
+  upto=i;
+  sorter.reset(docs,offsets);
+  sorter.sort(0,upto);
+  out.close();
+  this.postingInput=new RAMInputStream("",file);
+}
