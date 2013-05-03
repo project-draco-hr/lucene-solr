@@ -1,0 +1,32 @@
+{
+  MockDirectoryWrapper dir=newMockDirectory();
+  dir.failOn(new MockDirectoryWrapper.Failure(){
+    @Override public void eval(    MockDirectoryWrapper dir) throws IOException {
+      StackTraceElement[] trace=Thread.currentThread().getStackTrace();
+      for (int i=0; i < trace.length; i++) {
+        if (PersistentSnapshotDeletionPolicy.class.getName().equals(trace[i].getClassName()) && "persist".equals(trace[i].getMethodName())) {
+          throw new IOException("now fail on purpose");
+        }
+      }
+    }
+  }
+);
+  IndexWriter writer=new IndexWriter(dir,getConfig(random(),new PersistentSnapshotDeletionPolicy(new KeepOnlyLastCommitDeletionPolicy(),dir,OpenMode.CREATE_OR_APPEND)));
+  writer.addDocument(new Document());
+  writer.commit();
+  PersistentSnapshotDeletionPolicy psdp=(PersistentSnapshotDeletionPolicy)writer.getConfig().getIndexDeletionPolicy();
+  try {
+    psdp.snapshot();
+  }
+ catch (  IOException ioe) {
+    if (ioe.getMessage().equals("now fail on purpose")) {
+    }
+ else {
+      throw ioe;
+    }
+  }
+  assertEquals(0,psdp.getSnapshotCount());
+  writer.close();
+  assertEquals(1,DirectoryReader.listCommits(dir).size());
+  dir.close();
+}

@@ -1,0 +1,51 @@
+{
+  long genLoaded=-1;
+  IOException ioe=null;
+  List<String> snapshotFiles=new ArrayList<String>();
+  for (  String file : dir.listAll()) {
+    if (file.startsWith(SNAPSHOTS_PREFIX)) {
+      long gen=Long.parseLong(file.substring(SNAPSHOTS_PREFIX.length()));
+      if (genLoaded == -1 || gen > genLoaded) {
+        snapshotFiles.add(file);
+        Map<Long,Integer> m=new HashMap<Long,Integer>();
+        IndexInput in=dir.openInput(file,IOContext.DEFAULT);
+        try {
+          CodecUtil.checkHeader(in,CODEC_NAME,VERSION_START,VERSION_START);
+          int count=in.readVInt();
+          for (int i=0; i < count; i++) {
+            long commitGen=in.readVLong();
+            int refCount=in.readVInt();
+            m.put(commitGen,refCount);
+          }
+        }
+ catch (        IOException ioe2) {
+          if (ioe == null) {
+            ioe=ioe2;
+          }
+        }
+ finally {
+          in.close();
+        }
+        genLoaded=gen;
+        refCounts.clear();
+        refCounts.putAll(m);
+      }
+    }
+  }
+  if (genLoaded == -1) {
+    if (ioe != null) {
+      throw ioe;
+    }
+  }
+ else {
+    if (snapshotFiles.size() > 1) {
+      String curFileName=SNAPSHOTS_PREFIX + genLoaded;
+      for (      String file : snapshotFiles) {
+        if (!curFileName.equals(file)) {
+          dir.deleteFile(file);
+        }
+      }
+    }
+    nextWriteGen=1 + genLoaded;
+  }
+}

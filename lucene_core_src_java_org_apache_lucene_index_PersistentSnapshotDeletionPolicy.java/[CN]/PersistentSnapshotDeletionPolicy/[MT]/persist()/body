@@ -1,10 +1,28 @@
 {
-  writer.deleteAll();
-  Document d=new Document();
-  d.add(new StoredField(SNAPSHOTS_GENS,""));
-  for (  Entry<Long,Integer> e : refCounts.entrySet()) {
-    d.add(new StoredField(e.getKey().toString(),e.getValue().toString()));
+  String fileName=SNAPSHOTS_PREFIX + nextWriteGen;
+  IndexOutput out=dir.createOutput(fileName,IOContext.DEFAULT);
+  boolean success=false;
+  try {
+    CodecUtil.writeHeader(out,CODEC_NAME,VERSION_CURRENT);
+    out.writeVInt(refCounts.size());
+    for (    Entry<Long,Integer> ent : refCounts.entrySet()) {
+      out.writeVLong(ent.getKey());
+      out.writeVInt(ent.getValue());
+    }
+    success=true;
   }
-  writer.addDocument(d);
-  writer.commit();
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(out);
+      try {
+        dir.deleteFile(fileName);
+      }
+ catch (      Exception e) {
+      }
+    }
+ else {
+      IOUtils.close(out);
+    }
+  }
+  nextWriteGen++;
 }

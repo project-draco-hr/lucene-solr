@@ -1,16 +1,24 @@
 {
   int numSnapshots=3;
   Directory dir=newDirectory();
-  IndexWriter writer=new IndexWriter(dir,getConfig(random(),getDeletionPolicy()));
+  IndexWriter writer=new IndexWriter(dir,getConfig(random(),getDeletionPolicy(dir)));
   PersistentSnapshotDeletionPolicy psdp=(PersistentSnapshotDeletionPolicy)writer.getConfig().getIndexDeletionPolicy();
+  assertNull(psdp.getLastSaveFile());
   prepareIndexAndSnapshots(psdp,writer,numSnapshots);
+  assertNotNull(psdp.getLastSaveFile());
   writer.close();
-  psdp.close();
-  psdp=new PersistentSnapshotDeletionPolicy(new KeepOnlyLastCommitDeletionPolicy(),snapshotDir,OpenMode.APPEND,TEST_VERSION_CURRENT);
-  IndexWriter iw=new IndexWriter(dir,getConfig(random(),psdp));
-  psdp=(PersistentSnapshotDeletionPolicy)iw.getConfig().getIndexDeletionPolicy();
-  iw.close();
+  psdp=new PersistentSnapshotDeletionPolicy(new KeepOnlyLastCommitDeletionPolicy(),dir,OpenMode.APPEND);
+  writer=new IndexWriter(dir,getConfig(random(),psdp));
+  psdp=(PersistentSnapshotDeletionPolicy)writer.getConfig().getIndexDeletionPolicy();
+  assertEquals(numSnapshots,psdp.getSnapshots().size());
+  assertEquals(numSnapshots,psdp.getSnapshotCount());
   assertSnapshotExists(dir,psdp,numSnapshots,false);
-  psdp.close();
+  writer.addDocument(new Document());
+  writer.commit();
+  snapshots.add(psdp.snapshot());
+  assertEquals(numSnapshots + 1,psdp.getSnapshots().size());
+  assertEquals(numSnapshots + 1,psdp.getSnapshotCount());
+  assertSnapshotExists(dir,psdp,numSnapshots + 1,false);
+  writer.close();
   dir.close();
 }
