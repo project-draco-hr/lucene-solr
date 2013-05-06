@@ -10,6 +10,7 @@
     }
   }
   boolean verifyCandidateWithQuery=true;
+  int maxTries=maxCollationTries;
   int maxNumberToIterate=maxTries;
   if (maxTries < 1) {
     maxTries=1;
@@ -21,9 +22,15 @@
     maxTries=1;
     verifyCandidateWithQuery=false;
   }
+  docCollectionLimit=docCollectionLimit > 0 ? docCollectionLimit : 0;
+  int maxDocId=-1;
+  if (verifyCandidateWithQuery && docCollectionLimit > 0) {
+    IndexReader reader=ultimateResponse.req.getSearcher().getIndexReader();
+    maxDocId=reader.maxDoc();
+  }
   int tryNo=0;
   int collNo=0;
-  PossibilityIterator possibilityIter=new PossibilityIterator(result.getSuggestions(),maxNumberToIterate,maxEvaluations,suggestionsMayOverlap);
+  PossibilityIterator possibilityIter=new PossibilityIterator(result.getSuggestions(),maxNumberToIterate,maxCollationEvaluations,suggestionsMayOverlap);
   while (tryNo < maxTries && collNo < maxCollations && possibilityIter.hasNext()) {
     PossibilityIterator.RankedSpellPossibility possibility=possibilityIter.next();
     String collationQueryStr=getCollation(originalQuery,possibility.corrections);
@@ -48,8 +55,15 @@
       }
       params.set(CommonParams.Q,collationQueryStr);
       params.remove(CommonParams.START);
+      params.set(CommonParams.ROWS,"" + docCollectionLimit);
       params.set(CommonParams.FL,"id");
-      params.set(CommonParams.ROWS,"0");
+      params.set(CommonParams.SORT,"_docid_ asc");
+      params.remove(DisMaxParams.TIE);
+      params.remove(DisMaxParams.PF);
+      params.remove(DisMaxParams.PF2);
+      params.remove(DisMaxParams.PF3);
+      params.remove(DisMaxParams.BQ);
+      params.remove(DisMaxParams.BF);
       params.remove(GroupParams.GROUP);
       ResponseBuilder checkResponse=new ResponseBuilder(new LocalSolrQueryRequest(ultimateResponse.req.getCore(),params),new SolrQueryResponse(),Arrays.<SearchComponent>asList(queryComponent));
       checkResponse.setQparser(ultimateResponse.getQparser());
@@ -58,10 +72,27 @@
       checkResponse.components=Arrays.<SearchComponent>asList(queryComponent);
       try {
         queryComponent.prepare(checkResponse);
+        if (docCollectionLimit > 0) {
+          int f=checkResponse.getFieldFlags();
+          checkResponse.setFieldFlags(f|=SolrIndexSearcher.TERMINATE_EARLY);
+          if (reportHits) {
+            f=checkResponse.getFieldFlags();
+            checkResponse.setFieldFlags(f|=SolrIndexSearcher.FORCE_INORDER_COLLECTION);
+          }
+        }
         queryComponent.process(checkResponse);
         hits=(Integer)checkResponse.rsp.getToLog().get("hits");
       }
- catch (      Exception e) {
+ catch (      EarlyTerminatingCollectorException etce) {
+        assert(docCollectionLimit > 0);
+        if (etce.getLastDocId() + 1 == maxDocId) {
+          hits=docCollectionLimit;
+        }
+ else {
+          hits=maxDocId / ((etce.getLastDocId() + 1) / docCollectionLimit);
+        }
+      }
+catch (      Exception e) {
         LOG.warn("Exception trying to re-query to check if a spell check possibility would return any hits.",e);
       }
  finally {
