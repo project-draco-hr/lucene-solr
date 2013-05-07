@@ -3,17 +3,26 @@
   if (!started) {
     started=true;
     gramSize=minGram;
-    char[] chars=new char[1024];
+    final int limit=side == Side.FRONT ? maxGram : 1024;
+    char[] chars=new char[Math.min(1024,limit)];
     charsRead=0;
-    while (charsRead < chars.length) {
+    boolean exhausted=false;
+    while (charsRead < limit) {
       final int inc=input.read(chars,charsRead,chars.length - charsRead);
       if (inc == -1) {
+        exhausted=true;
         break;
       }
       charsRead+=inc;
+      if (charsRead == chars.length && charsRead < limit) {
+        chars=ArrayUtil.grow(chars);
+      }
     }
-    inStr=new String(chars,0,charsRead).trim();
-    if (charsRead == chars.length) {
+    inStr=new String(chars,0,charsRead);
+    if (!version.onOrAfter(Version.LUCENE_44)) {
+      inStr=inStr.trim();
+    }
+    if (!exhausted) {
       char[] throwaway=new char[1024];
       while (true) {
         final int inc=input.read(throwaway,0,throwaway.length);
@@ -29,13 +38,16 @@
     }
     posIncrAtt.setPositionIncrement(1);
   }
+ else   if (version.onOrAfter(Version.LUCENE_44)) {
+    posIncrAtt.setPositionIncrement(1);
+  }
  else {
     posIncrAtt.setPositionIncrement(0);
   }
   if (gramSize > inLen) {
     return false;
   }
-  if (gramSize > maxGram) {
+  if (gramSize > maxGram || gramSize > inLen) {
     return false;
   }
   int start=side == Side.FRONT ? 0 : inLen - gramSize;
