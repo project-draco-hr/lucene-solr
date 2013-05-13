@@ -1,0 +1,51 @@
+{
+  Directory taxoClientDir=sourceDirectory.get(IndexAndTaxonomyRevision.TAXONOMY_SOURCE);
+  Directory indexClientDir=sourceDirectory.get(IndexAndTaxonomyRevision.INDEX_SOURCE);
+  List<String> taxoFiles=copiedFiles.get(IndexAndTaxonomyRevision.TAXONOMY_SOURCE);
+  List<String> indexFiles=copiedFiles.get(IndexAndTaxonomyRevision.INDEX_SOURCE);
+  String taxoSegmentsFile=IndexReplicationHandler.getSegmentsFile(taxoFiles,true);
+  String indexSegmentsFile=IndexReplicationHandler.getSegmentsFile(indexFiles,false);
+  boolean success=false;
+  try {
+    IndexReplicationHandler.copyFiles(taxoClientDir,taxoDir,taxoFiles);
+    IndexReplicationHandler.copyFiles(indexClientDir,indexDir,indexFiles);
+    if (!taxoFiles.isEmpty()) {
+      taxoDir.sync(taxoFiles);
+    }
+    indexDir.sync(indexFiles);
+    if (taxoSegmentsFile != null) {
+      taxoClientDir.copy(taxoDir,taxoSegmentsFile,taxoSegmentsFile,IOContext.READONCE);
+    }
+    indexClientDir.copy(indexDir,indexSegmentsFile,indexSegmentsFile,IOContext.READONCE);
+    if (taxoSegmentsFile != null) {
+      taxoDir.sync(Collections.singletonList(taxoSegmentsFile));
+    }
+    indexDir.sync(Collections.singletonList(indexSegmentsFile));
+    success=true;
+  }
+  finally {
+    if (!success) {
+      taxoFiles.add(taxoSegmentsFile);
+      IndexReplicationHandler.cleanupFilesOnFailure(taxoDir,taxoFiles);
+      indexFiles.add(indexSegmentsFile);
+      IndexReplicationHandler.cleanupFilesOnFailure(indexDir,indexFiles);
+    }
+  }
+  currentRevisionFiles=revisionFiles;
+  currentVersion=version;
+  if (infoStream.isEnabled(INFO_STREAM_COMPONENT)) {
+    infoStream.message(INFO_STREAM_COMPONENT,"revisionReady(): currentVersion=" + currentVersion + " currentRevisionFiles="+ currentRevisionFiles);
+  }
+  IndexReplicationHandler.writeSegmentsGen(taxoSegmentsFile,taxoDir);
+  IndexReplicationHandler.writeSegmentsGen(indexSegmentsFile,indexDir);
+  IndexReplicationHandler.cleanupOldIndexFiles(indexDir,indexSegmentsFile);
+  IndexReplicationHandler.cleanupOldIndexFiles(taxoDir,taxoSegmentsFile);
+  if (callback != null) {
+    try {
+      callback.call();
+    }
+ catch (    Exception e) {
+      throw new IOException(e);
+    }
+  }
+}

@@ -1,0 +1,34 @@
+{
+  if (indexReader == null) {
+    indexReader=DirectoryReader.open(indexDir);
+    lastIndexGeneration=indexReader.getIndexCommit().getGeneration();
+    taxoReader=new DirectoryTaxonomyReader(taxoDir);
+  }
+ else {
+    DirectoryReader newReader=DirectoryReader.openIfChanged(indexReader);
+    assertNotNull("should not have reached here if no changes were made to the index",newReader);
+    long newGeneration=newReader.getIndexCommit().getGeneration();
+    assertTrue("expected newer generation; current=" + lastIndexGeneration + " new="+ newGeneration,newGeneration > lastIndexGeneration);
+    indexReader.close();
+    indexReader=newReader;
+    lastIndexGeneration=newGeneration;
+    _TestUtil.checkIndex(indexDir);
+    DirectoryTaxonomyReader newTaxoReader=TaxonomyReader.openIfChanged(taxoReader);
+    if (newTaxoReader != null) {
+      taxoReader.close();
+      taxoReader=newTaxoReader;
+    }
+    _TestUtil.checkIndex(taxoDir);
+    int id=Integer.parseInt(indexReader.getIndexCommit().getUserData().get(VERSION_ID),16);
+    CategoryPath cp=new CategoryPath("A",Integer.toString(id,16));
+    IndexSearcher searcher=new IndexSearcher(indexReader);
+    FacetsCollector fc=FacetsCollector.create(new FacetSearchParams(new CountFacetRequest(cp,10)),indexReader,taxoReader);
+    searcher.search(new MatchAllDocsQuery(),fc);
+    assertEquals(1,(int)fc.getFacetResults().get(0).getFacetResultNode().value);
+    DrillDownQuery drillDown=new DrillDownQuery(FacetIndexingParams.DEFAULT);
+    drillDown.add(cp);
+    TopDocs docs=searcher.search(drillDown,10);
+    assertEquals(1,docs.totalHits);
+  }
+  return null;
+}

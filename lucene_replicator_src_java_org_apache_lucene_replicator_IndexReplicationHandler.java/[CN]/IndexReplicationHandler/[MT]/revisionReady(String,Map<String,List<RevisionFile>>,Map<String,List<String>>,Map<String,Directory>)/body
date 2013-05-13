@@ -1,0 +1,37 @@
+{
+  if (revisionFiles.size() > 1) {
+    throw new IllegalArgumentException("this handler handles only a single source; got " + revisionFiles.keySet());
+  }
+  Directory clientDir=sourceDirectory.values().iterator().next();
+  List<String> files=copiedFiles.values().iterator().next();
+  String segmentsFile=getSegmentsFile(files,false);
+  boolean success=false;
+  try {
+    copyFiles(clientDir,indexDir,files);
+    indexDir.sync(files);
+    clientDir.copy(indexDir,segmentsFile,segmentsFile,IOContext.READONCE);
+    indexDir.sync(Collections.singletonList(segmentsFile));
+    success=true;
+  }
+  finally {
+    if (!success) {
+      files.add(segmentsFile);
+      cleanupFilesOnFailure(indexDir,files);
+    }
+  }
+  currentRevisionFiles=revisionFiles;
+  currentVersion=version;
+  if (infoStream.isEnabled(INFO_STREAM_COMPONENT)) {
+    infoStream.message(INFO_STREAM_COMPONENT,"revisionReady(): currentVersion=" + currentVersion + " currentRevisionFiles="+ currentRevisionFiles);
+  }
+  writeSegmentsGen(segmentsFile,indexDir);
+  cleanupOldIndexFiles(indexDir,segmentsFile);
+  if (callback != null) {
+    try {
+      callback.call();
+    }
+ catch (    Exception e) {
+      throw new IOException(e);
+    }
+  }
+}

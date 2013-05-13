@@ -1,0 +1,42 @@
+{
+  Directory indexDir=newDirectory();
+  IndexWriterConfig conf=new IndexWriterConfig(TEST_VERSION_CURRENT,null);
+  conf.setIndexDeletionPolicy(new SnapshotDeletionPolicy(conf.getIndexDeletionPolicy()));
+  IndexWriter indexWriter=new IndexWriter(indexDir,conf);
+  Directory taxoDir=newDirectory();
+  SnapshotDirectoryTaxonomyWriter taxoWriter=new SnapshotDirectoryTaxonomyWriter(taxoDir);
+  try {
+    indexWriter.addDocument(newDocument(taxoWriter));
+    indexWriter.commit();
+    taxoWriter.commit();
+    Revision rev=new IndexAndTaxonomyRevision(indexWriter,taxoWriter);
+    for (    Entry<String,List<RevisionFile>> e : rev.getSourceFiles().entrySet()) {
+      String source=e.getKey();
+      Directory dir=source.equals(IndexAndTaxonomyRevision.INDEX_SOURCE) ? indexDir : taxoDir;
+      for (      RevisionFile file : e.getValue()) {
+        IndexInput src=dir.openInput(file.fileName,IOContext.READONCE);
+        InputStream in=rev.open(source,file.fileName);
+        assertEquals(src.length(),in.available());
+        byte[] srcBytes=new byte[(int)src.length()];
+        byte[] inBytes=new byte[(int)src.length()];
+        int offset=0;
+        if (random().nextBoolean()) {
+          int skip=random().nextInt(10);
+          if (skip >= src.length()) {
+            skip=0;
+          }
+          in.skip(skip);
+          src.seek(skip);
+          offset=skip;
+        }
+        src.readBytes(srcBytes,offset,srcBytes.length - offset);
+        in.read(inBytes,offset,inBytes.length - offset);
+        assertArrayEquals(srcBytes,inBytes);
+        IOUtils.close(src,in);
+      }
+    }
+  }
+  finally {
+    IOUtils.close(indexWriter,taxoWriter,taxoDir,indexDir);
+  }
+}

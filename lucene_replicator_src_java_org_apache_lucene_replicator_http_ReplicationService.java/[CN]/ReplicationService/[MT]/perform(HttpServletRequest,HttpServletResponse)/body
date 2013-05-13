@@ -1,0 +1,62 @@
+{
+  String[] pathElements=getPathElements(req);
+  if (pathElements.length != 2) {
+    throw new ServletException("invalid path, must contain shard ID and action, e.g. */s1/update");
+  }
+  final ReplicationAction action;
+  try {
+    action=ReplicationAction.valueOf(pathElements[ACTION_IDX].toUpperCase(Locale.ENGLISH));
+  }
+ catch (  IllegalArgumentException e) {
+    throw new ServletException("Unsupported action provided: " + pathElements[ACTION_IDX]);
+  }
+  final Replicator replicator=replicators.get(pathElements[SHARD_IDX]);
+  if (replicator == null) {
+    throw new ServletException("unrecognized shard ID " + pathElements[SHARD_IDX]);
+  }
+  ServletOutputStream resOut=resp.getOutputStream();
+  try {
+switch (action) {
+case OBTAIN:
+      final String sessionID=extractRequestParam(req,REPLICATE_SESSION_ID_PARAM);
+    final String fileName=extractRequestParam(req,REPLICATE_FILENAME_PARAM);
+  final String source=extractRequestParam(req,REPLICATE_SOURCE_PARAM);
+InputStream in=replicator.obtainFile(sessionID,source,fileName);
+try {
+copy(in,resOut);
+}
+  finally {
+in.close();
+}
+break;
+case RELEASE:
+replicator.release(extractRequestParam(req,REPLICATE_SESSION_ID_PARAM));
+break;
+case UPDATE:
+String currVersion=req.getParameter(REPLICATE_VERSION_PARAM);
+SessionToken token=replicator.checkForUpdate(currVersion);
+if (token == null) {
+resOut.write(0);
+}
+ else {
+resOut.write(1);
+token.serialize(new DataOutputStream(resOut));
+}
+break;
+}
+}
+ catch (Exception e) {
+resp.setStatus(HttpStatus.SC_INTERNAL_SERVER_ERROR);
+try {
+ObjectOutputStream oos=new ObjectOutputStream(resOut);
+oos.writeObject(e);
+oos.flush();
+}
+ catch (Exception e2) {
+throw new IOException("Could not serialize",e2);
+}
+}
+ finally {
+resp.flushBuffer();
+}
+}

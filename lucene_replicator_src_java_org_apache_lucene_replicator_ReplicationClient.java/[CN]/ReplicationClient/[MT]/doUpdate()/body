@@ -1,0 +1,71 @@
+{
+  SessionToken session=null;
+  final Map<String,Directory> sourceDirectory=new HashMap<String,Directory>();
+  final Map<String,List<String>> copiedFiles=new HashMap<String,List<String>>();
+  boolean notify=false;
+  try {
+    final String version=handler.currentVersion();
+    session=replicator.checkForUpdate(version);
+    if (infoStream.isEnabled(INFO_STREAM_COMPONENT)) {
+      infoStream.message(INFO_STREAM_COMPONENT,"doUpdate(): handlerVersion=" + version + " session="+ session);
+    }
+    if (session == null) {
+      return;
+    }
+    Map<String,List<RevisionFile>> requiredFiles=requiredFiles(session.sourceFiles);
+    if (infoStream.isEnabled(INFO_STREAM_COMPONENT)) {
+      infoStream.message(INFO_STREAM_COMPONENT,"doUpdate(): requiredFiles=" + requiredFiles);
+    }
+    for (    Entry<String,List<RevisionFile>> e : requiredFiles.entrySet()) {
+      String source=e.getKey();
+      Directory dir=factory.getDirectory(session.id,source);
+      sourceDirectory.put(source,dir);
+      List<String> cpFiles=new ArrayList<String>();
+      copiedFiles.put(source,cpFiles);
+      for (      RevisionFile file : e.getValue()) {
+        if (closed) {
+          if (infoStream.isEnabled(INFO_STREAM_COMPONENT)) {
+            infoStream.message(INFO_STREAM_COMPONENT,"doUpdate(): detected client was closed); abort file copy");
+          }
+          return;
+        }
+        InputStream in=null;
+        IndexOutput out=null;
+        try {
+          in=replicator.obtainFile(session.id,source,file.fileName);
+          out=dir.createOutput(file.fileName,IOContext.DEFAULT);
+          copyBytes(out,in);
+          cpFiles.add(file.fileName);
+        }
+  finally {
+          IOUtils.close(in,out);
+        }
+      }
+    }
+    notify=true;
+  }
+  finally {
+    if (session != null) {
+      try {
+        replicator.release(session.id);
+      }
+  finally {
+        if (!notify) {
+          IOUtils.close(sourceDirectory.values());
+          factory.cleanupSession(session.id);
+        }
+      }
+    }
+  }
+  try {
+    if (notify && !closed) {
+      handler.revisionReady(session.version,session.sourceFiles,copiedFiles,sourceDirectory);
+    }
+  }
+  finally {
+    IOUtils.close(sourceDirectory.values());
+    if (session != null) {
+      factory.cleanupSession(session.id);
+    }
+  }
+}
