@@ -6,7 +6,9 @@
   rsp=new SolrQueryResponse();
   SolrRequestInfo.setRequestInfo(new SolrRequestInfo(req,rsp));
   try {
-    for (    TransactionLog translog : translogs) {
+    for (; ; ) {
+      TransactionLog translog=translogs.pollFirst();
+      if (translog == null)       break;
       doReplay(translog);
     }
   }
@@ -28,6 +30,10 @@ catch (  Throwable e) {
     state=State.ACTIVE;
     if (finishing) {
       versionInfo.unblockUpdates();
+    }
+    for (    TransactionLog translog : translogs) {
+      log.error("ERROR: didn't get to recover from tlog " + translog);
+      translog.decref();
     }
   }
   loglog.warn("Log replay finished. recoveryInfo=" + recoveryInfo);
