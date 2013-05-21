@@ -1,26 +1,34 @@
 {
   ensureOpen();
   boolean success=false;
-  try {
-    finishMerges(false);
-    docWriter.abort();
-    segmentInfos.clear();
-    deleter.checkpoint(segmentInfos,false);
-    deleter.refresh();
-    globalFieldNumberMap.clear();
-    readerPool.dropAll(false);
-    ++changeCount;
-    segmentInfos.changed();
-    success=true;
-  }
- catch (  OutOfMemoryError oom) {
-    handleOOM(oom,"deleteAll");
-  }
+synchronized (fullFlushLock) {
+    try {
+      docWriter.lockAndAbortAll();
+synchronized (this) {
+        try {
+          finishMerges(false);
+          segmentInfos.clear();
+          deleter.checkpoint(segmentInfos,false);
+          readerPool.dropAll(false);
+          ++changeCount;
+          segmentInfos.changed();
+          globalFieldNumberMap.clear();
+          success=true;
+        }
+ catch (        OutOfMemoryError oom) {
+          handleOOM(oom,"deleteAll");
+        }
  finally {
-    if (!success) {
-      if (infoStream.isEnabled("IW")) {
-        infoStream.message("IW","hit exception during deleteAll");
+          if (!success) {
+            if (infoStream.isEnabled("IW")) {
+              infoStream.message("IW","hit exception during deleteAll");
+            }
+          }
+        }
       }
+    }
+  finally {
+      docWriter.unlockAllAfterAbortAll();
     }
   }
 }
