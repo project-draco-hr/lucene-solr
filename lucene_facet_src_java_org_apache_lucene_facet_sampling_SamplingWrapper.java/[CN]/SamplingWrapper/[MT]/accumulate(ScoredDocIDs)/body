@@ -1,17 +1,27 @@
 {
   FacetSearchParams original=delegee.searchParams;
-  delegee.searchParams=sampler.overSampledSearchParams(original);
+  boolean shouldOversample=sampler.samplingParams.shouldOverSample();
+  if (shouldOversample) {
+    delegee.searchParams=sampler.overSampledSearchParams(original);
+  }
   SampleResult sampleSet=sampler.getSampleSet(docids);
   List<FacetResult> sampleRes=delegee.accumulate(sampleSet.docids);
   List<FacetResult> fixedRes=new ArrayList<FacetResult>();
+  SampleFixer sampleFixer=sampler.samplingParams.getSampleFixer();
   for (  FacetResult fres : sampleRes) {
     PartitionsFacetResultsHandler frh=createFacetResultsHandler(fres.getFacetRequest());
-    sampler.getSampleFixer(indexReader,taxonomyReader,searchParams).fixResult(docids,fres);
-    fres=frh.rearrangeFacetResult(fres);
-    fres=sampler.trimResult(fres);
+    if (sampleFixer != null) {
+      sampleFixer.fixResult(docids,fres,sampleSet.actualSampleRatio);
+      fres=frh.rearrangeFacetResult(fres);
+    }
+    if (shouldOversample) {
+      fres=sampler.trimResult(fres);
+    }
     frh.labelResult(fres);
     fixedRes.add(fres);
   }
-  delegee.searchParams=original;
+  if (shouldOversample) {
+    delegee.searchParams=original;
+  }
   return fixedRes;
 }
