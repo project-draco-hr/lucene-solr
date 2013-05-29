@@ -1,0 +1,85 @@
+{
+  final Map<String,List<FacetResult>> dims=new HashMap<>();
+  for (  FacetResult fr : results) {
+    String dim=fr.getFacetRequest().categoryPath.components[0];
+    List<FacetResult> frs=dims.get(dim);
+    if (frs == null) {
+      frs=new ArrayList<>();
+      dims.put(dim,frs);
+    }
+    frs.add(fr);
+  }
+  final List<FacetResult> res=new ArrayList<>();
+  for (  List<FacetResult> frs : dims.values()) {
+    FacetResult mergedResult=frs.get(0);
+    if (frs.size() > 1) {
+      CollectionUtil.introSort(frs,new Comparator<FacetResult>(){
+        @Override public int compare(        FacetResult fr1,        FacetResult fr2){
+          return fr1.getFacetRequest().categoryPath.compareTo(fr2.getFacetRequest().categoryPath);
+        }
+      }
+);
+      Map<CategoryPath,FacetResultNode> mergedNodes=new HashMap<>();
+      FacetArrays arrays=dimArrays != null ? dimArrays.get(frs.get(0).getFacetRequest().categoryPath.components[0]) : null;
+      for (      FacetResult fr : frs) {
+        FacetResultNode frn=fr.getFacetResultNode();
+        FacetResultNode merged=mergedNodes.get(frn.label);
+        if (merged == null) {
+          CategoryPath parent=frn.label.subpath(frn.label.length - 1);
+          FacetResultNode childNode=frn;
+          FacetResultNode parentNode=null;
+          while (parent.length > 0 && (parentNode=mergedNodes.get(parent)) == null) {
+            int parentOrd=taxoReader.getOrdinal(parent);
+            double parentValue=arrays != null ? fr.getFacetRequest().getValueOf(arrays,parentOrd) : -1;
+            parentNode=new FacetResultNode(parentOrd,parentValue);
+            parentNode.label=parent;
+            parentNode.subResults=new ArrayList<>();
+            parentNode.subResults.add(childNode);
+            mergedNodes.put(parent,parentNode);
+            childNode=parentNode;
+            parent=parent.subpath(parent.length - 1);
+          }
+          if (parent.length > 0) {
+            if (!(parentNode.subResults instanceof ArrayList)) {
+              parentNode.subResults=new ArrayList<>(parentNode.subResults);
+            }
+            parentNode.subResults.add(childNode);
+          }
+          mergedNodes.put(frn.label,frn);
+          for (          FacetResultNode child : frn.subResults) {
+            addIfNotExist(mergedNodes,child);
+          }
+        }
+ else {
+          if (!(merged.subResults instanceof ArrayList)) {
+            merged.subResults=new ArrayList<>(merged.subResults);
+          }
+          for (          FacetResultNode sub : frn.subResults) {
+            sub=addIfNotExist(mergedNodes,sub);
+            if (!merged.subResults.contains(sub)) {
+              merged.subResults.add(sub);
+            }
+          }
+        }
+      }
+      CategoryPath min=null;
+      for (      CategoryPath cp : mergedNodes.keySet()) {
+        if (min == null || cp.compareTo(min) < 0) {
+          min=cp;
+        }
+      }
+      FacetRequest dummy=new FacetRequest(min,frs.get(0).getFacetRequest().numResults){
+        @Override public double getValueOf(        FacetArrays arrays,        int idx){
+          throw new UnsupportedOperationException("not supported by this request");
+        }
+        @Override public FacetArraysSource getFacetArraysSource(){
+          throw new UnsupportedOperationException("not supported by this request");
+        }
+      }
+;
+      mergedResult=new FacetResult(dummy,mergedNodes.get(min),-1);
+    }
+    res.add(mergedResult);
+  }
+  return res;
+}

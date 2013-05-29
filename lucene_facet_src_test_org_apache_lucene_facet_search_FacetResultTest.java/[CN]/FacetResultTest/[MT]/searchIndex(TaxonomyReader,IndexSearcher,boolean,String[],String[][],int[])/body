@@ -1,0 +1,55 @@
+{
+  CategoryPath[][] cps=new CategoryPath[drillDowns.length][];
+  for (int i=0; i < cps.length; i++) {
+    cps[i]=new CategoryPath[drillDowns[i].length];
+    for (int j=0; j < cps[i].length; j++) {
+      cps[i][j]=new CategoryPath(drillDowns[i][j],'/');
+    }
+  }
+  DrillDownQuery ddq=new DrillDownQuery(FacetIndexingParams.DEFAULT,new MatchAllDocsQuery());
+  for (  CategoryPath[] cats : cps) {
+    ddq.add(cats);
+  }
+  List<FacetRequest> facetRequests=new ArrayList<FacetRequest>();
+  for (  CategoryPath[] cats : cps) {
+    for (int i=0; i < cats.length; i++) {
+      CategoryPath cp=cats[i];
+      int numres=numResults == null ? 2 : numResults[i];
+      facetRequests.add(new CountFacetRequest(cp,numres));
+      CountFacetRequest parent=new CountFacetRequest(cp.subpath(cp.length - 1),numres);
+      if (!facetRequests.contains(parent) && parent.categoryPath.length > 0) {
+        facetRequests.add(parent);
+      }
+    }
+  }
+  FacetSearchParams fsp=new FacetSearchParams(facetRequests);
+  final DrillSideways ds;
+  final Map<String,FacetArrays> dimArrays;
+  if (fillMissingCounts) {
+    dimArrays=new HashMap<String,FacetArrays>();
+    ds=new DrillSideways(searcher,taxoReader){
+      @Override protected FacetsAccumulator getDrillSidewaysAccumulator(      String dim,      FacetSearchParams fsp) throws IOException {
+        FacetsAccumulator fa=super.getDrillSidewaysAccumulator(dim,fsp);
+        dimArrays.put(dim,fa.facetArrays);
+        return fa;
+      }
+    }
+;
+  }
+ else {
+    ds=new DrillSideways(searcher,taxoReader);
+    dimArrays=null;
+  }
+  final DrillSidewaysResult sidewaysRes=ds.search(null,ddq,5,fsp);
+  List<FacetResult> facetResults=FacetResult.mergeHierarchies(sidewaysRes.facetResults,taxoReader,dimArrays);
+  CollectionUtil.introSort(facetResults,new Comparator<FacetResult>(){
+    @Override public int compare(    FacetResult o1,    FacetResult o2){
+      return o1.getFacetRequest().categoryPath.compareTo(o2.getFacetRequest().categoryPath);
+    }
+  }
+);
+  assertEquals(exp.length,facetResults.size());
+  for (int i=0; i < facetResults.size(); i++) {
+    assertEquals(exp[i],FacetTestUtils.toSimpleString(facetResults.get(i)));
+  }
+}
