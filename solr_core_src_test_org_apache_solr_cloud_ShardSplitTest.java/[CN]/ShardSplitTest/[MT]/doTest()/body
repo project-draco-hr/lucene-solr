@@ -10,29 +10,53 @@
   del("*:*");
   for (int id=0; id <= 100; id++) {
     String shardKey="" + (char)('a' + (id % 26));
-    indexAndUpdateCount(router,ranges,docCounts,shardKey + "!" + String.valueOf(id));
+    indexAndUpdateCount(router,ranges,docCounts,shardKey + "!" + String.valueOf(id),id);
   }
   commit();
   Thread indexThread=new Thread(){
     @Override public void run(){
-      int max=atLeast(401);
+      Random random=random();
+      int max=atLeast(random,401);
+      int sleep=atLeast(random,25);
+      log.info("SHARDSPLITTEST: Going to add " + max + " number of docs at 1 doc per "+ sleep+ "ms");
+      Set<String> deleted=new HashSet<String>();
       for (int id=101; id < max; id++) {
         try {
-          indexAndUpdateCount(router,ranges,docCounts,String.valueOf(id));
-          Thread.sleep(atLeast(25));
+          indexAndUpdateCount(router,ranges,docCounts,String.valueOf(id),id);
+          Thread.sleep(sleep);
+          if (usually(random)) {
+            String delId=String.valueOf(random.nextInt(id - 101 + 1) + 101);
+            if (deleted.contains(delId))             continue;
+            try {
+              deleteAndUpdateCount(router,ranges,docCounts,delId);
+              deleted.add(delId);
+            }
+ catch (            Exception e) {
+              log.error("Exception while deleting docs",e);
+            }
+          }
         }
  catch (        Exception e) {
-          log.error("Exception while adding doc",e);
+          log.error("Exception while adding docs",e);
         }
       }
     }
   }
 ;
   indexThread.start();
-  splitShard(SHARD1);
-  log.info("Layout after split: \n");
-  printLayout();
-  indexThread.join();
+  try {
+    splitShard(SHARD1);
+    log.info("Layout after split: \n");
+    printLayout();
+  }
+  finally {
+    try {
+      indexThread.join();
+    }
+ catch (    InterruptedException e) {
+      log.error("Indexing thread interrupted",e);
+    }
+  }
   commit();
   checkDocCountsAndShardStates(docCounts,numReplicas);
   waitForRecoveriesToFinish(true);

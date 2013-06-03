@@ -6,11 +6,11 @@
     zkCheck();
   }
   DistribPhase phase=DistribPhase.parseParam(req.getParams().get(DISTRIB_UPDATE_PARAM));
+  DocCollection coll=zkController.getClusterState().getCollection(collection);
   if (zkEnabled && DistribPhase.NONE == phase) {
     boolean leaderForAnyShard=false;
     ModifiableSolrParams outParams=new ModifiableSolrParams(filterParams(req.getParams()));
     outParams.set(DISTRIB_UPDATE_PARAM,DistribPhase.TOLEADER.toString());
-    DocCollection coll=zkController.getClusterState().getCollection(collection);
     SolrParams params=req.getParams();
     Collection<Slice> slices=coll.getRouter().getSearchSlices(params.get(ShardParams.SHARD_KEYS),params,coll);
     List<Node> leaders=new ArrayList<Node>(slices.size());
@@ -86,13 +86,19 @@
   finally {
     vinfo.unblockUpdates();
   }
-  if (leaderLogic && replicas != null) {
+  List<Node> subShardLeaders=getSubShardLeaders(coll,cloudDesc.getShardId(),null,null);
+  if (leaderLogic) {
     ModifiableSolrParams params=new ModifiableSolrParams(filterParams(req.getParams()));
     params.set(VERSION_FIELD,Long.toString(cmd.getVersion()));
     params.set(DISTRIB_UPDATE_PARAM,DistribPhase.FROMLEADER.toString());
     params.set("update.from",ZkCoreNodeProps.getCoreUrl(zkController.getBaseUrl(),req.getCore().getName()));
-    cmdDistrib.distribDelete(cmd,replicas,params);
-    cmdDistrib.finish();
+    if (subShardLeaders != null) {
+      cmdDistrib.syncDelete(cmd,subShardLeaders,params);
+    }
+    if (replicas != null) {
+      cmdDistrib.distribDelete(cmd,replicas,params);
+      cmdDistrib.finish();
+    }
   }
   if (returnVersions && rsp != null) {
     if (deleteByQueryResponse == null) {

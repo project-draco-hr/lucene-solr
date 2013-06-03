@@ -14,15 +14,25 @@
   if (dropCmd) {
     return;
   }
+  if (zkEnabled && isLeader) {
+    DocCollection coll=zkController.getClusterState().getCollection(collection);
+    List<Node> subShardLeaders=getSubShardLeaders(coll,cloudDesc.getShardId(),cmd.getHashableId(),cmd.getSolrInputDocument());
+    if (subShardLeaders != null && !subShardLeaders.isEmpty()) {
+      ModifiableSolrParams params=new ModifiableSolrParams(filterParams(req.getParams()));
+      params.set(DISTRIB_UPDATE_PARAM,DistribPhase.FROMLEADER.toString());
+      params.set("distrib.from",ZkCoreNodeProps.getCoreUrl(zkController.getBaseUrl(),req.getCore().getName()));
+      params.set("distrib.from.parent",req.getCore().getCoreDescriptor().getCloudDescriptor().getShardId());
+      for (      Node subShardLeader : subShardLeaders) {
+        cmdDistrib.syncAdd(cmd,subShardLeader,params);
+      }
+    }
+  }
   ModifiableSolrParams params=null;
   if (nodes != null) {
     params=new ModifiableSolrParams(filterParams(req.getParams()));
     params.set(DISTRIB_UPDATE_PARAM,(isLeader ? DistribPhase.FROMLEADER.toString() : DistribPhase.TOLEADER.toString()));
     if (isLeader) {
       params.set("distrib.from",ZkCoreNodeProps.getCoreUrl(zkController.getBaseUrl(),req.getCore().getName()));
-    }
-    if (forwardToSubShard) {
-      params.set("distrib.from.parent",req.getCore().getCoreDescriptor().getCloudDescriptor().getShardId());
     }
     params.set("distrib.from",ZkCoreNodeProps.getCoreUrl(zkController.getBaseUrl(),req.getCore().getName()));
     cmdDistrib.distribAdd(cmd,nodes,params);
