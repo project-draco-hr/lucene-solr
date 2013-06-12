@@ -1,0 +1,40 @@
+{
+  final int[] codePoints=toCodePoints(s);
+  final int[] offsets=new int[codePoints.length + 1];
+  for (int i=0; i < codePoints.length; ++i) {
+    offsets[i + 1]=offsets[i] + Character.charCount(codePoints[i]);
+  }
+  final TokenStream grams=new NGramTokenizer(TEST_VERSION_CURRENT,new StringReader(s),minGram,maxGram,edgesOnly){
+    @Override protected boolean isTokenChar(    int chr){
+      return nonTokenChars.indexOf(chr) < 0;
+    }
+  }
+;
+  final CharTermAttribute termAtt=grams.addAttribute(CharTermAttribute.class);
+  final PositionIncrementAttribute posIncAtt=grams.addAttribute(PositionIncrementAttribute.class);
+  final PositionLengthAttribute posLenAtt=grams.addAttribute(PositionLengthAttribute.class);
+  final OffsetAttribute offsetAtt=grams.addAttribute(OffsetAttribute.class);
+  grams.reset();
+  for (int start=0; start < codePoints.length; ++start) {
+    nextGram:     for (int end=start + minGram; end <= start + maxGram && end <= codePoints.length; ++end) {
+      if (edgesOnly && start > 0 && isTokenChar(nonTokenChars,codePoints[start - 1])) {
+        continue nextGram;
+      }
+      for (int j=start; j < end; ++j) {
+        if (!isTokenChar(nonTokenChars,codePoints[j])) {
+          continue nextGram;
+        }
+      }
+      assertTrue(grams.incrementToken());
+      assertArrayEquals(Arrays.copyOfRange(codePoints,start,end),toCodePoints(termAtt));
+      assertEquals(1,posIncAtt.getPositionIncrement());
+      assertEquals(1,posLenAtt.getPositionLength());
+      assertEquals(offsets[start],offsetAtt.startOffset());
+      assertEquals(offsets[end],offsetAtt.endOffset());
+    }
+  }
+  assertFalse(grams.incrementToken());
+  grams.end();
+  assertEquals(s.length(),offsetAtt.startOffset());
+  assertEquals(s.length(),offsetAtt.endOffset());
+}
