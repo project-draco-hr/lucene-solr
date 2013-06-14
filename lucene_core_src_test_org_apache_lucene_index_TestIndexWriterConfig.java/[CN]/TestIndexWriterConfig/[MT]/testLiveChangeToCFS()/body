@@ -2,18 +2,28 @@
   Directory dir=newDirectory();
   IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
   iwc.setMergePolicy(newLogMergePolicy(true));
-  iwc.getMergePolicy().setNoCFSRatio(0.0);
+  iwc.setUseCompoundFile(false);
+  iwc.getMergePolicy().setNoCFSRatio(0.0d);
   IndexWriter w=new IndexWriter(dir,iwc);
-  MergePolicy lmp=w.getConfig().getMergePolicy();
-  lmp.setNoCFSRatio(1.0);
-  lmp.setMaxCFSSegmentSizeMB(Double.POSITIVE_INFINITY);
+  w.getConfig().setUseCompoundFile(true);
   Document doc=new Document();
   doc.add(newStringField("field","foo",Store.NO));
   w.addDocument(doc);
   w.commit();
-  for (  String file : dir.listAll()) {
-    assertFalse(file.endsWith(".frq"));
-  }
+  assertTrue("Expected CFS after commit",w.newestSegment().info.getUseCompoundFile());
+  doc.add(newStringField("field","foo",Store.NO));
+  w.addDocument(doc);
+  w.commit();
+  w.forceMerge(1);
+  w.commit();
+  assertFalse("Expected Non-CFS after merge",w.newestSegment().info.getUseCompoundFile());
+  MergePolicy lmp=w.getConfig().getMergePolicy();
+  lmp.setNoCFSRatio(1.0);
+  lmp.setMaxCFSSegmentSizeMB(Double.POSITIVE_INFINITY);
+  w.addDocument(doc);
+  w.forceMerge(1);
+  w.commit();
+  assertTrue("Expected CFS after merge",w.newestSegment().info.getUseCompoundFile());
   w.close();
   dir.close();
 }
