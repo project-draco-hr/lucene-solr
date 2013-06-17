@@ -1,0 +1,45 @@
+{
+  CoreContainer cc=init(SOLR_XML_LOTS_SYSVARS,"SystemVars1","SystemVars2");
+  try {
+    final CoreAdminHandler admin=new CoreAdminHandler(cc);
+    SolrQueryResponse resp=new SolrQueryResponse();
+    admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.UNLOAD.toString(),CoreAdminParams.CORE,which),resp);
+    assertNull("Exception on unload",resp.getException());
+    origMatchesPersist(cc,new File(solrHomeDirectory,"unloadcreate1.solr.xml"));
+    String instPath=new File(solrHomeDirectory,which).getAbsolutePath();
+    admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.INSTANCE_DIR,instPath,CoreAdminParams.CONFIG,"solrconfig-minimal.xml",CoreAdminParams.SCHEMA,"schema-tiny.xml",CoreAdminParams.NAME,which),resp);
+    assertNull("Exception on create",resp.getException());
+    File persistXml=new File(solrHomeDirectory,"rename.solr.xml");
+    File origXml=new File(solrHomeDirectory,"solr.xml");
+    cc.persistFile(persistXml);
+    String[] persistList=getAllNodes(persistXml);
+    String[] expressions=new String[persistList.length];
+    for (int idx=0; idx < persistList.length; ++idx) {
+      String name="@name='" + which + "'";
+      if (persistList[idx].contains(name)) {
+        if (persistList[idx].contains("@schema='schema-tiny.xml'")) {
+          expressions[idx]=persistList[idx].replace("schema-tiny.xml","${schema:schema-tiny.xml}");
+        }
+ else         if (persistList[idx].contains("@config='solrconfig-minimal.xml'")) {
+          expressions[idx]=persistList[idx].replace("solrconfig-minimal.xml","${solrconfig:solrconfig-minimal.xml}");
+        }
+ else         if (persistList[idx].contains("@instanceDir=")) {
+          expressions[idx]=persistList[idx].replaceFirst("instanceDir\\='.*?'","instanceDir='" + which + "'");
+        }
+ else {
+          expressions[idx]=persistList[idx];
+        }
+      }
+ else {
+        expressions[idx]=persistList[idx];
+      }
+    }
+    assertXmlFile(origXml,expressions);
+  }
+  finally {
+    cc.shutdown();
+    if (solrHomeDirectory.exists()) {
+      FileUtils.deleteDirectory(solrHomeDirectory);
+    }
+  }
+}
