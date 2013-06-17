@@ -1,30 +1,21 @@
 {
   updateCommand=cmd;
+  List<Node> nodes=null;
+  boolean singleLeader=false;
   if (zkEnabled) {
     zkCheck();
-  }
-  if (vinfo != null) {
-    vinfo.lockForUpdate();
-  }
-  try {
-    if (ulog == null || ulog.getState() == UpdateLog.State.ACTIVE || (cmd.getFlags() & UpdateCommand.REPLAY) != 0) {
-      super.processCommit(cmd);
-    }
- else {
-      log.info("Ignoring commit while not ACTIVE - state: " + ulog.getState() + " replay:"+ (cmd.getFlags() & UpdateCommand.REPLAY));
+    nodes=getCollectionUrls(req,req.getCore().getCoreDescriptor().getCloudDescriptor().getCollectionName());
+    if (isLeader && nodes.size() == 1) {
+      singleLeader=true;
     }
   }
-  finally {
-    if (vinfo != null) {
-      vinfo.unlockForUpdate();
-    }
+  if (!zkEnabled || req.getParams().getBool(COMMIT_END_POINT,false) || singleLeader) {
+    doLocalCommit(cmd);
   }
-  if (zkEnabled) {
+ else   if (zkEnabled) {
     ModifiableSolrParams params=new ModifiableSolrParams(filterParams(req.getParams()));
     if (!req.getParams().getBool(COMMIT_END_POINT,false)) {
       params.set(COMMIT_END_POINT,true);
-      String coreNodeName=zkController.getCoreNodeName(req.getCore().getCoreDescriptor());
-      List<Node> nodes=getCollectionUrls(req,req.getCore().getCoreDescriptor().getCloudDescriptor().getCollectionName(),coreNodeName);
       if (nodes != null) {
         cmdDistrib.distribCommit(cmd,nodes,params);
         finish();
