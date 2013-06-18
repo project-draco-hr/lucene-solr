@@ -1,17 +1,15 @@
 {
+  final int bitsPerValue=_TestUtil.nextInt(random(),1,64);
+  final long max=PackedInts.maxValue(bitsPerValue);
   int pageSize=1 << (_TestUtil.nextInt(random(),6,30));
-  PagedGrowableWriter writer=new PagedGrowableWriter(0,pageSize,_TestUtil.nextInt(random(),1,64),random().nextFloat());
+  PagedMutable writer=new PagedMutable(0,pageSize,bitsPerValue,random().nextFloat() / 2);
   assertEquals(0,writer.size());
   AppendingLongBuffer buf=new AppendingLongBuffer();
   int size=random().nextInt(1000000);
-  long max=5;
   for (int i=0; i < size; ++i) {
-    buf.add(_TestUtil.nextLong(random(),0,max));
-    if (rarely()) {
-      max=PackedInts.maxValue(rarely() ? _TestUtil.nextInt(random(),0,63) : _TestUtil.nextInt(random(),0,31));
-    }
+    buf.add(bitsPerValue == 64 ? random().nextLong() : _TestUtil.nextLong(random(),0,max));
   }
-  writer=new PagedGrowableWriter(size,pageSize,_TestUtil.nextInt(random(),1,64),random().nextFloat());
+  writer=new PagedMutable(size,pageSize,bitsPerValue,random().nextFloat());
   assertEquals(size,writer.size());
   for (int i=size - 1; i >= 0; --i) {
     writer.set(i,buf.get(i));
@@ -19,8 +17,8 @@
   for (int i=0; i < size; ++i) {
     assertEquals(buf.get(i),writer.get(i));
   }
-  assertEquals(RamUsageEstimator.sizeOf(writer),writer.ramBytesUsed());
-  PagedGrowableWriter copy=writer.resize(_TestUtil.nextLong(random(),writer.size() / 2,writer.size() * 3 / 2));
+  assertEquals(RamUsageEstimator.sizeOf(writer) - RamUsageEstimator.sizeOf(writer.format),writer.ramBytesUsed());
+  PagedMutable copy=writer.resize(_TestUtil.nextLong(random(),writer.size() / 2,writer.size() * 3 / 2));
   for (long i=0; i < copy.size(); ++i) {
     if (i < writer.size()) {
       assertEquals(writer.get(i),copy.get(i));
@@ -29,7 +27,7 @@
       assertEquals(0,copy.get(i));
     }
   }
-  PagedGrowableWriter grow=writer.grow(_TestUtil.nextLong(random(),writer.size() / 2,writer.size() * 3 / 2));
+  PagedMutable grow=writer.grow(_TestUtil.nextLong(random(),writer.size() / 2,writer.size() * 3 / 2));
   for (long i=0; i < grow.size(); ++i) {
     if (i < writer.size()) {
       assertEquals(writer.get(i),grow.get(i));
