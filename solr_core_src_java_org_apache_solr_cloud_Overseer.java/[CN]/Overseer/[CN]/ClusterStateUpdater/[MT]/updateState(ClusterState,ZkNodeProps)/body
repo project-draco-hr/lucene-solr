@@ -2,7 +2,14 @@
   final String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
   String coreNodeName=message.getStr(ZkStateReader.CORE_NODE_NAME_PROP);
   if (coreNodeName == null) {
-    coreNodeName=message.getStr(ZkStateReader.NODE_NAME_PROP) + "_" + message.getStr(ZkStateReader.CORE_NAME_PROP);
+    coreNodeName=getAssignedCoreNodeName(state,message);
+    if (coreNodeName != null) {
+      log.info("node=" + coreNodeName + " is already registered");
+    }
+ else {
+      coreNodeName=Assign.assignNode(collection,state);
+    }
+    message.getProperties().put(ZkStateReader.CORE_NODE_NAME_PROP,coreNodeName);
   }
   Integer numShards=message.getStr(ZkStateReader.NUM_SHARDS_PROP) != null ? Integer.parseInt(message.getStr(ZkStateReader.NUM_SHARDS_PROP)) : null;
   log.info("Update state numShards={} message={}",numShards,message);
@@ -22,8 +29,8 @@
       numShards=state.getCollectionStates().get(collection).getSlices().size();
       log.info("Collection already exists with " + ZkStateReader.NUM_SHARDS_PROP + "="+ numShards);
     }
-    sliceName=AssignShard.assignShard(collection,state,numShards);
-    log.info("Assigning new node to shard=" + sliceName);
+    sliceName=Assign.assignShard(collection,state,numShards);
+    log.info("Assigning new node to shard shard=" + sliceName);
   }
   Slice slice=state.getSlice(collection,sliceName);
   Map<String,Object> replicaProps=new LinkedHashMap<String,Object>();
@@ -36,6 +43,9 @@
     }
   }
   replicaProps.remove(ZkStateReader.NUM_SHARDS_PROP);
+  replicaProps.remove(ZkStateReader.CORE_NODE_NAME_PROP);
+  replicaProps.remove(ZkStateReader.SHARD_ID_PROP);
+  replicaProps.remove(ZkStateReader.COLLECTION_PROP);
   replicaProps.remove(QUEUE_OPERATION);
   Set<Entry<String,Object>> entrySet=replicaProps.entrySet();
   List<String> removeKeys=new ArrayList<String>();

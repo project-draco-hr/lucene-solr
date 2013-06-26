@@ -4,11 +4,30 @@
   idFieldType=idField != null ? idField.getType() : null;
   parseEventListeners();
   PluginInfo ulogPluginInfo=core.getSolrConfig().getPluginInfo(UpdateLog.class.getName());
-  if (!core.isReloaded() && !core.getDirectoryFactory().isPersistent()) {
-    clearLog(ulogPluginInfo);
-  }
   if (updateLog == null && ulogPluginInfo != null && ulogPluginInfo.isEnabled()) {
-    ulog=new UpdateLog();
+    String dataDir=(String)ulogPluginInfo.initArgs.get("dir");
+    String ulogDir=core.getCoreDescriptor().getUlogDir();
+    if (ulogDir != null) {
+      dataDir=ulogDir;
+    }
+    if (dataDir == null || dataDir.length() == 0) {
+      dataDir=core.getDataDir();
+    }
+    if (dataDir != null && dataDir.startsWith("hdfs:/")) {
+      DirectoryFactory dirFactory=core.getDirectoryFactory();
+      if (dirFactory instanceof HdfsDirectoryFactory) {
+        ulog=new HdfsUpdateLog(((HdfsDirectoryFactory)dirFactory).getConfDir());
+      }
+ else {
+        ulog=new HdfsUpdateLog();
+      }
+    }
+ else {
+      ulog=new UpdateLog();
+    }
+    if (!core.isReloaded() && !core.getDirectoryFactory().isPersistent()) {
+      ulog.clearLog(core,ulogPluginInfo);
+    }
     ulog.init(ulogPluginInfo);
     ulog.init(this,core);
   }

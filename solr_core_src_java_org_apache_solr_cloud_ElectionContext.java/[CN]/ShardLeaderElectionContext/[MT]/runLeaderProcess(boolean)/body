@@ -1,7 +1,7 @@
 {
-  log.info("Running the leader process.");
+  log.info("Running the leader process for shard " + shardId);
   String coreName=leaderProps.getStr(ZkStateReader.CORE_NAME_PROP);
-  ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,"leader",ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
+  ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,ZkStateReader.LEADER_PROP,ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
   Overseer.getInQueue(zkClient).offer(ZkStateReader.toJSON(m));
   String leaderVoteWait=cc.getZkController().getLeaderVoteWait();
   if (!weAreReplacement && leaderVoteWait != null) {
@@ -53,8 +53,8 @@
       rejoinLeaderElection(leaderSeqPath,core);
       return;
     }
-    log.info("I am the new leader: " + ZkCoreNodeProps.getCoreUrl(leaderProps));
-    core.getCoreDescriptor().getCloudDescriptor().isLeader=true;
+    log.info("I am the new leader: " + ZkCoreNodeProps.getCoreUrl(leaderProps) + " "+ shardId);
+    core.getCoreDescriptor().getCloudDescriptor().setLeader(true);
   }
   finally {
     if (core != null) {
@@ -65,13 +65,14 @@
     super.runLeaderProcess(weAreReplacement);
   }
  catch (  Throwable t) {
+    SolrException.log(log,"There was a problem trying to register as the leader",t);
+    cancelElection();
     try {
       core=cc.getCore(coreName);
       if (core == null) {
-        cancelElection();
         throw new SolrException(ErrorCode.SERVER_ERROR,"Fatal Error, SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
       }
-      core.getCoreDescriptor().getCloudDescriptor().isLeader=false;
+      core.getCoreDescriptor().getCloudDescriptor().setLeader(false);
       rejoinLeaderElection(leaderSeqPath,core);
     }
   finally {

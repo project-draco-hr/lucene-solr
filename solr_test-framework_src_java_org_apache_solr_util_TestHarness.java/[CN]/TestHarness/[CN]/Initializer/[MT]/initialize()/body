@@ -8,7 +8,7 @@
         String hostContext=System.getProperty("hostContext","solr");
         defaultCoreName=CoreContainer.DEFAULT_DEFAULT_CORE_NAME;
         initShardHandler();
-        zkSys.initZooKeeper(this,solrHome,System.getProperty("zkHost"),30000,hostPort,hostContext,null,"30000",30000,30000);
+        zkSys.initZooKeeper(this,solrHome,System.getProperty("zkHost"),30000,hostPort,hostContext,null,"30000",true,30000,30000);
         ByteArrayInputStream is=new ByteArrayInputStream(ConfigSolrXmlOld.DEF_SOLR_XML.getBytes("UTF-8"));
         Config config=new Config(loader,null,new InputSource(is),null,false);
         cfg=new ConfigSolrXmlOld(config,this);
@@ -29,12 +29,18 @@ catch (  SAXException e) {
   logging.registerListener(new ListenerConfig());
   container.setLogging(logging);
   CoreDescriptor dcore=new CoreDescriptor(container,coreName,solrConfig.getResourceLoader().getInstanceDir());
+  if (container.isZooKeeperAware()) {
+    container.getZkController().preRegister(dcore);
+  }
   dcore.setConfigName(solrConfig.getResourceName());
   dcore.setSchemaName(indexSchema.getResourceName());
   if (container.getZkController() != null) {
     container.preRegisterInZk(dcore);
   }
   SolrCore core=new SolrCore(coreName,dataDirectory,solrConfig,indexSchema,dcore);
+  if (container.isZooKeeperAware() && Slice.CONSTRUCTION.equals(dcore.getCloudDescriptor().getShardState())) {
+    core.getUpdateHandler().getUpdateLog().bufferUpdates();
+  }
   container.register(coreName,core,false);
   if (container.getZkController() == null && core.getUpdateHandler().getUpdateLog() != null) {
     core.getUpdateHandler().getUpdateLog().recoverFromLog();
