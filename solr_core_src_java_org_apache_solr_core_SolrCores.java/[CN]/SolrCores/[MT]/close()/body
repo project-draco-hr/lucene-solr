@@ -1,15 +1,15 @@
 {
-  Collection<SolrCore> coreList;
-  List<String> transientNames;
-  List<SolrCore> pendingToClose;
-  while (true) {
+  Collection<SolrCore> coreList=new ArrayList<SolrCore>();
+  do {
+    coreList.clear();
 synchronized (modifyLock) {
-      coreList=new ArrayList<SolrCore>(cores.values());
+      coreList.addAll(cores.values());
       cores.clear();
-      transientNames=new ArrayList<String>(transientCores.keySet());
-      pendingToClose=new ArrayList<SolrCore>(pendingCloses);
+      coreList.addAll(transientCores.values());
+      transientCores.clear();
+      coreList.addAll(pendingCloses);
+      pendingCloses.clear();
     }
-    if (coreList.size() == 0 && transientNames.size() == 0 && pendingToClose.size() == 0)     break;
     for (    SolrCore core : coreList) {
       try {
         core.close();
@@ -18,37 +18,6 @@ synchronized (modifyLock) {
         SolrException.log(CoreContainer.log,"Error shutting down core",t);
       }
     }
-    for (    String coreName : transientNames) {
-      SolrCore core=transientCores.get(coreName);
-      if (core == null) {
-        CoreContainer.log.info("Core " + coreName + " moved from transient core container list before closing.");
-      }
- else {
-        try {
-          core.close();
-        }
- catch (        Throwable t) {
-          SolrException.log(CoreContainer.log,"Error shutting down core",t);
-        }
- finally {
-synchronized (modifyLock) {
-            transientCores.remove(coreName);
-          }
-        }
-      }
-    }
-    for (    SolrCore core : pendingToClose) {
-      try {
-        core.close();
-      }
- catch (      Throwable t) {
-        SolrException.log(CoreContainer.log,"Error shutting down core",t);
-      }
- finally {
-synchronized (modifyLock) {
-          pendingCloses.remove(core);
-        }
-      }
-    }
   }
+ while (coreList.size() > 0);
 }
