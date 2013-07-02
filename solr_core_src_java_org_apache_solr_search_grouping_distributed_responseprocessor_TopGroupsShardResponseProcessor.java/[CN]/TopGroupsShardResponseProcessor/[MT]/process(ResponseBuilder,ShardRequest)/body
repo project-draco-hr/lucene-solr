@@ -20,18 +20,62 @@
     commandTopDocs.put(query,new ArrayList<QueryCommandResult>());
   }
   TopGroupsResultTransformer serializer=new TopGroupsResultTransformer(rb);
+  NamedList<Object> shardInfo=null;
+  if (rb.req.getParams().getBool(ShardParams.SHARDS_INFO,false)) {
+    shardInfo=new SimpleOrderedMap<Object>();
+    rb.rsp.getValues().add(ShardParams.SHARDS_INFO,shardInfo);
+  }
   for (  ShardResponse srsp : shardRequest.responses) {
+    SimpleOrderedMap<Object> individualShardInfo=null;
+    if (shardInfo != null) {
+      individualShardInfo=new SimpleOrderedMap<Object>();
+      if (srsp.getException() != null) {
+        Throwable t=srsp.getException();
+        if (t instanceof SolrServerException) {
+          t=((SolrServerException)t).getCause();
+        }
+        individualShardInfo.add("error",t.toString());
+        StringWriter trace=new StringWriter();
+        t.printStackTrace(new PrintWriter(trace));
+        individualShardInfo.add("trace",trace.toString());
+      }
+ else {
+      }
+      if (srsp.getSolrResponse() != null) {
+        individualShardInfo.add("time",srsp.getSolrResponse().getElapsedTime());
+      }
+      shardInfo.add(srsp.getShard(),individualShardInfo);
+    }
+    if (rb.req.getParams().getBool(ShardParams.SHARDS_TOLERANT,false) && srsp.getException() != null) {
+      continue;
+    }
     NamedList<NamedList> secondPhaseResult=(NamedList<NamedList>)srsp.getSolrResponse().getResponse().get("secondPhase");
     Map<String,?> result=serializer.transformToNative(secondPhaseResult,groupSort,sortWithinGroup,srsp.getShard());
+    int numFound=0;
+    float maxScore=Float.NaN;
     for (    String field : commandTopGroups.keySet()) {
       TopGroups<BytesRef> topGroups=(TopGroups<BytesRef>)result.get(field);
       if (topGroups == null) {
         continue;
       }
+      if (individualShardInfo != null) {
+        numFound+=topGroups.totalHitCount;
+        if (Float.isNaN(maxScore) || topGroups.maxScore > maxScore)         maxScore=topGroups.maxScore;
+      }
       commandTopGroups.get(field).add(topGroups);
     }
     for (    String query : queries) {
-      commandTopDocs.get(query).add((QueryCommandResult)result.get(query));
+      QueryCommandResult queryCommandResult=(QueryCommandResult)result.get(query);
+      if (individualShardInfo != null) {
+        numFound+=queryCommandResult.getMatches();
+        float thisMax=queryCommandResult.getTopDocs().getMaxScore();
+        if (Float.isNaN(maxScore) || thisMax > maxScore)         maxScore=thisMax;
+      }
+      commandTopDocs.get(query).add(queryCommandResult);
+    }
+    if (individualShardInfo != null) {
+      individualShardInfo.add("numFound",numFound);
+      individualShardInfo.add("maxScore",maxScore);
     }
   }
   try {
