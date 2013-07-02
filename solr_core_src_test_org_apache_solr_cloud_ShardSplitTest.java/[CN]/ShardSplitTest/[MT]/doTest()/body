@@ -58,6 +58,29 @@
     }
   }
   commit();
-  checkDocCountsAndShardStates(docCounts,numReplicas);
+  try {
+    checkDocCountsAndShardStates(docCounts,numReplicas);
+  }
+ catch (  HttpSolrServer.RemoteSolrException e) {
+    if (e.code() != 500) {
+      throw e;
+    }
+    Slice slice1_0=null, slice1_1=null;
+    int i=0;
+    for (i=0; i < 60; i++) {
+      ZkStateReader zkStateReader=cloudClient.getZkStateReader();
+      zkStateReader.updateClusterState(true);
+      clusterState=zkStateReader.getClusterState();
+      slice1_0=clusterState.getSlice(AbstractDistribZkTestBase.DEFAULT_COLLECTION,"shard1_0");
+      slice1_1=clusterState.getSlice(AbstractDistribZkTestBase.DEFAULT_COLLECTION,"shard1_1");
+      if (slice1_0 != null && slice1_1 != null) {
+        break;
+      }
+      Thread.sleep(500);
+    }
+    if (slice1_0 == null || slice1_1 == null) {
+      throw e;
+    }
+  }
   waitForRecoveriesToFinish(true);
 }
