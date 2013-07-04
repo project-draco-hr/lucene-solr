@@ -1,0 +1,31 @@
+{
+  final String termsFileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,TempFSTTermsWriter.TERMS_EXTENSION);
+  this.postingsReader=postingsReader;
+  this.in=state.directory.openInput(termsFileName,state.context);
+  boolean success=false;
+  try {
+    readHeader(in);
+    this.postingsReader.init(in);
+    seekDir(in);
+    final FieldInfos fieldInfos=state.fieldInfos;
+    final int numFields=in.readVInt();
+    for (int i=0; i < numFields; i++) {
+      int fieldNumber=in.readVInt();
+      FieldInfo fieldInfo=fieldInfos.fieldInfo(fieldNumber);
+      long numTerms=in.readVLong();
+      long sumTotalTermFreq=fieldInfo.getIndexOptions() == IndexOptions.DOCS_ONLY ? -1 : in.readVLong();
+      long sumDocFreq=in.readVLong();
+      int docCount=in.readVInt();
+      int longsSize=in.readVInt();
+      FieldReader current=new FieldReader(fieldInfo,numTerms,sumTotalTermFreq,sumDocFreq,docCount,longsSize);
+      FieldReader previous=fields.put(fieldInfo.name,current);
+      checkFieldSummary(state.segmentInfo,current,previous);
+    }
+    success=true;
+  }
+  finally {
+    if (!success) {
+      in.close();
+    }
+  }
+}
