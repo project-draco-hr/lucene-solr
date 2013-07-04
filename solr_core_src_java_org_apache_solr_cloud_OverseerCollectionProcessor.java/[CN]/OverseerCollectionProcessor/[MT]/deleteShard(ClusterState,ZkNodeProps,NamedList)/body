@@ -1,0 +1,54 @@
+{
+  log.info("Delete shard invoked");
+  String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
+  String sliceId=message.getStr(ZkStateReader.SHARD_ID_PROP);
+  Slice slice=clusterState.getSlice(collection,sliceId);
+  if (slice == null) {
+    if (clusterState.getCollections().contains(collection)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"No shard with the specified name exists: " + slice);
+    }
+ else {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"No collection with the specified name exists: " + collection);
+    }
+  }
+  if (!(slice.getRange() == null || slice.getState().equals(Slice.INACTIVE))) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"The slice: " + slice.getName() + " is currently "+ slice.getState()+ ". Only INACTIVE (or custom-hashed) slices can be deleted.");
+  }
+  try {
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString());
+    params.set(CoreAdminParams.DELETE_INDEX,"true");
+    sliceCmd(clusterState,params,null,slice);
+    ShardResponse srsp;
+    do {
+      srsp=shardHandler.takeCompletedOrError();
+      if (srsp != null) {
+        processResponse(results,srsp);
+      }
+    }
+ while (srsp != null);
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,Overseer.REMOVESHARD,ZkStateReader.COLLECTION_PROP,collection);
+    Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(m));
+    long now=System.currentTimeMillis();
+    long timeout=now + 30000;
+    boolean removed=false;
+    while (System.currentTimeMillis() < timeout) {
+      Thread.sleep(100);
+      removed=zkStateReader.getClusterState().getSlice(collection,message.getStr("name")) == null;
+      if (removed) {
+        Thread.sleep(100);
+        break;
+      }
+    }
+    if (!removed) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully remove collection: " + collection + " shard: "+ message.getStr("name"));
+    }
+    log.info("Successfully deleted collection " + collection + ", shard: "+ message.getStr("name"));
+  }
+ catch (  SolrException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Error executing delete operation for collection: " + collection + " shard: "+ message.getStr("name"),e);
+  }
+}
