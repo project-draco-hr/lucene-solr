@@ -1,0 +1,37 @@
+{
+  useFactory(null);
+  final File workDir=new File(TEMP_DIR,getCoreName());
+  if (workDir.exists()) {
+    FileUtils.deleteDirectory(workDir);
+  }
+  assertTrue("Failed to mkdirs workDir",workDir.mkdirs());
+  String coreName="with_sys_vars";
+  File instDir=new File(workDir,coreName);
+  File subHome=new File(instDir,"conf");
+  assertTrue("Failed to make subdirectory ",subHome.mkdirs());
+  String srcDir=SolrTestCaseJ4.TEST_HOME() + "/collection1/conf";
+  FileUtils.copyFile(new File(srcDir,"schema-tiny.xml"),new File(subHome,"schema_ren.xml"));
+  FileUtils.copyFile(new File(srcDir,"solrconfig-minimal.xml"),new File(subHome,"solrconfig_ren.xml"));
+  FileUtils.copyFile(new File(srcDir,"solrconfig.snippet.randomindexconfig.xml"),new File(subHome,"solrconfig.snippet.randomindexconfig.xml"));
+  final CoreContainer cores=h.getCoreContainer();
+  cores.setPersistent(false);
+  final CoreAdminHandler admin=new CoreAdminHandler(cores);
+  System.setProperty("INSTDIR_TEST",instDir.getAbsolutePath());
+  System.setProperty("CONFIG_TEST","solrconfig_ren.xml");
+  System.setProperty("SCHEMA_TEST","schema_ren.xml");
+  File dataDir=new File(workDir.getAbsolutePath(),"data_diff");
+  System.setProperty("DATA_TEST",dataDir.getAbsolutePath());
+  SolrQueryResponse resp=new SolrQueryResponse();
+  admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.NAME,getCoreName(),CoreAdminParams.INSTANCE_DIR,"${INSTDIR_TEST}",CoreAdminParams.CONFIG,"${CONFIG_TEST}",CoreAdminParams.SCHEMA,"${SCHEMA_TEST}",CoreAdminParams.DATA_DIR,"${DATA_TEST}"),resp);
+  assertNull("Exception on create",resp.getException());
+  final File xml=new File(workDir,"persist-solr.xml");
+  cores.persistFile(xml);
+  assertXmlFile(xml,"/solr/cores/core[@name='" + getCoreName() + "' and @instanceDir='${INSTDIR_TEST}']","/solr/cores/core[@name='" + getCoreName() + "' and @dataDir='${DATA_TEST}']","/solr/cores/core[@name='" + getCoreName() + "' and @schema='${SCHEMA_TEST}']","/solr/cores/core[@name='" + getCoreName() + "' and @config='${CONFIG_TEST}']");
+  File badDir=new File(instDir,"${DATA_TEST}");
+  assertFalse("Should have substituted the sys var, found file " + badDir.getAbsolutePath(),badDir.exists());
+  File test=new File(dataDir,"index");
+  assertTrue("Should have found index dir at " + test.getAbsolutePath(),test.exists());
+  test=new File(test,"segments.gen");
+  assertTrue("Should have found segments.gen at " + test.getAbsolutePath(),test.exists());
+  FileUtils.deleteDirectory(workDir);
+}

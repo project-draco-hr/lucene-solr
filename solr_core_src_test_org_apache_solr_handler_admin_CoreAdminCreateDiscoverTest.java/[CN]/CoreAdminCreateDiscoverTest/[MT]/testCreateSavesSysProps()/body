@@ -1,0 +1,32 @@
+{
+  setupCore(coreSysProps,true);
+  File workDir=new File(solrHomeDirectory,coreSysProps);
+  System.setProperty("INSTDIR_TEST",workDir.getAbsolutePath());
+  System.setProperty("CONFIG_TEST","solrconfig_ren.xml");
+  System.setProperty("SCHEMA_TEST","schema_ren.xml");
+  File dataDir=new File(workDir.getAbsolutePath(),"data_diff");
+  System.setProperty("DATA_TEST","data_diff");
+  SolrQueryResponse resp=new SolrQueryResponse();
+  admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.NAME,coreSysProps,CoreAdminParams.INSTANCE_DIR,"${INSTDIR_TEST}",CoreAdminParams.CONFIG,"${CONFIG_TEST}",CoreAdminParams.SCHEMA,"${SCHEMA_TEST}",CoreAdminParams.DATA_DIR,"${DATA_TEST}"),resp);
+  assertNull("Exception on create",resp.getException());
+  Properties props=new Properties();
+  File propFile=new File(solrHomeDirectory,coreSysProps + "/" + SolrCoreDiscoverer.CORE_PROP_FILE);
+  FileInputStream is=new FileInputStream(propFile);
+  try {
+    props.load(is);
+  }
+  finally {
+    org.apache.commons.io.IOUtils.closeQuietly(is);
+  }
+  assertEquals("Unexpected value preserved in properties file " + propFile.getAbsolutePath(),props.getProperty(CoreAdminParams.NAME),coreSysProps);
+  assertEquals("Unexpected value preserved in properties file " + propFile.getAbsolutePath(),props.getProperty(CoreAdminParams.CONFIG),"${CONFIG_TEST}");
+  assertEquals("Unexpected value preserved in properties file " + propFile.getAbsolutePath(),props.getProperty(CoreAdminParams.SCHEMA),"${SCHEMA_TEST}");
+  assertEquals("Unexpected value preserved in properties file " + propFile.getAbsolutePath(),props.getProperty(CoreAdminParams.DATA_DIR),"${DATA_TEST}");
+  checkOnlyKnown(propFile);
+  File badDir=new File(workDir,"${DATA_TEST}");
+  assertFalse("Should have substituted the sys var, found file " + badDir.getAbsolutePath(),badDir.exists());
+  File test=new File(dataDir,"index");
+  assertTrue("Should have found index dir at " + test.getAbsolutePath(),test.exists());
+  File gen=new File(test,"segments.gen");
+  assertTrue("Should be segments.gen in the dir at " + gen.getAbsolutePath(),gen.exists());
+}
