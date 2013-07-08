@@ -15,6 +15,7 @@
       }
  else {
         Object object=ObjectBuilder.fromJSON(entity.getText());
+        Map<String,String> copyFields=new HashMap<>();
         if (!(object instanceof List)) {
           String message="Invalid JSON type " + object.getClass().getName() + ", expected List of the form"+ " (ignore the backslashes): [{\"name\":\"foo\",\"type\":\"text_general\", ...}, {...}, ...]";
           log.error(message);
@@ -37,9 +38,22 @@
               log.error(message);
               throw new SolrException(ErrorCode.BAD_REQUEST,message);
             }
+            String copyTo=(String)map.get(IndexSchema.COPY_FIELDS);
+            if (copyTo != null) {
+              map.remove(IndexSchema.COPY_FIELDS);
+              copyFields.put(fieldName,copyTo);
+            }
             newFields.add(oldSchema.newField(fieldName,fieldType,map));
           }
           IndexSchema newSchema=oldSchema.addFields(newFields);
+          for (          Map.Entry<String,String> entry : copyFields.entrySet()) {
+            String[] splits=entry.getValue().split(",");
+            if (splits != null && splits.length > 0) {
+              for (int i=0; i < splits.length; i++) {
+                newSchema.registerCopyField(entry.getKey(),splits[i].trim());
+              }
+            }
+          }
           getSolrCore().setLatestSchema(newSchema);
         }
       }
