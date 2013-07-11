@@ -1,6 +1,5 @@
 {
-  String persistedSolrXml=new File(tempDir,SOLR_PERSIST_XML).getAbsolutePath();
-  log.info("persistedSolrXml: {}",persistedSolrXml);
+  SolrXMLCoresLocator.NonPersistingLocator locator=(SolrXMLCoresLocator.NonPersistingLocator)cores.getCoresLocator();
   UpdateRequest up=new UpdateRequest();
   up.setAction(ACTION.COMMIT,true,true);
   up.deleteByQuery("*:*");
@@ -49,49 +48,12 @@
   mcr=CoreAdminRequest.getStatus(name,coreadmin);
   long after=mcr.getStartTime(name).getTime();
   assertTrue("should have more recent time: " + after + ","+ before,after > before);
-  mcr=CoreAdminRequest.persist(persistedSolrXml,coreadmin);
-  DocumentBuilder builder=DocumentBuilderFactory.newInstance().newDocumentBuilder();
-  FileInputStream fis=new FileInputStream(new File(persistedSolrXml));
-  try {
-    Document document=builder.parse(fis);
-    fis.close();
-    fis=new FileInputStream(new File(persistedSolrXml));
-    String solrPersistXml=IOUtils.toString(new InputStreamReader(fis,"UTF-8"));
-    assertTrue("\"/solr/cores[@defaultCoreName='core0']\" doesn't match in:\n" + solrPersistXml,exists("/solr/cores[@defaultCoreName='core0']",document));
-    assertTrue("\"/solr/cores[@host='127.0.0.1']\" doesn't match in:\n" + solrPersistXml,exists("/solr/cores[@host='127.0.0.1']",document));
-    assertTrue("\"/solr/cores[@hostPort='${hostPort:8983}']\" doesn't match in:\n" + solrPersistXml,exists("/solr/cores[@hostPort='${hostPort:8983}']",document));
-    assertTrue("\"/solr/cores[@zkClientTimeout='8000']\" doesn't match in:\n" + solrPersistXml,exists("/solr/cores[@zkClientTimeout='8000']",document));
-    assertTrue("\"/solr/cores[@hostContext='${hostContext:solr}']\" doesn't match in:\n" + solrPersistXml,exists("/solr/cores[@hostContext='${hostContext:solr}']",document));
-    assertTrue("\"/solr/cores[@genericCoreNodeNames='${genericCoreNodeNames:true}']\" doesn't match in:\n" + solrPersistXml,exists("/solr/cores[@genericCoreNodeNames='${genericCoreNodeNames:true}']",document));
-  }
-  finally {
-    fis.close();
-  }
+  TestHarness.validateXPath(locator.xml,"/solr/cores[@defaultCoreName='core0']","/solr/cores[@host='127.0.0.1']","/solr/cores[@hostPort='${hostPort:8983}']","/solr/cores[@zkClientTimeout='8000']","/solr/cores[@hostContext='${hostContext:solr}']","/solr/cores[@genericCoreNodeNames='${genericCoreNodeNames:true}']");
   CoreAdminRequest.renameCore(name,"renamed_core",coreadmin);
-  mcr=CoreAdminRequest.persist(persistedSolrXml,getRenamedSolrAdmin());
-  fis=new FileInputStream(new File(persistedSolrXml));
-  try {
-    Document document=builder.parse(fis);
-    assertTrue(exists("/solr/cores/core[@name='renamed_core']",document));
-    assertTrue(exists("/solr/cores/core[@instanceDir='${theInstanceDir:./}']",document));
-    assertTrue(exists("/solr/cores/core[@collection='${collection:acollection}']",document));
-  }
-  finally {
-    fis.close();
-  }
+  TestHarness.validateXPath(locator.xml,"/solr/cores/core[@name='renamed_core']","/solr/cores/core[@instanceDir='${theInstanceDir:./}']","/solr/cores/core[@collection='${collection:acollection}']");
   coreadmin=getRenamedSolrAdmin();
   File dataDir=new File(tempDir,"data3");
   File tlogDir=new File(tempDir,"tlog3");
   CoreAdminRequest.createCore("newCore",SOLR_HOME.getAbsolutePath(),coreadmin,null,null,dataDir.getAbsolutePath(),tlogDir.getAbsolutePath());
-  mcr=CoreAdminRequest.persist(persistedSolrXml,getRenamedSolrAdmin());
-  fis=new FileInputStream(new File(persistedSolrXml));
-  try {
-    Document document=builder.parse(fis);
-    assertTrue(exists("/solr/cores/core[@name='collection1' and @instanceDir='.']",document));
-  }
-  finally {
-    fis.close();
-  }
-  cores.shutdown();
-  cores=CoreContainer.createAndLoad(SOLR_HOME.getAbsolutePath(),new File(persistedSolrXml));
+  TestHarness.validateXPath(locator.xml,"/solr/cores/core[@name='collection1' and @instanceDir='.']");
 }
