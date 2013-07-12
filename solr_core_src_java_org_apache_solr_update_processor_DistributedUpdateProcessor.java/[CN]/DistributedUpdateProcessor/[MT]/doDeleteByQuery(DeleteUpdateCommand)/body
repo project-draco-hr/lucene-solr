@@ -86,17 +86,44 @@
   finally {
     vinfo.unblockUpdates();
   }
-  if (leaderLogic && zkEnabled) {
-    List<Node> subShardLeaders=getSubShardLeaders(coll,cloudDesc.getShardId(),null,null);
+  if (zkEnabled) {
     ModifiableSolrParams params=new ModifiableSolrParams(filterParams(req.getParams()));
     params.set(VERSION_FIELD,Long.toString(cmd.getVersion()));
     params.set(DISTRIB_UPDATE_PARAM,DistribPhase.FROMLEADER.toString());
     params.set("update.from",ZkCoreNodeProps.getCoreUrl(zkController.getBaseUrl(),req.getCore().getName()));
-    if (subShardLeaders != null) {
-      cmdDistrib.syncDelete(cmd,subShardLeaders,params);
+    boolean someReplicas=false;
+    boolean subShardLeader=false;
+    try {
+      subShardLeader=amISubShardLeader(coll,null,null,null);
+      if (subShardLeader) {
+        String myShardId=req.getCore().getCoreDescriptor().getCloudDescriptor().getShardId();
+        Replica leaderReplica=zkController.getZkStateReader().getLeaderRetry(collection,myShardId);
+        List<ZkCoreNodeProps> replicaProps=zkController.getZkStateReader().getReplicaProps(collection,myShardId,leaderReplica.getName(),req.getCore().getName(),null,ZkStateReader.DOWN);
+        if (replicaProps != null) {
+          List<Node> myReplicas=new ArrayList<Node>();
+          for (          ZkCoreNodeProps replicaProp : replicaProps) {
+            myReplicas.add(new StdNode(replicaProp));
+          }
+          cmdDistrib.distribDelete(cmd,myReplicas,params);
+          someReplicas=true;
+        }
+      }
     }
-    if (replicas != null) {
-      cmdDistrib.distribDelete(cmd,replicas,params);
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ZooKeeperException(ErrorCode.SERVER_ERROR,"",e);
+    }
+    if (leaderLogic) {
+      List<Node> subShardLeaders=getSubShardLeaders(coll,cloudDesc.getShardId(),null,null);
+      if (subShardLeaders != null) {
+        cmdDistrib.syncDelete(cmd,subShardLeaders,params);
+      }
+      if (replicas != null) {
+        cmdDistrib.distribDelete(cmd,replicas,params);
+        someReplicas=true;
+      }
+    }
+    if (someReplicas) {
       cmdDistrib.finish();
     }
   }
