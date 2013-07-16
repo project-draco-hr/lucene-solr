@@ -1,0 +1,96 @@
+{
+  String ulogDir=core.getCoreDescriptor().getUlogDir();
+  if (ulogDir != null) {
+    dataDir=ulogDir;
+  }
+  if (dataDir == null || dataDir.length() == 0) {
+    dataDir=core.getDataDir();
+  }
+  if (!core.getDirectoryFactory().isAbsolute(dataDir)) {
+    try {
+      dataDir=core.getDirectoryFactory().getDataHome(core.getCoreDescriptor());
+    }
+ catch (    IOException e) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,e);
+    }
+  }
+  try {
+    fs=FileSystem.newInstance(new Path(dataDir).toUri(),getConf());
+  }
+ catch (  IOException e) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,e);
+  }
+  this.uhandler=uhandler;
+  if (dataDir.equals(lastDataDir)) {
+    if (debug) {
+      log.debug("UpdateHandler init: tlogDir=" + tlogDir + ", next id="+ id," this is a reopen... nothing else to do.");
+    }
+    versionInfo.reload();
+    return;
+  }
+  lastDataDir=dataDir;
+  tlogDir=new Path(dataDir,TLOG_NAME);
+  try {
+    if (!fs.exists(tlogDir)) {
+      boolean success=fs.mkdirs(tlogDir);
+      if (!success) {
+        throw new RuntimeException("Could not create directory:" + tlogDir);
+      }
+    }
+  }
+ catch (  IOException e) {
+    throw new RuntimeException(e);
+  }
+  tlogFiles=getLogList(fs,tlogDir);
+  id=getLastLogId() + 1;
+  if (debug) {
+    log.debug("UpdateHandler init: tlogDir=" + tlogDir + ", existing tlogs="+ Arrays.asList(tlogFiles)+ ", next id="+ id);
+  }
+  TransactionLog oldLog=null;
+  for (  String oldLogName : tlogFiles) {
+    Path f=new Path(tlogDir,oldLogName);
+    try {
+      oldLog=new HdfsTransactionLog(fs,f,null,true);
+      addOldLog(oldLog,false);
+    }
+ catch (    Exception e) {
+      SolrException.log(log,"Failure to open existing log file (non fatal) " + f,e);
+      try {
+        fs.delete(f,false);
+      }
+ catch (      IOException e1) {
+        throw new RuntimeException(e1);
+      }
+    }
+  }
+  for (  TransactionLog ll : logs) {
+    newestLogsOnStartup.addFirst(ll);
+    if (newestLogsOnStartup.size() >= 2)     break;
+  }
+  try {
+    versionInfo=new VersionInfo(this,256);
+  }
+ catch (  SolrException e) {
+    log.error("Unable to use updateLog: " + e.getMessage(),e);
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unable to use updateLog: " + e.getMessage(),e);
+  }
+  HdfsUpdateLog.RecentUpdates startingUpdates=getRecentUpdates();
+  try {
+    startingVersions=startingUpdates.getVersions(numRecordsToKeep);
+    startingOperation=startingUpdates.getLatestOperation();
+    for (int i=startingUpdates.deleteList.size() - 1; i >= 0; i--) {
+      DeleteUpdate du=startingUpdates.deleteList.get(i);
+      oldDeletes.put(new BytesRef(du.id),new LogPtr(-1,du.version));
+    }
+    for (int i=startingUpdates.deleteByQueryList.size() - 1; i >= 0; i--) {
+      Update update=startingUpdates.deleteByQueryList.get(i);
+      List<Object> dbq=(List<Object>)update.log.lookup(update.pointer);
+      long version=(Long)dbq.get(1);
+      String q=(String)dbq.get(2);
+      trackDeleteByQuery(q,version);
+    }
+  }
+  finally {
+    startingUpdates.close();
+  }
+}

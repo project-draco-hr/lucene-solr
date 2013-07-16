@@ -1,0 +1,138 @@
+{
+  log.info("Loading cores into CoreContainer [instanceDir={}]",loader.getInstanceDir());
+  ThreadPoolExecutor coreLoadExecutor=null;
+  libDir=cfg.get(ConfigSolr.CfgProp.SOLR_SHAREDLIB,null);
+  if (libDir != null) {
+    File f=FileUtils.resolvePath(new File(solrHome),libDir);
+    log.info("loading shared library: " + f.getAbsolutePath());
+    loader.addToClassLoader(libDir,null,false);
+    loader.reloadLuceneSPI();
+  }
+  shardHandlerFactory=ShardHandlerFactory.newInstance(cfg.getShardHandlerFactoryPluginInfo(),loader);
+  solrCores.allocateLazyCores(cfg,loader);
+  logging=JulWatcher.newRegisteredLogWatcher(cfg,loader);
+  if (cfg instanceof ConfigSolrXmlOld) {
+    String dcoreName=cfg.get(ConfigSolr.CfgProp.SOLR_CORES_DEFAULT_CORE_NAME,null);
+    if (dcoreName != null && !dcoreName.isEmpty()) {
+      defaultCoreName=dcoreName;
+    }
+    persistent=cfg.getBool(ConfigSolr.CfgProp.SOLR_PERSISTENT,false);
+    adminPath=cfg.get(ConfigSolr.CfgProp.SOLR_ADMINPATH,"/admin/cores");
+  }
+ else {
+    adminPath="/admin/cores";
+    defaultCoreName=DEFAULT_DEFAULT_CORE_NAME;
+  }
+  zkHost=cfg.get(ConfigSolr.CfgProp.SOLR_ZKHOST,null);
+  coreLoadThreads=cfg.getInt(ConfigSolr.CfgProp.SOLR_CORELOADTHREADS,CORE_LOAD_THREADS);
+  shareSchema=cfg.getBool(ConfigSolr.CfgProp.SOLR_SHARESCHEMA,DEFAULT_SHARE_SCHEMA);
+  zkClientTimeout=cfg.getInt(ConfigSolr.CfgProp.SOLR_ZKCLIENTTIMEOUT,DEFAULT_ZK_CLIENT_TIMEOUT);
+  distribUpdateConnTimeout=cfg.getInt(ConfigSolr.CfgProp.SOLR_DISTRIBUPDATECONNTIMEOUT,0);
+  distribUpdateSoTimeout=cfg.getInt(ConfigSolr.CfgProp.SOLR_DISTRIBUPDATESOTIMEOUT,0);
+  String hostPort=cfg.get(ConfigSolr.CfgProp.SOLR_HOSTPORT,null);
+  String hostContext=cfg.get(ConfigSolr.CfgProp.SOLR_HOSTCONTEXT,null);
+  String host=cfg.get(ConfigSolr.CfgProp.SOLR_HOST,null);
+  String leaderVoteWait=cfg.get(ConfigSolr.CfgProp.SOLR_LEADERVOTEWAIT,LEADER_VOTE_WAIT);
+  adminHandler=cfg.get(ConfigSolr.CfgProp.SOLR_ADMINHANDLER,null);
+  managementPath=cfg.get(ConfigSolr.CfgProp.SOLR_MANAGEMENTPATH,null);
+  transientCacheSize=cfg.getInt(ConfigSolr.CfgProp.SOLR_TRANSIENTCACHESIZE,Integer.MAX_VALUE);
+  boolean genericCoreNodeNames=cfg.getBool(ConfigSolr.CfgProp.SOLR_GENERICCORENODENAMES,false);
+  if (shareSchema) {
+    indexSchemaCache=new ConcurrentHashMap<String,IndexSchema>();
+  }
+  zkClientTimeout=Integer.parseInt(System.getProperty("zkClientTimeout",Integer.toString(zkClientTimeout)));
+  zkSys.initZooKeeper(this,solrHome,zkHost,zkClientTimeout,hostPort,hostContext,host,leaderVoteWait,genericCoreNodeNames,distribUpdateConnTimeout,distribUpdateSoTimeout);
+  if (isZooKeeperAware() && coreLoadThreads <= 1) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCloud requires a value of at least 2 in solr.xml for coreLoadThreads");
+  }
+  if (adminPath != null) {
+    if (adminHandler == null) {
+      coreAdminHandler=new CoreAdminHandler(this);
+    }
+ else {
+      coreAdminHandler=this.createMultiCoreHandler(adminHandler);
+    }
+  }
+  collectionsHandler=new CollectionsHandler(this);
+  infoHandler=new InfoHandler(this);
+  containerProperties=cfg.getSolrProperties("solr");
+  coreLoadExecutor=new ThreadPoolExecutor(coreLoadThreads,coreLoadThreads,1,TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>(),new DefaultSolrThreadFactory("coreLoadExecutor"));
+  try {
+    CompletionService<SolrCore> completionService=new ExecutorCompletionService<SolrCore>(coreLoadExecutor);
+    Set<Future<SolrCore>> pending=new HashSet<Future<SolrCore>>();
+    List<CoreDescriptor> cds=coresLocator.discover(this);
+    checkForDuplicateCoreNames(cds);
+    for (    final CoreDescriptor cd : cds) {
+      final String name=cd.getName();
+      try {
+        if (cd.isTransient() || !cd.isLoadOnStartup()) {
+          solrCores.putDynamicDescriptor(name,cd);
+        }
+        if (cd.isLoadOnStartup()) {
+          Callable<SolrCore> task=new Callable<SolrCore>(){
+            @Override public SolrCore call(){
+              SolrCore c=null;
+              try {
+                if (zkSys.getZkController() != null) {
+                  preRegisterInZk(cd);
+                }
+                c=create(cd);
+                registerCore(cd.isTransient(),name,c,false);
+              }
+ catch (              Throwable t) {
+                if (isZooKeeperAware()) {
+                  try {
+                    zkSys.zkController.unregister(name,cd);
+                  }
+ catch (                  InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    SolrException.log(log,null,e);
+                  }
+catch (                  KeeperException e) {
+                    SolrException.log(log,null,e);
+                  }
+                }
+                SolrException.log(log,null,t);
+                if (c != null) {
+                  c.close();
+                }
+              }
+              return c;
+            }
+          }
+;
+          pending.add(completionService.submit(task));
+        }
+      }
+ catch (      Throwable ex) {
+        SolrException.log(log,null,ex);
+      }
+    }
+    while (pending != null && pending.size() > 0) {
+      try {
+        Future<SolrCore> future=completionService.take();
+        if (future == null)         return;
+        pending.remove(future);
+        try {
+          SolrCore c=future.get();
+          if (c != null) {
+            solrCores.putCoreToOrigName(c,c.getName());
+          }
+        }
+ catch (        ExecutionException e) {
+          SolrException.log(SolrCore.log,"Error loading core",e);
+        }
+      }
+ catch (      InterruptedException e) {
+        throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"interrupted while loading core",e);
+      }
+    }
+    backgroundCloser=new CloserThread(this,solrCores,cfg);
+    backgroundCloser.start();
+  }
+  finally {
+    if (coreLoadExecutor != null) {
+      ExecutorUtil.shutdownNowAndAwaitTermination(coreLoadExecutor);
+    }
+  }
+}

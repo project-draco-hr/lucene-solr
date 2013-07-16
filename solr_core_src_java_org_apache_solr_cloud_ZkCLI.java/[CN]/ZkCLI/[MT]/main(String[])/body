@@ -1,7 +1,7 @@
 {
   CommandLineParser parser=new PosixParser();
   Options options=new Options();
-  options.addOption(OptionBuilder.hasArg(true).withDescription("cmd to run: " + BOOTSTRAP + ", "+ UPCONFIG+ ", "+ DOWNCONFIG+ ", "+ LINKCONFIG+ ", "+ MAKEPATH+ ", "+ LIST+ ", "+ CLEAR).create(CMD));
+  options.addOption(OptionBuilder.hasArg(true).withDescription("cmd to run: " + BOOTSTRAP + ", "+ UPCONFIG+ ", "+ DOWNCONFIG+ ", "+ LINKCONFIG+ ", "+ MAKEPATH+ ", "+ PUT+ ", "+ LIST+ ", "+ CLEAR).create(CMD));
   Option zkHostOption=new Option("z",ZKHOST,true,"ZooKeeper host address");
   options.addOption(zkHostOption);
   Option solrHomeOption=new Option("s",SOLRHOME,true,"for " + BOOTSTRAP + ", "+ RUNZK+ ": solrhome location");
@@ -22,7 +22,8 @@
       System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + UPCONFIG + " -"+ CONFDIR+ " /opt/solr/collection1/conf"+ " -"+ CONFNAME+ " myconf");
       System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + DOWNCONFIG + " -"+ CONFDIR+ " /opt/solr/collection1/conf"+ " -"+ CONFNAME+ " myconf");
       System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + LINKCONFIG + " -"+ COLLECTION+ " collection1"+ " -"+ CONFNAME+ " myconf");
-      System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + MAKEPATH + " /apache/solr");
+      System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + MAKEPATH + " /apache/solr/data.txt 'config data'");
+      System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + PUT + " /solr.conf 'conf data'");
       System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + CLEAR + " /solr");
       System.out.println("zkcli.sh -zkhost localhost:9983 -cmd " + LIST);
       return;
@@ -55,29 +56,12 @@
           System.out.println("-" + SOLRHOME + " is required for "+ BOOTSTRAP);
           System.exit(1);
         }
-        SolrResourceLoader loader=new SolrResourceLoader(solrHome);
-        solrHome=loader.getInstanceDir();
-        File configFile=new File(solrHome,SOLR_XML);
-        InputStream is=new FileInputStream(configFile);
-        ConfigSolr cfg;
-        try {
-          Config config=new Config(loader,null,new InputSource(is),null,false);
-          boolean oldStyle=(config.getNode("solr/cores",false) != null);
-          if (oldStyle) {
-            cfg=new ConfigSolrXmlOld(config,null);
-          }
- else {
-            cfg=new ConfigSolrXml(config,null);
-          }
-        }
-  finally {
-          IOUtils.closeQuietly(is);
-        }
+        CoreContainer cc=new CoreContainer(solrHome);
         if (!ZkController.checkChrootPath(zkServerAddress,true)) {
           System.out.println("A chroot was specified in zkHost but the znode doesn't exist. ");
           System.exit(1);
         }
-        ZkController.bootstrapConf(zkClient,cfg,solrHome);
+        ZkController.bootstrapConf(zkClient,cc,solrHome);
       }
  else       if (line.getOptionValue(CMD).equals(UPCONFIG)) {
         if (!line.hasOption(CONFDIR) || !line.hasOption(CONFNAME)) {
@@ -128,6 +112,15 @@
           System.exit(1);
         }
         zkClient.makePath(arglist.get(0).toString(),true);
+      }
+ else       if (line.getOptionValue(CMD).equals(PUT)) {
+        List<ACL> acl=ZooDefs.Ids.OPEN_ACL_UNSAFE;
+        List arglist=line.getArgList();
+        if (arglist.size() != 2) {
+          System.out.println("-" + PUT + " requires two args - the path to create and the data string");
+          System.exit(1);
+        }
+        zkClient.create(arglist.get(0).toString(),arglist.get(1).toString().getBytes("UTF-8"),acl,CreateMode.PERSISTENT,true);
       }
     }
   finally {

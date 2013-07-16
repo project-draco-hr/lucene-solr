@@ -1,0 +1,44 @@
+{
+  LOG.info("creating directory factory for path {}",path);
+  Configuration conf=getConf();
+  if (metrics == null) {
+    metrics=new Metrics(conf);
+  }
+  boolean blockCacheEnabled=params.getBool(BLOCKCACHE_ENABLED,true);
+  boolean blockCacheReadEnabled=params.getBool(BLOCKCACHE_READ_ENABLED,true);
+  boolean blockCacheWriteEnabled=params.getBool(BLOCKCACHE_WRITE_ENABLED,true);
+  Directory dir=null;
+  if (blockCacheEnabled && dirContext != DirContext.META_DATA) {
+    int numberOfBlocksPerBank=params.getInt(NUMBEROFBLOCKSPERBANK,16384);
+    int blockSize=BlockDirectory.BLOCK_SIZE;
+    int bankCount=params.getInt(BLOCKCACHE_SLAB_COUNT,1);
+    boolean directAllocation=params.getBool(BLOCKCACHE_DIRECT_MEMORY_ALLOCATION,true);
+    BlockCache blockCache;
+    int slabSize=numberOfBlocksPerBank * blockSize;
+    LOG.info("Number of slabs of block cache [{}] with direct memory allocation set to [{}]",bankCount,directAllocation);
+    LOG.info("Block cache target memory usage, slab size of [{}] will allocate [{}] slabs and use ~[{}] bytes",new Object[]{slabSize,bankCount,((long)bankCount * (long)slabSize)});
+    int _1024Size=params.getInt("solr.hdfs.blockcache.bufferstore.1024",8192);
+    int _8192Size=params.getInt("solr.hdfs.blockcache.bufferstore.8192",8192);
+    BufferStore.init(_1024Size,_8192Size,metrics);
+    long totalMemory=(long)bankCount * (long)numberOfBlocksPerBank * (long)blockSize;
+    try {
+      blockCache=new BlockCache(metrics,directAllocation,totalMemory,slabSize,blockSize);
+    }
+ catch (    OutOfMemoryError e) {
+      throw new RuntimeException("The max direct memory is likely too low.  Either increase it (by adding -XX:MaxDirectMemorySize=<size>g -XX:+UseLargePages to your containers startup args)" + " or disable direct allocation using solr.hdfs.blockcache.direct.memory.allocation=false in solrconfig.xml. If you are putting the block cache on the heap," + " your java heap size might not be large enough."+ " Failed allocating ~"+ totalMemory / 1000000.0 + " MB.",e);
+    }
+    Cache cache=new BlockDirectoryCache(blockCache,metrics);
+    HdfsDirectory hdfsDirectory=new HdfsDirectory(new Path(path),conf);
+    dir=new BlockDirectory("solrcore",hdfsDirectory,cache,null,blockCacheReadEnabled,blockCacheWriteEnabled);
+  }
+ else {
+    dir=new HdfsDirectory(new Path(path),conf);
+  }
+  boolean nrtCachingDirectory=params.getBool(NRTCACHINGDIRECTORY_ENABLE,true);
+  if (nrtCachingDirectory) {
+    double nrtCacheMaxMergeSizeMB=params.getInt(NRTCACHINGDIRECTORY_MAXMERGESIZEMB,16);
+    double nrtCacheMaxCacheMB=params.getInt(NRTCACHINGDIRECTORY_MAXCACHEMB,192);
+    return new NRTCachingDirectory(dir,nrtCacheMaxMergeSizeMB,nrtCacheMaxCacheMB);
+  }
+  return dir;
+}

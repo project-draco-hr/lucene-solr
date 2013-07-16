@@ -17,18 +17,20 @@
     }
     long latestVersion=(Long)response.get(CMD_INDEX_VERSION);
     long latestGeneration=(Long)response.get(GENERATION);
-    IndexCommit commit;
-    RefCounted<SolrIndexSearcher> searcherRefCounted=null;
-    try {
-      searcherRefCounted=core.getNewestSearcher(false);
-      if (searcherRefCounted == null) {
-        SolrException.log(LOG,"No open searcher found - fetch aborted");
-        return false;
+    IndexCommit commit=core.getDeletionPolicy().getLatestCommit();
+    if (commit == null) {
+      RefCounted<SolrIndexSearcher> searcherRefCounted=null;
+      try {
+        searcherRefCounted=core.getNewestSearcher(false);
+        if (searcherRefCounted == null) {
+          LOG.warn("No open searcher found - fetch aborted");
+          return false;
+        }
+        commit=searcherRefCounted.get().getIndexReader().getIndexCommit();
       }
-      commit=searcherRefCounted.get().getIndexReader().getIndexCommit();
-    }
   finally {
-      if (searcherRefCounted != null)       searcherRefCounted.decref();
+        if (searcherRefCounted != null)         searcherRefCounted.decref();
+      }
     }
     if (latestVersion == 0L) {
       if (forceReplication && commit.getGeneration() != 0) {
@@ -80,7 +82,13 @@
           deleteTmpIdxDir=false;
         }
  else {
-          successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
+          solrCore.getUpdateHandler().getSolrCoreState().closeIndexWriter(core,true);
+          try {
+            successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
+          }
+  finally {
+            solrCore.getUpdateHandler().getSolrCoreState().openIndexWriter(core);
+          }
         }
         if (successfulInstall) {
           if (isFullCopyNeeded) {
@@ -102,7 +110,13 @@
           deleteTmpIdxDir=false;
         }
  else {
-          successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
+          solrCore.getUpdateHandler().getSolrCoreState().closeIndexWriter(core,true);
+          try {
+            successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
+          }
+  finally {
+            solrCore.getUpdateHandler().getSolrCoreState().openIndexWriter(core);
+          }
         }
         if (successfulInstall) {
           logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
@@ -116,7 +130,10 @@
             core.getDirectoryFactory().remove(indexDir);
           }
         }
-        openNewWriterAndSearcher(isFullCopyNeeded);
+        if (isFullCopyNeeded) {
+          solrCore.getUpdateHandler().newIndexWriter(isFullCopyNeeded);
+        }
+        openNewSearcherAndUpdateCommitPoint(isFullCopyNeeded);
       }
       replicationStartTime=0;
       return successfulInstall;

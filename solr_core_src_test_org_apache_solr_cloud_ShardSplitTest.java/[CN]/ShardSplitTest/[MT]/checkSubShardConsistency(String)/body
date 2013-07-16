@@ -1,0 +1,19 @@
+{
+  SolrQuery query=new SolrQuery("*:*").setRows(1000).setFields("id","_version_");
+  query.set("distrib",false);
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  Slice slice=clusterState.getSlice(AbstractDistribZkTestBase.DEFAULT_COLLECTION,shard);
+  long[] numFound=new long[slice.getReplicasMap().size()];
+  int c=0;
+  for (  Replica replica : slice.getReplicas()) {
+    String coreUrl=new ZkCoreNodeProps(replica).getCoreUrl();
+    HttpSolrServer server=new HttpSolrServer(coreUrl);
+    QueryResponse response=server.query(query);
+    numFound[c++]=response.getResults().getNumFound();
+    log.info("Shard: " + shard + " Replica: {} has {} docs",coreUrl,String.valueOf(response.getResults().getNumFound()));
+    assertTrue("Shard: " + shard + " Replica: "+ coreUrl+ " has 0 docs",response.getResults().getNumFound() > 0);
+  }
+  for (int i=0; i < slice.getReplicasMap().size(); i++) {
+    assertEquals(shard + " is not consistent",numFound[0],numFound[i]);
+  }
+}

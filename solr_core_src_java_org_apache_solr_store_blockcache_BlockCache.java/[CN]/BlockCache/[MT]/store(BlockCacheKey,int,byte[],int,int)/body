@@ -1,0 +1,27 @@
+{
+  if (length + blockOffset > blockSize) {
+    throw new RuntimeException("Buffer size exceeded, expecting max [" + blockSize + "] got length ["+ length+ "] with blockOffset ["+ blockOffset+ "]");
+  }
+  BlockCacheLocation location=cache.get(blockCacheKey);
+  boolean newLocation=false;
+  if (location == null) {
+    newLocation=true;
+    location=new BlockCacheLocation();
+    if (!findEmptyLocation(location)) {
+      return false;
+    }
+  }
+  if (location.isRemoved()) {
+    return false;
+  }
+  int bankId=location.getBankId();
+  int bankOffset=location.getBlock() * blockSize;
+  ByteBuffer bank=getBank(bankId);
+  bank.position(bankOffset + blockOffset);
+  bank.put(data,offset,length);
+  if (newLocation) {
+    releaseLocation(cache.put(blockCacheKey.clone(),location));
+    metrics.blockCacheSize.incrementAndGet();
+  }
+  return true;
+}

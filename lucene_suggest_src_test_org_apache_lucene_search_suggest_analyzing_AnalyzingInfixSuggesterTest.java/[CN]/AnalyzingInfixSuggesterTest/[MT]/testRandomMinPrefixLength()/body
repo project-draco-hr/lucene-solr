@@ -1,0 +1,74 @@
+{
+  TermFreqPayload keys[]=new TermFreqPayload[]{new TermFreqPayload("lend me your ear",8,new BytesRef("foobar")),new TermFreqPayload("a penny saved is a penny earned",10,new BytesRef("foobaz"))};
+  File tempDir=_TestUtil.getTempDir("AnalyzingInfixSuggesterTest");
+  Analyzer a=new MockAnalyzer(random(),MockTokenizer.WHITESPACE,false);
+  int minPrefixLength=random().nextInt(10);
+  AnalyzingInfixSuggester suggester=new AnalyzingInfixSuggester(TEST_VERSION_CURRENT,tempDir,a,a,minPrefixLength){
+    @Override protected Directory getDirectory(    File path){
+      return newFSDirectory(path);
+    }
+  }
+;
+  suggester.build(new TermFreqPayloadArrayIterator(keys));
+  for (int i=0; i < 2; i++) {
+    for (int j=0; j < 2; j++) {
+      boolean doHighlight=j == 0;
+      List<LookupResult> results=suggester.lookup(_TestUtil.stringToCharSequence("ear",random()),10,true,doHighlight);
+      assertEquals(2,results.size());
+      if (doHighlight) {
+        assertEquals("a penny saved is a penny <b>ear</b>ned",results.get(0).key);
+      }
+ else {
+        assertEquals("a penny saved is a penny earned",results.get(0).key);
+      }
+      assertEquals(10,results.get(0).value);
+      if (doHighlight) {
+        assertEquals("lend me your <b>ear</b>",results.get(1).key);
+      }
+ else {
+        assertEquals("lend me your ear",results.get(1).key);
+      }
+      assertEquals(new BytesRef("foobaz"),results.get(0).payload);
+      assertEquals(8,results.get(1).value);
+      assertEquals(new BytesRef("foobar"),results.get(1).payload);
+      results=suggester.lookup(_TestUtil.stringToCharSequence("ear ",random()),10,true,doHighlight);
+      assertEquals(1,results.size());
+      if (doHighlight) {
+        assertEquals("lend me your <b>ear</b>",results.get(0).key);
+      }
+ else {
+        assertEquals("lend me your ear",results.get(0).key);
+      }
+      assertEquals(8,results.get(0).value);
+      assertEquals(new BytesRef("foobar"),results.get(0).payload);
+      results=suggester.lookup(_TestUtil.stringToCharSequence("pen",random()),10,true,doHighlight);
+      assertEquals(1,results.size());
+      if (doHighlight) {
+        assertEquals("a <b>pen</b>ny saved is a <b>pen</b>ny earned",results.get(0).key);
+      }
+ else {
+        assertEquals("a penny saved is a penny earned",results.get(0).key);
+      }
+      assertEquals(10,results.get(0).value);
+      assertEquals(new BytesRef("foobaz"),results.get(0).payload);
+      results=suggester.lookup(_TestUtil.stringToCharSequence("p",random()),10,true,doHighlight);
+      assertEquals(1,results.size());
+      if (doHighlight) {
+        assertEquals("a <b>p</b>enny saved is a <b>p</b>enny earned",results.get(0).key);
+      }
+ else {
+        assertEquals("a penny saved is a penny earned",results.get(0).key);
+      }
+      assertEquals(10,results.get(0).value);
+      assertEquals(new BytesRef("foobaz"),results.get(0).payload);
+    }
+    suggester.close();
+    suggester=new AnalyzingInfixSuggester(TEST_VERSION_CURRENT,tempDir,a,a,minPrefixLength){
+      @Override protected Directory getDirectory(      File path){
+        return newFSDirectory(path);
+      }
+    }
+;
+  }
+  suggester.close();
+}

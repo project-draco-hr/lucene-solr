@@ -5,7 +5,6 @@
   }
   assertTrue("Failed to mkdirs workDir",workDir.mkdirs());
   final CoreContainer cores=h.getCoreContainer();
-  cores.setPersistent(false);
   final CoreAdminHandler admin=new CoreAdminHandler(cores);
   String instDir=null;
 {
@@ -25,9 +24,11 @@
   SolrQueryResponse resp=new SolrQueryResponse();
   admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.INSTANCE_DIR,instPropFile.getAbsolutePath(),CoreAdminParams.NAME,"props",CoreAdminParams.PROPERTY_PREFIX + "hoss","man",CoreAdminParams.PROPERTY_PREFIX + "foo","baz"),resp);
   assertNull("Exception on create",resp.getException());
-  final File xml=new File(workDir,"persist-solr.xml");
-  cores.persistFile(xml);
-  assertXmlFile(xml,"/solr/cores/core[@name='props']/property[@name='hoss' and @value='man']","/solr/cores/core[@name='props']/property[@name='foo' and @value='baz']");
+  CoreDescriptor cd=cores.getCoreDescriptor("props");
+  assertNotNull("Core not added!",cd);
+  assertEquals(cd.getCoreProperty("hoss",null),"man");
+  assertEquals(cd.getCoreProperty("foo",null),"baz");
+  ignoreException("Could not load config");
   try {
     resp=new SolrQueryResponse();
     admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.NAME,"bogus_dir_core",CoreAdminParams.INSTANCE_DIR,"dir_does_not_exist_127896"),resp);
@@ -35,6 +36,7 @@
   }
  catch (  SolrException e) {
   }
+  unIgnoreException("Could not load config");
   resp=new SolrQueryResponse();
   admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.STATUS.toString(),CoreAdminParams.CORE,"bogus_dir_core"),resp);
   Map<String,Exception> failures=(Map<String,Exception>)resp.getValues().get("initFailures");
@@ -46,4 +48,5 @@
   assertNotNull("null failure for test core",fail);
   assertTrue("init failure doesn't mention problem: " + fail.getCause().getMessage(),0 < fail.getCause().getMessage().indexOf("dir_does_not_exist"));
   assertEquals("bogus_dir_core status isn't empty",0,((NamedList)status.get("bogus_dir_core")).size());
+  FileUtils.deleteDirectory(workDir);
 }

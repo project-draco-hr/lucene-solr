@@ -1,26 +1,34 @@
 {
   final IntParser parser=(IntParser)key.custom;
   if (parser == null) {
-    try {
-      return wrapper.getInts(reader,key.field,DEFAULT_INT_PARSER,setDocsWithField);
-    }
- catch (    NumberFormatException ne) {
-      return wrapper.getInts(reader,key.field,NUMERIC_UTILS_INT_PARSER,setDocsWithField);
-    }
+    return wrapper.getInts(reader,key.field,NUMERIC_UTILS_INT_PARSER,setDocsWithField);
   }
-  final HoldsOneThing<int[]> valuesRef=new HoldsOneThing<int[]>();
+  final HoldsOneThing<GrowableWriterAndMinValue> valuesRef=new HoldsOneThing<GrowableWriterAndMinValue>();
   Uninvert u=new Uninvert(){
+    private int minValue;
     private int currentValue;
-    private int[] values;
+    private GrowableWriter values;
     @Override public void visitTerm(    BytesRef term){
       currentValue=parser.parseInt(term);
       if (values == null) {
-        values=new int[reader.maxDoc()];
-        valuesRef.set(values);
+        int startBitsPerValue;
+        if (currentValue < 0) {
+          minValue=currentValue;
+          startBitsPerValue=PackedInts.bitsRequired((-minValue) & 0xFFFFFFFFL);
+        }
+ else {
+          minValue=0;
+          startBitsPerValue=PackedInts.bitsRequired(currentValue);
+        }
+        values=new GrowableWriter(startBitsPerValue,reader.maxDoc(),PackedInts.FAST);
+        if (minValue != 0) {
+          values.fill(0,values.size(),(-minValue) & 0xFFFFFFFFL);
+        }
+        valuesRef.set(new GrowableWriterAndMinValue(values,minValue));
       }
     }
     @Override public void visitDoc(    int docID){
-      values[docID]=currentValue;
+      values.set(docID,(currentValue - minValue) & 0xFFFFFFFFL);
     }
     @Override protected TermsEnum termsEnum(    Terms terms) throws IOException {
       return parser.termsEnum(terms);
@@ -31,9 +39,9 @@
   if (setDocsWithField) {
     wrapper.setDocsWithField(reader,key.field,u.docsWithField);
   }
-  int[] values=valuesRef.get();
+  GrowableWriterAndMinValue values=valuesRef.get();
   if (values == null) {
-    values=new int[reader.maxDoc()];
+    return new IntsFromArray(new PackedInts.NullReader(reader.maxDoc()),0);
   }
-  return new IntsFromArray(values);
+  return new IntsFromArray(values.writer.getMutable(),(int)values.minValue);
 }
