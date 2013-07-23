@@ -1,7 +1,6 @@
 {
   log.info("Loading cores into CoreContainer [instanceDir={}]",loader.getInstanceDir());
-  ThreadPoolExecutor coreLoadExecutor=null;
-  libDir=cfg.get(ConfigSolr.CfgProp.SOLR_SHAREDLIB,null);
+  String libDir=cfg.getSharedLibDirectory();
   if (libDir != null) {
     File f=FileUtils.resolvePath(new File(solrHome),libDir);
     log.info("loading shared library: " + f.getAbsolutePath());
@@ -9,54 +8,18 @@
     loader.reloadLuceneSPI();
   }
   shardHandlerFactory=ShardHandlerFactory.newInstance(cfg.getShardHandlerFactoryPluginInfo(),loader);
-  solrCores.allocateLazyCores(cfg,loader);
-  logging=JulWatcher.newRegisteredLogWatcher(cfg,loader);
-  if (cfg instanceof ConfigSolrXmlOld) {
-    String dcoreName=cfg.get(ConfigSolr.CfgProp.SOLR_CORES_DEFAULT_CORE_NAME,null);
-    if (dcoreName != null && !dcoreName.isEmpty()) {
-      defaultCoreName=dcoreName;
-    }
-    persistent=cfg.getBool(ConfigSolr.CfgProp.SOLR_PERSISTENT,false);
-    adminPath=cfg.get(ConfigSolr.CfgProp.SOLR_ADMINPATH,"/admin/cores");
-  }
- else {
-    adminPath="/admin/cores";
-    defaultCoreName=DEFAULT_DEFAULT_CORE_NAME;
-  }
-  zkHost=cfg.get(ConfigSolr.CfgProp.SOLR_ZKHOST,null);
-  coreLoadThreads=cfg.getInt(ConfigSolr.CfgProp.SOLR_CORELOADTHREADS,CORE_LOAD_THREADS);
-  shareSchema=cfg.getBool(ConfigSolr.CfgProp.SOLR_SHARESCHEMA,DEFAULT_SHARE_SCHEMA);
-  zkClientTimeout=cfg.getInt(ConfigSolr.CfgProp.SOLR_ZKCLIENTTIMEOUT,DEFAULT_ZK_CLIENT_TIMEOUT);
-  distribUpdateConnTimeout=cfg.getInt(ConfigSolr.CfgProp.SOLR_DISTRIBUPDATECONNTIMEOUT,0);
-  distribUpdateSoTimeout=cfg.getInt(ConfigSolr.CfgProp.SOLR_DISTRIBUPDATESOTIMEOUT,0);
-  String hostPort=cfg.get(ConfigSolr.CfgProp.SOLR_HOSTPORT,null);
-  String hostContext=cfg.get(ConfigSolr.CfgProp.SOLR_HOSTCONTEXT,null);
-  String host=cfg.get(ConfigSolr.CfgProp.SOLR_HOST,null);
-  String leaderVoteWait=cfg.get(ConfigSolr.CfgProp.SOLR_LEADERVOTEWAIT,LEADER_VOTE_WAIT);
-  adminHandler=cfg.get(ConfigSolr.CfgProp.SOLR_ADMINHANDLER,null);
-  managementPath=cfg.get(ConfigSolr.CfgProp.SOLR_MANAGEMENTPATH,null);
-  transientCacheSize=cfg.getInt(ConfigSolr.CfgProp.SOLR_TRANSIENTCACHESIZE,Integer.MAX_VALUE);
-  boolean genericCoreNodeNames=cfg.getBool(ConfigSolr.CfgProp.SOLR_GENERICCORENODENAMES,false);
+  solrCores.allocateLazyCores(cfg.getTransientCacheSize(),loader);
+  logging=JulWatcher.newRegisteredLogWatcher(cfg.getLogWatcherConfig(),loader);
+  shareSchema=cfg.hasSchemaCache();
   if (shareSchema) {
     indexSchemaCache=new ConcurrentHashMap<String,IndexSchema>();
   }
-  zkClientTimeout=Integer.parseInt(System.getProperty("zkClientTimeout",Integer.toString(zkClientTimeout)));
-  zkSys.initZooKeeper(this,solrHome,zkHost,zkClientTimeout,hostPort,hostContext,host,leaderVoteWait,genericCoreNodeNames,distribUpdateConnTimeout,distribUpdateSoTimeout);
-  if (isZooKeeperAware() && coreLoadThreads <= 1) {
-    throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCloud requires a value of at least 2 in solr.xml for coreLoadThreads");
-  }
-  if (adminPath != null) {
-    if (adminHandler == null) {
-      coreAdminHandler=new CoreAdminHandler(this);
-    }
- else {
-      coreAdminHandler=this.createMultiCoreHandler(adminHandler);
-    }
-  }
+  zkSys.initZooKeeper(this,solrHome,cfg);
   collectionsHandler=new CollectionsHandler(this);
   infoHandler=new InfoHandler(this);
+  coreAdminHandler=createMultiCoreHandler(cfg.getCoreAdminHandlerClass());
   containerProperties=cfg.getSolrProperties("solr");
-  coreLoadExecutor=new ThreadPoolExecutor(coreLoadThreads,coreLoadThreads,1,TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>(),new DefaultSolrThreadFactory("coreLoadExecutor"));
+  ExecutorService coreLoadExecutor=Executors.newFixedThreadPool(cfg.getCoreLoadThreadCount(),new DefaultSolrThreadFactory("coreLoadExecutor"));
   try {
     CompletionService<SolrCore> completionService=new ExecutorCompletionService<SolrCore>(coreLoadExecutor);
     Set<Future<SolrCore>> pending=new HashSet<Future<SolrCore>>();
