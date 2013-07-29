@@ -1,0 +1,61 @@
+{
+synchronized (accumulateGuard) {
+    isUsingComplements=shouldComplement(docids);
+    if (isUsingComplements) {
+      try {
+        totalFacetCounts=TotalFacetCountsCache.getSingleton().getTotalCounts(indexReader,taxonomyReader,searchParams.indexingParams);
+        if (totalFacetCounts != null) {
+          docids=ScoredDocIdsUtils.getComplementSet(docids,indexReader);
+        }
+ else {
+          isUsingComplements=false;
+        }
+      }
+ catch (      UnsupportedOperationException e) {
+        isUsingComplements=false;
+      }
+catch (      IOException e) {
+        isUsingComplements=false;
+      }
+catch (      Exception e) {
+        throw new IOException("PANIC: Got unexpected exception while trying to get/calculate total counts",e);
+      }
+    }
+    docids=actualDocsToAccumulate(docids);
+    HashMap<FacetRequest,IntermediateFacetResult> fr2tmpRes=new HashMap<FacetRequest,IntermediateFacetResult>();
+    try {
+      for (int part=0; part < maxPartitions; part++) {
+        fillArraysForPartition(docids,facetArrays,part);
+        int offset=part * partitionSize;
+        final HashSet<FacetRequest> handledRequests=new HashSet<FacetRequest>();
+        for (        FacetRequest fr : searchParams.facetRequests) {
+          if (handledRequests.add(fr)) {
+            PartitionsFacetResultsHandler frHndlr=createFacetResultsHandler(fr);
+            IntermediateFacetResult res4fr=frHndlr.fetchPartitionResult(offset);
+            IntermediateFacetResult oldRes=fr2tmpRes.get(fr);
+            if (oldRes != null) {
+              res4fr=frHndlr.mergeResults(oldRes,res4fr);
+            }
+            fr2tmpRes.put(fr,res4fr);
+          }
+        }
+      }
+    }
+  finally {
+      facetArrays.free();
+    }
+    List<FacetResult> res=new ArrayList<FacetResult>();
+    for (    FacetRequest fr : searchParams.facetRequests) {
+      PartitionsFacetResultsHandler frHndlr=createFacetResultsHandler(fr);
+      IntermediateFacetResult tmpResult=fr2tmpRes.get(fr);
+      if (tmpResult == null) {
+        res.add(emptyResult(taxonomyReader.getOrdinal(fr.categoryPath),fr));
+        continue;
+      }
+      FacetResult facetRes=frHndlr.renderFacetResult(tmpResult);
+      frHndlr.labelResult(facetRes);
+      res.add(facetRes);
+    }
+    return res;
+  }
+}
