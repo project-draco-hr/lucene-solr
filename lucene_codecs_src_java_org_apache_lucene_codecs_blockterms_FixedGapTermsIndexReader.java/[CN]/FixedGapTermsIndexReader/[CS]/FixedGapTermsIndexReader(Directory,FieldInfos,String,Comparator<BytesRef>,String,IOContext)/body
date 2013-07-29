@@ -1,0 +1,48 @@
+{
+  this.termComp=termComp;
+  final IndexInput in=dir.openInput(IndexFileNames.segmentFileName(segment,segmentSuffix,FixedGapTermsIndexWriter.TERMS_INDEX_EXTENSION),context);
+  boolean success=false;
+  try {
+    readHeader(in);
+    indexInterval=in.readVInt();
+    if (indexInterval < 1) {
+      throw new CorruptIndexException("invalid indexInterval: " + indexInterval + " (resource="+ in+ ")");
+    }
+    packedIntsVersion=in.readVInt();
+    blocksize=in.readVInt();
+    seekDir(in,dirOffset);
+    final int numFields=in.readVInt();
+    if (numFields < 0) {
+      throw new CorruptIndexException("invalid numFields: " + numFields + " (resource="+ in+ ")");
+    }
+    for (int i=0; i < numFields; i++) {
+      final int field=in.readVInt();
+      final long numIndexTerms=in.readVInt();
+      if (numIndexTerms < 0) {
+        throw new CorruptIndexException("invalid numIndexTerms: " + numIndexTerms + " (resource="+ in+ ")");
+      }
+      final long termsStart=in.readVLong();
+      final long indexStart=in.readVLong();
+      final long packedIndexStart=in.readVLong();
+      final long packedOffsetsStart=in.readVLong();
+      if (packedIndexStart < indexStart) {
+        throw new CorruptIndexException("invalid packedIndexStart: " + packedIndexStart + " indexStart: "+ indexStart+ "numIndexTerms: "+ numIndexTerms+ " (resource="+ in+ ")");
+      }
+      final FieldInfo fieldInfo=fieldInfos.fieldInfo(field);
+      FieldIndexData previous=fields.put(fieldInfo,new FieldIndexData(in,indexStart,termsStart,packedIndexStart,packedOffsetsStart,numIndexTerms));
+      if (previous != null) {
+        throw new CorruptIndexException("duplicate field: " + fieldInfo.name + " (resource="+ in+ ")");
+      }
+    }
+    success=true;
+  }
+  finally {
+    if (success) {
+      IOUtils.close(in);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(in);
+    }
+    termBytesReader=termBytes.freeze(true);
+  }
+}
