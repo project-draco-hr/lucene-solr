@@ -3,45 +3,41 @@
   String cname=params.required().get(CoreAdminParams.CORE);
   SolrCore core=coreContainer.getCore(cname);
   SolrQueryRequest wrappedReq=null;
-  SolrCore[] sourceCores=null;
-  RefCounted<SolrIndexSearcher>[] searchers=null;
-  DirectoryReader[] readersToBeClosed=null;
-  Directory[] dirsToBeReleased=null;
+  List<SolrCore> sourceCores=Lists.newArrayList();
+  List<RefCounted<SolrIndexSearcher>> searchers=Lists.newArrayList();
+  List<DirectoryReader> readersToBeClosed=Lists.newArrayList();
+  List<Directory> dirsToBeReleased=Lists.newArrayList();
   if (core != null) {
     try {
       String[] dirNames=params.getParams(CoreAdminParams.INDEX_DIR);
       if (dirNames == null || dirNames.length == 0) {
         String[] sources=params.getParams("srcCore");
         if (sources == null || sources.length == 0)         throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"At least one indexDir or srcCore must be specified");
-        sourceCores=new SolrCore[sources.length];
         for (int i=0; i < sources.length; i++) {
           String source=sources[i];
           SolrCore srcCore=coreContainer.getCore(source);
           if (srcCore == null)           throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Core: " + source + " does not exist");
-          sourceCores[i]=srcCore;
+          sourceCores.add(srcCore);
         }
       }
  else {
-        readersToBeClosed=new DirectoryReader[dirNames.length];
-        dirsToBeReleased=new Directory[dirNames.length];
         DirectoryFactory dirFactory=core.getDirectoryFactory();
         for (int i=0; i < dirNames.length; i++) {
           Directory dir=dirFactory.get(dirNames[i],DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
-          dirsToBeReleased[i]=dir;
-          readersToBeClosed[i]=DirectoryReader.open(dir);
+          dirsToBeReleased.add(dir);
+          readersToBeClosed.add(DirectoryReader.open(dir));
         }
       }
-      DirectoryReader[] readers=null;
-      if (readersToBeClosed != null) {
+      List<DirectoryReader> readers=null;
+      if (readersToBeClosed.size() > 0) {
         readers=readersToBeClosed;
       }
  else {
-        readers=new DirectoryReader[sourceCores.length];
-        searchers=new RefCounted[sourceCores.length];
-        for (int i=0; i < sourceCores.length; i++) {
-          SolrCore solrCore=sourceCores[i];
-          searchers[i]=solrCore.getSearcher();
-          readers[i]=searchers[i].get().getIndexReader();
+        readers=Lists.newArrayList();
+        for (        SolrCore solrCore : sourceCores) {
+          RefCounted<SolrIndexSearcher> searcher=solrCore.getSearcher();
+          searchers.add(searcher);
+          readers.add(searcher.get().getIndexReader());
         }
       }
       UpdateRequestProcessorChain processorChain=core.getUpdateProcessingChain(params.get(UpdateParams.UPDATE_CHAIN));
@@ -49,23 +45,21 @@
       UpdateRequestProcessor processor=processorChain.createProcessor(wrappedReq,rsp);
       processor.processMergeIndexes(new MergeIndexesCommand(readers,req));
     }
-  finally {
-      if (searchers != null) {
-        for (        RefCounted<SolrIndexSearcher> searcher : searchers) {
-          if (searcher != null)           searcher.decref();
-        }
+ catch (    Exception e) {
+      log.error("ERROR executing merge:",e);
+      throw e;
+    }
+ finally {
+      for (      RefCounted<SolrIndexSearcher> searcher : searchers) {
+        if (searcher != null)         searcher.decref();
       }
-      if (sourceCores != null) {
-        for (        SolrCore solrCore : sourceCores) {
-          if (solrCore != null)           solrCore.close();
-        }
+      for (      SolrCore solrCore : sourceCores) {
+        if (solrCore != null)         solrCore.close();
       }
-      if (readersToBeClosed != null)       IOUtils.closeWhileHandlingException(readersToBeClosed);
-      if (dirsToBeReleased != null) {
-        for (        Directory dir : dirsToBeReleased) {
-          DirectoryFactory dirFactory=core.getDirectoryFactory();
-          dirFactory.release(dir);
-        }
+      IOUtils.closeWhileHandlingException(readersToBeClosed);
+      for (      Directory dir : dirsToBeReleased) {
+        DirectoryFactory dirFactory=core.getDirectoryFactory();
+        dirFactory.release(dir);
       }
       if (wrappedReq != null)       wrappedReq.close();
       core.close();
