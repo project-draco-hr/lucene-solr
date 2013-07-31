@@ -1,0 +1,45 @@
+{
+  List<String> createNodeList=createNodeSetStr == null ? null : StrUtils.splitSmart(createNodeSetStr,",",true);
+  Set<String> nodes=clusterState.getLiveNodes();
+  List<String> nodeList=new ArrayList<String>(nodes.size());
+  nodeList.addAll(nodes);
+  if (createNodeList != null)   nodeList.retainAll(createNodeList);
+  HashMap<String,Node> nodeNameVsShardCount=new HashMap<String,Node>();
+  for (  String s : nodeList)   nodeNameVsShardCount.put(s,new Node(s));
+  for (  String s : clusterState.getCollections()) {
+    DocCollection c=clusterState.getCollection(s);
+    for (    Slice slice : c.getSlices()) {
+      Collection<Replica> replicas=slice.getReplicas();
+      for (      Replica replica : replicas) {
+        Node count=nodeNameVsShardCount.get(replica.getNodeName());
+        if (count != null) {
+          count.totalNodes++;
+          if (s.equals(collectionName)) {
+            count.thisCollectionNodes++;
+            if (count.thisCollectionNodes >= maxShardsPerNode)             nodeNameVsShardCount.remove(replica.getNodeName());
+          }
+        }
+      }
+    }
+  }
+  if (nodeNameVsShardCount.size() <= 0) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cannot create collection " + collectionName + ". No live Solr-instances"+ ((createNodeList != null) ? " among Solr-instances specified in " + CREATE_NODE_SET + ":"+ createNodeSetStr : ""));
+  }
+  if (repFactor > nodeNameVsShardCount.size()) {
+    log.warn("Specified " + REPLICATION_FACTOR + " of "+ repFactor+ " on collection "+ collectionName+ " is higher than or equal to the number of Solr instances currently live or part of your "+ CREATE_NODE_SET+ "("+ nodeList.size()+ "). Its unusual to run two replica of the same slice on the same Solr-instance.");
+  }
+  int maxCoresAllowedToCreate=maxShardsPerNode * nodeList.size();
+  int requestedCoresToCreate=numSlices * repFactor;
+  int minCoresToCreate=requestedCoresToCreate;
+  if (maxCoresAllowedToCreate < minCoresToCreate) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cannot create shards " + collectionName + ". Value of "+ MAX_SHARDS_PER_NODE+ " is "+ maxShardsPerNode+ ", and the number of live nodes is "+ nodeList.size()+ ". This allows a maximum of "+ maxCoresAllowedToCreate+ " to be created. Value of "+ NUM_SLICES+ " is "+ numSlices+ " and value of "+ REPLICATION_FACTOR+ " is "+ repFactor+ ". This requires "+ requestedCoresToCreate+ " shards to be created (higher than the allowed number)");
+  }
+  ArrayList<Node> sortedNodeList=new ArrayList<>(nodeNameVsShardCount.values());
+  Collections.sort(sortedNodeList,new Comparator<Node>(){
+    @Override public int compare(    Node x,    Node y){
+      return (x.weight() < y.weight()) ? -1 : ((x.weight() == y.weight()) ? 0 : 1);
+    }
+  }
+);
+  return sortedNodeList;
+}
