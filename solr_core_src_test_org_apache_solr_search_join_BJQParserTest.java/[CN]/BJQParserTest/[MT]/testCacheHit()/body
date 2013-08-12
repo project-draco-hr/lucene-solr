@@ -1,0 +1,15 @@
+{
+  SolrCache parentFilterCache=(SolrCache)h.getCore().getInfoRegistry().get("perSegFilter");
+  SolrCache filterCache=(SolrCache)h.getCore().getInfoRegistry().get("filterCache");
+  NamedList parentsBefore=parentFilterCache.getStatistics();
+  NamedList filtersBefore=filterCache.getStatistics();
+  String parentFilter="parent_s:([a TO c] [d TO f])";
+  assertQ("search by parent filter",req("q","{!parent which=\"" + parentFilter + "\"}"),"//*[@numFound='6']");
+  assertQ("filter by parent filter",req("q","*:*","fq","{!parent which=\"" + parentFilter + "\"}"),"//*[@numFound='6']");
+  assertEquals("didn't hit fqCache yet ",0L,delta("hits",filterCache.getStatistics(),filtersBefore));
+  assertQ("filter by join",req("q","*:*","fq","{!parent which=\"" + parentFilter + "\"}child_s:l"),"//*[@numFound='6']");
+  assertEquals("in cache mode every request lookups",3,delta("lookups",parentFilterCache.getStatistics(),parentsBefore));
+  assertEquals("last two lookups causes hits",2,delta("hits",parentFilterCache.getStatistics(),parentsBefore));
+  assertEquals("the first lookup gets insert",1,delta("inserts",parentFilterCache.getStatistics(),parentsBefore));
+  assertEquals("true join query is cached in fqCache",1L,delta("lookups",filterCache.getStatistics(),filtersBefore));
+}
