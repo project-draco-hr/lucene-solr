@@ -4,12 +4,21 @@
     throw new SolrException(ErrorCode.BAD_REQUEST,"collection already exists: " + collectionName);
   }
   try {
-    int repFactor=msgStrToInt(message,REPLICATION_FACTOR,1);
-    Integer numSlices=msgStrToInt(message,NUM_SLICES,null);
+    int repFactor=message.getInt(REPLICATION_FACTOR,1);
+    Integer numSlices=message.getInt(NUM_SLICES,null);
+    String router=message.getStr(ROUTER,DocRouter.DEFAULT_NAME);
+    List<String> shardNames=new ArrayList<>();
+    if (ImplicitDocRouter.NAME.equals(router)) {
+      Overseer.getShardNames(shardNames,message.getStr("shards",null));
+      numSlices=shardNames.size();
+    }
+ else {
+      Overseer.getShardNames(numSlices,shardNames);
+    }
     if (numSlices == null) {
       throw new SolrException(ErrorCode.BAD_REQUEST,NUM_SLICES + " is a required param");
     }
-    int maxShardsPerNode=msgStrToInt(message,MAX_SHARDS_PER_NODE,1);
+    int maxShardsPerNode=message.getInt(MAX_SHARDS_PER_NODE,1);
     String createNodeSetStr;
     List<String> createNodeList=((createNodeSetStr=message.getStr(CREATE_NODE_SET)) == null) ? null : StrUtils.splitSmart(createNodeSetStr,",",true);
     if (repFactor <= 0) {
@@ -18,7 +27,6 @@
     if (numSlices <= 0) {
       throw new SolrException(ErrorCode.BAD_REQUEST,NUM_SLICES + " must be > 0");
     }
-    String configName=message.getStr("collection.configName");
     Set<String> nodes=clusterState.getLiveNodes();
     List<String> nodeList=new ArrayList<String>(nodes.size());
     nodeList.addAll(nodes);
@@ -35,16 +43,27 @@
     if (maxShardsAllowedToCreate < requestedShardsToCreate) {
       throw new SolrException(ErrorCode.BAD_REQUEST,"Cannot create collection " + collectionName + ". Value of "+ MAX_SHARDS_PER_NODE+ " is "+ maxShardsPerNode+ ", and the number of live nodes is "+ nodeList.size()+ ". This allows a maximum of "+ maxShardsAllowedToCreate+ " to be created. Value of "+ NUM_SLICES+ " is "+ numSlices+ " and value of "+ REPLICATION_FACTOR+ " is "+ repFactor+ ". This requires "+ requestedShardsToCreate+ " shards to be created (higher than the allowed number)");
     }
-    for (int i=1; i <= numSlices; i++) {
+    Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(message));
+    long waitUntil=System.currentTimeMillis() + 30000;
+    boolean created=false;
+    while (System.currentTimeMillis() < waitUntil) {
+      Thread.sleep(100);
+      created=zkStateReader.getClusterState().getCollections().contains(message.getStr("name"));
+      if (created)       break;
+    }
+    if (!created)     throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully createcollection: " + message.getStr("name"));
+    String configName=message.getStr(COLL_CONF);
+    log.info("going to create cores replicas shardNames {} , repFactor : {}",shardNames,repFactor);
+    for (int i=1; i <= shardNames.size(); i++) {
+      String sliceName=shardNames.get(i - 1);
       for (int j=1; j <= repFactor; j++) {
         String nodeName=nodeList.get((repFactor * (i - 1) + (j - 1)) % nodeList.size());
-        String sliceName="shard" + i;
         String shardName=collectionName + "_" + sliceName+ "_replica"+ j;
         log.info("Creating shard " + shardName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ nodeName);
         ModifiableSolrParams params=new ModifiableSolrParams();
         params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
         params.set(CoreAdminParams.NAME,shardName);
-        params.set("collection.configName",configName);
+        params.set(COLL_CONF,configName);
         params.set(CoreAdminParams.COLLECTION,collectionName);
         params.set(CoreAdminParams.SHARD,sliceName);
         params.set(ZkStateReader.NUM_SHARDS_PROP,numSlices);

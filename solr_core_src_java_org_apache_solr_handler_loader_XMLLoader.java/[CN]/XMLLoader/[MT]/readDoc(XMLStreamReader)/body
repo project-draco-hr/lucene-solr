@@ -15,6 +15,7 @@
   float boost=1.0f;
   boolean isNull=false;
   String update=null;
+  Collection<SolrInputDocument> subDocs=null;
   Map<String,Map<String,Object>> updateMap=null;
   boolean complete=false;
   while (!complete) {
@@ -27,6 +28,10 @@ case XMLStreamConstants.CHARACTERS:
     break;
 case XMLStreamConstants.END_ELEMENT:
   if ("doc".equals(parser.getLocalName())) {
+    if (subDocs != null && !subDocs.isEmpty()) {
+      doc.addChildDocuments(subDocs);
+      subDocs=null;
+    }
     complete=true;
     break;
   }
@@ -59,11 +64,17 @@ case XMLStreamConstants.END_ELEMENT:
     }
     doc.addField(name,v,boost);
     boost=1.0f;
+    name=null;
   }
 break;
 case XMLStreamConstants.START_ELEMENT:
 text.setLength(0);
 String localName=parser.getLocalName();
+if ("doc".equals(localName)) {
+if (subDocs == null) subDocs=Lists.newArrayList();
+subDocs.add(readDoc(parser));
+}
+ else {
 if (!"field".equals(localName)) {
 log.warn("unexpected XML tag doc/" + localName);
 throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unexpected XML tag doc/" + localName);
@@ -89,6 +100,7 @@ update=attrVal;
 }
  else {
 log.warn("Unknown attribute doc/field/@" + attrName);
+}
 }
 }
 break;

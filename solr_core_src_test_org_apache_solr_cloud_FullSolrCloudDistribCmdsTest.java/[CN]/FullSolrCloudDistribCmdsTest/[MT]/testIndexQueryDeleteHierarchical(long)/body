@@ -1,0 +1,33 @@
+{
+  int topDocsNum=atLeast(10);
+  int childsNum=atLeast(10);
+  for (int i=0; i < topDocsNum; ++i) {
+    UpdateRequest uReq=new UpdateRequest();
+    SolrInputDocument topDocument=new SolrInputDocument();
+    topDocument.addField("id",docId++);
+    topDocument.addField("type_s","parent");
+    topDocument.addField(i + "parent_f1_s","v1");
+    topDocument.addField(i + "parent_f2_s","v2");
+    for (int index=0; index < childsNum; ++index) {
+      docId=addChildren("child",topDocument,index,false,docId);
+    }
+    uReq.add(topDocument);
+    uReq.process(cloudClient);
+    uReq.process(controlClient);
+  }
+  commit();
+  checkShardConsistency();
+  assertDocCounts(VERBOSE);
+  SolrQuery query=new SolrQuery("type_s:parent");
+  QueryResponse results=cloudClient.query(query);
+  assertEquals(topDocsNum,results.getResults().getNumFound());
+  query=new SolrQuery("type_s:child");
+  results=cloudClient.query(query);
+  assertEquals(topDocsNum * childsNum,results.getResults().getNumFound());
+  query=new SolrQuery("type_s:grand");
+  results=cloudClient.query(query);
+  assertEquals(topDocsNum * childsNum * (childsNum - 1),results.getResults().getNumFound());
+  del("*:*");
+  commit();
+  return docId;
+}

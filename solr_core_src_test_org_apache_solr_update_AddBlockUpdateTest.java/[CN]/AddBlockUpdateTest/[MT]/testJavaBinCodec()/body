@@ -1,0 +1,34 @@
+{
+  SolrInputDocument topDocument=new SolrInputDocument();
+  topDocument.addField("parent_f1","v1");
+  topDocument.addField("parent_f2","v2");
+  int childsNum=atLeast(10);
+  for (int index=0; index < childsNum; ++index) {
+    addChildren("child",topDocument,index,false);
+  }
+  ByteArrayOutputStream os=new ByteArrayOutputStream();
+  new JavaBinCodec().marshal(topDocument,os);
+  byte[] buffer=os.toByteArray();
+  InputStream is=new ByteArrayInputStream(buffer);
+  SolrInputDocument result=(SolrInputDocument)new JavaBinCodec().unmarshal(is);
+  assertEquals(2,result.size());
+  assertEquals("v1",result.getFieldValue("parent_f1"));
+  assertEquals("v2",result.getFieldValue("parent_f2"));
+  List<SolrInputDocument> resultChilds=result.getChildDocuments();
+  assertEquals(childsNum,resultChilds.size());
+  for (int childIndex=0; childIndex < childsNum; ++childIndex) {
+    SolrInputDocument child=resultChilds.get(childIndex);
+    for (int fieldNum=0; fieldNum < childIndex; ++fieldNum) {
+      assertEquals(childIndex + "value" + fieldNum,child.getFieldValue(childIndex + "child" + fieldNum));
+    }
+    List<SolrInputDocument> grandChilds=child.getChildDocuments();
+    assertEquals(childIndex * 2,grandChilds.size());
+    for (int grandIndex=0; grandIndex < childIndex * 2; ++grandIndex) {
+      SolrInputDocument grandChild=grandChilds.get(grandIndex);
+      assertFalse(grandChild.hasChildDocuments());
+      for (int fieldNum=0; fieldNum < grandIndex; ++fieldNum) {
+        assertEquals(grandIndex + "value" + fieldNum,grandChild.getFieldValue(grandIndex + "grand" + fieldNum));
+      }
+    }
+  }
+}

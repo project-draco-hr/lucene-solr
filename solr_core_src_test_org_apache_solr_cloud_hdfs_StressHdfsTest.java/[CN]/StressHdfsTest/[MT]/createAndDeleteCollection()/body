@@ -1,0 +1,53 @@
+{
+  boolean overshard=random().nextBoolean();
+  if (overshard) {
+    createCollection(DELETE_DATA_DIR_COLLECTION,shardCount * 2,1,2);
+  }
+ else {
+    int rep=shardCount / 2;
+    if (rep == 0)     rep=1;
+    createCollection(DELETE_DATA_DIR_COLLECTION,rep,2,1);
+  }
+  waitForRecoveriesToFinish(DELETE_DATA_DIR_COLLECTION,false);
+  cloudClient.setDefaultCollection(DELETE_DATA_DIR_COLLECTION);
+  cloudClient.getZkStateReader().updateClusterState(true);
+  List<String> dataDirs=new ArrayList<String>();
+  int i=0;
+  for (  SolrServer client : clients) {
+    HttpSolrServer c=new HttpSolrServer(getBaseUrl(client) + "/delete_data_dir");
+    c.add(getDoc("id",i++));
+    if (random().nextBoolean())     c.add(getDoc("id",i++));
+    if (random().nextBoolean())     c.add(getDoc("id",i++));
+    if (random().nextBoolean()) {
+      c.commit();
+    }
+ else {
+      c.commit(true,true,true);
+    }
+    c.query(new SolrQuery("id:" + i));
+    c.setSoTimeout(30000);
+    c.setConnectionTimeout(30000);
+    NamedList<Object> response=c.query(new SolrQuery().setRequestHandler("/admin/system")).getResponse();
+    NamedList<Object> coreInfo=(NamedList<Object>)response.get("core");
+    String dataDir=(String)((NamedList<Object>)coreInfo.get("directory")).get("data");
+    dataDirs.add(dataDir);
+    c.shutdown();
+  }
+  if (random().nextBoolean()) {
+    cloudClient.deleteByQuery("*:*");
+    cloudClient.commit();
+    assertEquals(0,cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound());
+  }
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set("action",CollectionAction.DELETE.toString());
+  params.set("name",DELETE_DATA_DIR_COLLECTION);
+  QueryRequest request=new QueryRequest(params);
+  request.setPath("/admin/collections");
+  cloudClient.request(request);
+  for (  String dataDir : dataDirs) {
+    Configuration conf=new Configuration();
+    FileSystem fs=FileSystem.newInstance(new URI(dataDir),conf);
+    assertFalse("Data directory exists after collection removal : " + dataDir,fs.exists(new Path(dataDir)));
+    fs.close();
+  }
+}

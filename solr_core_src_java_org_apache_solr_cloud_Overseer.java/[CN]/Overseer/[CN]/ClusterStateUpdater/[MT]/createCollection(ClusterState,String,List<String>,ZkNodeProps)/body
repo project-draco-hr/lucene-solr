@@ -1,0 +1,29 @@
+{
+  log.info("Create collection {} with shards {}",collectionName,shards);
+  ;
+  String routerName=message.getStr(OverseerCollectionProcessor.ROUTER,DocRouter.DEFAULT_NAME);
+  DocRouter router=DocRouter.getDocRouter(routerName);
+  List<DocRouter.Range> ranges=router.partitionRange(shards.size(),router.fullRange());
+  Map<String,DocCollection> newCollections=new LinkedHashMap<String,DocCollection>();
+  Map<String,Slice> newSlices=new LinkedHashMap<String,Slice>();
+  newCollections.putAll(state.getCollectionStates());
+  for (int i=0; i < shards.size(); i++) {
+    String sliceName=shards.get(i);
+    Map<String,Object> sliceProps=new LinkedHashMap<String,Object>(1);
+    sliceProps.put(Slice.RANGE,ranges == null ? null : ranges.get(i));
+    newSlices.put(sliceName,new Slice(sliceName,null,sliceProps));
+  }
+  Map<String,Object> collectionProps=new HashMap<String,Object>();
+  for (  Entry<String,Object> e : OverseerCollectionProcessor.COLL_PROPS.entrySet()) {
+    Object val=message.get(e.getKey());
+    if (val == null) {
+      val=OverseerCollectionProcessor.COLL_PROPS.get(e.getKey());
+    }
+    if (val != null)     collectionProps.put(e.getKey(),val);
+  }
+  collectionProps.put(DocCollection.DOC_ROUTER,routerName);
+  DocCollection newCollection=new DocCollection(collectionName,newSlices,collectionProps,router);
+  newCollections.put(collectionName,newCollection);
+  ClusterState newClusterState=new ClusterState(state.getLiveNodes(),newCollections);
+  return newClusterState;
+}
