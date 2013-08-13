@@ -3,27 +3,45 @@
   final int[] children=arrays.children();
   final int[] siblings=arrays.siblings();
   int rootOrd=taxonomyReader.getOrdinal(facetRequest.categoryPath);
-  FacetResultNode root=new FacetResultNode(rootOrd,valueOf(rootOrd));
+  FacetResultNode root=new FacetResultNode(rootOrd,resolver.valueOf(rootOrd));
   root.label=facetRequest.categoryPath;
   if (facetRequest.numResults > taxonomyReader.getSize()) {
     ArrayList<FacetResultNode> nodes=new ArrayList<FacetResultNode>();
-    int child=children[rootOrd];
-    addSiblings(child,siblings,nodes);
-    Collections.sort(nodes,new Comparator<FacetResultNode>(){
+    int ordinal=children[rootOrd];
+    while (ordinal != TaxonomyReader.INVALID_ORDINAL) {
+      double value=resolver.valueOf(ordinal);
+      if (value > 0) {
+        FacetResultNode node=new FacetResultNode(ordinal,value);
+        node.label=taxonomyReader.getPath(ordinal);
+        nodes.add(node);
+      }
+      ordinal=siblings[ordinal];
+    }
+    CollectionUtil.introSort(nodes,Collections.reverseOrder(new Comparator<FacetResultNode>(){
       @Override public int compare(      FacetResultNode o1,      FacetResultNode o2){
-        int value=(int)(o2.value - o1.value);
-        if (value == 0) {
-          value=o2.ordinal - o1.ordinal;
-        }
-        return value;
+        return o1.compareTo(o2);
       }
     }
-);
+));
     root.subResults=nodes;
     return new FacetResult(facetRequest,root,nodes.size());
   }
   PriorityQueue<FacetResultNode> pq=new FacetResultNodeQueue(facetRequest.numResults,true);
-  int numSiblings=addSiblings(children[rootOrd],siblings,pq);
+  int ordinal=children[rootOrd];
+  FacetResultNode top=pq.top();
+  int numSiblings=0;
+  while (ordinal != TaxonomyReader.INVALID_ORDINAL) {
+    double value=resolver.valueOf(ordinal);
+    if (value > 0) {
+      ++numSiblings;
+      if (value > top.value) {
+        top.value=value;
+        top.ordinal=ordinal;
+        top=pq.updateTop();
+      }
+    }
+    ordinal=siblings[ordinal];
+  }
   int pqsize=pq.size();
   int size=numSiblings < pqsize ? numSiblings : pqsize;
   for (int i=pqsize - size; i > 0; i--) {

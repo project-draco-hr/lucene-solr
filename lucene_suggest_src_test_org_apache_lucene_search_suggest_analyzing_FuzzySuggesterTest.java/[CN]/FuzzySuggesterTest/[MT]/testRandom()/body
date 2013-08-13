@@ -5,10 +5,11 @@
   final Set<String> seen=new HashSet<String>();
   TermFreq[] keys=new TermFreq[numQueries];
   boolean preserveSep=random().nextBoolean();
+  boolean unicodeAware=random().nextBoolean();
   final int numStopChars=random().nextInt(10);
   final boolean preserveHoles=random().nextBoolean();
   if (VERBOSE) {
-    System.out.println("TEST: " + numQueries + " words; preserveSep="+ preserveSep+ " numStopChars="+ numStopChars+ " preserveHoles="+ preserveHoles);
+    System.out.println("TEST: " + numQueries + " words; preserveSep="+ preserveSep+ " ; unicodeAware="+ unicodeAware+ " numStopChars="+ numStopChars+ " preserveHoles="+ preserveHoles);
   }
   for (int i=0; i < numQueries; i++) {
     int numTokens=_TestUtil.nextInt(random(),1,4);
@@ -26,7 +27,7 @@
             if (token > 0) {
               key+=" ";
             }
-            if (preserveSep && analyzedKey.length() > 0 && analyzedKey.charAt(analyzedKey.length() - 1) != ' ') {
+            if (preserveSep && analyzedKey.length() > 0 && (unicodeAware ? analyzedKey.codePointAt(analyzedKey.codePointCount(0,analyzedKey.length()) - 1) != ' ' : analyzedKey.charAt(analyzedKey.length() - 1) != ' ')) {
               analyzedKey+=" ";
             }
             key+=s;
@@ -68,7 +69,7 @@
     }
   }
   Analyzer a=new MockTokenEatingAnalyzer(numStopChars,preserveHoles);
-  FuzzySuggester suggester=new FuzzySuggester(a,a,preserveSep ? AnalyzingSuggester.PRESERVE_SEP : 0,256,-1,1,false,1,3);
+  FuzzySuggester suggester=new FuzzySuggester(a,a,preserveSep ? AnalyzingSuggester.PRESERVE_SEP : 0,256,-1,1,false,1,3,unicodeAware);
   suggester.build(new TermFreqArrayIterator(keys));
   for (  String prefix : allPrefixes) {
     if (VERBOSE) {
@@ -115,7 +116,7 @@
       System.out.println("  analyzed: " + analyzedKey);
     }
     TokenStreamToAutomaton tokenStreamToAutomaton=suggester.getTokenStreamToAutomaton();
-    Automaton automaton=suggester.toLevenshteinAutomata(suggester.toLookupAutomaton(analyzedKey));
+    Automaton automaton=suggester.convertAutomaton(suggester.toLevenshteinAutomata(suggester.toLookupAutomaton(analyzedKey)));
     assertTrue(automaton.isDeterministic());
     BytesRef spare=new BytesRef();
     for (    TermFreq2 e : slowCompletor) {

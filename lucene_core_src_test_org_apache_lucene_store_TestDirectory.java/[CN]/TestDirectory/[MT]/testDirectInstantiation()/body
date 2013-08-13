@@ -1,37 +1,45 @@
 {
-  File path=_TestUtil.getTempDir("testDirectInstantiation");
-  int sz=3;
-  Directory[] dirs=new Directory[sz];
-  dirs[0]=new SimpleFSDirectory(path,null);
-  dirs[1]=new NIOFSDirectory(path,null);
-  dirs[2]=new MMapDirectory(path,null);
-  for (int i=0; i < sz; i++) {
-    Directory dir=dirs[i];
+  final File path=_TestUtil.getTempDir("testDirectInstantiation");
+  final byte[] largeBuffer=new byte[random().nextInt(256 * 1024)], largeReadBuffer=new byte[largeBuffer.length];
+  for (int i=0; i < largeBuffer.length; i++) {
+    largeBuffer[i]=(byte)i;
+  }
+  final FSDirectory[] dirs=new FSDirectory[]{new SimpleFSDirectory(path,null),new NIOFSDirectory(path,null),new MMapDirectory(path,null)};
+  for (int i=0; i < dirs.length; i++) {
+    FSDirectory dir=dirs[i];
     dir.ensureOpen();
     String fname="foo." + i;
     String lockname="foo" + i + ".lck";
     IndexOutput out=dir.createOutput(fname,newIOContext(random()));
     out.writeByte((byte)i);
+    out.writeBytes(largeBuffer,largeBuffer.length);
     out.close();
-    for (int j=0; j < sz; j++) {
-      Directory d2=dirs[j];
+    for (int j=0; j < dirs.length; j++) {
+      FSDirectory d2=dirs[j];
       d2.ensureOpen();
       assertTrue(d2.fileExists(fname));
-      assertEquals(1,d2.fileLength(fname));
-      if (d2 instanceof MMapDirectory)       continue;
+      assertEquals(1 + largeBuffer.length,d2.fileLength(fname));
+      if (d2 instanceof MMapDirectory && !((MMapDirectory)d2).getUseUnmap())       continue;
       IndexInput input=d2.openInput(fname,newIOContext(random()));
       assertEquals((byte)i,input.readByte());
+      Arrays.fill(largeReadBuffer,(byte)0);
+      input.readBytes(largeReadBuffer,0,largeReadBuffer.length,true);
+      assertArrayEquals(largeBuffer,largeReadBuffer);
+      input.seek(1L);
+      Arrays.fill(largeReadBuffer,(byte)0);
+      input.readBytes(largeReadBuffer,0,largeReadBuffer.length,false);
+      assertArrayEquals(largeBuffer,largeReadBuffer);
       input.close();
     }
-    dirs[(i + 1) % sz].deleteFile(fname);
-    for (int j=0; j < sz; j++) {
-      Directory d2=dirs[j];
+    dirs[(i + 1) % dirs.length].deleteFile(fname);
+    for (int j=0; j < dirs.length; j++) {
+      FSDirectory d2=dirs[j];
       assertFalse(d2.fileExists(fname));
     }
     Lock lock=dir.makeLock(lockname);
     assertTrue(lock.obtain());
-    for (int j=0; j < sz; j++) {
-      Directory d2=dirs[j];
+    for (int j=0; j < dirs.length; j++) {
+      FSDirectory d2=dirs[j];
       Lock lock2=d2.makeLock(lockname);
       try {
         assertFalse(lock2.obtain(1));
@@ -40,12 +48,12 @@
       }
     }
     lock.release();
-    lock=dirs[(i + 1) % sz].makeLock(lockname);
+    lock=dirs[(i + 1) % dirs.length].makeLock(lockname);
     assertTrue(lock.obtain());
     lock.release();
   }
-  for (int i=0; i < sz; i++) {
-    Directory dir=dirs[i];
+  for (int i=0; i < dirs.length; i++) {
+    FSDirectory dir=dirs[i];
     dir.ensureOpen();
     dir.close();
     assertFalse(dir.isOpen);

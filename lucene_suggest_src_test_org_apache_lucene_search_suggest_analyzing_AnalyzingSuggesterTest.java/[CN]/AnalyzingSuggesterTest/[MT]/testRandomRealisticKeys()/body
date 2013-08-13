@@ -1,0 +1,41 @@
+{
+  LineFileDocs lineFile=new LineFileDocs(random());
+  Map<String,Long> mapping=new HashMap<>();
+  List<TermFreq> keys=new ArrayList<>();
+  int howMany=atLeast(100);
+  for (int i=0; i < howMany; i++) {
+    Document nextDoc=lineFile.nextDoc();
+    String title=nextDoc.getField("title").stringValue();
+    int randomWeight=random().nextInt(100);
+    keys.add(new TermFreq(title,randomWeight));
+    if (!mapping.containsKey(title) || mapping.get(title) < randomWeight) {
+      mapping.put(title,Long.valueOf(randomWeight));
+    }
+  }
+  AnalyzingSuggester analyzingSuggester=new AnalyzingSuggester(new MockAnalyzer(random()));
+  analyzingSuggester.setPreservePositionIncrements(random().nextBoolean());
+  boolean doPayloads=random().nextBoolean();
+  if (doPayloads) {
+    List<TermFreqPayload> keysAndPayloads=new ArrayList<>();
+    for (    TermFreq termFreq : keys) {
+      keysAndPayloads.add(new TermFreqPayload(termFreq.term,termFreq.v,new BytesRef(Long.toString(termFreq.v))));
+    }
+    analyzingSuggester.build(new TermFreqPayloadArrayIterator(keysAndPayloads));
+  }
+ else {
+    analyzingSuggester.build(new TermFreqArrayIterator(keys));
+  }
+  for (  TermFreq termFreq : keys) {
+    List<LookupResult> lookup=analyzingSuggester.lookup(termFreq.term.utf8ToString(),false,keys.size());
+    for (    LookupResult lookupResult : lookup) {
+      assertEquals(mapping.get(lookupResult.key),Long.valueOf(lookupResult.value));
+      if (doPayloads) {
+        assertEquals(lookupResult.payload.utf8ToString(),Long.toString(lookupResult.value));
+      }
+ else {
+        assertNull(lookupResult.payload);
+      }
+    }
+  }
+  lineFile.close();
+}
