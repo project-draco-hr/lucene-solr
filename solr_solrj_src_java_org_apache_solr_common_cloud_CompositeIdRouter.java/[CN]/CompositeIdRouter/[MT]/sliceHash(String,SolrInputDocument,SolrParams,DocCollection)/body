@@ -1,0 +1,38 @@
+{
+  String shardFieldName=collection == null ? null : collection.getStr(DocRouter.ROUTE_FIELD);
+  String part1=null;
+  int idx=0;
+  int commaIdx=0;
+  if (shardFieldName == null || doc == null) {
+    idx=id.indexOf(separator);
+    if (idx < 0) {
+      return Hash.murmurhash3_x86_32(id,0,id.length(),0);
+    }
+    part1=id.substring(0,idx);
+    commaIdx=part1.indexOf(bitsSeparator);
+  }
+ else {
+    Object o=doc.getFieldValue(shardFieldName);
+    if (o != null) {
+      part1=o.toString();
+      return Hash.murmurhash3_x86_32(part1,0,part1.length(),0);
+    }
+ else {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No value for :" + shardFieldName + ". Unable to identify shard");
+    }
+  }
+  int m1=mask1;
+  int m2=mask2;
+  if (commaIdx > 0) {
+    int firstBits=getBits(part1,commaIdx);
+    if (firstBits >= 0) {
+      m1=firstBits == 0 ? 0 : (-1 << (32 - firstBits));
+      m2=firstBits == 32 ? 0 : (-1 >>> firstBits);
+      part1=part1.substring(0,commaIdx);
+    }
+  }
+  String part2=id.substring(idx + 1);
+  int hash1=Hash.murmurhash3_x86_32(part1,0,part1.length(),0);
+  int hash2=Hash.murmurhash3_x86_32(part2,0,part2.length(),0);
+  return (hash1 & m1) | (hash2 & m2);
+}
