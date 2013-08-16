@@ -1,19 +1,11 @@
 {
   final long valueCount=binaries.get(field.number).count;
   final LongBinaryDocValues binary=(LongBinaryDocValues)getBinary(field);
-  final LongNumericDocValues ordinals=getNumeric(ords.get(field.number));
-  final MonotonicBlockPackedReader ordIndex;
-synchronized (ordIndexInstances) {
-    MonotonicBlockPackedReader ordIndexInstance=ordIndexInstances.get(field.number);
-    if (ordIndexInstance == null) {
-      NumericEntry entry=ordIndexes.get(field.number);
-      IndexInput data=this.data.clone();
-      data.seek(entry.offset);
-      ordIndexInstance=new MonotonicBlockPackedReader(data,entry.packedIntsVersion,entry.blockSize,entry.count,false);
-      ordIndexInstances.put(field.number,ordIndexInstance);
-    }
-    ordIndex=ordIndexInstance;
-  }
+  final LongNumericDocValues ordinals=getNumeric(field,ords.get(field.number));
+  NumericEntry entry=ordIndexes.get(field.number);
+  IndexInput data=this.data.clone();
+  data.seek(entry.offset);
+  final MonotonicBlockPackedReader ordIndex=new MonotonicBlockPackedReader(data,entry.packedIntsVersion,entry.blockSize,entry.count,true);
   return new SortedSetDocValues(){
     long offset;
     long endOffset;
@@ -36,22 +28,6 @@ synchronized (ordIndexInstances) {
     }
     @Override public long getValueCount(){
       return valueCount;
-    }
-    @Override public long lookupTerm(    BytesRef key){
-      if (binary instanceof CompressedBinaryDocValues) {
-        return ((CompressedBinaryDocValues)binary).lookupTerm(key);
-      }
- else {
-        return super.lookupTerm(key);
-      }
-    }
-    @Override public TermsEnum termsEnum(){
-      if (binary instanceof CompressedBinaryDocValues) {
-        return ((CompressedBinaryDocValues)binary).getTermsEnum();
-      }
- else {
-        return super.termsEnum();
-      }
     }
   }
 ;
