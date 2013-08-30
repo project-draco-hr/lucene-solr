@@ -1,0 +1,28 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  final SetOnce<IndexWriter> iwRef=new SetOnce<IndexWriter>();
+  iwc.setInfoStream(new RandomIndexWriter.TestPointInfoStream(iwc.getInfoStream(),new RandomIndexWriter.TestPoint(){
+    @Override public void apply(    String message){
+      if ("startCommitMerge".equals(message)) {
+        iwRef.get().setKeepFullyDeletedSegments(false);
+      }
+ else       if ("startMergeInit".equals(message)) {
+        iwRef.get().setKeepFullyDeletedSegments(true);
+      }
+    }
+  }
+));
+  IndexWriter evilWriter=new IndexWriter(dir,iwc);
+  iwRef.set(evilWriter);
+  for (int i=0; i < 1000; i++) {
+    addDoc(evilWriter);
+    if (random().nextInt(17) == 0) {
+      evilWriter.commit();
+    }
+  }
+  evilWriter.deleteDocuments(new MatchAllDocsQuery());
+  evilWriter.forceMerge(1);
+  evilWriter.close();
+  dir.close();
+}

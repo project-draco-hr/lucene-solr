@@ -1,0 +1,27 @@
+{
+  Directory dir=newDirectory();
+  final Automaton secondSet=BasicAutomata.makeString("foobar");
+  Analyzer a=new Analyzer(){
+    @Override protected TokenStreamComponents createComponents(    String fieldName,    Reader reader){
+      Tokenizer tokenizer=new MockTokenizer(reader);
+      TokenStream stream=new MockTokenFilter(tokenizer,MockTokenFilter.ENGLISH_STOPSET);
+      stream=new MockTokenFilter(stream,new CharacterRunAutomaton(secondSet));
+      return new TokenStreamComponents(tokenizer,stream);
+    }
+  }
+;
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,a);
+  Document doc=new Document();
+  doc.add(new TextField("body","just a foobar",Field.Store.NO));
+  doc.add(new TextField("body","test of gaps",Field.Store.NO));
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher is=newSearcher(ir);
+  PhraseQuery pq=new PhraseQuery();
+  pq.add(new Term("body","just"),0);
+  pq.add(new Term("body","test"),3);
+  assertEquals(1,is.search(pq,5).totalHits);
+  ir.close();
+  dir.close();
+}

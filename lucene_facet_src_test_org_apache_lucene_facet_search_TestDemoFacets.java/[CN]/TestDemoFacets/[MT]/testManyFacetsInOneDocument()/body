@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setCodec(new Facet45Codec());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  FacetFields facetFields=new FacetFields(taxoWriter);
+  int numLabels=_TestUtil.nextInt(random(),40000,100000);
+  Document doc=new Document();
+  doc.add(newTextField("field","text",Field.Store.NO));
+  List<CategoryPath> paths=new ArrayList<CategoryPath>();
+  for (int i=0; i < numLabels; i++) {
+    paths.add(new CategoryPath("dim","" + i));
+  }
+  facetFields.addFields(doc,paths);
+  writer.addDocument(doc);
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  writer.close();
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  taxoWriter.close();
+  FacetSearchParams fsp=new FacetSearchParams(new CountFacetRequest(new CategoryPath("dim"),Integer.MAX_VALUE));
+  FacetsCollector c=FacetsCollector.create(fsp,searcher.getIndexReader(),taxoReader);
+  searcher.search(new MatchAllDocsQuery(),c);
+  List<FacetResult> results=c.getFacetResults();
+  assertEquals(1,results.size());
+  FacetResultNode root=results.get(0).getFacetResultNode();
+  assertEquals(numLabels,root.subResults.size());
+  Set<String> allLabels=new HashSet<String>();
+  for (  FacetResultNode childNode : root.subResults) {
+    assertEquals(2,childNode.label.length);
+    allLabels.add(childNode.label.components[1]);
+    assertEquals(1,(int)childNode.value);
+  }
+  assertEquals(numLabels,allLabels.size());
+  IOUtils.close(searcher.getIndexReader(),taxoReader,dir,taxoDir);
+}
