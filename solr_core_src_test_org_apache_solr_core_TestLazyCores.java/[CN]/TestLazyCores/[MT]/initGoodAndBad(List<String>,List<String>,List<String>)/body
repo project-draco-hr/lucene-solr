@@ -1,0 +1,31 @@
+{
+  ignoreException(Pattern.quote("SAXParseException"));
+  if (solrHomeDirectory.exists()) {
+    FileUtils.deleteDirectory(solrHomeDirectory);
+  }
+  assertTrue("Failed to mkdirs workDir",solrHomeDirectory.mkdirs());
+  for (  String coreName : goodCores) {
+    File coreRoot=new File(solrHomeDirectory,coreName);
+    copyMinConf(coreRoot,"name=" + coreName);
+  }
+  String top=SolrTestCaseJ4.TEST_HOME() + "/collection1/conf";
+  String min_schema=FileUtils.readFileToString(new File(top,"schema-tiny.xml"),Charsets.UTF_8.toString());
+  String min_config=FileUtils.readFileToString(new File(top,"solrconfig-minimal.xml"),Charsets.UTF_8.toString());
+  String rand_snip=FileUtils.readFileToString(new File(top,"solrconfig.snippet.randomindexconfig.xml"),Charsets.UTF_8.toString());
+  String bad_config=min_config.replace("<requestHandler","<reqsthalr");
+  String bad_schema=min_schema.replace("<field","<filed");
+  for (  String coreName : badConfigCores) {
+    writeCustomConfig(coreName,bad_config,min_schema,rand_snip);
+  }
+  for (  String coreName : badSchemaCores) {
+    writeCustomConfig(coreName,min_config,bad_schema,rand_snip);
+  }
+  File solrXml=new File(solrHomeDirectory,"solr.xml");
+  FileUtils.write(solrXml,"<solr/>",Charsets.UTF_8.toString());
+  SolrResourceLoader loader=new SolrResourceLoader(solrHomeDirectory.getAbsolutePath());
+  ConfigSolrXml config=(ConfigSolrXml)ConfigSolr.fromFile(loader,solrXml);
+  CoresLocator locator=new CorePropertiesLocator(solrHomeDirectory.getAbsolutePath());
+  final CoreContainer cores=new CoreContainer(loader,config,locator);
+  cores.load();
+  return cores;
+}
