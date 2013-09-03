@@ -1,0 +1,39 @@
+{
+  this.textTerms=MultiFields.getTerms(atomicReader,textFieldName);
+  if (textTerms == null) {
+    throw new IOException(new StringBuilder("term vectors need to be available for field ").append(textFieldName).toString());
+  }
+  this.analyzer=analyzer;
+  this.textFieldName=textFieldName;
+  if (threshold == null || threshold == 0d) {
+    long sumDocFreq=atomicReader.getSumDocFreq(textFieldName);
+    if (sumDocFreq != -1) {
+      this.threshold=(double)sumDocFreq / 2d;
+    }
+ else {
+      throw new IOException("threshold cannot be assigned since term vectors for field " + textFieldName + " do not exist");
+    }
+  }
+  SortedMap<String,Double> weights=new TreeMap<>();
+  TermsEnum reuse=textTerms.iterator(null);
+  BytesRef textTerm;
+  while ((textTerm=reuse.next()) != null) {
+    weights.put(textTerm.utf8ToString(),(double)reuse.totalTermFreq());
+  }
+  updateFST(weights);
+  IndexSearcher indexSearcher=new IndexSearcher(atomicReader);
+  int batchCount=0;
+  for (  ScoreDoc scoreDoc : indexSearcher.search(new MatchAllDocsQuery(),Integer.MAX_VALUE).scoreDocs) {
+    StoredDocument doc=indexSearcher.doc(scoreDoc.doc);
+    ClassificationResult<Boolean> classificationResult=assignClass(doc.getField(textFieldName).stringValue());
+    Boolean assignedClass=classificationResult.getAssignedClass();
+    StorableField field=doc.getField(classFieldName);
+    Boolean correctClass=Boolean.valueOf(field.stringValue());
+    long modifier=correctClass.compareTo(assignedClass);
+    if (modifier != 0) {
+      reuse=updateWeights(atomicReader,reuse,scoreDoc.doc,assignedClass,weights,modifier,batchCount % batchSize == 0);
+    }
+    batchCount++;
+  }
+  weights.clear();
+}
