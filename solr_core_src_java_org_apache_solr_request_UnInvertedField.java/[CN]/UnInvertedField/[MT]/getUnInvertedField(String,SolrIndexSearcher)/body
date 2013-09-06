@@ -3,15 +3,38 @@
   if (cache == null) {
     return new UnInvertedField(field,searcher);
   }
-  UnInvertedField uif=cache.get(field);
-  if (uif == null) {
+  UnInvertedField uif=null;
+  Boolean doWait=false;
 synchronized (cache) {
-      uif=cache.get(field);
-      if (uif == null) {
-        uif=new UnInvertedField(field,searcher);
-        cache.put(field,uif);
+    uif=cache.get(field);
+    if (uif == null) {
+      cache.put(field,uifPlaceholder);
+    }
+ else {
+      if (uif.isPlaceholder == false) {
+        return uif;
+      }
+      doWait=true;
+    }
+  }
+  while (doWait) {
+    try {
+synchronized (cache) {
+        uif=cache.get(field);
+        if (uif.isPlaceholder == false) {
+          return uif;
+        }
+        cache.wait();
       }
     }
+ catch (    InterruptedException e) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Thread interrupted in getUninvertedField.");
+    }
+  }
+  uif=new UnInvertedField(field,searcher);
+synchronized (cache) {
+    cache.put(field,uif);
+    cache.notifyAll();
   }
   return uif;
 }

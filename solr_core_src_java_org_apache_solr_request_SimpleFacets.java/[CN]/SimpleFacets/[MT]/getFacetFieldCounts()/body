@@ -1,16 +1,69 @@
 {
   NamedList<Object> res=new SimpleOrderedMap<Object>();
   String[] facetFs=params.getParams(FacetParams.FACET_FIELD);
-  if (null != facetFs) {
-    for (    String f : facetFs) {
-      parseParams(FacetParams.FACET_FIELD,f);
-      String termList=localParams == null ? null : localParams.get(CommonParams.TERMS);
-      if (termList != null) {
-        res.add(key,getListedTermCounts(facetValue,termList));
-      }
+  if (null == facetFs) {
+    return res;
+  }
+  int maxThreads=req.getParams().getInt(FacetParams.FACET_THREADS,0);
+  Executor executor=maxThreads == 0 ? directExecutor : facetExecutor;
+  maxThreads=(maxThreads <= 0) ? Integer.MAX_VALUE : maxThreads;
+  CompletionService completionService=new ExecutorCompletionService(executor);
+  LinkedList<Callable> pending=new LinkedList<Callable>();
+  for (  String f : facetFs) {
+    parseParams(FacetParams.FACET_FIELD,f);
+    final String termList=localParams == null ? null : localParams.get(CommonParams.TERMS);
+    final String workerKey=key;
+    final String workerFacetValue=facetValue;
+    final DocSet workerBase=this.docs;
+    Callable worker=new Callable(){
+      @Override public Object call() throws Exception {
+        NamedList<Object> result=new SimpleOrderedMap<Object>();
+        try {
+          if (termList != null) {
+            result.add(workerKey,getListedTermCounts(workerFacetValue,termList,workerBase));
+          }
  else {
-        res.add(key,getTermCounts(facetValue));
+            result.add(workerKey,getTermCounts(workerFacetValue,workerBase));
+          }
+        }
+ catch (        SolrException se) {
+          throw se;
+        }
+catch (        Exception e) {
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Exception during facet.field: " + workerFacetValue,e.getCause());
+        }
+        return result;
       }
+    }
+;
+    if (--maxThreads >= 0) {
+      completionService.submit(worker);
+    }
+ else {
+      pending.add(worker);
+    }
+  }
+  for (  String f : facetFs) {
+    NamedList taskResult;
+    try {
+      Future future=completionService.take();
+      taskResult=(NamedList)future.get();
+      if (taskResult != null) {
+        res.addAll(taskResult);
+      }
+      if (pending.isEmpty() == false) {
+        completionService.submit(pending.removeFirst());
+      }
+    }
+ catch (    InterruptedException e) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Processing of facet fields InterruptedException",e);
+    }
+catch (    ExecutionException e) {
+      Throwable cause=e.getCause();
+      if (cause instanceof SolrException) {
+        throw (SolrException)cause;
+      }
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Processing of facet fields ExecutionException ",e);
     }
   }
   return res;
