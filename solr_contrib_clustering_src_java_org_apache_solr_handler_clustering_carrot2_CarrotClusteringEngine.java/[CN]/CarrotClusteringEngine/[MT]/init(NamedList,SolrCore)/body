@@ -3,6 +3,32 @@
   String result=super.init(config,core);
   final SolrParams initParams=SolrParams.toSolrParams(config);
   HashMap<String,Object> initAttributes=new HashMap<String,Object>();
+  ResourceLookup resourceLookup=new ResourceLookup(new SolrResourceLocator(core,initParams),new ClassLoaderLocator(core.getResourceLoader().getClassLoader()));
+  DefaultLexicalDataFactoryDescriptor.attributeBuilder(initAttributes).resourceLookup(resourceLookup);
+  String componentName=initParams.get(ClusteringEngine.ENGINE_NAME);
+  log.info("Initializing Clustering Engine '" + Objects.firstNonNull(componentName,"<no 'name' attribute>") + "'");
+  if (!Strings.isNullOrEmpty(componentName)) {
+    IResource[] attributeXmls=resourceLookup.getAll(componentName + "-attributes.xml");
+    if (attributeXmls.length > 0) {
+      if (attributeXmls.length > 1) {
+        log.warn("More than one attribute file found, first one will be used: " + Arrays.toString(attributeXmls));
+      }
+      Thread ct=Thread.currentThread();
+      ClassLoader prev=ct.getContextClassLoader();
+      try {
+        ct.setContextClassLoader(core.getResourceLoader().getClassLoader());
+        AttributeValueSets avs=AttributeValueSets.deserialize(attributeXmls[0].open());
+        AttributeValueSet defaultSet=avs.getDefaultAttributeValueSet();
+        initAttributes.putAll(defaultSet.getAttributeValues());
+      }
+ catch (      Exception e) {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"Could not read attributes XML for clustering component: " + componentName,e);
+      }
+ finally {
+        ct.setContextClassLoader(prev);
+      }
+    }
+  }
   extractCarrotAttributes(initParams,initAttributes);
   final AttributeBuilder attributeBuilder=BasicPreprocessingPipelineDescriptor.attributeBuilder(initAttributes);
   attributeBuilder.lexicalDataFactory(SolrStopwordsCarrot2LexicalDataFactory.class);
@@ -13,7 +39,6 @@
     attributeBuilder.stemmerFactory(LuceneCarrot2StemmerFactory.class);
   }
   initAttributes.put("solrCore",core);
-  DefaultLexicalDataFactoryDescriptor.attributeBuilder(initAttributes).resourceLookup(new ResourceLookup(new SolrResourceLocator(core,initParams),new ClassLoaderLocator(core.getResourceLoader().getClassLoader())));
   Thread ct=Thread.currentThread();
   ClassLoader prev=ct.getContextClassLoader();
   try {
