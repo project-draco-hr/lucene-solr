@@ -1,0 +1,31 @@
+{
+  final String termsIndexFileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,FSTOrdTermsWriter.TERMS_INDEX_EXTENSION);
+  final String termsBlockFileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,FSTOrdTermsWriter.TERMS_BLOCK_EXTENSION);
+  this.postingsReader=postingsReader;
+  try {
+    this.indexIn=state.directory.openInput(termsIndexFileName,state.context);
+    this.blockIn=state.directory.openInput(termsBlockFileName,state.context);
+    readHeader(indexIn);
+    readHeader(blockIn);
+    this.postingsReader.init(blockIn);
+    seekDir(blockIn);
+    final FieldInfos fieldInfos=state.fieldInfos;
+    final int numFields=blockIn.readVInt();
+    for (int i=0; i < numFields; i++) {
+      FieldInfo fieldInfo=fieldInfos.fieldInfo(blockIn.readVInt());
+      boolean hasFreq=fieldInfo.getIndexOptions() != IndexOptions.DOCS_ONLY;
+      long numTerms=blockIn.readVLong();
+      long sumTotalTermFreq=hasFreq ? blockIn.readVLong() : -1;
+      long sumDocFreq=blockIn.readVLong();
+      int docCount=blockIn.readVInt();
+      int longsSize=blockIn.readVInt();
+      FST<Long> index=new FST<Long>(indexIn,PositiveIntOutputs.getSingleton());
+      TermsReader current=new TermsReader(fieldInfo,numTerms,sumTotalTermFreq,sumDocFreq,docCount,longsSize,index);
+      TermsReader previous=fields.put(fieldInfo.name,current);
+      checkFieldSummary(state.segmentInfo,current,previous);
+    }
+  }
+  finally {
+    IOUtils.closeWhileHandlingException(indexIn,blockIn);
+  }
+}
