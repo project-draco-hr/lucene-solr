@@ -1,0 +1,64 @@
+{
+  if ((documents == null || documents.size() == 0) && (deleteById == null || deleteById.size() == 0)) {
+    return null;
+  }
+  Map<String,LBHttpSolrServer.Req> routes=new HashMap<String,LBHttpSolrServer.Req>();
+  if (documents != null) {
+    Set<Entry<SolrInputDocument,Map<String,Object>>> entries=documents.entrySet();
+    for (    Entry<SolrInputDocument,Map<String,Object>> entry : entries) {
+      SolrInputDocument doc=entry.getKey();
+      Object id=doc.getFieldValue(idField);
+      if (id == null) {
+        return null;
+      }
+      Slice slice=router.getTargetSlice(id.toString(),doc,null,col);
+      if (slice == null) {
+        return null;
+      }
+      List<String> urls=urlMap.get(slice.getName());
+      String leaderUrl=urls.get(0);
+      LBHttpSolrServer.Req request=(LBHttpSolrServer.Req)routes.get(leaderUrl);
+      if (request == null) {
+        UpdateRequest updateRequest=new UpdateRequest();
+        updateRequest.setMethod(getMethod());
+        updateRequest.setCommitWithin(getCommitWithin());
+        updateRequest.setParams(params);
+        updateRequest.setPath(getPath());
+        request=new LBHttpSolrServer.Req(updateRequest,urls);
+        routes.put(leaderUrl,request);
+      }
+      UpdateRequest urequest=(UpdateRequest)request.getRequest();
+      urequest.add(doc);
+    }
+  }
+  if (deleteById != null) {
+    Iterator<Map.Entry<String,Map<String,Object>>> entries=deleteById.entrySet().iterator();
+    while (entries.hasNext()) {
+      Map.Entry<String,Map<String,Object>> entry=entries.next();
+      String deleteId=entry.getKey();
+      Map<String,Object> map=entry.getValue();
+      Long version=null;
+      if (map != null) {
+        version=(Long)map.get("ver");
+      }
+      Slice slice=router.getTargetSlice(deleteId,null,null,col);
+      if (slice == null) {
+        return null;
+      }
+      List<String> urls=urlMap.get(slice.getName());
+      String leaderUrl=urls.get(0);
+      LBHttpSolrServer.Req request=routes.get(leaderUrl);
+      if (request != null) {
+        UpdateRequest urequest=(UpdateRequest)request.getRequest();
+        urequest.deleteById(deleteId,version);
+      }
+ else {
+        UpdateRequest urequest=new UpdateRequest();
+        urequest.deleteById(deleteId,version);
+        request=new LBHttpSolrServer.Req(urequest,urls);
+        routes.put(leaderUrl,request);
+      }
+    }
+  }
+  return routes;
+}
