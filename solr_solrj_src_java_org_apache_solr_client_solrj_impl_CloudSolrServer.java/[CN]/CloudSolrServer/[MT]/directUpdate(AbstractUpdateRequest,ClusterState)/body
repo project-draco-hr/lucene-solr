@@ -10,10 +10,7 @@
       routableParams.remove(param);
     }
   }
-  if (params == null) {
-    return null;
-  }
-  String collection=params.get("collection",defaultCollection);
+  String collection=nonRoutableParams.get("collection",defaultCollection);
   if (collection == null) {
     throw new SolrServerException("No collection param specified on request and no default collection has been set.");
   }
@@ -36,30 +33,31 @@
   if (routes == null) {
     return null;
   }
-  Iterator<Map.Entry<String,LBHttpSolrServer.Req>> it=routes.entrySet().iterator();
   long start=System.nanoTime();
-  if (this.parallelUpdates) {
-    ArrayBlockingQueue<RequestTask> finishedTasks=new ArrayBlockingQueue<RequestTask>(routes.size());
-    while (it.hasNext()) {
-      Map.Entry<String,LBHttpSolrServer.Req> entry=it.next();
-      String url=entry.getKey();
-      LBHttpSolrServer.Req lbRequest=entry.getValue();
-      threadPool.execute(new RequestTask(url,lbRequest,finishedTasks));
+  if (parallelUpdates) {
+    final Map<String,Future<NamedList<?>>> responseFutures=new HashMap<String,Future<NamedList<?>>>();
+    for (    final Map.Entry<String,LBHttpSolrServer.Req> entry : routes.entrySet()) {
+      final String url=entry.getKey();
+      final LBHttpSolrServer.Req lbRequest=entry.getValue();
+      responseFutures.put(url,threadPool.submit(new Callable<NamedList<?>>(){
+        @Override public NamedList<?> call() throws Exception {
+          return lbServer.request(lbRequest).getResponse();
+        }
+      }
+));
     }
-    while ((shardResponses.size() + exceptions.size()) != routes.size()) {
-      RequestTask requestTask=null;
+    for (    final Map.Entry<String,Future<NamedList<?>>> entry : responseFutures.entrySet()) {
+      final String url=entry.getKey();
+      final Future<NamedList<?>> responseFuture=entry.getValue();
       try {
-        requestTask=finishedTasks.take();
+        shardResponses.add(url,responseFuture.get());
       }
- catch (      Exception e) {
-        throw new SolrException(ErrorCode.SERVER_ERROR,e);
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(e);
       }
-      Exception e=requestTask.getException();
-      if (e != null) {
-        exceptions.add(requestTask.getLeader(),e);
-      }
- else {
-        shardResponses.add(requestTask.getLeader(),requestTask.getRsp().getResponse());
+catch (      ExecutionException e) {
+        exceptions.add(url,e.getCause());
       }
     }
     if (exceptions.size() > 0) {
@@ -67,8 +65,7 @@
     }
   }
  else {
-    while (it.hasNext()) {
-      Map.Entry<String,LBHttpSolrServer.Req> entry=it.next();
+    for (    Map.Entry<String,LBHttpSolrServer.Req> entry : routes.entrySet()) {
       String url=entry.getKey();
       LBHttpSolrServer.Req lbRequest=entry.getValue();
       try {
