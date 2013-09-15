@@ -1,0 +1,38 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMaxBufferedDocs(10);
+  conf.setMergePolicy(NoMergePolicy.COMPOUND_FILES);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  for (int i=0; i < 6; i++) {
+    writer.addDocument(doc(i));
+    if (i % 2 == 1) {
+      writer.commit();
+    }
+  }
+  writer.deleteDocuments(new Term("id","doc-1"),new Term("id","doc-2"));
+  writer.updateNumericDocValue(new Term("id","doc-3"),"val",17L);
+  writer.updateNumericDocValue(new Term("id","doc-5"),"val",17L);
+  final DirectoryReader reader;
+  if (random().nextBoolean()) {
+    writer.close();
+    reader=DirectoryReader.open(dir);
+  }
+ else {
+    reader=DirectoryReader.open(writer,true);
+    writer.close();
+  }
+  AtomicReader slow=SlowCompositeReaderWrapper.wrap(reader);
+  Bits liveDocs=slow.getLiveDocs();
+  boolean[] expectedLiveDocs=new boolean[]{true,false,false,true,true,true};
+  for (int i=0; i < expectedLiveDocs.length; i++) {
+    assertEquals(expectedLiveDocs[i],liveDocs.get(i));
+  }
+  long[] expectedValues=new long[]{1,2,3,17,5,17};
+  NumericDocValues ndv=slow.getNumericDocValues("val");
+  for (int i=0; i < expectedValues.length; i++) {
+    assertEquals(expectedValues[i],ndv.get(i));
+  }
+  reader.close();
+  dir.close();
+}

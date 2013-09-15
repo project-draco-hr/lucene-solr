@@ -9,7 +9,7 @@
     if (magic != CodecUtil.CODEC_MAGIC) {
       throw new IndexFormatTooOldException(input,magic,CodecUtil.CODEC_MAGIC,CodecUtil.CODEC_MAGIC);
     }
-    CodecUtil.checkHeaderNoMagic(input,"segments",VERSION_40,VERSION_40);
+    int format=CodecUtil.checkHeaderNoMagic(input,"segments",VERSION_40,VERSION_45);
     version=input.readLong();
     counter=input.readInt();
     int numSegments=input.readInt();
@@ -26,7 +26,19 @@
       if (delCount < 0 || delCount > info.getDocCount()) {
         throw new CorruptIndexException("invalid deletion count: " + delCount + " (resource: "+ input+ ")");
       }
-      add(new SegmentInfoPerCommit(info,delCount,delGen));
+      long docValuesGen=-1;
+      if (format >= VERSION_45) {
+        docValuesGen=input.readLong();
+      }
+      SegmentInfoPerCommit siPerCommit=new SegmentInfoPerCommit(info,delCount,delGen,docValuesGen);
+      if (format >= VERSION_45) {
+        int numUpdates=input.readInt();
+        for (int i=0; i < numUpdates; i++) {
+          siPerCommit.setDocValuesGen(input.readInt(),input.readLong());
+        }
+        siPerCommit.addUpdatesFiles(input.readStringSet());
+      }
+      add(siPerCommit);
     }
     userData=input.readStringStringMap();
     final long checksumNow=input.getChecksum();

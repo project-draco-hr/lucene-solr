@@ -1,0 +1,69 @@
+{
+  Directory dir=newDirectory();
+  final Random random=random();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random));
+  LogMergePolicy lmp=newLogMergePolicy();
+  lmp.setMergeFactor(3);
+  conf.setMergePolicy(lmp);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  final boolean isNRT=random.nextBoolean();
+  DirectoryReader reader;
+  if (isNRT) {
+    reader=DirectoryReader.open(writer,true);
+  }
+ else {
+    writer.commit();
+    reader=DirectoryReader.open(dir);
+  }
+  final int numFields=random.nextInt(4) + 3;
+  final long[] fieldValues=new long[numFields];
+  for (int i=0; i < fieldValues.length; i++) {
+    fieldValues[i]=1;
+  }
+  int numRounds=atLeast(15);
+  int docID=0;
+  for (int i=0; i < numRounds; i++) {
+    int numDocs=atLeast(2);
+    for (int j=0; j < numDocs; j++) {
+      Document doc=new Document();
+      doc.add(new StringField("id","doc-" + docID,Store.NO));
+      doc.add(new StringField("key","all",Store.NO));
+      for (int f=0; f < fieldValues.length; f++) {
+        doc.add(new NumericDocValuesField("f" + f,fieldValues[f]));
+      }
+      writer.addDocument(doc);
+      ++docID;
+    }
+    int fieldIdx=random.nextInt(fieldValues.length);
+    String updateField="f" + fieldIdx;
+    writer.updateNumericDocValue(new Term("key","all"),updateField,++fieldValues[fieldIdx]);
+    if (random.nextDouble() < 0.2) {
+      int deleteDoc=random.nextInt(docID);
+      writer.deleteDocuments(new Term("id","doc-" + deleteDoc));
+    }
+    if (!isNRT) {
+      writer.commit();
+    }
+    DirectoryReader newReader=DirectoryReader.openIfChanged(reader);
+    assertNotNull(newReader);
+    reader.close();
+    reader=newReader;
+    assertTrue(reader.numDocs() > 0);
+    for (    AtomicReaderContext context : reader.leaves()) {
+      AtomicReader r=context.reader();
+      Bits liveDocs=r.getLiveDocs();
+      for (int field=0; field < fieldValues.length; field++) {
+        String f="f" + field;
+        NumericDocValues ndv=r.getNumericDocValues(f);
+        assertNotNull(ndv);
+        int maxDoc=r.maxDoc();
+        for (int doc=0; doc < maxDoc; doc++) {
+          if (liveDocs == null || liveDocs.get(doc)) {
+            assertEquals("invalid value for doc=" + (doc + context.docBase) + ", field="+ f,fieldValues[field],ndv.get(doc));
+          }
+        }
+      }
+    }
+  }
+  IOUtils.close(writer,reader,dir);
+}
