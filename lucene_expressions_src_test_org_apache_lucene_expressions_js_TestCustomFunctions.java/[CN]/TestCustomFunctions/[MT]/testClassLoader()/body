@@ -1,24 +1,28 @@
 {
-  Loader child=new Loader(this.getClass().getClassLoader());
-  Class<?> thisInDifferentLoader=child.loadFromParentResource(getClass().getName());
-  Map<String,Method> functions=Collections.singletonMap("zeroArgMethod",thisInDifferentLoader.getMethod("zeroArgMethod"));
+  ClassLoader thisLoader=getClass().getClassLoader();
+  Loader childLoader=new Loader(thisLoader);
+  Class<?> fooClass=childLoader.createFakeClass();
+  Method barMethod=fooClass.getMethod("bar");
+  Map<String,Method> functions=Collections.singletonMap("bar",barMethod);
+  assertNotSame(thisLoader,fooClass.getClassLoader());
+  assertNotSame(thisLoader,barMethod.getDeclaringClass().getClassLoader());
+  Expression expr=JavascriptCompiler.compile("bar()",functions,childLoader);
+  assertEquals(2.0,expr.evaluate(0,null),DELTA);
   try {
-    JavascriptCompiler.compile("zeroArgMethod()",functions,getClass().getClassLoader());
+    JavascriptCompiler.compile("bar()",functions,thisLoader);
     fail();
   }
  catch (  IllegalArgumentException e) {
     assertTrue(e.getMessage().contains("is not declared by a class which is accessible by the given parent ClassLoader"));
   }
-  Expression expr=JavascriptCompiler.compile("zeroArgMethod()",functions,child);
-  assertEquals(5,expr.evaluate(0,null),DELTA);
   Map<String,Method> mixedFunctions=new HashMap<>(JavascriptCompiler.DEFAULT_FUNCTIONS);
   mixedFunctions.putAll(functions);
-  expr=JavascriptCompiler.compile("zeroArgMethod()",mixedFunctions,child);
-  assertEquals(5,expr.evaluate(0,null),DELTA);
-  expr=JavascriptCompiler.compile("sqrt(20)",mixedFunctions,child);
+  expr=JavascriptCompiler.compile("bar()",mixedFunctions,childLoader);
+  assertEquals(2.0,expr.evaluate(0,null),DELTA);
+  expr=JavascriptCompiler.compile("sqrt(20)",mixedFunctions,childLoader);
   assertEquals(Math.sqrt(20),expr.evaluate(0,null),DELTA);
   try {
-    JavascriptCompiler.compile("zeroArgMethod()",functions,getClass().getClassLoader());
+    JavascriptCompiler.compile("bar()",functions,thisLoader);
     fail();
   }
  catch (  IllegalArgumentException e) {
