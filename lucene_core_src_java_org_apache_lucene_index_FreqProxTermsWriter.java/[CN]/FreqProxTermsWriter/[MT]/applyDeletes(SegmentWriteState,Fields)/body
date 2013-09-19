@@ -1,0 +1,41 @@
+{
+  if (state.segDeletes != null && state.segDeletes.terms.size() > 0) {
+    Map<Term,Integer> segDeletes=state.segDeletes.terms;
+    List<Term> deleteTerms=new ArrayList<Term>(segDeletes.keySet());
+    Collections.sort(deleteTerms);
+    String lastField=null;
+    TermsEnum termsEnum=null;
+    DocsEnum docsEnum=null;
+    for (    Term deleteTerm : deleteTerms) {
+      if (deleteTerm.field().equals(lastField) == false) {
+        lastField=deleteTerm.field();
+        Terms terms=fields.terms(lastField);
+        if (terms != null) {
+          termsEnum=terms.iterator(termsEnum);
+        }
+      }
+      if (termsEnum != null && termsEnum.seekExact(deleteTerm.bytes())) {
+        docsEnum=termsEnum.docs(null,docsEnum,0);
+        int delDocLimit=segDeletes.get(deleteTerm);
+        while (true) {
+          int doc=docsEnum.nextDoc();
+          if (doc == DocsEnum.NO_MORE_DOCS) {
+            break;
+          }
+          if (doc < delDocLimit) {
+            if (state.liveDocs == null) {
+              state.liveDocs=state.segmentInfo.getCodec().liveDocsFormat().newLiveDocs(state.segmentInfo.getDocCount());
+            }
+            if (state.liveDocs.get(doc)) {
+              state.delCountOnFlush++;
+              state.liveDocs.clear(doc);
+            }
+          }
+ else {
+            break;
+          }
+        }
+      }
+    }
+  }
+}
