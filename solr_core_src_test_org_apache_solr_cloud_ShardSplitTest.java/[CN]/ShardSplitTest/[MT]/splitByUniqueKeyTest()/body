@@ -1,0 +1,74 @@
+{
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  final DocRouter router=clusterState.getCollection(AbstractDistribZkTestBase.DEFAULT_COLLECTION).getRouter();
+  Slice shard1=clusterState.getSlice(AbstractDistribZkTestBase.DEFAULT_COLLECTION,SHARD1);
+  DocRouter.Range shard1Range=shard1.getRange() != null ? shard1.getRange() : router.fullRange();
+  final List<DocRouter.Range> ranges=router.partitionRange(2,shard1Range);
+  final int[] docCounts=new int[ranges.size()];
+  int numReplicas=shard1.getReplicas().size();
+  del("*:*");
+  for (int id=0; id <= 100; id++) {
+    String shardKey="" + (char)('a' + (id % 26));
+    indexAndUpdateCount(router,ranges,docCounts,shardKey + "!" + String.valueOf(id),id);
+  }
+  commit();
+  Thread indexThread=new Thread(){
+    @Override public void run(){
+      Random random=random();
+      int max=atLeast(random,401);
+      int sleep=atLeast(random,25);
+      log.info("SHARDSPLITTEST: Going to add " + max + " number of docs at 1 doc per "+ sleep+ "ms");
+      Set<String> deleted=new HashSet<String>();
+      for (int id=101; id < max; id++) {
+        try {
+          indexAndUpdateCount(router,ranges,docCounts,String.valueOf(id),id);
+          Thread.sleep(sleep);
+          if (usually(random)) {
+            String delId=String.valueOf(random.nextInt(id - 101 + 1) + 101);
+            if (deleted.contains(delId))             continue;
+            try {
+              deleteAndUpdateCount(router,ranges,docCounts,delId);
+              deleted.add(delId);
+            }
+ catch (            Exception e) {
+              log.error("Exception while deleting docs",e);
+            }
+          }
+        }
+ catch (        Exception e) {
+          log.error("Exception while adding docs",e);
+        }
+      }
+    }
+  }
+;
+  indexThread.start();
+  try {
+    for (int i=0; i < 3; i++) {
+      try {
+        splitShard(AbstractDistribZkTestBase.DEFAULT_COLLECTION,SHARD1);
+        log.info("Layout after split: \n");
+        printLayout();
+        break;
+      }
+ catch (      HttpSolrServer.RemoteSolrException e) {
+        if (e.code() != 500) {
+          throw e;
+        }
+        log.error("SPLITSHARD failed. " + (i < 2 ? " Retring split" : ""),e);
+        if (i == 2) {
+          fail("SPLITSHARD was not successful even after three tries");
+        }
+      }
+    }
+  }
+  finally {
+    try {
+      indexThread.join();
+    }
+ catch (    InterruptedException e) {
+      log.error("Indexing thread interrupted",e);
+    }
+  }
+  checkDocCountsAndShardStates(docCounts,numReplicas);
+}
