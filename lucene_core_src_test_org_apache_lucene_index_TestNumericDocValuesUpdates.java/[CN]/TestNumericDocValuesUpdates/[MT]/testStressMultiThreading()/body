@@ -2,10 +2,11 @@
   final Directory dir=newDirectory();
   IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
   final IndexWriter writer=new IndexWriter(dir,conf);
-  final int numThreads=atLeast(3);
+  final int numThreads=_TestUtil.nextInt(random(),3,6);
   final int numDocs=atLeast(2000);
   for (int i=0; i < numDocs; i++) {
     Document doc=new Document();
+    doc.add(new StringField("id","doc" + i,Store.NO));
     double group=random().nextDouble();
     String g;
     if (group < 0.1)     g="g0";
@@ -21,17 +22,18 @@
     writer.addDocument(doc);
   }
   final CountDownLatch done=new CountDownLatch(numThreads);
+  final AtomicInteger numUpdates=new AtomicInteger(atLeast(100));
   Thread[] threads=new Thread[numThreads];
   for (int i=0; i < threads.length; i++) {
     final String f="f" + i;
     final String cf="cf" + i;
-    final int numThreadUpdates=atLeast(40);
     threads[i]=new Thread("UpdateThread-" + i){
       @Override public void run(){
+        DirectoryReader reader=null;
+        boolean success=false;
         try {
           Random random=random();
-          int numUpdates=numThreadUpdates;
-          while (numUpdates-- > 0) {
+          while (numUpdates.getAndDecrement() > 0) {
             double group=random.nextDouble();
             Term t;
             if (group < 0.1)             t=new Term("updKey","g0");
@@ -45,18 +47,38 @@
               int doc=random.nextInt(numDocs);
               writer.deleteDocuments(new Term("id","doc" + doc));
             }
-            if (random.nextDouble() < 0.1) {
+            if (random.nextDouble() < 0.05) {
               writer.commit();
             }
-            if (random.nextDouble() < 0.3) {
-              DirectoryReader.open(writer,true).close();
+            if (random.nextDouble() < 0.1) {
+              if (reader == null) {
+                reader=DirectoryReader.open(writer,true);
+              }
+ else {
+                DirectoryReader r2=DirectoryReader.openIfChanged(reader,writer,true);
+                if (r2 != null) {
+                  reader.close();
+                  reader=r2;
+                }
+              }
             }
           }
+          success=true;
         }
  catch (        IOException e) {
           throw new RuntimeException(e);
         }
  finally {
+          if (reader != null) {
+            try {
+              reader.close();
+            }
+ catch (            IOException e) {
+              if (success) {
+                throw new RuntimeException(e);
+              }
+            }
+          }
           done.countDown();
         }
       }
