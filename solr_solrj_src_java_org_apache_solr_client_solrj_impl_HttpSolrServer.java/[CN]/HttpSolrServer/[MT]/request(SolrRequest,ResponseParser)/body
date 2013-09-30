@@ -69,7 +69,7 @@
               for (              ContentStream content : streams) {
                 String contentType=content.getContentType();
                 if (contentType == null) {
-                  contentType="application/octet-stream";
+                  contentType=BinaryResponseParser.BINARY_CONTENT_TYPE;
                 }
                 String name=content.getName();
                 if (name == null) {
@@ -149,6 +149,14 @@
     final HttpResponse response=httpClient.execute(method);
     int httpStatus=response.getStatusLine().getStatusCode();
     respBody=response.getEntity().getContent();
+    Header ctHeader=response.getLastHeader("content-type");
+    String contentType;
+    if (ctHeader != null) {
+      contentType=ctHeader.getValue();
+    }
+ else {
+      contentType="";
+    }
 switch (httpStatus) {
 case HttpStatus.SC_OK:
 case HttpStatus.SC_BAD_REQUEST:
@@ -161,7 +169,9 @@ case HttpStatus.SC_MOVED_TEMPORARILY:
     }
   break;
 default :
-throw new RemoteSolrException(httpStatus,"Server at " + getBaseURL() + " returned non ok status:"+ httpStatus+ ", message:"+ response.getStatusLine().getReasonPhrase(),null);
+if (processor == null) {
+  throw new RemoteSolrException(httpStatus,"Server at " + getBaseURL() + " returned non ok status:"+ httpStatus+ ", message:"+ response.getStatusLine().getReasonPhrase(),null);
+}
 }
 if (processor == null) {
 NamedList<Object> rsp=new NamedList<Object>();
@@ -169,8 +179,22 @@ rsp.add("stream",respBody);
 shouldClose=false;
 return rsp;
 }
+String procCt=processor.getContentType();
+if (procCt != null) {
+if (!contentType.equals(procCt)) {
+String msg="Expected content type " + procCt + " but got "+ contentType+ ".";
+RemoteSolrException e=new RemoteSolrException(httpStatus,msg + " " + IOUtils.toString(respBody),null);
+throw e;
+}
+}
+NamedList<Object> rsp=null;
 String charset=EntityUtils.getContentCharSet(response.getEntity());
-NamedList<Object> rsp=processor.processResponse(respBody,charset);
+try {
+rsp=processor.processResponse(respBody,charset);
+}
+ catch (Exception e) {
+throw new RemoteSolrException(httpStatus,e.getMessage(),e);
+}
 if (httpStatus != HttpStatus.SC_OK) {
 String reason=null;
 try {
