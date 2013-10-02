@@ -1,0 +1,227 @@
+{
+  String[] terms=new String[_TestUtil.nextInt(random(),2,10)];
+  Set<String> seen=new HashSet<String>();
+  while (seen.size() < terms.length) {
+    String token=_TestUtil.randomSimpleString(random(),1,5);
+    if (!seen.contains(token)) {
+      terms[seen.size()]=token;
+      seen.add(token);
+    }
+  }
+  Analyzer a=new MockAnalyzer(random());
+  int numDocs=atLeast(10);
+  long totTokens=0;
+  final String[][] docs=new String[numDocs][];
+  for (int i=0; i < numDocs; i++) {
+    docs[i]=new String[atLeast(100)];
+    if (VERBOSE) {
+      System.out.print("  doc " + i + ":");
+    }
+    for (int j=0; j < docs[i].length; j++) {
+      docs[i][j]=getZipfToken(terms);
+      if (VERBOSE) {
+        System.out.print(" " + docs[i][j]);
+      }
+    }
+    if (VERBOSE) {
+      System.out.println();
+    }
+    totTokens+=docs[i].length;
+  }
+  int grams=_TestUtil.nextInt(random(),1,4);
+  if (VERBOSE) {
+    System.out.println("TEST: " + terms.length + " terms; "+ numDocs+ " docs; "+ grams+ " grams");
+  }
+  FreeTextSuggester sug=new FreeTextSuggester(a,a,grams,(byte)0x20);
+  sug.build(new TermFreqIterator(){
+    int upto;
+    @Override public BytesRef next(){
+      if (upto == docs.length) {
+        return null;
+      }
+ else {
+        StringBuilder b=new StringBuilder();
+        for (        String token : docs[upto]) {
+          b.append(' ');
+          b.append(token);
+        }
+        upto++;
+        return new BytesRef(b.toString());
+      }
+    }
+    @Override public long weight(){
+      return random().nextLong();
+    }
+  }
+);
+  List<Map<String,Integer>> gramCounts=new ArrayList<Map<String,Integer>>(grams);
+  for (int gram=0; gram < grams; gram++) {
+    if (VERBOSE) {
+      System.out.println("TEST: build model for gram=" + gram);
+    }
+    Map<String,Integer> model=new HashMap<String,Integer>();
+    gramCounts.add(model);
+    for (    String[] doc : docs) {
+      for (int i=0; i < doc.length - gram; i++) {
+        StringBuilder b=new StringBuilder();
+        for (int j=i; j <= i + gram; j++) {
+          if (j > i) {
+            b.append(' ');
+          }
+          b.append(doc[j]);
+        }
+        String token=b.toString();
+        Integer curCount=model.get(token);
+        if (curCount == null) {
+          model.put(token,1);
+        }
+ else {
+          model.put(token,1 + curCount);
+        }
+        if (VERBOSE) {
+          System.out.println("  add '" + token + "' -> count="+ model.get(token));
+        }
+      }
+    }
+  }
+  int lookups=atLeast(100);
+  for (int iter=0; iter < lookups; iter++) {
+    String[] tokens=new String[_TestUtil.nextInt(random(),1,5)];
+    for (int i=0; i < tokens.length; i++) {
+      tokens[i]=getZipfToken(terms);
+    }
+    int trimStart;
+    if (tokens.length == 1) {
+      trimStart=1;
+    }
+ else {
+      trimStart=0;
+    }
+    int trimAt=_TestUtil.nextInt(random(),trimStart,tokens[tokens.length - 1].length());
+    tokens[tokens.length - 1]=tokens[tokens.length - 1].substring(0,trimAt);
+    int num=_TestUtil.nextInt(random(),1,100);
+    StringBuilder b=new StringBuilder();
+    for (    String token : tokens) {
+      b.append(' ');
+      b.append(token);
+    }
+    String query=b.toString();
+    query=query.substring(1);
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter=" + iter + " query='"+ query+ "' num="+ num);
+    }
+    List<LookupResult> expected=new ArrayList<LookupResult>();
+    double backoff=1.0;
+    seen=new HashSet<String>();
+    if (VERBOSE) {
+      System.out.println("  compute expected");
+    }
+    for (int i=grams - 1; i >= 0; i--) {
+      if (VERBOSE) {
+        System.out.println("    grams=" + i);
+      }
+      if (tokens.length < i + 1) {
+        if (VERBOSE) {
+          System.out.println("      skip");
+        }
+        continue;
+      }
+      if (i == 0 && tokens[tokens.length - 1].length() == 0) {
+        if (VERBOSE) {
+          System.out.println("      skip unigram priors only");
+        }
+        continue;
+      }
+      b=new StringBuilder();
+      for (int j=tokens.length - i - 1; j < tokens.length - 1; j++) {
+        b.append(' ');
+        b.append(tokens[j]);
+      }
+      String context=b.toString();
+      if (context.length() > 0) {
+        context=context.substring(1);
+      }
+      if (VERBOSE) {
+        System.out.println("      context='" + context + "'");
+      }
+      long contextCount;
+      if (context.length() == 0) {
+        contextCount=totTokens;
+      }
+ else {
+        Integer count=gramCounts.get(i - 1).get(context);
+        if (count == null) {
+          backoff*=FreeTextSuggester.ALPHA;
+          if (VERBOSE) {
+            System.out.println("      skip: never saw context");
+          }
+          continue;
+        }
+        contextCount=count;
+      }
+      if (VERBOSE) {
+        System.out.println("      contextCount=" + contextCount);
+      }
+      Map<String,Integer> model=gramCounts.get(i);
+      if (VERBOSE) {
+        System.out.println("      find terms w/ prefix=" + tokens[tokens.length - 1]);
+      }
+      List<LookupResult> tmp=new ArrayList<LookupResult>();
+      for (      String term : terms) {
+        if (term.startsWith(tokens[tokens.length - 1])) {
+          if (VERBOSE) {
+            System.out.println("        term=" + term);
+          }
+          if (seen.contains(term)) {
+            if (VERBOSE) {
+              System.out.println("          skip seen");
+            }
+            continue;
+          }
+          String ngram=(context + " " + term).trim();
+          Integer count=model.get(ngram);
+          if (count != null) {
+            LookupResult lr=new LookupResult(ngram,(long)(Long.MAX_VALUE * (backoff * (double)count / contextCount)));
+            tmp.add(lr);
+            if (VERBOSE) {
+              System.out.println("      add tmp key='" + lr.key + "' score="+ lr.value);
+            }
+          }
+        }
+      }
+      Collections.sort(tmp,byScoreThenKey);
+      if (tmp.size() > num) {
+        tmp.subList(num,tmp.size()).clear();
+      }
+      for (      LookupResult result : tmp) {
+        String key=result.key.toString();
+        int idx=key.lastIndexOf(' ');
+        String lastToken;
+        if (idx != -1) {
+          lastToken=key.substring(idx + 1);
+        }
+ else {
+          lastToken=key;
+        }
+        if (!seen.contains(lastToken)) {
+          seen.add(lastToken);
+          expected.add(result);
+          if (VERBOSE) {
+            System.out.println("      keep key='" + result.key + "' score="+ result.value);
+          }
+        }
+      }
+      backoff*=FreeTextSuggester.ALPHA;
+    }
+    Collections.sort(expected,byScoreThenKey);
+    if (expected.size() > num) {
+      expected.subList(num,expected.size()).clear();
+    }
+    List<LookupResult> actual=sug.lookup(query,num);
+    if (VERBOSE) {
+      System.out.println("  expected: " + expected);
+      System.out.println("    actual: " + actual);
+    }
+    assertEquals(expected.toString(),actual.toString());
+  }
+}
