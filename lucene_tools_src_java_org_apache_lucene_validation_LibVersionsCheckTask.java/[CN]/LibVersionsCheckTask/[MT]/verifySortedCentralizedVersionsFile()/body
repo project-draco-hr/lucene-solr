@@ -1,0 +1,48 @@
+{
+  log("Checking for lexically sorted non-duplicated '/org/name' keys in: " + centralizedVersionsFile,verboseLevel);
+  final InputStream stream;
+  try {
+    stream=new FileInputStream(centralizedVersionsFile);
+  }
+ catch (  FileNotFoundException e) {
+    throw new BuildException("Centralized versions file does not exist: " + centralizedVersionsFile.getPath());
+  }
+  final Reader reader=new InputStreamReader(stream,Charset.forName("ISO-8859-1"));
+  final BufferedReader bufferedReader=new BufferedReader(reader);
+  String line=null;
+  String currentKey=null;
+  String previousKey=null;
+  try {
+    while (null != (line=readLogicalPropertiesLine(bufferedReader))) {
+      final Matcher keyMatcher=COORDINATE_KEY_PATTERN.matcher(line);
+      if (!keyMatcher.matches()) {
+        continue;
+      }
+      currentKey=keyMatcher.group(1);
+      if (null != previousKey) {
+        int comparison=currentKey.compareTo(previousKey);
+        if (0 == comparison) {
+          log("DUPLICATE coordinate key '" + currentKey + "' in "+ centralizedVersionsFile.getName(),Project.MSG_ERR);
+          failures=true;
+        }
+ else         if (comparison < 0) {
+          log("OUT-OF-ORDER coordinate key '" + currentKey + "' in "+ centralizedVersionsFile.getName(),Project.MSG_ERR);
+          failures=true;
+        }
+      }
+      referencedCoordinateKeys.put(currentKey,false);
+      previousKey=currentKey;
+    }
+  }
+ catch (  IOException e) {
+    throw new BuildException("Exception reading centralized versions file: " + centralizedVersionsFile.getPath(),e);
+  }
+ finally {
+    try {
+      reader.close();
+    }
+ catch (    IOException e) {
+    }
+  }
+  return !failures;
+}

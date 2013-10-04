@@ -1,0 +1,41 @@
+{
+  log("Starting scan.",verboseLevel);
+  long start=System.currentTimeMillis();
+  int errors=verifySortedCentralizedVersionsFile() ? 0 : 1;
+  int checked=0;
+  @SuppressWarnings("unchecked") Iterator<Resource> iter=(Iterator<Resource>)ivyXmlResources.iterator();
+  while (iter.hasNext()) {
+    final Resource resource=iter.next();
+    if (!resource.isExists()) {
+      throw new BuildException("Resource does not exist: " + resource.getName());
+    }
+    if (!(resource instanceof FileResource)) {
+      throw new BuildException("Only filesystem resources are supported: " + resource.getName() + ", was: "+ resource.getClass().getName());
+    }
+    File ivyXmlFile=((FileResource)resource).getFile();
+    try {
+      if (!checkIvyXmlFile(ivyXmlFile)) {
+        failures=true;
+        errors++;
+      }
+    }
+ catch (    Exception e) {
+      throw new BuildException("Exception reading file " + ivyXmlFile.getPath(),e);
+    }
+    checked++;
+  }
+  log("Checking for orphans in " + centralizedVersionsFile.getName(),verboseLevel);
+  for (  Map.Entry<String,Boolean> entry : referencedCoordinateKeys.entrySet()) {
+    String coordinateKey=entry.getKey();
+    boolean isReferenced=entry.getValue();
+    if (!isReferenced) {
+      log("ORPHAN coordinate key '" + coordinateKey + "' in "+ centralizedVersionsFile.getName()+ " is not found in any "+ IVY_XML_FILENAME+ " file.",Project.MSG_ERR);
+      failures=true;
+      errors++;
+    }
+  }
+  log(String.format(Locale.ROOT,"Checked that %s has lexically sorted " + "'/org/name' keys and no duplicates or orphans, and scanned %d %s " + "file(s) for rev=\"${/org/name}\" format (in %.2fs.), %d error(s).",centralizedVersionsFile.getName(),checked,IVY_XML_FILENAME,(System.currentTimeMillis() - start) / 1000.0,errors),errors > 0 ? Project.MSG_ERR : Project.MSG_INFO);
+  if (failures) {
+    throw new BuildException("Lib versions check failed. Check the logs.");
+  }
+}
