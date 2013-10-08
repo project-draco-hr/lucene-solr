@@ -1,0 +1,120 @@
+{
+  int deleteCount=0;
+  int docBase=0;
+  int docCount=0;
+  MockDirectoryWrapper dir=newMockDirectory();
+  final AtomicBoolean shouldFail=new AtomicBoolean();
+  dir.failOn(new MockDirectoryWrapper.Failure(){
+    @Override public void eval(    MockDirectoryWrapper dir) throws IOException {
+      StackTraceElement[] trace=new Exception().getStackTrace();
+      if (shouldFail.get() == false) {
+        return;
+      }
+      boolean sawSeal=false;
+      boolean sawWrite=false;
+      for (int i=0; i < trace.length; i++) {
+        if ("sealFlushedSegment".equals(trace[i].getMethodName())) {
+          sawSeal=true;
+          break;
+        }
+        if ("writeLiveDocs".equals(trace[i].getMethodName())) {
+          sawWrite=true;
+        }
+      }
+      if (sawWrite && sawSeal == false && random().nextInt(3) == 2) {
+        if (VERBOSE) {
+          System.out.println("TEST: now fail; thread=" + Thread.currentThread().getName() + " exc:");
+          new Throwable().printStackTrace(System.out);
+        }
+        shouldFail.set(false);
+        throw new FakeIOException();
+      }
+    }
+  }
+);
+  RandomIndexWriter w=null;
+  for (int iter=0; iter < 10 * RANDOM_MULTIPLIER; iter++) {
+    int numDocs=atLeast(100);
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter=" + iter + " numDocs="+ numDocs+ " docBase="+ docBase+ " delCount="+ deleteCount);
+    }
+    if (w == null) {
+      IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+      final MergeScheduler ms=iwc.getMergeScheduler();
+      if (ms instanceof ConcurrentMergeScheduler) {
+        final ConcurrentMergeScheduler suppressFakeIOE=new ConcurrentMergeScheduler(){
+          @Override protected void handleMergeException(          Throwable exc){
+            if (!(exc instanceof FakeIOException)) {
+              super.handleMergeException(exc);
+            }
+          }
+        }
+;
+        final ConcurrentMergeScheduler cms=(ConcurrentMergeScheduler)ms;
+        suppressFakeIOE.setMaxMergesAndThreads(cms.getMaxMergeCount(),cms.getMaxThreadCount());
+        suppressFakeIOE.setMergeThreadPriority(cms.getMergeThreadPriority());
+        iwc.setMergeScheduler(suppressFakeIOE);
+      }
+      w=new RandomIndexWriter(random(),dir,iwc);
+      w.setDoRandomForceMergeAssert(false);
+    }
+    for (int i=0; i < numDocs; i++) {
+      Document doc=new Document();
+      doc.add(new StringField("id","" + (docBase + i),Field.Store.NO));
+      w.addDocument(doc);
+    }
+    docCount+=numDocs;
+    shouldFail.set(true);
+    try {
+      for (int i=0; i < numDocs; i++) {
+        if (random().nextInt(10) == 7) {
+          if (VERBOSE) {
+            System.out.println("  delete id=" + (docBase + i));
+          }
+          deleteCount++;
+          w.deleteDocuments(new Term("id","" + (docBase + i)));
+        }
+      }
+      IndexReader r=w.getReader(true);
+      assertEquals(docCount - deleteCount,r.numDocs());
+      r.close();
+    }
+ catch (    FakeIOException ioe) {
+      if (VERBOSE) {
+        System.out.println("TEST: w.close() hit expected IOE");
+      }
+    }
+    shouldFail.set(false);
+    IndexReader r;
+    if (random().nextBoolean()) {
+      if (VERBOSE) {
+        System.out.println("TEST: verify against non-NRT reader");
+      }
+      w.commit();
+      r=DirectoryReader.open(dir);
+    }
+ else {
+      if (VERBOSE) {
+        System.out.println("TEST: verify against NRT reader");
+      }
+      r=w.getReader();
+    }
+    assertEquals(docCount - deleteCount,r.numDocs());
+    r.close();
+    if (random().nextBoolean()) {
+      if (VERBOSE) {
+        System.out.println("TEST: close writer");
+      }
+      w.close();
+      w=null;
+    }
+    docBase+=numDocs;
+  }
+  if (w != null) {
+    w.close();
+  }
+  IndexReader r=DirectoryReader.open(dir);
+  assertEquals(docCount - deleteCount,r.numDocs());
+  r.close();
+  dir.close();
+}
