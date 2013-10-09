@@ -13,7 +13,12 @@
  else       if (i == 1) {
         client=createCloudClient("awholynewcollection_" + i);
       }
-      createCollection(collectionInfos,"awholynewcollection_" + i,numShards,replicationFactor,maxShardsPerNode,client,null);
+      if (secondConfigSet) {
+        createCollection(collectionInfos,"awholynewcollection_" + i,numShards,replicationFactor,maxShardsPerNode,client,null,"conf2");
+      }
+ else {
+        createCollection(collectionInfos,"awholynewcollection_" + i,numShards,replicationFactor,maxShardsPerNode,client,null);
+      }
     }
   finally {
       if (client != null)       client.shutdown();
@@ -31,6 +36,13 @@
   ZkStateReader zkStateReader=getCommonCloudSolrServer().getZkStateReader();
   for (int j=0; j < cnt; j++) {
     waitForRecoveriesToFinish("awholynewcollection_" + j,zkStateReader,false);
+    if (secondConfigSet) {
+      byte[] data=zkStateReader.getZkClient().getData(ZkStateReader.COLLECTIONS_ZKNODE + "/" + "awholynewcollection_"+ j,null,null,true);
+      assertNotNull(data);
+      ZkNodeProps props=ZkNodeProps.load(data);
+      String configName=props.getStr(ZkController.CONFIGNAME_PROP);
+      assertEquals("conf2",configName);
+    }
   }
   checkInstanceDirs(jettys.get(0));
   List<String> collectionNameList=new ArrayList<String>();
@@ -85,6 +97,9 @@
   params.set(REPLICATION_FACTOR,2);
   collectionName="acollectionafterbaddelete";
   params.set("name",collectionName);
+  if (secondConfigSet) {
+    params.set("collection.configName","conf1");
+  }
   request=new QueryRequest(params);
   request.setPath("/admin/collections");
   createNewSolrServer("",baseUrl).request(request);
@@ -107,7 +122,7 @@
   try {
     exp=false;
     try {
-      createCollection(collectionInfos,"awholynewcollection_" + cnt,numShards,replicationFactor,maxShardsPerNode,client,null);
+      createCollection(collectionInfos,"awholynewcollection_" + cnt,numShards,replicationFactor,maxShardsPerNode,client,null,"conf1");
     }
  catch (    SolrException e) {
       exp=true;
@@ -137,7 +152,7 @@
   collectionInfos=new HashMap<String,List<Integer>>();
   client=createCloudClient("awholynewcollection_" + (cnt + 1));
   try {
-    createCollection(collectionInfos,"awholynewcollection_" + (cnt + 1),numShards,replicationFactor,maxShardsPerNode,client,StrUtils.join(createNodeList,','));
+    createCollection(collectionInfos,"awholynewcollection_" + (cnt + 1),numShards,replicationFactor,maxShardsPerNode,client,StrUtils.join(createNodeList,','),"conf1");
   }
   finally {
     client.shutdown();
