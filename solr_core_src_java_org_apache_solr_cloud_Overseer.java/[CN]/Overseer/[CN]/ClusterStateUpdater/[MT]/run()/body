@@ -1,5 +1,10 @@
 {
-  if (!this.isClosed && amILeader()) {
+  LeaderStatus isLeader=amILeader();
+  while (isLeader == LeaderStatus.DONT_KNOW) {
+    log.debug("am_i_leader unclear {}",isLeader);
+    isLeader=amILeader();
+  }
+  if (!this.isClosed && LeaderStatus.YES == isLeader) {
 synchronized (reader.getUpdateLock()) {
       try {
         byte[] head=workQueue.peek();
@@ -7,12 +12,21 @@ synchronized (reader.getUpdateLock()) {
           reader.updateClusterState(true);
           ClusterState clusterState=reader.getClusterState();
           log.info("Replaying operations from work queue.");
-          while (head != null && amILeader()) {
-            final ZkNodeProps message=ZkNodeProps.load(head);
-            final String operation=message.getStr(QUEUE_OPERATION);
-            clusterState=processMessage(clusterState,message,operation);
-            zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(clusterState),true);
-            workQueue.poll();
+          while (head != null) {
+            isLeader=amILeader();
+            if (LeaderStatus.NO == isLeader) {
+              break;
+            }
+ else             if (LeaderStatus.YES == isLeader) {
+              final ZkNodeProps message=ZkNodeProps.load(head);
+              final String operation=message.getStr(QUEUE_OPERATION);
+              clusterState=processMessage(clusterState,message,operation);
+              zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(clusterState),true);
+              workQueue.poll();
+            }
+ else {
+              log.info("am_i_leader unclear {}",isLeader);
+            }
             head=workQueue.peek();
           }
         }
@@ -34,7 +48,15 @@ catch (      Exception e) {
     }
   }
   log.info("Starting to work on the main queue");
-  while (!this.isClosed && amILeader()) {
+  while (!this.isClosed) {
+    isLeader=amILeader();
+    if (LeaderStatus.NO == isLeader) {
+      break;
+    }
+ else     if (LeaderStatus.YES != isLeader) {
+      log.debug("am_i_leader unclear {}",isLeader);
+      continue;
+    }
 synchronized (reader.getUpdateLock()) {
       try {
         byte[] head=stateUpdateQueue.peek();
