@@ -65,6 +65,7 @@
     }
     docCount+=numDocs;
     shouldFail.set(true);
+    boolean doClose=false;
     try {
       for (int i=0; i < numDocs; i++) {
         if (random().nextInt(10) == 7) {
@@ -78,6 +79,14 @@
       IndexReader r=w.getReader(true);
       assertEquals(docCount - deleteCount,r.numDocs());
       r.close();
+      if (random().nextBoolean()) {
+        if (VERBOSE) {
+          System.out.println("  now close writer");
+        }
+        doClose=true;
+        w.close();
+        w=null;
+      }
     }
  catch (    FakeIOException ioe) {
       if (VERBOSE) {
@@ -86,11 +95,20 @@
     }
     shouldFail.set(false);
     IndexReader r;
-    if (random().nextBoolean()) {
+    if (doClose && w != null) {
+      if (VERBOSE) {
+        System.out.println("  now 2nd close writer");
+      }
+      w.close();
+      w=null;
+    }
+    if (w == null || random().nextBoolean()) {
       if (VERBOSE) {
         System.out.println("TEST: verify against non-NRT reader");
       }
-      w.commit();
+      if (w != null) {
+        w.commit();
+      }
       r=DirectoryReader.open(dir);
     }
  else {
@@ -101,7 +119,7 @@
     }
     assertEquals(docCount - deleteCount,r.numDocs());
     r.close();
-    if (random().nextBoolean()) {
+    if (w != null && random().nextBoolean()) {
       if (VERBOSE) {
         System.out.println("TEST: close writer");
       }
