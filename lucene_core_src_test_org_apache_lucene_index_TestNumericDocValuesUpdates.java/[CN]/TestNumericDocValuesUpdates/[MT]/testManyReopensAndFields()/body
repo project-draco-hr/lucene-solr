@@ -17,6 +17,8 @@
   }
   final int numFields=random.nextInt(4) + 3;
   final long[] fieldValues=new long[numFields];
+  final boolean[] fieldHasValue=new boolean[numFields];
+  Arrays.fill(fieldHasValue,true);
   for (int i=0; i < fieldValues.length; i++) {
     fieldValues[i]=1;
   }
@@ -34,9 +36,21 @@
       writer.addDocument(doc);
       ++docID;
     }
+    for (int field=0; field < fieldHasValue.length; field++) {
+      if (!fieldHasValue[field]) {
+        writer.updateNumericDocValue(new Term("key","all"),"f" + field,null);
+      }
+    }
     int fieldIdx=random.nextInt(fieldValues.length);
     String updateField="f" + fieldIdx;
-    writer.updateNumericDocValue(new Term("key","all"),updateField,++fieldValues[fieldIdx]);
+    if (random.nextBoolean()) {
+      fieldHasValue[fieldIdx]=false;
+      writer.updateNumericDocValue(new Term("key","all"),updateField,null);
+    }
+ else {
+      fieldHasValue[fieldIdx]=true;
+      writer.updateNumericDocValue(new Term("key","all"),updateField,++fieldValues[fieldIdx]);
+    }
     if (random.nextDouble() < 0.2) {
       int deleteDoc=random.nextInt(docID);
       writer.deleteDocuments(new Term("id","doc-" + deleteDoc));
@@ -55,11 +69,18 @@
       for (int field=0; field < fieldValues.length; field++) {
         String f="f" + field;
         NumericDocValues ndv=r.getNumericDocValues(f);
+        Bits docsWithField=r.getDocsWithField(f);
         assertNotNull(ndv);
         int maxDoc=r.maxDoc();
         for (int doc=0; doc < maxDoc; doc++) {
           if (liveDocs == null || liveDocs.get(doc)) {
-            assertEquals("invalid value for doc=" + doc + ", field="+ f+ ", reader="+ r,fieldValues[field],ndv.get(doc));
+            if (fieldHasValue[field]) {
+              assertTrue(docsWithField.get(doc));
+              assertEquals("invalid value for doc=" + doc + ", field="+ f+ ", reader="+ r,fieldValues[field],ndv.get(doc));
+            }
+ else {
+              assertFalse(docsWithField.get(doc));
+            }
           }
         }
       }
