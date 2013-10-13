@@ -61,19 +61,33 @@
     for (int i=0; i < numDocs; i++) {
       Document doc=new Document();
       doc.add(new StringField("id","" + (docBase + i),Field.Store.NO));
+      doc.add(new NumericDocValuesField("f",1L));
+      doc.add(new NumericDocValuesField("cf",2L));
       w.addDocument(doc);
     }
     docCount+=numDocs;
     shouldFail.set(true);
     boolean doClose=false;
     try {
+      boolean defaultCodecSupportsFieldUpdates=defaultCodecSupportsFieldUpdates();
       for (int i=0; i < numDocs; i++) {
         if (random().nextInt(10) == 7) {
-          if (VERBOSE) {
-            System.out.println("  delete id=" + (docBase + i));
+          boolean fieldUpdate=defaultCodecSupportsFieldUpdates && random().nextBoolean();
+          if (fieldUpdate) {
+            long value=iter;
+            if (VERBOSE) {
+              System.out.println("  update id=" + (docBase + i) + " to value "+ value);
+            }
+            w.updateNumericDocValue(new Term("id",Integer.toString(docBase + i)),"f",value);
+            w.updateNumericDocValue(new Term("id",Integer.toString(docBase + i)),"cf",value * 2);
           }
-          deleteCount++;
-          w.deleteDocuments(new Term("id","" + (docBase + i)));
+          if (!fieldUpdate || random().nextBoolean()) {
+            if (VERBOSE) {
+              System.out.println("  delete id=" + (docBase + i));
+            }
+            deleteCount++;
+            w.deleteDocuments(new Term("id","" + (docBase + i)));
+          }
         }
       }
       IndexReader r=w.getReader(true);
@@ -88,9 +102,14 @@
         w=null;
       }
     }
- catch (    FakeIOException ioe) {
-      if (VERBOSE) {
-        System.out.println("TEST: w.close() hit expected IOE");
+ catch (    IOException ioe) {
+      if (ioe instanceof FakeIOException || (ioe.getCause() != null && ioe.getCause() instanceof FakeIOException)) {
+        if (VERBOSE) {
+          System.out.println("TEST: w.close() hit expected IOE");
+        }
+      }
+ else {
+        throw ioe;
       }
     }
     shouldFail.set(false);
@@ -118,6 +137,16 @@
       r=w.getReader();
     }
     assertEquals(docCount - deleteCount,r.numDocs());
+    for (    AtomicReaderContext context : r.leaves()) {
+      Bits liveDocs=context.reader().getLiveDocs();
+      NumericDocValues f=context.reader().getNumericDocValues("f");
+      NumericDocValues cf=context.reader().getNumericDocValues("cf");
+      for (int i=0; i < context.reader().maxDoc(); i++) {
+        if (liveDocs == null || liveDocs.get(i)) {
+          assertEquals("doc=" + (docBase + i),cf.get(i),f.get(i) * 2);
+        }
+      }
+    }
     r.close();
     if (w != null && random().nextBoolean()) {
       if (VERBOSE) {
