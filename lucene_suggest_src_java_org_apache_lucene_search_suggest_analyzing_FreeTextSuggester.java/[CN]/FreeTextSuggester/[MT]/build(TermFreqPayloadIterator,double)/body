@@ -1,0 +1,90 @@
+{
+  if (iterator.hasPayloads()) {
+    throw new IllegalArgumentException("payloads are not supported");
+  }
+  String prefix=getClass().getSimpleName();
+  File directory=Sort.defaultTempDir();
+  File tempIndexPath=null;
+  Random random=new Random();
+  while (true) {
+    tempIndexPath=new File(directory,prefix + ".index." + random.nextInt(Integer.MAX_VALUE));
+    if (tempIndexPath.mkdir()) {
+      break;
+    }
+  }
+  Directory dir=FSDirectory.open(tempIndexPath);
+  IndexWriterConfig iwc=new IndexWriterConfig(Version.LUCENE_46,indexAnalyzer);
+  iwc.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+  iwc.setRAMBufferSizeMB(ramBufferSizeMB);
+  IndexWriter writer=new IndexWriter(dir,iwc);
+  FieldType ft=new FieldType(TextField.TYPE_NOT_STORED);
+  ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
+  ft.setOmitNorms(true);
+  ft.freeze();
+  Document doc=new Document();
+  Field field=new Field("body","",ft);
+  doc.add(field);
+  totTokens=0;
+  IndexReader reader=null;
+  boolean success=false;
+  try {
+    while (true) {
+      BytesRef surfaceForm=iterator.next();
+      if (surfaceForm == null) {
+        break;
+      }
+      field.setStringValue(surfaceForm.utf8ToString());
+      writer.addDocument(doc);
+    }
+    reader=DirectoryReader.open(writer,false);
+    Terms terms=MultiFields.getTerms(reader,"body");
+    if (terms == null) {
+      throw new IllegalArgumentException("need at least one suggestion");
+    }
+    TermsEnum termsEnum=terms.iterator(null);
+    Outputs<Long> outputs=PositiveIntOutputs.getSingleton();
+    Builder<Long> builder=new Builder<Long>(FST.INPUT_TYPE.BYTE1,outputs);
+    IntsRef scratchInts=new IntsRef();
+    while (true) {
+      BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      int ngramCount=countGrams(term);
+      if (ngramCount > grams) {
+        throw new IllegalArgumentException("tokens must not contain separator byte; got token=" + term + " but gramCount="+ ngramCount+ ", which is greater than expected max ngram size="+ grams);
+      }
+      if (ngramCount == 1) {
+        totTokens+=termsEnum.totalTermFreq();
+      }
+      builder.add(Util.toIntsRef(term,scratchInts),encodeWeight(termsEnum.totalTermFreq()));
+    }
+    fst=builder.finish();
+    if (fst == null) {
+      throw new IllegalArgumentException("need at least one suggestion");
+    }
+    success=true;
+  }
+  finally {
+    try {
+      if (success) {
+        IOUtils.close(writer,reader);
+      }
+ else {
+        IOUtils.closeWhileHandlingException(writer,reader);
+      }
+    }
+  finally {
+      for (      String file : dir.listAll()) {
+        File path=new File(tempIndexPath,file);
+        if (path.delete() == false) {
+          throw new IllegalStateException("failed to remove " + path);
+        }
+      }
+      if (tempIndexPath.delete() == false) {
+        throw new IllegalStateException("failed to remove " + tempIndexPath);
+      }
+      dir.close();
+    }
+  }
+}
