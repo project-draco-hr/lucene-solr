@@ -1,0 +1,58 @@
+{
+  Random random=random();
+  int num=atLeast(10000);
+  Comparator<BytesRef> comparator=random.nextBoolean() ? BytesRef.getUTF8SortedAsUnicodeComparator() : BytesRef.getUTF8SortedAsUTF16Comparator();
+  TreeMap<BytesRef,SimpleEntry<Long,BytesRef>> sorted=new TreeMap<>(comparator);
+  TreeMap<BytesRef,Long> sortedWithoutPayload=new TreeMap<>(comparator);
+  Input[] unsorted=new Input[num];
+  Input[] unsortedWithoutPayload=new Input[num];
+  for (int i=0; i < num; i++) {
+    BytesRef key;
+    BytesRef payload;
+    do {
+      key=new BytesRef(_TestUtil.randomUnicodeString(random));
+      payload=new BytesRef(_TestUtil.randomUnicodeString(random));
+    }
+ while (sorted.containsKey(key));
+    long value=random.nextLong();
+    sortedWithoutPayload.put(key,value);
+    sorted.put(key,new SimpleEntry<>(value,payload));
+    unsorted[i]=new Input(key,value,payload);
+    unsortedWithoutPayload[i]=new Input(key,value);
+  }
+  InputIterator wrapper=new SortedInputIterator(new InputArrayIterator(unsorted),comparator);
+  Iterator<Map.Entry<BytesRef,SimpleEntry<Long,BytesRef>>> expected=sorted.entrySet().iterator();
+  while (expected.hasNext()) {
+    Map.Entry<BytesRef,SimpleEntry<Long,BytesRef>> entry=expected.next();
+    assertEquals(entry.getKey(),wrapper.next());
+    assertEquals(entry.getValue().getKey().longValue(),wrapper.weight());
+    assertEquals(entry.getValue().getValue(),wrapper.payload());
+  }
+  assertNull(wrapper.next());
+  wrapper=new UnsortedInputIterator(new InputArrayIterator(unsorted));
+  TreeMap<BytesRef,SimpleEntry<Long,BytesRef>> actual=new TreeMap<>();
+  BytesRef key;
+  while ((key=wrapper.next()) != null) {
+    long value=wrapper.weight();
+    BytesRef payload=wrapper.payload();
+    actual.put(BytesRef.deepCopyOf(key),new SimpleEntry<>(value,BytesRef.deepCopyOf(payload)));
+  }
+  assertEquals(sorted,actual);
+  InputIterator wrapperWithoutPayload=new SortedInputIterator(new InputArrayIterator(unsortedWithoutPayload),comparator);
+  Iterator<Map.Entry<BytesRef,Long>> expectedWithoutPayload=sortedWithoutPayload.entrySet().iterator();
+  while (expectedWithoutPayload.hasNext()) {
+    Map.Entry<BytesRef,Long> entry=expectedWithoutPayload.next();
+    assertEquals(entry.getKey(),wrapperWithoutPayload.next());
+    assertEquals(entry.getValue().longValue(),wrapperWithoutPayload.weight());
+    assertNull(wrapperWithoutPayload.payload());
+  }
+  assertNull(wrapperWithoutPayload.next());
+  wrapperWithoutPayload=new UnsortedInputIterator(new InputArrayIterator(unsortedWithoutPayload));
+  TreeMap<BytesRef,Long> actualWithoutPayload=new TreeMap<>();
+  while ((key=wrapperWithoutPayload.next()) != null) {
+    long value=wrapperWithoutPayload.weight();
+    assertNull(wrapperWithoutPayload.payload());
+    actualWithoutPayload.put(BytesRef.deepCopyOf(key),value);
+  }
+  assertEquals(sortedWithoutPayload,actualWithoutPayload);
+}
