@@ -1,0 +1,105 @@
+{
+  for (  String field : fields) {
+    Terms terms=fields.terms(field);
+    if (terms == null) {
+      continue;
+    }
+    TermsEnum termsEnum=terms.iterator(null);
+    FieldInfo fieldInfo=state.fieldInfos.fieldInfo(field);
+    if (fieldInfo.getIndexOptions().compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS) >= 0) {
+      throw new UnsupportedOperationException("this codec cannot index offsets");
+    }
+    RAMField ramField=new RAMField(field,fieldInfo);
+    postings.fieldToTerms.put(field,ramField);
+    termsConsumer.reset(ramField);
+    FixedBitSet docsSeen=new FixedBitSet(state.segmentInfo.getDocCount());
+    long sumTotalTermFreq=0;
+    long sumDocFreq=0;
+    DocsEnum docsEnum=null;
+    DocsAndPositionsEnum posEnum=null;
+    int enumFlags;
+    IndexOptions indexOptions=fieldInfo.getIndexOptions();
+    boolean writeFreqs=indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS) >= 0;
+    boolean writePositions=indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0;
+    boolean writeOffsets=indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS) >= 0;
+    boolean writePayloads=fieldInfo.hasPayloads();
+    if (writeFreqs == false) {
+      enumFlags=0;
+    }
+ else     if (writePositions == false) {
+      enumFlags=DocsEnum.FLAG_FREQS;
+    }
+ else     if (writeOffsets == false) {
+      if (writePayloads) {
+        enumFlags=DocsAndPositionsEnum.FLAG_PAYLOADS;
+      }
+ else {
+        enumFlags=0;
+      }
+    }
+ else {
+      if (writePayloads) {
+        enumFlags=DocsAndPositionsEnum.FLAG_PAYLOADS | DocsAndPositionsEnum.FLAG_OFFSETS;
+      }
+ else {
+        enumFlags=DocsAndPositionsEnum.FLAG_OFFSETS;
+      }
+    }
+    while (true) {
+      BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      RAMPostingsWriterImpl postingsWriter=termsConsumer.startTerm(term);
+      if (writePositions) {
+        posEnum=termsEnum.docsAndPositions(null,posEnum,enumFlags);
+        docsEnum=posEnum;
+      }
+ else {
+        docsEnum=termsEnum.docs(null,docsEnum,enumFlags);
+        posEnum=null;
+      }
+      int docFreq=0;
+      long totalTermFreq=0;
+      while (true) {
+        int docID=docsEnum.nextDoc();
+        if (docID == DocsEnum.NO_MORE_DOCS) {
+          break;
+        }
+        docsSeen.set(docID);
+        docFreq++;
+        int freq;
+        if (writeFreqs) {
+          freq=docsEnum.freq();
+          totalTermFreq+=freq;
+        }
+ else {
+          freq=-1;
+        }
+        postingsWriter.startDoc(docID,freq);
+        if (writePositions) {
+          for (int i=0; i < freq; i++) {
+            int pos=posEnum.nextPosition();
+            BytesRef payload=writePayloads ? posEnum.getPayload() : null;
+            int startOffset;
+            int endOffset;
+            if (writeOffsets) {
+              startOffset=posEnum.startOffset();
+              endOffset=posEnum.endOffset();
+            }
+ else {
+              startOffset=-1;
+              endOffset=-1;
+            }
+            postingsWriter.addPosition(pos,payload,startOffset,endOffset);
+          }
+        }
+        postingsWriter.finishDoc();
+      }
+      termsConsumer.finishTerm(term,new TermStats(docFreq,totalTermFreq));
+      sumDocFreq+=docFreq;
+      sumTotalTermFreq+=totalTermFreq;
+    }
+    termsConsumer.finish(sumTotalTermFreq,sumDocFreq,docsSeen.cardinality());
+  }
+}
