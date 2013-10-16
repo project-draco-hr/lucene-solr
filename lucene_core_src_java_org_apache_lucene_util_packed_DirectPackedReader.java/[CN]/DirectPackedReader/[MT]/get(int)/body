@@ -3,23 +3,45 @@
   final long elementPos=majorBitPos >>> 3;
   try {
     in.seek(startPointer + elementPos);
-    final byte b0=in.readByte();
     final int bitPos=(int)(majorBitPos & 7);
-    if (bitPos + bitsPerValue <= 8) {
-      return (b0 & ((1L << (8 - bitPos)) - 1)) >>> (8 - bitPos - bitsPerValue);
-    }
-    int remainingBits=bitsPerValue - 8 + bitPos;
-    long result=(b0 & ((1L << (8 - bitPos)) - 1)) << remainingBits;
-    while (remainingBits >= 8) {
-      remainingBits-=8;
-      result|=(in.readByte() & 0xFFL) << remainingBits;
-    }
-    if (remainingBits > 0) {
-      result|=(in.readByte() & 0xFFL) >>> (8 - remainingBits);
-    }
-    return result;
-  }
- catch (  IOException ioe) {
-    throw new IllegalStateException("failed",ioe);
-  }
+    final int roundedBits=((bitPos + bitsPerValue + 7) & ~7);
+    int shiftRightBits=roundedBits - bitPos - bitsPerValue;
+    long rawValue;
+switch (roundedBits >>> 3) {
+case 1:
+      rawValue=in.readByte();
+    break;
+case 2:
+  rawValue=in.readShort();
+break;
+case 3:
+rawValue=((long)in.readShort() << 8) | (in.readByte() & 0xFFL);
+break;
+case 4:
+rawValue=in.readInt();
+break;
+case 5:
+rawValue=((long)in.readInt() << 8) | (in.readByte() & 0xFFL);
+break;
+case 6:
+rawValue=((long)in.readInt() << 16) | (in.readShort() & 0xFFFFL);
+break;
+case 7:
+rawValue=((long)in.readInt() << 24) | ((in.readShort() & 0xFFFFL) << 8) | (in.readByte() & 0xFFL);
+break;
+case 8:
+rawValue=in.readLong();
+break;
+case 9:
+rawValue=(in.readLong() << (8 - shiftRightBits)) | ((in.readByte() & 0xFFL) >>> shiftRightBits);
+shiftRightBits=0;
+break;
+default :
+throw new AssertionError("bitsPerValue too large: " + bitsPerValue);
+}
+return (rawValue >>> shiftRightBits) & valueMask;
+}
+ catch (IOException ioe) {
+throw new IllegalStateException("failed",ioe);
+}
 }
