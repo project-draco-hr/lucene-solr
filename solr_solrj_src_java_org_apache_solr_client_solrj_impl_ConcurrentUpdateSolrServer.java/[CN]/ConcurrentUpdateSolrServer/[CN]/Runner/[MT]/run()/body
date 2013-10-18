@@ -1,6 +1,6 @@
 {
   runnerLock.lock();
-  log.info("starting runner: {}",this);
+  log.debug("starting runner: {}",this);
   HttpPost method=null;
   HttpResponse response=null;
   try {
@@ -42,14 +42,15 @@
                   }
                 }
                 out.flush();
-                req=queue.poll(250,TimeUnit.MILLISECONDS);
+                req=queue.poll(pollQueueTime,TimeUnit.MILLISECONDS);
               }
               if (isXml) {
                 out.write("</stream>".getBytes("UTF-8"));
               }
             }
  catch (            InterruptedException e) {
-              e.printStackTrace();
+              Thread.currentThread().interrupt();
+              log.warn("",e);
             }
           }
         }
@@ -63,14 +64,13 @@
         method.addHeader("Content-Type",contentType);
         response=server.getHttpClient().execute(method);
         int statusCode=response.getStatusLine().getStatusCode();
-        log.info("Status for: " + updateRequest.getDocuments().get(0).getFieldValue("id") + " is "+ statusCode);
         if (statusCode != HttpStatus.SC_OK) {
           StringBuilder msg=new StringBuilder();
           msg.append(response.getStatusLine().getReasonPhrase());
           msg.append("\n\n");
           msg.append("\n\n");
           msg.append("request: ").append(method.getURI());
-          handleError(new Exception(msg.toString()));
+          handleError(new SolrException(ErrorCode.getErrorCode(statusCode),msg.toString()));
         }
       }
   finally {
@@ -80,6 +80,7 @@
           }
         }
  catch (        Exception ex) {
+          log.warn("",ex);
         }
       }
     }
@@ -96,7 +97,7 @@ synchronized (runners) {
         runners.remove(this);
       }
     }
-    log.info("finished: {}",this);
+    log.debug("finished: {}",this);
     runnerLock.unlock();
   }
 }

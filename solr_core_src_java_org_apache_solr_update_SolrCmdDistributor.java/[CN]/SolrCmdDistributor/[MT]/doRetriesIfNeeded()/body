@@ -1,0 +1,45 @@
+{
+  List<Error> errors=new ArrayList<Error>(this.errors);
+  errors.addAll(servers.getErrors());
+  allErrors.addAll(errors);
+  boolean blockUntilFinishedAgain=false;
+  for (  Error err : errors) {
+    String oldNodeUrl=err.req.node.getUrl();
+    boolean isRetry=err.req.node.checkRetry();
+    boolean doRetry=false;
+    int rspCode=err.statusCode;
+    if (testing_errorHook != null)     Diagnostics.call(testing_errorHook,err.e);
+    if (isRetry) {
+      if (rspCode == 404 || rspCode == 403 || rspCode == 503 || rspCode == 500) {
+        doRetry=true;
+      }
+      if (err.e instanceof IOException) {
+        doRetry=true;
+      }
+ else       if (err.e instanceof SolrServerException) {
+        if (((SolrServerException)err.e).getRootCause() instanceof IOException) {
+          doRetry=true;
+        }
+      }
+    }
+    if (isRetry && err.req.retries < MAX_RETRIES_ON_FORWARD && doRetry) {
+      err.req.retries++;
+      SolrException.log(SolrCmdDistributor.log,"forwarding update to " + oldNodeUrl + " failed - retrying ... ");
+      try {
+        Thread.sleep(500);
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        log.warn(null,e);
+      }
+      submit(err.req);
+      blockUntilFinishedAgain=true;
+    }
+  }
+  servers.clearErrors();
+  this.errors.clear();
+  if (blockUntilFinishedAgain) {
+    servers.blockUntilFinished();
+    doRetriesIfNeeded();
+  }
+}
