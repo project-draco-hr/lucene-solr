@@ -1,52 +1,54 @@
 {
   log("Scanning: " + jarFile.getPath(),verboseLevel);
-  if (!skipSnapshotsChecksum || !jarFile.getName().contains("-SNAPSHOT")) {
-    final File checksumFile=new File(licenseDirectory,jarFile.getName() + "." + CHECKSUM_TYPE);
-    if (!(checksumFile.exists() && checksumFile.canRead())) {
-      log("MISSING " + CHECKSUM_TYPE + " checksum file for: "+ jarFile.getPath(),Project.MSG_ERR);
-      log("EXPECTED " + CHECKSUM_TYPE + " checksum file : "+ checksumFile.getPath(),Project.MSG_ERR);
-      this.failures=true;
-      return false;
-    }
+  if (!skipChecksum) {
+    if (!skipSnapshotsChecksum || !jarFile.getName().contains("-SNAPSHOT")) {
+      final File checksumFile=new File(licenseDirectory,jarFile.getName() + "." + CHECKSUM_TYPE);
+      if (!(checksumFile.exists() && checksumFile.canRead())) {
+        log("MISSING " + CHECKSUM_TYPE + " checksum file for: "+ jarFile.getPath(),Project.MSG_ERR);
+        log("EXPECTED " + CHECKSUM_TYPE + " checksum file : "+ checksumFile.getPath(),Project.MSG_ERR);
+        this.failures=true;
+        return false;
+      }
  else {
-      final String expectedChecksum=readChecksumFile(checksumFile);
-      try {
-        final MessageDigest md=MessageDigest.getInstance(CHECKSUM_TYPE);
-        byte[] buf=new byte[CHECKSUM_BUFFER_SIZE];
+        final String expectedChecksum=readChecksumFile(checksumFile);
         try {
-          FileInputStream fis=new FileInputStream(jarFile);
+          final MessageDigest md=MessageDigest.getInstance(CHECKSUM_TYPE);
+          byte[] buf=new byte[CHECKSUM_BUFFER_SIZE];
           try {
-            DigestInputStream dis=new DigestInputStream(fis,md);
+            FileInputStream fis=new FileInputStream(jarFile);
             try {
-              while (dis.read(buf,0,CHECKSUM_BUFFER_SIZE) != -1) {
+              DigestInputStream dis=new DigestInputStream(fis,md);
+              try {
+                while (dis.read(buf,0,CHECKSUM_BUFFER_SIZE) != -1) {
+                }
+              }
+  finally {
+                dis.close();
               }
             }
   finally {
-              dis.close();
+              fis.close();
             }
           }
-  finally {
-            fis.close();
+ catch (          IOException ioe) {
+            throw new BuildException("IO error computing checksum of file: " + jarFile,ioe);
+          }
+          final byte[] checksumBytes=md.digest();
+          final String checksum=createChecksumString(checksumBytes);
+          if (!checksum.equals(expectedChecksum)) {
+            log("CHECKSUM FAILED for " + jarFile.getPath() + " (expected: \""+ expectedChecksum+ "\" was: \""+ checksum+ "\")",Project.MSG_ERR);
+            this.failures=true;
+            return false;
           }
         }
- catch (        IOException ioe) {
-          throw new BuildException("IO error computing checksum of file: " + jarFile,ioe);
+ catch (        NoSuchAlgorithmException ae) {
+          throw new BuildException("Digest type " + CHECKSUM_TYPE + " not supported by your JVM",ae);
         }
-        final byte[] checksumBytes=md.digest();
-        final String checksum=createChecksumString(checksumBytes);
-        if (!checksum.equals(expectedChecksum)) {
-          log("CHECKSUM FAILED for " + jarFile.getPath() + " (expected: \""+ expectedChecksum+ "\" was: \""+ checksum+ "\")",Project.MSG_ERR);
-          this.failures=true;
-          return false;
-        }
-      }
- catch (      NoSuchAlgorithmException ae) {
-        throw new BuildException("Digest type " + CHECKSUM_TYPE + " not supported by your JVM",ae);
       }
     }
-  }
- else   if (skipSnapshotsChecksum) {
-    log("Skipping jar because it is a SNAPSHOT : " + jarFile.getAbsolutePath(),Project.MSG_INFO);
+ else     if (skipSnapshotsChecksum) {
+      log("Skipping jar because it is a SNAPSHOT : " + jarFile.getAbsolutePath(),Project.MSG_INFO);
+    }
   }
   Map<File,LicenseType> foundLicenses=new LinkedHashMap<File,LicenseType>();
   List<File> expectedLocations=new ArrayList<File>();
