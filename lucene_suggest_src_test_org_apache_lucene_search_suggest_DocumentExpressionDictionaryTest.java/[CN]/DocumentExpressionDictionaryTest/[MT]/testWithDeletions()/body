@@ -1,0 +1,47 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  Map<String,Document> docs=generateIndexDocuments(10);
+  Random rand=random();
+  List<String> termsToDel=new ArrayList<>();
+  for (  Document doc : docs.values()) {
+    if (rand.nextBoolean()) {
+      termsToDel.add(doc.get(FIELD_NAME));
+    }
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  Term[] delTerms=new Term[termsToDel.size()];
+  for (int i=0; i < termsToDel.size(); i++) {
+    delTerms[i]=new Term(FIELD_NAME,termsToDel.get(i));
+  }
+  for (  Term delTerm : delTerms) {
+    writer.deleteDocuments(delTerm);
+  }
+  writer.commit();
+  writer.close();
+  for (  String termToDel : termsToDel) {
+    assertTrue(null != docs.remove(termToDel));
+  }
+  IndexReader ir=DirectoryReader.open(dir);
+  assertEquals(ir.numDocs(),docs.size());
+  Set<SortField> sortFields=new HashSet<SortField>();
+  sortFields.add(new SortField(WEIGHT_FIELD_NAME_1,SortField.Type.LONG));
+  sortFields.add(new SortField(WEIGHT_FIELD_NAME_2,SortField.Type.LONG));
+  Dictionary dictionary=new DocumentExpressionDictionary(ir,FIELD_NAME,"w2-w1",sortFields,PAYLOAD_FIELD_NAME);
+  InputIterator tfp=(InputIterator)dictionary.getWordsIterator();
+  BytesRef f;
+  while ((f=tfp.next()) != null) {
+    Document doc=docs.remove(f.utf8ToString());
+    long w1=doc.getField(WEIGHT_FIELD_NAME_1).numericValue().longValue();
+    long w2=doc.getField(WEIGHT_FIELD_NAME_2).numericValue().longValue();
+    assertTrue(f.equals(new BytesRef(doc.get(FIELD_NAME))));
+    assertEquals(tfp.weight(),w2 - w1);
+    assertTrue(tfp.payload().equals(doc.getField(PAYLOAD_FIELD_NAME).binaryValue()));
+  }
+  assertTrue(docs.isEmpty());
+  ir.close();
+  dir.close();
+}

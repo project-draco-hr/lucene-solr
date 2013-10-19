@@ -1,0 +1,32 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  Map<String,Document> docs=generateIndexDocuments(10);
+  for (  Document doc : docs.values()) {
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.close();
+  IndexReader ir=DirectoryReader.open(dir);
+  Set<SortField> sortFields=new HashSet<SortField>();
+  sortFields.add(new SortField(WEIGHT_FIELD_NAME_1,SortField.Type.LONG));
+  sortFields.add(new SortField(WEIGHT_FIELD_NAME_2,SortField.Type.LONG));
+  sortFields.add(new SortField(WEIGHT_FIELD_NAME_3,SortField.Type.LONG));
+  Dictionary dictionary=new DocumentExpressionDictionary(ir,FIELD_NAME,"w1 + (0.2 * w2) - (w3 - w1)/2",sortFields);
+  InputIterator tfp=(InputIterator)dictionary.getWordsIterator();
+  BytesRef f;
+  while ((f=tfp.next()) != null) {
+    Document doc=docs.remove(f.utf8ToString());
+    long w1=doc.getField(WEIGHT_FIELD_NAME_1).numericValue().longValue();
+    long w2=doc.getField(WEIGHT_FIELD_NAME_2).numericValue().longValue();
+    long w3=doc.getField(WEIGHT_FIELD_NAME_3).numericValue().longValue();
+    assertTrue(f.equals(new BytesRef(doc.get(FIELD_NAME))));
+    assertEquals(tfp.weight(),(long)(w1 + (0.2 * w2) - (w3 - w1) / 2));
+    assertEquals(tfp.payload(),null);
+  }
+  assertTrue(docs.isEmpty());
+  ir.close();
+  dir.close();
+}
