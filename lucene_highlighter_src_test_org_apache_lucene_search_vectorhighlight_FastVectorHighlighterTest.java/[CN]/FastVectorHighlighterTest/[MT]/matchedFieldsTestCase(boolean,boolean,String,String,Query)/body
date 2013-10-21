@@ -1,0 +1,69 @@
+{
+  Document doc=new Document();
+  FieldType stored=new FieldType(TextField.TYPE_STORED);
+  stored.setStoreTermVectorOffsets(true);
+  stored.setStoreTermVectorPositions(true);
+  stored.setStoreTermVectors(true);
+  stored.freeze();
+  FieldType matched=new FieldType(TextField.TYPE_NOT_STORED);
+  matched.setStoreTermVectorOffsets(true);
+  matched.setStoreTermVectorPositions(true);
+  matched.setStoreTermVectors(true);
+  matched.freeze();
+  doc.add(new Field("field",fieldValue,stored));
+  doc.add(new Field("field_exact",fieldValue,matched));
+  doc.add(new Field("field_super_exact",fieldValue,matched));
+  doc.add(new Field("field_characters",fieldValue,matched));
+  doc.add(new Field("field_tripples",fieldValue,matched));
+  doc.add(new Field("field_sliced",fieldValue.substring(0,Math.min(fieldValue.length() - 1,10)),matched));
+  doc.add(new Field("field_der_red",new CannedTokenStream(token("der",1,0,3),token("red",0,0,3)),matched));
+  final Map<String,Analyzer> fieldAnalyzers=new TreeMap<String,Analyzer>();
+  fieldAnalyzers.put("field",new MockAnalyzer(random(),MockTokenizer.WHITESPACE,true,MockTokenFilter.ENGLISH_STOPSET));
+  fieldAnalyzers.put("field_exact",new MockAnalyzer(random()));
+  fieldAnalyzers.put("field_super_exact",new MockAnalyzer(random(),MockTokenizer.WHITESPACE,false));
+  fieldAnalyzers.put("field_characters",new MockAnalyzer(random(),new CharacterRunAutomaton(new RegExp(".").toAutomaton()),true));
+  fieldAnalyzers.put("field_tripples",new MockAnalyzer(random(),new CharacterRunAutomaton(new RegExp("...").toAutomaton()),true));
+  fieldAnalyzers.put("field_sliced",fieldAnalyzers.get("field"));
+  fieldAnalyzers.put("field_der_red",fieldAnalyzers.get("field"));
+  Analyzer analyzer=new AnalyzerWrapper(){
+    public Analyzer getWrappedAnalyzer(    String fieldName){
+      return fieldAnalyzers.get(fieldName);
+    }
+  }
+;
+  Directory dir=newDirectory();
+  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,analyzer));
+  writer.addDocument(doc);
+  FastVectorHighlighter highlighter=new FastVectorHighlighter();
+  FragListBuilder fragListBuilder=new SimpleFragListBuilder();
+  FragmentsBuilder fragmentsBuilder=new ScoreOrderFragmentsBuilder();
+  IndexReader reader=DirectoryReader.open(writer,true);
+  String[] preTags=new String[]{"<b>"};
+  String[] postTags=new String[]{"</b>"};
+  Encoder encoder=new DefaultEncoder();
+  int docId=0;
+  BooleanQuery query=new BooleanQuery();
+  for (  Query clause : queryClauses) {
+    query.add(clause,Occur.MUST);
+  }
+  FieldQuery fieldQuery=new FieldQuery(query,reader,true,fieldMatch);
+  String[] bestFragments;
+  if (useMatchedFields) {
+    Set<String> matchedFields=new HashSet<String>();
+    matchedFields.add("field");
+    matchedFields.add("field_exact");
+    matchedFields.add("field_super_exact");
+    matchedFields.add("field_characters");
+    matchedFields.add("field_tripples");
+    matchedFields.add("field_sliced");
+    matchedFields.add("field_der_red");
+    bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,"field",matchedFields,25,1,fragListBuilder,fragmentsBuilder,preTags,postTags,encoder);
+  }
+ else {
+    bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,"field",25,1,fragListBuilder,fragmentsBuilder,preTags,postTags,encoder);
+  }
+  assertEquals(expected,bestFragments[0]);
+  reader.close();
+  writer.close();
+  dir.close();
+}
