@@ -1,0 +1,46 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  IndexWriter writer=new IndexWriter(indexDir,conf);
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir);
+  FacetFields facetFields=new FacetFields(taxoWriter);
+  Document doc=new Document();
+  facetFields.addFields(doc,Arrays.asList(new CategoryPath("A","1")));
+  writer.addDocument(doc);
+  doc=new Document();
+  facetFields.addFields(doc,Arrays.asList(new CategoryPath("A","2")));
+  writer.addDocument(doc);
+  writer.close();
+  taxoWriter.close();
+  final DirectoryReader reader=DirectoryReader.open(indexDir);
+  Thread[] threads=new Thread[3];
+  for (int i=0; i < threads.length; i++) {
+    threads[i]=new Thread("CachedOrdsThread-" + i){
+      @Override public void run(){
+        for (        AtomicReaderContext context : reader.leaves()) {
+          try {
+            OrdinalsCache.getCachedOrds(context,FacetIndexingParams.DEFAULT.getCategoryListParams(new CategoryPath("A")));
+          }
+ catch (          IOException e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
+    }
+;
+  }
+  long ramBytesUsed=0;
+  for (  Thread t : threads) {
+    t.start();
+    t.join();
+    if (ramBytesUsed == 0) {
+      ramBytesUsed=OrdinalsCache.ramBytesUsed();
+    }
+ else {
+      assertEquals(ramBytesUsed,OrdinalsCache.ramBytesUsed());
+    }
+  }
+  reader.close();
+  IOUtils.close(indexDir,taxoDir);
+}
