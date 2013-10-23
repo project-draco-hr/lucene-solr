@@ -1,0 +1,45 @@
+{
+  if (contexts.length == 0) {
+    return;
+  }
+  int currentContext=0;
+  int currentDocBase=0;
+  int nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+  delegate.setNextReader(contexts[currentContext]);
+  DummyScorer dummy=new DummyScorer();
+  delegate.setScorer(dummy);
+  DocIdSetIterator it=fieldValueCollapse.getCollapsedSet().iterator();
+  int docId=-1;
+  int nullScoreIndex=0;
+  float[] scores=fieldValueCollapse.getScores();
+  FloatArrayList nullScores=fieldValueCollapse.getNullScores();
+  float nullScore=fieldValueCollapse.getNullScore();
+  while ((docId=it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+    if (this.needsScores) {
+      int ord=values.getOrd(docId);
+      if (ord > -1) {
+        dummy.score=scores[ord];
+      }
+ else       if (boostDocs != null && boostDocs.contains(docId)) {
+        dummy.score=0F;
+      }
+ else       if (nullPolicy == CollapsingPostFilter.NULL_POLICY_COLLAPSE) {
+        dummy.score=nullScore;
+      }
+ else       if (nullPolicy == CollapsingPostFilter.NULL_POLICY_EXPAND) {
+        dummy.score=nullScores.get(nullScoreIndex++);
+      }
+    }
+    while (docId >= nextDocBase) {
+      currentContext++;
+      currentDocBase=contexts[currentContext].docBase;
+      nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+      delegate.setNextReader(contexts[currentContext]);
+    }
+    int contextDoc=docId - currentDocBase;
+    delegate.collect(contextDoc);
+  }
+  if (delegate instanceof DelegatingCollector) {
+    ((DelegatingCollector)delegate).finish();
+  }
+}
