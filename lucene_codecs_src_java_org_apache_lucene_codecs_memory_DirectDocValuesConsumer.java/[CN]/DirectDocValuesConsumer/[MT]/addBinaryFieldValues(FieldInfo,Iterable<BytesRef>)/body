@@ -1,0 +1,39 @@
+{
+  final long startFP=data.getFilePointer();
+  boolean missing=false;
+  long totalBytes=0;
+  int count=0;
+  for (  BytesRef v : values) {
+    if (v != null) {
+      data.writeBytes(v.bytes,v.offset,v.length);
+      totalBytes+=v.length;
+      if (totalBytes > DirectDocValuesFormat.MAX_TOTAL_BYTES_LENGTH) {
+        throw new IllegalArgumentException("DocValuesField \"" + field.name + "\" is too large, cannot have more than DirectDocValuesFormat.MAX_TOTAL_BYTES_LENGTH ("+ DirectDocValuesFormat.MAX_TOTAL_BYTES_LENGTH+ ") bytes");
+      }
+    }
+ else {
+      missing=true;
+    }
+    count++;
+  }
+  meta.writeLong(startFP);
+  meta.writeInt((int)totalBytes);
+  meta.writeInt(count);
+  if (missing) {
+    long start=data.getFilePointer();
+    writeMissingBitset(values);
+    meta.writeLong(start);
+    meta.writeLong(data.getFilePointer() - start);
+  }
+ else {
+    meta.writeLong(-1L);
+  }
+  int addr=0;
+  for (  BytesRef v : values) {
+    data.writeInt(addr);
+    if (v != null) {
+      addr+=v.length;
+    }
+  }
+  data.writeInt(addr);
+}
