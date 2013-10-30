@@ -12,49 +12,56 @@
     }
   }
   Class<? extends T> clazz=null;
-  final Matcher m=legacyAnalysisPattern.matcher(cname);
-  if (m.matches()) {
-    final String name=m.group(4);
-    log.trace("Trying to load class from analysis SPI using name='{}'",name);
-    try {
-      if (CharFilterFactory.class.isAssignableFrom(expectedType)) {
-        return clazz=CharFilterFactory.lookupClass(name).asSubclass(expectedType);
-      }
- else       if (TokenizerFactory.class.isAssignableFrom(expectedType)) {
-        return clazz=TokenizerFactory.lookupClass(name).asSubclass(expectedType);
-      }
- else       if (TokenFilterFactory.class.isAssignableFrom(expectedType)) {
-        return clazz=TokenFilterFactory.lookupClass(name).asSubclass(expectedType);
-      }
- else {
-        log.warn("'{}' looks like an analysis factory, but caller requested different class type: {}",cname,expectedType.getName());
-      }
-    }
- catch (    IllegalArgumentException ex) {
-    }
-  }
   try {
-    return Class.forName(cname,true,classLoader).asSubclass(expectedType);
-  }
- catch (  ClassNotFoundException e) {
-    String newName=cname;
-    if (newName.startsWith(project)) {
-      newName=cname.substring(project.length() + 1);
-    }
-    for (    String subpackage : subpackages) {
+    final Matcher m=legacyAnalysisPattern.matcher(cname);
+    if (m.matches()) {
+      final String name=m.group(4);
+      log.trace("Trying to load class from analysis SPI using name='{}'",name);
       try {
-        String name=base + '.' + subpackage+ newName;
-        log.trace("Trying class name " + name);
-        return clazz=Class.forName(name,true,classLoader).asSubclass(expectedType);
+        if (CharFilterFactory.class.isAssignableFrom(expectedType)) {
+          return clazz=CharFilterFactory.lookupClass(name).asSubclass(expectedType);
+        }
+ else         if (TokenizerFactory.class.isAssignableFrom(expectedType)) {
+          return clazz=TokenizerFactory.lookupClass(name).asSubclass(expectedType);
+        }
+ else         if (TokenFilterFactory.class.isAssignableFrom(expectedType)) {
+          return clazz=TokenFilterFactory.lookupClass(name).asSubclass(expectedType);
+        }
+ else {
+          log.warn("'{}' looks like an analysis factory, but caller requested different class type: {}",cname,expectedType.getName());
+        }
       }
- catch (      ClassNotFoundException e1) {
+ catch (      IllegalArgumentException ex) {
       }
     }
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error loading class '" + cname + "'",e);
+    try {
+      return clazz=Class.forName(cname,true,classLoader).asSubclass(expectedType);
+    }
+ catch (    ClassNotFoundException e) {
+      String newName=cname;
+      if (newName.startsWith(project)) {
+        newName=cname.substring(project.length() + 1);
+      }
+      for (      String subpackage : subpackages) {
+        try {
+          String name=base + '.' + subpackage+ newName;
+          log.trace("Trying class name " + name);
+          return clazz=Class.forName(name,true,classLoader).asSubclass(expectedType);
+        }
+ catch (        ClassNotFoundException e1) {
+        }
+      }
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error loading class '" + cname + "'",e);
+    }
   }
- finally {
-    if (clazz != null && clazz.getClassLoader() == SolrResourceLoader.class.getClassLoader() && !cname.equals(clazz.getName()) && (subpackages.length == 0 || subpackages == packages)) {
-      classNameCache.put(cname,clazz.getName());
+  finally {
+    if (clazz != null) {
+      if (clazz.getClassLoader() == SolrResourceLoader.class.getClassLoader() && !cname.equals(clazz.getName()) && (subpackages.length == 0 || subpackages == packages)) {
+        classNameCache.put(cname,clazz.getName());
+      }
+      if (clazz.isAnnotationPresent(Deprecated.class)) {
+        log.warn("Solr loaded a deprecated plugin/analysis class [{}]. Please consult documentation how to replace it accordingly.",cname);
+      }
     }
   }
 }
