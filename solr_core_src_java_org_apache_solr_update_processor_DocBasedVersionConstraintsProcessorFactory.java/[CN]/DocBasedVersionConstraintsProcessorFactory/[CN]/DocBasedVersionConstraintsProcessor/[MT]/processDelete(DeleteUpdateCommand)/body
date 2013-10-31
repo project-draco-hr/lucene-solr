@@ -1,0 +1,48 @@
+{
+  if (null == deleteVersionParamName) {
+    super.processDelete(cmd);
+    return;
+  }
+  if (!cmd.isDeleteById()) {
+    super.processDelete(cmd);
+    return;
+  }
+  String deleteParamValue=cmd.getReq().getParams().get(deleteVersionParamName);
+  if (null == deleteParamValue) {
+    throw new SolrException(BAD_REQUEST,"Delete by ID must specify doc version param: " + deleteVersionParamName);
+  }
+  if (!isLeader(cmd)) {
+    SolrInputDocument newDoc=new SolrInputDocument();
+    newDoc.setField(core.getLatestSchema().getUniqueKeyField().getName(),cmd.getId());
+    newDoc.setField(versionFieldName,deleteParamValue);
+    AddUpdateCommand newCmd=new AddUpdateCommand(cmd.getReq());
+    newCmd.solrDoc=newDoc;
+    newCmd.commitWithin=cmd.commitWithin;
+    super.processAdd(newCmd);
+  }
+  for (int i=0; ; i++) {
+    if ((i & 0xff) == 0xff) {
+      log.warn("Unusual number of optimistic concurrency retries: retries=" + i + " cmd="+ cmd);
+    }
+    if (!isVersionNewEnough(cmd.getIndexedId(),deleteParamValue)) {
+      return;
+    }
+    try {
+      SolrInputDocument newDoc=new SolrInputDocument();
+      newDoc.setField(core.getLatestSchema().getUniqueKeyField().getName(),cmd.getId());
+      newDoc.setField(versionFieldName,deleteParamValue);
+      AddUpdateCommand newCmd=new AddUpdateCommand(cmd.getReq());
+      newCmd.solrDoc=newDoc;
+      newCmd.commitWithin=cmd.commitWithin;
+      newCmd.setVersion(oldSolrVersion);
+      super.processAdd(newCmd);
+      return;
+    }
+ catch (    SolrException e) {
+      if (e.code() == 409) {
+        continue;
+      }
+      throw e;
+    }
+  }
+}

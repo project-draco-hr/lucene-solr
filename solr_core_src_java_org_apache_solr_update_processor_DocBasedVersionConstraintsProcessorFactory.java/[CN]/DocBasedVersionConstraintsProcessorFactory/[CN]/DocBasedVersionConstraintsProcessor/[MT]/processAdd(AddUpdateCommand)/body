@@ -1,0 +1,29 @@
+{
+  if (!isLeader(cmd)) {
+    super.processAdd(cmd);
+  }
+  final SolrInputDocument newDoc=cmd.getSolrInputDocument();
+  Object newVersion=newDoc.getFieldValue(versionFieldName);
+  if (null == newVersion) {
+    throw new SolrException(BAD_REQUEST,"Doc does not have versionField: " + versionFieldName);
+  }
+  for (int i=0; ; i++) {
+    if ((i & 0xff) == 0xff) {
+      log.warn("Unusual number of optimistic concurrency retries: retries=" + i + " cmd="+ cmd);
+    }
+    if (!isVersionNewEnough(cmd.getIndexedId(),newVersion)) {
+      return;
+    }
+    try {
+      cmd.setVersion(oldSolrVersion);
+      super.processAdd(cmd);
+      return;
+    }
+ catch (    SolrException e) {
+      if (e.code() == 409) {
+        continue;
+      }
+      throw e;
+    }
+  }
+}
