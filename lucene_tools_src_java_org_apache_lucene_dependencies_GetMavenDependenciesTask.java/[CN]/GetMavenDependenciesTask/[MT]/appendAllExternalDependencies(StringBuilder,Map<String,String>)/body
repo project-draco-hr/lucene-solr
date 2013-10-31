@@ -1,0 +1,32 @@
+{
+  log("Loading centralized ivy versions from: " + centralizedVersionsFile,verboseLevel);
+  ivyCacheDir=getIvyCacheDir();
+  Properties versions=loadPropertiesFile(centralizedVersionsFile);
+  SortedSet<Map.Entry> sortedEntries=new TreeSet<Map.Entry>(new Comparator<Map.Entry>(){
+    @Override public int compare(    Map.Entry o1,    Map.Entry o2){
+      return ((String)o1.getKey()).compareTo((String)o2.getKey());
+    }
+  }
+);
+  sortedEntries.addAll(versions.entrySet());
+  for (  Map.Entry entry : sortedEntries) {
+    String key=(String)entry.getKey();
+    Matcher matcher=COORDINATE_KEY_PATTERN.matcher(key);
+    if (matcher.lookingAt()) {
+      String groupId=matcher.group(1);
+      String artifactId=matcher.group(2);
+      String coordinate=groupId + ':' + artifactId;
+      String version=(String)entry.getValue();
+      versionsMap.put(coordinate + ".version",version);
+      if (!nonJarDependencies.contains(coordinate)) {
+        Set<String> classifiers=dependencyClassifiers.get(coordinate);
+        if (null != classifiers) {
+          for (          String classifier : classifiers) {
+            Collection<String> exclusions=getTransitiveDependenciesFromIvyCache(groupId,artifactId,version);
+            appendDependencyXml(dependenciesBuilder,groupId,artifactId,"      ",version,false,false,classifier,exclusions);
+          }
+        }
+      }
+    }
+  }
+}

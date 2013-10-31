@@ -1,0 +1,44 @@
+{
+  String module=getModuleName(ivyXmlFile);
+  log("Collecting external dependencies from: " + ivyXmlFile.getPath(),verboseLevel);
+  Document document=documentBuilder.parse(ivyXmlFile);
+  String dependencyPath="/ivy-module/dependencies/dependency[not(starts-with(@conf,'start->'))]";
+  NodeList dependencies=(NodeList)xpath.evaluate(dependencyPath,document,XPathConstants.NODESET);
+  for (int i=0; i < dependencies.getLength(); ++i) {
+    Element dependency=(Element)dependencies.item(i);
+    String groupId=dependency.getAttribute("org");
+    String artifactId=dependency.getAttribute("name");
+    String dependencyCoordinate=groupId + ':' + artifactId;
+    String classifier=null;
+    Set<String> classifiers=dependencyClassifiers.get(dependencyCoordinate);
+    if (null == classifiers) {
+      classifiers=new HashSet<>();
+      dependencyClassifiers.put(dependencyCoordinate,classifiers);
+    }
+    if (dependency.hasChildNodes()) {
+      NodeList artifacts=(NodeList)xpath.evaluate("artifact",dependency,XPathConstants.NODESET);
+      Element firstArtifact=(Element)artifacts.item(0);
+      if (artifacts.getLength() > 0) {
+        if (!"jar".equals(firstArtifact.getAttribute("type")) && !"jar".equals(firstArtifact.getAttribute("ext"))) {
+          nonJarDependencies.add(dependencyCoordinate);
+          continue;
+        }
+        String mavenClassifier=firstArtifact.getAttribute("maven:classifier");
+        if (!mavenClassifier.isEmpty()) {
+          classifier=mavenClassifier;
+          classifiers.add(classifier);
+        }
+      }
+    }
+    classifiers.add(classifier);
+    String conf=dependency.getAttribute("conf");
+    boolean isTestDependency=conf.contains("test");
+    boolean isOptional=optionalExternalDependencies.contains(dependencyCoordinate);
+    SortedSet<ExternalDependency> deps=allExternalDependencies.get(module);
+    if (null == deps) {
+      deps=new TreeSet<ExternalDependency>();
+      allExternalDependencies.put(module,deps);
+    }
+    deps.add(new ExternalDependency(groupId,artifactId,classifier,isTestDependency,isOptional));
+  }
+}

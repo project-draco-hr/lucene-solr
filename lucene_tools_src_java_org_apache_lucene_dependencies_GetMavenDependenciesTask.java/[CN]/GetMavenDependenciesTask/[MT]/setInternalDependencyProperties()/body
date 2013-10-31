@@ -1,0 +1,95 @@
+{
+  log("Loading module dependencies from: " + moduleDependenciesPropertiesFile,verboseLevel);
+  Properties moduleDependencies=loadPropertiesFile(moduleDependenciesPropertiesFile);
+  Map<String,SortedSet<String>> testScopeDependencies=new HashMap<String,SortedSet<String>>();
+  Map<String,String> testScopePropertyKeys=new HashMap<String,String>();
+  for (  Map.Entry entry : moduleDependencies.entrySet()) {
+    String newPropertyKey=(String)entry.getKey();
+    StringBuilder newPropertyValue=new StringBuilder();
+    String value=(String)entry.getValue();
+    Matcher matcher=MODULE_DEPENDENCIES_COORDINATE_KEY_PATTERN.matcher(newPropertyKey);
+    if (!matcher.matches()) {
+      throw new BuildException("Malformed module dependencies property key: '" + newPropertyKey + "'");
+    }
+    String antProjectName=matcher.group(1);
+    boolean isTest=null != matcher.group(2);
+    String artifactName=antProjectToArtifactName(antProjectName);
+    newPropertyKey=artifactName + (isTest ? ".internal.test" : ".internal") + ".dependencies";
+    if (isTest) {
+      testScopePropertyKeys.put(artifactName,newPropertyKey);
+    }
+    if (null == value || value.isEmpty()) {
+      allProperties.setProperty(newPropertyKey,"");
+      Map<String,SortedSet<String>> scopedDependencies=isTest ? testScopeDependencies : internalCompileScopeDependencies;
+      scopedDependencies.put(artifactName,new TreeSet<String>());
+    }
+ else {
+      String origModuleDir=antProjectName.replace("analyzers-","analysis/");
+      Pattern unwantedInternalDependencies=Pattern.compile("(?:lucene/build/|solr/build/(?:contrib/)?)" + origModuleDir + "|"+ UNWANTED_INTERNAL_DEPENDENCIES);
+      SortedSet<String> sortedDeps=new TreeSet<String>();
+      for (      String dependency : value.split(",")) {
+        matcher=SHARED_EXTERNAL_DEPENDENCIES_PATTERN.matcher(dependency);
+        if (matcher.find()) {
+          String otherArtifactName=matcher.group(1);
+          otherArtifactName=otherArtifactName.replace('/','-');
+          otherArtifactName=otherArtifactName.replace("lucene-analysis","lucene-analyzers");
+          otherArtifactName=otherArtifactName.replace("solr-contrib-","solr-");
+          if (!otherArtifactName.equals(artifactName)) {
+            Map<String,Set<String>> sharedDeps=isTest ? interModuleExternalTestScopeDependencies : interModuleExternalCompileScopeDependencies;
+            Set<String> sharedSet=sharedDeps.get(artifactName);
+            if (null == sharedSet) {
+              sharedSet=new HashSet<String>();
+              sharedDeps.put(artifactName,sharedSet);
+            }
+            sharedSet.add(otherArtifactName);
+          }
+        }
+        matcher=unwantedInternalDependencies.matcher(dependency);
+        if (matcher.find()) {
+          continue;
+        }
+        String artifactId=dependencyToArtifactId(newPropertyKey,dependency);
+        String groupId="org.apache." + artifactId.substring(0,artifactId.indexOf('-'));
+        String coordinate=groupId + ':' + artifactId;
+        sortedDeps.add(coordinate);
+      }
+      if (isTest) {
+        testScopeDependencies.put(artifactName,sortedDeps);
+      }
+ else {
+        internalCompileScopeDependencies.put(artifactName,sortedDeps);
+        for (        String dependency : sortedDeps) {
+          int splitPos=dependency.indexOf(':');
+          String groupId=dependency.substring(0,splitPos);
+          String artifactId=dependency.substring(splitPos + 1);
+          appendDependencyXml(newPropertyValue,groupId,artifactId,"    ",null,false,false,null,null);
+        }
+        if (newPropertyValue.length() > 0) {
+          newPropertyValue.setLength(newPropertyValue.length() - 1);
+        }
+        allProperties.setProperty(newPropertyKey,newPropertyValue.toString());
+      }
+    }
+  }
+  for (  Map.Entry<String,SortedSet<String>> entry : testScopeDependencies.entrySet()) {
+    String module=entry.getKey();
+    SortedSet<String> testDeps=entry.getValue();
+    SortedSet<String> compileDeps=internalCompileScopeDependencies.get(module);
+    if (null == compileDeps) {
+      throw new BuildException("Can't find compile scope dependencies for module " + module);
+    }
+    StringBuilder newPropertyValue=new StringBuilder();
+    for (    String dependency : testDeps) {
+      if (modulesWithSeparateCompileAndTestPOMs.contains(module) || !compileDeps.contains(dependency)) {
+        int splitPos=dependency.indexOf(':');
+        String groupId=dependency.substring(0,splitPos);
+        String artifactId=dependency.substring(splitPos + 1);
+        appendDependencyXml(newPropertyValue,groupId,artifactId,"    ",null,true,false,null,null);
+      }
+    }
+    if (newPropertyValue.length() > 0) {
+      newPropertyValue.setLength(newPropertyValue.length() - 1);
+    }
+    allProperties.setProperty(testScopePropertyKeys.get(module),newPropertyValue.toString());
+  }
+}
