@@ -92,6 +92,21 @@
           SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
           core.getUpdateHandler().commit(new CommitUpdateCommand(req,false));
           log.info("PeerSync Recovery was successful - registering as Active. core=" + coreName);
+          if (Boolean.getBoolean("solr.cloud.debug")) {
+            try {
+              RefCounted<SolrIndexSearcher> searchHolder=core.getNewestSearcher(false);
+              SolrIndexSearcher searcher=searchHolder.get();
+              try {
+                System.out.println(core.getCoreDescriptor().getCoreContainer().getZkController().getNodeName() + " synched " + searcher.search(new MatchAllDocsQuery(),1).totalHits);
+              }
+  finally {
+                searchHolder.decref();
+              }
+            }
+ catch (            Exception e) {
+              throw new SolrException(ErrorCode.SERVER_ERROR,null,e);
+            }
+          }
           zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
           successfulRecovery=true;
           close=true;
@@ -105,7 +120,7 @@
       replayed=false;
       try {
         replicate(zkController.getNodeName(),core,leaderprops);
-        replay(ulog);
+        replay(core);
         replayed=true;
         log.info("Replication Recovery was successful - registering as Active. core=" + coreName);
         zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
