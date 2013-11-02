@@ -1,0 +1,21 @@
+{
+  flushDeletesCount.incrementAndGet();
+  final BufferedUpdatesStream.ApplyDeletesResult result;
+  result=bufferedUpdatesStream.applyDeletesAndUpdates(readerPool,segmentInfos.asList());
+  if (result.anyDeletes) {
+    checkpoint();
+  }
+  if (!keepFullyDeletedSegments && result.allDeleted != null) {
+    if (infoStream.isEnabled("IW")) {
+      infoStream.message("IW","drop 100% deleted segments: " + segString(result.allDeleted));
+    }
+    for (    SegmentCommitInfo info : result.allDeleted) {
+      if (!mergingSegments.contains(info)) {
+        segmentInfos.remove(info);
+        readerPool.drop(info);
+      }
+    }
+    checkpoint();
+  }
+  bufferedUpdatesStream.prune(segmentInfos);
+}
