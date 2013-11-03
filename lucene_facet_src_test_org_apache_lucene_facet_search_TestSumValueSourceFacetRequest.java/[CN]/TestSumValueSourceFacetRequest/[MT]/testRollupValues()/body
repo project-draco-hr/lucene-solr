@@ -1,0 +1,30 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  TaxonomyWriter taxonomyWriter=new DirectoryTaxonomyWriter(taxoDir);
+  IndexWriter iw=new IndexWriter(indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  FacetIndexingParams fip=new FacetIndexingParams(new CategoryListParams(){
+    @Override public OrdinalPolicy getOrdinalPolicy(    String dimension){
+      return OrdinalPolicy.NO_PARENTS;
+    }
+  }
+);
+  FacetFields facetFields=new FacetFields(taxonomyWriter,fip);
+  for (int i=0; i < 4; i++) {
+    Document doc=new Document();
+    doc.add(new NumericDocValuesField("price",(i + 1)));
+    facetFields.addFields(doc,Collections.singletonList(new CategoryPath("a",Integer.toString(i % 2),"1")));
+    iw.addDocument(doc);
+  }
+  taxonomyWriter.close();
+  iw.close();
+  DirectoryReader r=DirectoryReader.open(indexDir);
+  DirectoryTaxonomyReader taxo=new DirectoryTaxonomyReader(taxoDir);
+  ValueSource valueSource=new LongFieldSource("price");
+  FacetSearchParams fsp=new FacetSearchParams(fip,new SumValueSourceFacetRequest(new CategoryPath("a"),10,valueSource,false));
+  FacetsCollector fc=FacetsCollector.create(fsp,r,taxo);
+  newSearcher(r).search(new MatchAllDocsQuery(),fc);
+  List<FacetResult> res=fc.getFacetResults();
+  assertEquals("a (10)\n  1 (6)\n  0 (4)\n",FacetTestUtils.toSimpleString(res.get(0)));
+  IOUtils.close(taxo,taxoDir,r,indexDir);
+}
