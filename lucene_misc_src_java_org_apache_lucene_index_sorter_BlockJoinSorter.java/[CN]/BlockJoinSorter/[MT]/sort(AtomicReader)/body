@@ -1,0 +1,35 @@
+{
+  final DocIdSet parents=parentsFilter.getDocIdSet(reader.getContext(),null);
+  if (parents == null) {
+    throw new IllegalStateException("AtomicReader " + reader + " contains no parents!");
+  }
+  if (!(parents instanceof FixedBitSet)) {
+    throw new IllegalStateException("parentFilter must return FixedBitSet; got " + parents);
+  }
+  final FixedBitSet parentBits=(FixedBitSet)parents;
+  final DocComparator parentComparator=getParentComparator(reader);
+  final DocComparator childComparator=getChildComparator(reader);
+  final DocComparator comparator=new DocComparator(){
+    @Override public int compare(    int docID1,    int docID2){
+      final int parent1=parentBits.nextSetBit(docID1);
+      final int parent2=parentBits.nextSetBit(docID2);
+      if (parent1 == parent2) {
+        if (docID1 == parent1 || docID2 == parent2) {
+          return docID1 - docID2;
+        }
+ else {
+          return childComparator.compare(docID1,docID2);
+        }
+      }
+ else {
+        int cmp=parentComparator.compare(parent1,parent2);
+        if (cmp == 0) {
+          cmp=parent1 - parent2;
+        }
+        return cmp;
+      }
+    }
+  }
+;
+  return sort(reader.maxDoc(),comparator);
+}
