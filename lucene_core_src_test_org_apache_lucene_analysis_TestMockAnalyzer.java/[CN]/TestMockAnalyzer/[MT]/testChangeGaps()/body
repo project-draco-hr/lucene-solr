@@ -1,0 +1,43 @@
+{
+  final int positionGap=random().nextInt(1000);
+  final int offsetGap=random().nextInt(1000);
+  final Analyzer delegate=new MockAnalyzer(random());
+  final Analyzer a=new AnalyzerWrapper(delegate.getReuseStrategy()){
+    @Override protected Analyzer getWrappedAnalyzer(    String fieldName){
+      return delegate;
+    }
+    @Override public int getPositionIncrementGap(    String fieldName){
+      return positionGap;
+    }
+    @Override public int getOffsetGap(    String fieldName){
+      return offsetGap;
+    }
+  }
+;
+  final RandomIndexWriter writer=new RandomIndexWriter(random(),newDirectory());
+  final Document doc=new Document();
+  final FieldType ft=new FieldType();
+  ft.setIndexed(true);
+  ft.setTokenized(true);
+  ft.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+  doc.add(new Field("f","a",ft));
+  doc.add(new Field("f","a",ft));
+  writer.addDocument(doc,a);
+  final AtomicReader reader=getOnlySegmentReader(writer.getReader());
+  final Fields fields=reader.fields();
+  final Terms terms=fields.terms("f");
+  final TermsEnum te=terms.iterator(null);
+  assertEquals(new BytesRef("a"),te.next());
+  final DocsAndPositionsEnum dpe=te.docsAndPositions(null,null);
+  assertEquals(0,dpe.nextDoc());
+  assertEquals(2,dpe.freq());
+  assertEquals(0,dpe.nextPosition());
+  assertEquals(0,dpe.startOffset());
+  final int endOffset=dpe.endOffset();
+  assertEquals(1 + positionGap,dpe.nextPosition());
+  assertEquals(1 + endOffset + offsetGap,dpe.endOffset());
+  assertEquals(null,te.next());
+  reader.close();
+  writer.close();
+  writer.w.getDirectory().close();
+}
