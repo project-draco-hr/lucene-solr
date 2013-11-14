@@ -1,0 +1,77 @@
+{
+  DocRouter router=coll.getRouter();
+  List<Node> nodes=null;
+  if (router instanceof CompositeIdRouter) {
+    CompositeIdRouter compositeIdRouter=(CompositeIdRouter)router;
+    String myShardId=req.getCore().getCoreDescriptor().getCloudDescriptor().getShardId();
+    Slice slice=coll.getSlice(myShardId);
+    Map<String,RoutingRule> routingRules=slice.getRoutingRules();
+    if (routingRules != null) {
+      if (id == null) {
+        for (        Entry<String,RoutingRule> entry : routingRules.entrySet()) {
+          String targetCollectionName=entry.getValue().getTargetCollectionName();
+          Collection<Slice> activeSlices=cstate.getActiveSlices(targetCollectionName);
+          if (activeSlices != null && !activeSlices.isEmpty()) {
+            Slice any=activeSlices.iterator().next();
+            if (nodes == null)             nodes=new ArrayList<Node>();
+            nodes.add(new StdNode(new ZkCoreNodeProps(any.getLeader())));
+          }
+        }
+        return nodes;
+      }
+      String routeKey=SolrIndexSplitter.getRouteKey(id);
+      if (routeKey != null) {
+        RoutingRule rule=routingRules.get(routeKey + "!");
+        if (rule != null) {
+          if (rule.getExpireAt() >= System.currentTimeMillis()) {
+            List<DocRouter.Range> ranges=rule.getRouteRanges();
+            if (ranges != null && !ranges.isEmpty()) {
+              int hash=compositeIdRouter.sliceHash(id,doc,null,coll);
+              for (              DocRouter.Range range : ranges) {
+                if (range.includes(hash)) {
+                  if (nodes == null)                   nodes=new ArrayList<Node>();
+                  Collection<Slice> activeSlices=cstate.getActiveSlices(rule.getTargetCollectionName());
+                  if (activeSlices == null || activeSlices.isEmpty()) {
+                    throw new SolrException(ErrorCode.SERVER_ERROR,"No active slices found for target collection: " + rule.getTargetCollectionName());
+                  }
+                  Replica targetLeader=cstate.getLeader(rule.getTargetCollectionName(),activeSlices.iterator().next().getName());
+                  nodes.add(new StdNode(new ZkCoreNodeProps(targetLeader)));
+                  break;
+                }
+              }
+            }
+          }
+ else {
+            ReentrantLock ruleExpiryLock=req.getCore().getRuleExpiryLock();
+            if (!ruleExpiryLock.isLocked()) {
+              try {
+                if (ruleExpiryLock.tryLock(10,TimeUnit.MILLISECONDS)) {
+                  log.info("Going to expire routing rule");
+                  try {
+                    Map<String,Object> map=ZkNodeProps.makeMap(Overseer.QUEUE_OPERATION,Overseer.REMOVE_ROUTING_RULE,ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,myShardId,"routeKey",routeKey + "!");
+                    SolrZkClient zkClient=req.getCore().getCoreDescriptor().getCoreContainer().getZkController().getZkClient();
+                    DistributedQueue queue=Overseer.getInQueue(zkClient);
+                    queue.offer(ZkStateReader.toJSON(map));
+                  }
+ catch (                  KeeperException e) {
+                    log.warn("Exception while removing routing rule for route key: " + routeKey,e);
+                  }
+catch (                  Exception e) {
+                    log.error("Exception while removing routing rule for route key: " + routeKey,e);
+                  }
+ finally {
+                    ruleExpiryLock.unlock();
+                  }
+                }
+              }
+ catch (              InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  return nodes;
+}

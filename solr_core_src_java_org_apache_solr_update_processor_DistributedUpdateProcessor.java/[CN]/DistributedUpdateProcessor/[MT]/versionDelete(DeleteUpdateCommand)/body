@@ -14,6 +14,7 @@
   versionOnUpdate=Math.abs(versionOnUpdate);
   boolean isReplayOrPeersync=(cmd.getFlags() & (UpdateCommand.REPLAY | UpdateCommand.PEER_SYNC)) != 0;
   boolean leaderLogic=isLeader && !isReplayOrPeersync;
+  boolean forwardedFromCollection=cmd.getReq().getParams().get("distrib.from.collection") != null;
   if (!leaderLogic && versionOnUpdate == 0) {
     throw new SolrException(ErrorCode.BAD_REQUEST,"missing _version_ on update from leader");
   }
@@ -24,6 +25,16 @@ synchronized (bucket) {
       if (versionsStored) {
         long bucketVersion=bucket.highest;
         if (leaderLogic) {
+          if (forwardedFromCollection && ulog.getState() == UpdateLog.State.ACTIVE) {
+            log.info("Removing version field from doc: " + cmd.getId());
+            versionOnUpdate=signedVersionOnUpdate=0;
+          }
+          if (forwardedFromCollection && ulog.getState() != UpdateLog.State.ACTIVE && (cmd.getFlags() & UpdateCommand.REPLAY) == 0) {
+            log.info("Leader logic applied but update log is buffering: " + cmd.getId());
+            cmd.setFlags(cmd.getFlags() | UpdateCommand.BUFFERING);
+            ulog.delete(cmd);
+            return true;
+          }
           if (signedVersionOnUpdate != 0) {
             Long lastVersion=vinfo.lookupVersion(cmd.getIndexedId());
             long foundVersion=lastVersion == null ? -1 : lastVersion;

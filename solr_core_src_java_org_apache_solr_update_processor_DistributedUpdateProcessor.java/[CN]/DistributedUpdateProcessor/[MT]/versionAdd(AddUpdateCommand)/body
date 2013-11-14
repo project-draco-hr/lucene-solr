@@ -28,6 +28,7 @@
   }
   boolean isReplayOrPeersync=(cmd.getFlags() & (UpdateCommand.REPLAY | UpdateCommand.PEER_SYNC)) != 0;
   boolean leaderLogic=isLeader && !isReplayOrPeersync;
+  boolean forwardedFromCollection=cmd.getReq().getParams().get("distrib.from.collection") != null;
   VersionBucket bucket=vinfo.bucket(bucketHash);
   vinfo.lockForUpdate();
   try {
@@ -36,7 +37,18 @@ synchronized (bucket) {
       if (versionsStored) {
         long bucketVersion=bucket.highest;
         if (leaderLogic) {
+          if (forwardedFromCollection && ulog.getState() == UpdateLog.State.ACTIVE) {
+            log.info("Removing version field from doc: " + cmd.getPrintableId());
+            cmd.solrDoc.remove(VERSION_FIELD);
+            versionOnUpdate=0;
+          }
           boolean updated=getUpdatedDocument(cmd,versionOnUpdate);
+          if (forwardedFromCollection && ulog.getState() != UpdateLog.State.ACTIVE && (cmd.getFlags() & UpdateCommand.REPLAY) == 0) {
+            log.info("Leader logic applied but update log is buffering: " + cmd.getPrintableId());
+            cmd.setFlags(cmd.getFlags() | UpdateCommand.BUFFERING);
+            ulog.add(cmd);
+            return true;
+          }
           if (versionOnUpdate != 0) {
             Long lastVersion=vinfo.lookupVersion(cmd.getIndexedId());
             long foundVersion=lastVersion == null ? -1 : lastVersion;
