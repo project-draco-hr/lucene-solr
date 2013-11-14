@@ -1,0 +1,43 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  IndexWriter writer=new FacetIndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())),taxoWriter,new FacetsConfig());
+  Document doc=new Document();
+  doc.add(new IntField("num",10,Field.Store.NO));
+  doc.add(new FacetField("a","foo1"));
+  writer.addDocument(doc);
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new IntField("num",20,Field.Store.NO));
+  doc.add(new FacetField("a","foo2"));
+  doc.add(new FacetField("b","bar1"));
+  writer.addDocument(doc);
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new IntField("num",30,Field.Store.NO));
+  doc.add(new FacetField("a","foo3"));
+  doc.add(new FacetField("b","bar2"));
+  doc.add(new FacetField("c","baz1"));
+  writer.addDocument(doc);
+  IndexSearcher searcher=newSearcher(DirectoryReader.open(writer,true));
+  writer.close();
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  taxoWriter.close();
+  SimpleFacetsCollector c=new SimpleFacetsCollector();
+  searcher.search(new MatchAllDocsQuery(),c);
+  TaxonomyFacetSumValueSource facets=new TaxonomyFacetSumValueSource(taxoReader,new FacetsConfig(),c,new IntFieldSource("num"));
+  List<SimpleFacetResult> results=facets.getAllDims(10);
+  assertEquals(3,results.size());
+  assertEquals("a (60.0)\n  foo3 (30.0)\n  foo2 (20.0)\n  foo1 (10.0)\n",results.get(0).toString());
+  assertEquals("b (50.0)\n  bar2 (30.0)\n  bar1 (20.0)\n",results.get(1).toString());
+  assertEquals("c (30.0)\n  baz1 (30.0)\n",results.get(2).toString());
+  searcher.getIndexReader().close();
+  taxoReader.close();
+  taxoDir.close();
+  dir.close();
+}

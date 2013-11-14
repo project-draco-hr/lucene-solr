@@ -1,0 +1,54 @@
+{
+  Map<String,List<FacetField>> byField=new HashMap<String,List<FacetField>>();
+  Map<String,List<SortedSetDocValuesFacetField>> dvByField=new HashMap<String,List<SortedSetDocValuesFacetField>>();
+  for (  IndexableField field : doc.indexableFields()) {
+    if (field.fieldType() == FacetField.TYPE) {
+      FacetField facetField=(FacetField)field;
+      FacetsConfig.DimConfig dimConfig=facetsConfig.getDimConfig(field.name());
+      String indexedFieldName=dimConfig.indexedFieldName;
+      List<FacetField> fields=byField.get(indexedFieldName);
+      if (fields == null) {
+        fields=new ArrayList<FacetField>();
+        byField.put(indexedFieldName,fields);
+      }
+      fields.add(facetField);
+    }
+    if (field.fieldType() == SortedSetDocValuesFacetField.TYPE) {
+      SortedSetDocValuesFacetField facetField=(SortedSetDocValuesFacetField)field;
+      FacetsConfig.DimConfig dimConfig=facetsConfig.getDimConfig(field.name());
+      String indexedFieldName=dimConfig.indexedFieldName;
+      List<SortedSetDocValuesFacetField> fields=dvByField.get(indexedFieldName);
+      if (fields == null) {
+        fields=new ArrayList<SortedSetDocValuesFacetField>();
+        dvByField.put(indexedFieldName,fields);
+      }
+      fields.add(facetField);
+    }
+  }
+  List<Field> addedIndexedFields=new ArrayList<Field>();
+  List<Field> addedStoredFields=new ArrayList<Field>();
+  processFacetFields(byField,addedIndexedFields,addedStoredFields);
+  processSSDVFacetFields(dvByField,addedIndexedFields,addedStoredFields);
+  final List<IndexableField> allIndexedFields=new ArrayList<IndexableField>();
+  for (  IndexableField field : doc.indexableFields()) {
+    IndexableFieldType ft=field.fieldType();
+    if (ft != FacetField.TYPE && ft != SortedSetDocValuesFacetField.TYPE) {
+      allIndexedFields.add(field);
+    }
+  }
+  allIndexedFields.addAll(addedIndexedFields);
+  final List<StorableField> allStoredFields=new ArrayList<StorableField>();
+  for (  StorableField field : doc.storableFields()) {
+    allStoredFields.add(field);
+  }
+  allStoredFields.addAll(addedStoredFields);
+  super.addDocument(new IndexDocument(){
+    @Override public Iterable<IndexableField> indexableFields(){
+      return allIndexedFields;
+    }
+    @Override public Iterable<StorableField> storableFields(){
+      return allStoredFields;
+    }
+  }
+);
+}

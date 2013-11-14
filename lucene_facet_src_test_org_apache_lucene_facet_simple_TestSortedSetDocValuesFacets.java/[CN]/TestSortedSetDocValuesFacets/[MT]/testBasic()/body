@@ -1,0 +1,32 @@
+{
+  assumeTrue("Test requires SortedSetDV support",defaultCodecSupportsSortedSet());
+  Directory dir=newDirectory();
+  IndexWriter writer=new FacetIndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  Document doc=new Document();
+  doc.add(new SortedSetDocValuesFacetField("a","foo"));
+  doc.add(new SortedSetDocValuesFacetField("a","bar"));
+  doc.add(new SortedSetDocValuesFacetField("a","zoo"));
+  doc.add(new SortedSetDocValuesFacetField("b","baz"));
+  writer.addDocument(doc);
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new SortedSetDocValuesFacetField("a","foo"));
+  writer.addDocument(doc);
+  IndexSearcher searcher=newSearcher(DirectoryReader.open(writer,true));
+  writer.close();
+  SortedSetDocValuesReaderState state=new SortedSetDocValuesReaderState(searcher.getIndexReader());
+  SimpleFacetsCollector c=new SimpleFacetsCollector();
+  searcher.search(new MatchAllDocsQuery(),c);
+  SortedSetDocValuesFacetCounts facets=new SortedSetDocValuesFacetCounts(state,c);
+  assertEquals("a (4)\n  foo (2)\n  bar (1)\n  zoo (1)\n",facets.getDim("a",10).toString());
+  assertEquals("b (1)\n  baz (1)\n",facets.getDim("b",10).toString());
+  SimpleDrillDownQuery q=new SimpleDrillDownQuery();
+  q.add(new CategoryPath("a","foo"));
+  q.add(new CategoryPath("b","baz"));
+  TopDocs hits=searcher.search(q,1);
+  assertEquals(1,hits.totalHits);
+  searcher.getIndexReader().close();
+  dir.close();
+}
