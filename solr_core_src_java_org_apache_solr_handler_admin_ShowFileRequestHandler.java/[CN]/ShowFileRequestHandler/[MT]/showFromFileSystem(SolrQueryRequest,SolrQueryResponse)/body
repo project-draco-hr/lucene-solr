@@ -1,42 +1,20 @@
 {
-  File adminFile=null;
-  final SolrResourceLoader loader=req.getCore().getResourceLoader();
-  File configdir=new File(loader.getConfigDir());
-  if (!configdir.exists()) {
-    try {
-      configdir=new File(loader.getClassLoader().getResource(loader.getConfigDir()).toURI());
-    }
- catch (    URISyntaxException e) {
-      rsp.setException(new SolrException(ErrorCode.FORBIDDEN,"Can not access configuration directory!",e));
-      return;
-    }
-  }
-  String fname=req.getParams().get("file",null);
-  if (fname == null) {
-    adminFile=configdir;
-  }
- else {
-    fname=fname.replace('\\','/');
-    if (hiddenFiles.contains(fname.toUpperCase(Locale.ROOT))) {
-      rsp.setException(new SolrException(ErrorCode.FORBIDDEN,"Can not access: " + fname));
-      return;
-    }
-    if (fname.indexOf("..") >= 0) {
-      rsp.setException(new SolrException(ErrorCode.FORBIDDEN,"Invalid path: " + fname));
-      return;
-    }
-    adminFile=new File(configdir,fname);
+  File adminFile=getAdminFileFromFileSystem(req,rsp);
+  if (adminFile == null) {
+    return;
   }
   if (!adminFile.exists()) {
+    log.error("Can not find: " + adminFile.getName() + " ["+ adminFile.getAbsolutePath()+ "]");
     rsp.setException(new SolrException(ErrorCode.NOT_FOUND,"Can not find: " + adminFile.getName() + " ["+ adminFile.getAbsolutePath()+ "]"));
     return;
   }
   if (!adminFile.canRead() || adminFile.isHidden()) {
+    log.error("Can not show: " + adminFile.getName() + " ["+ adminFile.getAbsolutePath()+ "]");
     rsp.setException(new SolrException(ErrorCode.NOT_FOUND,"Can not show: " + adminFile.getName() + " ["+ adminFile.getAbsolutePath()+ "]"));
     return;
   }
   if (adminFile.isDirectory()) {
-    int basePath=configdir.getAbsolutePath().length() + 1;
+    int basePath=adminFile.getAbsolutePath().length() + 1;
     NamedList<SimpleOrderedMap<Object>> files=new SimpleOrderedMap<SimpleOrderedMap<Object>>();
     for (    File f : adminFile.listFiles()) {
       String path=f.getAbsolutePath().substring(basePath);
