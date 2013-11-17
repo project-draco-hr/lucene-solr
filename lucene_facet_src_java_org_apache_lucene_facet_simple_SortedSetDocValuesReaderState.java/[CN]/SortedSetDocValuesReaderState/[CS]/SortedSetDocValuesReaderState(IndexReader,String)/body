@@ -1,3 +1,33 @@
 {
-  this(reader,dvField,Constants.DEFAULT_DELIM_CHAR);
+  this.field=field;
+  this.origReader=reader;
+  topReader=SlowCompositeReaderWrapper.wrap(reader);
+  SortedSetDocValues dv=topReader.getSortedSetDocValues(field);
+  if (dv == null) {
+    throw new IllegalArgumentException("field \"" + field + "\" was not indexed with SortedSetDocValues");
+  }
+  if (dv.getValueCount() > Integer.MAX_VALUE) {
+    throw new IllegalArgumentException("can only handle valueCount < Integer.MAX_VALUE; got " + dv.getValueCount());
+  }
+  valueCount=(int)dv.getValueCount();
+  String lastDim=null;
+  int startOrd=-1;
+  BytesRef spare=new BytesRef();
+  for (int ord=0; ord < valueCount; ord++) {
+    dv.lookupOrd(ord,spare);
+    String[] components=FacetIndexWriter.stringToPath(spare.utf8ToString());
+    if (components.length != 2) {
+      throw new IllegalArgumentException("this class can only handle 2 level hierarchy (dim/value); got: " + spare.utf8ToString());
+    }
+    if (!components[0].equals(lastDim)) {
+      if (lastDim != null) {
+        prefixToOrdRange.put(lastDim,new OrdRange(startOrd,ord - 1));
+      }
+      startOrd=ord;
+      lastDim=components[0];
+    }
+  }
+  if (lastDim != null) {
+    prefixToOrdRange.put(lastDim,new OrdRange(startOrd,valueCount - 1));
+  }
 }
