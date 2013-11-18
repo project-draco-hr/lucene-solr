@@ -70,56 +70,54 @@
       if (isIndexStale(indexDir)) {
         isFullCopyNeeded=true;
       }
-      LOG.info("Starting download to " + tmpIndexDir + " fullCopy="+ isFullCopyNeeded);
-      successfulInstall=false;
-      downloadIndexFiles(isFullCopyNeeded,tmpIndexDir,latestGeneration);
-      LOG.info("Total time taken for download : " + ((System.currentTimeMillis() - replicationStartTime) / 1000) + " secs");
-      Collection<Map<String,Object>> modifiedConfFiles=getModifiedConfFiles(confFilesToDownload);
-      if (!modifiedConfFiles.isEmpty()) {
-        downloadConfFiles(confFilesToDownload,latestGeneration);
-        if (isFullCopyNeeded) {
-          successfulInstall=modifyIndexProps(tmpIdxDirName);
-          deleteTmpIdxDir=false;
-        }
+      if (!isFullCopyNeeded) {
+        solrCore.getUpdateHandler().getSolrCoreState().closeIndexWriter(core,true);
+      }
+      try {
+        LOG.info("Starting download to " + tmpIndexDir + " fullCopy="+ isFullCopyNeeded);
+        successfulInstall=false;
+        downloadIndexFiles(isFullCopyNeeded,indexDir,tmpIndexDir,latestGeneration);
+        LOG.info("Total time taken for download : " + ((System.currentTimeMillis() - replicationStartTime) / 1000) + " secs");
+        Collection<Map<String,Object>> modifiedConfFiles=getModifiedConfFiles(confFilesToDownload);
+        if (!modifiedConfFiles.isEmpty()) {
+          downloadConfFiles(confFilesToDownload,latestGeneration);
+          if (isFullCopyNeeded) {
+            successfulInstall=modifyIndexProps(tmpIdxDirName);
+            deleteTmpIdxDir=false;
+          }
  else {
-          solrCore.getUpdateHandler().getSolrCoreState().closeIndexWriter(core,true);
-          try {
             successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
           }
-  finally {
-            solrCore.getUpdateHandler().getSolrCoreState().openIndexWriter(core);
+          if (successfulInstall) {
+            if (isFullCopyNeeded) {
+              if (indexDir != null) {
+                LOG.info("removing old index directory " + indexDir);
+                core.getDirectoryFactory().doneWithDirectory(indexDir);
+                core.getDirectoryFactory().remove(indexDir);
+              }
+            }
+            LOG.info("Configuration files are modified, core will be reloaded");
+            logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
+            reloadCore();
           }
         }
-        if (successfulInstall) {
+ else {
+          terminateAndWaitFsyncService();
           if (isFullCopyNeeded) {
-            if (indexDir != null) {
-              LOG.info("removing old index directory " + indexDir);
-              core.getDirectoryFactory().doneWithDirectory(indexDir);
-              core.getDirectoryFactory().remove(indexDir);
-            }
+            successfulInstall=modifyIndexProps(tmpIdxDirName);
+            deleteTmpIdxDir=false;
           }
-          LOG.info("Configuration files are modified, core will be reloaded");
-          logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
-          reloadCore();
+ else {
+            successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
+          }
+          if (successfulInstall) {
+            logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
+          }
         }
       }
- else {
-        terminateAndWaitFsyncService();
-        if (isFullCopyNeeded) {
-          successfulInstall=modifyIndexProps(tmpIdxDirName);
-          deleteTmpIdxDir=false;
-        }
- else {
-          solrCore.getUpdateHandler().getSolrCoreState().closeIndexWriter(core,true);
-          try {
-            successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
-          }
   finally {
-            solrCore.getUpdateHandler().getSolrCoreState().openIndexWriter(core);
-          }
-        }
-        if (successfulInstall) {
-          logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
+        if (!isFullCopyNeeded) {
+          solrCore.getUpdateHandler().getSolrCoreState().openIndexWriter(core);
         }
       }
       if (successfulInstall) {
