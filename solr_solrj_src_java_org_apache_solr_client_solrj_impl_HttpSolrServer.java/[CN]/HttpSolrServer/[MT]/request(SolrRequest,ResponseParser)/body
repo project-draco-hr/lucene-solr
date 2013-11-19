@@ -19,7 +19,6 @@
   if (invariantParams != null) {
     wparams.add(invariantParams);
   }
-  params=wparams;
   int tries=maxRetries + 1;
   try {
     while (tries-- > 0) {
@@ -28,7 +27,7 @@
           if (streams != null) {
             throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"GET can't send streams!");
           }
-          method=new HttpGet(baseUrl + path + ClientUtils.toQueryString(params,false));
+          method=new HttpGet(baseUrl + path + ClientUtils.toQueryString(wparams,false));
         }
  else         if (SolrRequest.METHOD.POST == request.getMethod()) {
           String url=baseUrl + path;
@@ -42,18 +41,28 @@
             }
           }
           boolean isMultipart=(this.useMultiPartPost || (streams != null && streams.size() > 1)) && !hasNullStreamName;
+          ModifiableSolrParams queryParams=new ModifiableSolrParams();
+          for (          String param : this.queryParams) {
+            String[] value=wparams.getParams(param);
+            if (value != null) {
+              for (              String v : value) {
+                queryParams.add(param,v);
+              }
+              wparams.remove(param);
+            }
+          }
           LinkedList<NameValuePair> postParams=new LinkedList<NameValuePair>();
           if (streams == null || isMultipart) {
-            HttpPost post=new HttpPost(url);
+            HttpPost post=new HttpPost(url + ClientUtils.toQueryString(queryParams,false));
             post.setHeader("Content-Charset","UTF-8");
             if (!isMultipart) {
               post.addHeader("Content-Type","application/x-www-form-urlencoded; charset=UTF-8");
             }
             List<FormBodyPart> parts=new LinkedList<FormBodyPart>();
-            Iterator<String> iter=params.getParameterNamesIterator();
+            Iterator<String> iter=wparams.getParameterNamesIterator();
             while (iter.hasNext()) {
               String p=iter.next();
-              String[] vals=params.getParams(p);
+              String[] vals=wparams.getParams(p);
               if (vals != null) {
                 for (                String v : vals) {
                   if (isMultipart) {
@@ -91,7 +100,7 @@
             method=post;
           }
  else {
-            String pstr=ClientUtils.toQueryString(params,false);
+            String pstr=ClientUtils.toQueryString(wparams,false);
             HttpPost post=new HttpPost(url + pstr);
             final ContentStream[] contentStream=new ContentStream[1];
             for (            ContentStream content : streams) {
