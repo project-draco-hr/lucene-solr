@@ -1,0 +1,25 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  FacetsConfig config=new FacetsConfig();
+  DocumentBuilder builder=new DocumentBuilder(taxoWriter,config);
+  Document doc=new Document();
+  doc.add(newTextField("field","text",Field.Store.NO));
+  doc.add(new FacetField("dim","test\u001Fone"));
+  doc.add(new FacetField("dim","test\u001Etwo"));
+  writer.addDocument(builder.build(doc));
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  writer.close();
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  taxoWriter.close();
+  SimpleFacetsCollector c=new SimpleFacetsCollector();
+  searcher.search(new MatchAllDocsQuery(),c);
+  Facets facets=getFacetCounts(taxoReader,config,c);
+  assertEquals(1,facets.getSpecificValue("dim","test\u001Fone"));
+  assertEquals(1,facets.getSpecificValue("dim","test\u001Etwo"));
+  SimpleFacetResult result=facets.getTopChildren(10,"dim");
+  assertEquals("dim (2)\n  test\u001Fone (1)\n  test\u001Etwo (1)\n",result.toString());
+  IOUtils.close(searcher.getIndexReader(),taxoReader,dir,taxoDir);
+}
