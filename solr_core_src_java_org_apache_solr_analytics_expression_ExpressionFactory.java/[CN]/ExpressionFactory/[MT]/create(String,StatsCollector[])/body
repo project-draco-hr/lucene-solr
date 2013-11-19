@@ -1,0 +1,95 @@
+{
+  int paren=expression.indexOf('(');
+  if (paren <= 0) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"The expression [" + expression + "] has no arguments and is not supported.");
+  }
+  String topOperation=expression.substring(0,paren).trim();
+  String operands;
+  try {
+    operands=expression.substring(paren + 1,expression.lastIndexOf(')')).trim();
+  }
+ catch (  Exception e) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Missing closing parenthesis in [" + expression + "]",e);
+  }
+  if (AnalyticsParams.ALL_STAT_SET.contains(topOperation)) {
+    if (topOperation.equals(AnalyticsParams.STAT_PERCENTILE)) {
+      operands=expression.substring(expression.indexOf(',') + 1,expression.lastIndexOf(')')).trim();
+      topOperation=topOperation + "_" + expression.substring(expression.indexOf('(') + 1,expression.indexOf(',')).trim();
+    }
+    StatsCollector collector=null;
+    for (    StatsCollector c : statsCollectors) {
+      if (c.valueSourceString().equals(operands)) {
+        collector=c;
+        break;
+      }
+    }
+    if (collector == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"ValueSource [" + operands + "] in Expression ["+ expression+ "] not found.");
+    }
+    return new BaseExpression(collector,topOperation);
+  }
+  if (topOperation.equals(AnalyticsParams.CONSTANT_NUMBER)) {
+    try {
+      return new ConstantNumberExpression(Double.parseDouble(operands));
+    }
+ catch (    NumberFormatException e) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The constant " + operands + " cannot be converted into a number.",e);
+    }
+  }
+ else   if (topOperation.equals(AnalyticsParams.CONSTANT_DATE)) {
+    try {
+      return new ConstantDateExpression(TrieDateField.parseDate(operands));
+    }
+ catch (    ParseException e) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The constant " + operands + " cannot be converted into a date.",e);
+    }
+  }
+ else   if (topOperation.equals(AnalyticsParams.CONSTANT_STRING)) {
+    operands=expression.substring(paren + 1,expression.lastIndexOf(')'));
+    return new ConstantStringExpression(operands);
+  }
+  String[] arguments=getArguments(operands);
+  Expression[] expArgs=new Expression[arguments.length];
+  for (int count=0; count < arguments.length; count++) {
+    expArgs[count]=create(arguments[count],statsCollectors);
+  }
+  if (expArgs.length == 1) {
+    if (topOperation.equals(AnalyticsParams.NEGATE)) {
+      return new NegateExpression(expArgs[0]);
+    }
+    if (topOperation.equals(AnalyticsParams.ABSOLUTE_VALUE)) {
+      return new AbsoluteValueExpression(expArgs[0]);
+    }
+ else     if (topOperation.equals(AnalyticsParams.REVERSE)) {
+      return new ReverseExpression(expArgs[0]);
+    }
+    throw new SolrException(ErrorCode.BAD_REQUEST,topOperation + " does not have the correct number of arguments.");
+  }
+ else {
+    if (topOperation.equals(AnalyticsParams.ADD)) {
+      return new AddExpression(expArgs);
+    }
+ else     if (topOperation.equals(AnalyticsParams.MULTIPLY)) {
+      return new MultiplyExpression(expArgs);
+    }
+ else     if (topOperation.equals(AnalyticsParams.DATE_MATH)) {
+      return new DateMathExpression(expArgs);
+    }
+ else     if (topOperation.equals(AnalyticsParams.CONCATENATE)) {
+      return new ConcatenateExpression(expArgs);
+    }
+ else     if (expArgs.length == 2 && (topOperation.equals(AnalyticsParams.DIVIDE) || topOperation.equals(AnalyticsParams.POWER) || topOperation.equals(AnalyticsParams.LOG))) {
+      if (topOperation.equals(AnalyticsParams.DIVIDE)) {
+        return new DivideExpression(expArgs[0],expArgs[1]);
+      }
+ else       if (topOperation.equals(AnalyticsParams.POWER)) {
+        return new PowerExpression(expArgs[0],expArgs[1]);
+      }
+ else       if (topOperation.equals(AnalyticsParams.LOG)) {
+        return new LogExpression(expArgs[0],expArgs[1]);
+      }
+      return null;
+    }
+    throw new SolrException(ErrorCode.BAD_REQUEST,topOperation + " does not have the correct number of arguments or is unsupported.");
+  }
+}

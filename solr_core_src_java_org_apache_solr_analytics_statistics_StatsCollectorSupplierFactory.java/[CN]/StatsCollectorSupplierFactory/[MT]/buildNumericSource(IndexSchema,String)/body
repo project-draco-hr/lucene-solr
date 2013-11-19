@@ -1,0 +1,83 @@
+{
+  int paren=expressionString.indexOf('(');
+  String[] arguments;
+  String operands;
+  if (paren < 0) {
+    return buildFieldSource(schema,expressionString,NUMBER_TYPE);
+  }
+ else {
+    try {
+      operands=expressionString.substring(paren + 1,expressionString.lastIndexOf(')')).trim();
+    }
+ catch (    Exception e) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Missing closing parenthesis in [" + expressionString + "]");
+    }
+    arguments=ExpressionFactory.getArguments(operands);
+  }
+  String operation=expressionString.substring(0,paren).trim();
+  if (operation.equals(AnalyticsParams.CONSTANT_NUMBER)) {
+    if (arguments.length != 1) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The constant number declaration [" + expressionString + "] does not have exactly 1 argument.");
+    }
+    return new ConstDoubleSource(Double.parseDouble(arguments[0]));
+  }
+ else   if (operation.equals(AnalyticsParams.NEGATE)) {
+    if (arguments.length != 1) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The negate operation [" + expressionString + "] does not have exactly 1 argument.");
+    }
+    ValueSource argSource=buildNumericSource(schema,arguments[0]);
+    if (argSource == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The operation \"" + AnalyticsParams.NEGATE + "\" requires a numeric field or operation as argument. \""+ arguments[0]+ "\" is not a numeric field or operation.");
+    }
+    return new NegateDoubleFunction(argSource);
+  }
+ else   if (operation.equals(AnalyticsParams.ABSOLUTE_VALUE)) {
+    if (arguments.length != 1) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The absolute value operation [" + expressionString + "] does not have exactly 1 argument.");
+    }
+    ValueSource argSource=buildNumericSource(schema,arguments[0]);
+    if (argSource == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The operation \"" + AnalyticsParams.NEGATE + "\" requires a numeric field or operation as argument. \""+ arguments[0]+ "\" is not a numeric field or operation.");
+    }
+    return new AbsoluteValueDoubleFunction(argSource);
+  }
+ else   if (operation.equals(AnalyticsParams.FILTER)) {
+    return buildFilterSource(schema,operands,NUMBER_TYPE);
+  }
+  List<ValueSource> subExpressions=new ArrayList<ValueSource>();
+  for (  String argument : arguments) {
+    ValueSource argSource=buildNumericSource(schema,argument);
+    if (argSource == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The operation \"" + operation + "\" requires numeric fields or operations as arguments. \""+ argument+ "\" is not a numeric field or operation.");
+    }
+    subExpressions.add(argSource);
+  }
+  if (operation.equals(AnalyticsParams.ADD)) {
+    return new AddDoubleFunction(subExpressions.toArray(new ValueSource[0]));
+  }
+ else   if (operation.equals(AnalyticsParams.MULTIPLY)) {
+    return new MultiplyDoubleFunction(subExpressions.toArray(new ValueSource[0]));
+  }
+ else   if (operation.equals(AnalyticsParams.DIVIDE)) {
+    if (subExpressions.size() != 2) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The divide operation [" + expressionString + "] does not have exactly 2 arguments.");
+    }
+    return new DivDoubleFunction(subExpressions.get(0),subExpressions.get(1));
+  }
+ else   if (operation.equals(AnalyticsParams.POWER)) {
+    if (subExpressions.size() != 2) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The power operation [" + expressionString + "] does not have exactly 2 arguments.");
+    }
+    return new PowDoubleFunction(subExpressions.get(0),subExpressions.get(1));
+  }
+ else   if (operation.equals(AnalyticsParams.LOG)) {
+    if (subExpressions.size() != 2) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The log operation [" + expressionString + "] does not have exactly 2 arguments.");
+    }
+    return new LogDoubleFunction(subExpressions.get(0),subExpressions.get(1));
+  }
+  if (AnalyticsParams.DATE_OPERATION_SET.contains(operation) || AnalyticsParams.STRING_OPERATION_SET.contains(operation)) {
+    return null;
+  }
+  throw new SolrException(ErrorCode.BAD_REQUEST,"The operation [" + expressionString + "] is not supported.");
+}

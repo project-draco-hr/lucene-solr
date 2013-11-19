@@ -1,0 +1,99 @@
+{
+  for (  RangeFacetRequest rfr : rangeFacets) {
+    String[] pivotStr;
+    String start=rfr.getStart();
+    if (start.contains(AnalyticsParams.QUERY_RESULT)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Query result requests can not be used in Range Facets");
+    }
+ else     if (start.contains(AnalyticsParams.RESULT)) {
+      try {
+        pivotStr=ExpressionFactory.getArguments(start.substring(start.indexOf('(') + 1,start.indexOf(')')).trim());
+        if (pivotStr.length == 1) {
+          rfr.setStart(getResult(pivotStr[0]));
+        }
+ else         if (pivotStr.length == 3) {
+          rfr.setStart(getResult(pivotStr[0],pivotStr[1],pivotStr[2]));
+        }
+ else {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + start + " has an invalid amount of arguments.");
+        }
+      }
+ catch (      IndexOutOfBoundsException e) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + start + " is invalid. Lacks parentheses.",e);
+      }
+    }
+    String end=rfr.getEnd();
+    if (end.contains(AnalyticsParams.QUERY_RESULT)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Query result requests can not be used in Range Facets");
+    }
+ else     if (end.contains(AnalyticsParams.RESULT)) {
+      try {
+        pivotStr=ExpressionFactory.getArguments(end.substring(end.indexOf('(') + 1,end.indexOf(')')).trim());
+        if (pivotStr.length == 1) {
+          rfr.setEnd(getResult(pivotStr[0]));
+        }
+ else         if (pivotStr.length == 3) {
+          rfr.setEnd(getResult(pivotStr[0],pivotStr[1],pivotStr[2]));
+        }
+ else {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + end + " has an invalid amount of arguments.");
+        }
+      }
+ catch (      IndexOutOfBoundsException e) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + end + " is invalid. Lacks parentheses.",e);
+      }
+    }
+    String[] gaps=rfr.getGaps();
+    for (int count=0; count < gaps.length; count++) {
+      String gap=gaps[count];
+      if (gap.contains(AnalyticsParams.QUERY_RESULT)) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"Query result requests can not be used in Range Facets");
+      }
+ else       if (gap.contains(AnalyticsParams.RESULT)) {
+        try {
+          pivotStr=ExpressionFactory.getArguments(gap.substring(gap.indexOf('(') + 1,gap.indexOf(')')).trim());
+          if (pivotStr.length == 1) {
+            gaps[count]=getResult(pivotStr[0]);
+          }
+ else           if (pivotStr.length == 3) {
+            gaps[count]=getResult(pivotStr[0],pivotStr[1],pivotStr[2]);
+          }
+ else {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + gap + " has an invalid amount of arguments.");
+          }
+        }
+ catch (        IndexOutOfBoundsException e) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + gap + " is invalid. Lacks parentheses.",e);
+        }
+      }
+    }
+    final RangeEndpointCalculator<? extends Comparable<?>> rec=RangeEndpointCalculator.create(rfr);
+    final SchemaField sf=rfr.getField();
+    for (    FacetRange range : rec.getRanges()) {
+      final String upper;
+      final String lower;
+      String facetValue="";
+      if (range.lower == null) {
+        facetValue="(*";
+        lower=null;
+      }
+ else {
+        lower=range.lower;
+        facetValue=((range.includeLower) ? "[" : "(") + range.lower;
+      }
+      facetValue+=" TO ";
+      if (range.upper == null) {
+        upper=null;
+        facetValue+="*)";
+      }
+ else {
+        upper=range.upper;
+        facetValue+=range.upper + ((range.includeUpper) ? "]" : ")");
+      }
+      Query q=sf.getType().getRangeQuery(null,sf,lower,upper,range.includeLower,range.includeUpper);
+      RangeFacetAccumulator rAcc=new RangeFacetAccumulator(this,rfr.getName(),facetValue);
+      searcher.search(q,filter,rAcc);
+      computeRangeFacet(sf.getName());
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  int paren=expressionString.indexOf('(');
+  String[] arguments;
+  if (paren < 0) {
+    return buildFieldSource(schema,expressionString,DATE_TYPE);
+  }
+ else {
+    arguments=ExpressionFactory.getArguments(expressionString.substring(paren + 1,expressionString.lastIndexOf(')')).trim());
+  }
+  String operands=arguments[0];
+  String operation=expressionString.substring(0,paren).trim();
+  if (operation.equals(AnalyticsParams.CONSTANT_DATE)) {
+    if (arguments.length != 1) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The constant date declaration [" + expressionString + "] does not have exactly 1 argument.");
+    }
+    try {
+      return new ConstDateSource(TrieDateField.parseDate(operands));
+    }
+ catch (    ParseException e) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"The constant " + operands + " cannot be converted into a date.",e);
+    }
+  }
+ else   if (operation.equals(AnalyticsParams.FILTER)) {
+    return buildFilterSource(schema,operands,DATE_TYPE);
+  }
+  if (operation.equals(AnalyticsParams.DATE_MATH)) {
+    List<ValueSource> subExpressions=new ArrayList<ValueSource>();
+    boolean first=true;
+    for (    String argument : arguments) {
+      ValueSource argSource;
+      if (first) {
+        first=false;
+        argSource=buildDateSource(schema,argument);
+        if (argSource == null) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"\"" + AnalyticsParams.DATE_MATH + "\" requires the first argument be a date operation or field. ["+ argument+ "] is not a date operation or field.");
+        }
+      }
+ else {
+        argSource=buildStringSource(schema,argument);
+        if (argSource == null) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"\"" + AnalyticsParams.DATE_MATH + "\" requires that all arguments except the first be string operations. ["+ argument+ "] is not a string operation.");
+        }
+      }
+      subExpressions.add(argSource);
+    }
+    return new DateMathFunction(subExpressions.toArray(new ValueSource[0]));
+  }
+  if (AnalyticsParams.NUMERIC_OPERATION_SET.contains(operation) || AnalyticsParams.STRING_OPERATION_SET.contains(operation)) {
+    return null;
+  }
+  throw new SolrException(ErrorCode.BAD_REQUEST,"The operation [" + expressionString + "] is not supported.");
+}

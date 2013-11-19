@@ -1,0 +1,48 @@
+{
+  for (  QueryFacetRequest qfr : queryFacets) {
+    for (    String query : qfr.getQueries()) {
+      if (query.contains(AnalyticsParams.RESULT) && !query.contains(AnalyticsParams.QUERY_RESULT)) {
+        try {
+          String[] pivotStr=ExpressionFactory.getArguments(query.substring(query.indexOf('(') + 1,query.lastIndexOf(')')).trim());
+          if (pivotStr.length == 1) {
+            query=getResult(pivotStr[0]);
+          }
+ else           if (pivotStr.length == 3) {
+            query=getResult(pivotStr[0],pivotStr[1],pivotStr[2]);
+          }
+ else {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + query + " has an invalid amount of arguments.");
+          }
+        }
+ catch (        IndexOutOfBoundsException e) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + query + " is invalid. Lacks parentheses.",e);
+        }
+      }
+ else       if (query.contains(AnalyticsParams.QUERY_RESULT)) {
+        try {
+          String[] pivotStr=ExpressionFactory.getArguments(query.substring(query.indexOf('(') + 1,query.lastIndexOf(')')).trim());
+          if (pivotStr.length == 3) {
+            query=getQueryResult(qfr.getName(),pivotStr[0],pivotStr[1],pivotStr[2]);
+          }
+ else {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + query + " has an invalid amount of arguments.");
+          }
+        }
+ catch (        IndexOutOfBoundsException e) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Result request " + query + " is invalid. Lacks parentheses.",e);
+        }
+      }
+      QueryFacetAccumulator qAcc=new QueryFacetAccumulator(this,qfr.getName(),query);
+      final Query q;
+      try {
+        q=QParser.getParser(query,null,queryRequest).getQuery();
+      }
+ catch (      SyntaxError e) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid query '" + query + "'",e);
+      }
+      searcher.search(q,filter,qAcc);
+      computeQueryFacet(qfr.getName());
+      queryCount++;
+    }
+  }
+}
