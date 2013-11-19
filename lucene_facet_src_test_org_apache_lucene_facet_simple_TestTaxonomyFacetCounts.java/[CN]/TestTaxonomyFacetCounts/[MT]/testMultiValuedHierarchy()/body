@@ -1,0 +1,29 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  FacetsConfig config=new FacetsConfig();
+  config.setHierarchical("a");
+  config.setMultiValued("a");
+  IndexWriter writer=new FacetIndexWriter(dir,iwc,taxoWriter,config);
+  Document doc=new Document();
+  doc.add(newTextField("field","text",Field.Store.NO));
+  doc.add(new FacetField("a","path","x"));
+  doc.add(new FacetField("a","path","y"));
+  writer.addDocument(doc);
+  IndexSearcher searcher=newSearcher(DirectoryReader.open(writer,true));
+  writer.close();
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  taxoWriter.close();
+  SimpleFacetsCollector c=new SimpleFacetsCollector();
+  searcher.search(new MatchAllDocsQuery(),c);
+  Facets facets=getFacetCounts(taxoReader,config,c);
+  SimpleFacetResult result=facets.getTopChildren(10,"a");
+  assertEquals(1,result.labelValues.length);
+  assertEquals(1,result.labelValues[0].value.intValue());
+  searcher.getIndexReader().close();
+  taxoReader.close();
+  dir.close();
+  taxoDir.close();
+}
