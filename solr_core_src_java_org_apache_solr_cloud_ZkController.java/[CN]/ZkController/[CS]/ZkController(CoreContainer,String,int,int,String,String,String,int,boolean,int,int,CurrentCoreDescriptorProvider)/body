@@ -13,7 +13,7 @@
   this.nodeName=generateNodeName(this.hostName,this.localHostPort,this.localHostContext);
   this.leaderVoteWait=leaderVoteWait;
   this.clientTimeout=zkClientTimeout;
-  zkClient=new SolrZkClient(zkServerAddress,zkClientTimeout,zkClientConnectTimeout,new OnReconnect(){
+  zkClient=new SolrZkClient(zkServerAddress,zkClientTimeout,zkClientConnectTimeout,new DefaultConnectionStrategy(),new OnReconnect(){
     @Override public void command(){
       try {
         markAllAsNotLeader(registerOnReconnect);
@@ -23,7 +23,6 @@
         adminPath=cc.getAdminPath();
         cc.cancelCoreRecoveries();
         registerAllCoresAsDown(registerOnReconnect,false);
-        ZkController.this.overseer=new Overseer(shardHandler,adminPath,zkStateReader);
         ElectionContext context=new OverseerElectionContext(zkClient,overseer,getNodeName());
         overseerElector.joinElection(context,true);
         zkStateReader.createClusterStateWatchersAndUpdate();
@@ -47,6 +46,16 @@
 catch (      Exception e) {
         SolrException.log(log,"",e);
         throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+  }
+,new BeforeReconnect(){
+    @Override public void command(){
+      try {
+        ZkController.this.overseer.close();
+      }
+ catch (      Exception e) {
+        log.error("Error trying to stop any Overseer threads",e);
       }
     }
   }
