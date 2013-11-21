@@ -1,0 +1,36 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  FacetsConfig config=new FacetsConfig();
+  config.setHierarchical("dim",true);
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  DocumentBuilder builder=new DocumentBuilder(taxoWriter,config);
+  Document doc=new Document();
+  doc.add(new FacetField("dim","a","x"));
+  writer.addDocument(builder.build(doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","a","y"));
+  writer.addDocument(builder.build(doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","a","z"));
+  writer.addDocument(builder.build(doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","b"));
+  writer.addDocument(builder.build(doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","c"));
+  writer.addDocument(builder.build(doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","d"));
+  writer.addDocument(builder.build(doc));
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  SimpleDrillDownQuery ddq=new SimpleDrillDownQuery(config);
+  ddq.add("dim","a");
+  SimpleDrillSidewaysResult r=new SimpleDrillSideways(searcher,config,taxoReader).search(null,ddq,10);
+  assertEquals(3,r.hits.totalHits);
+  assertEquals("dim (6)\n  a (3)\n  b (1)\n  c (1)\n  d (1)\n",r.facets.getTopChildren(10,"dim").toString());
+  assertEquals("dim/a (3)\n  x (1)\n  y (1)\n  z (1)\n",r.facets.getTopChildren(10,"dim","a").toString());
+  IOUtils.close(searcher.getIndexReader(),taxoReader,writer,taxoWriter,dir,taxoDir);
+}

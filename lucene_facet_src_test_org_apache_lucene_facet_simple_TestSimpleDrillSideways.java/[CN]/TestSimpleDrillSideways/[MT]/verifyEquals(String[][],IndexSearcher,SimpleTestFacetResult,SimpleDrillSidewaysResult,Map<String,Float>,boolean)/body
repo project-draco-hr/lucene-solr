@@ -1,0 +1,88 @@
+{
+  if (VERBOSE) {
+    System.out.println("  verify totHits=" + expected.hits.size());
+  }
+  assertEquals(expected.hits.size(),actual.hits.totalHits);
+  assertEquals(expected.hits.size(),actual.hits.scoreDocs.length);
+  for (int i=0; i < expected.hits.size(); i++) {
+    if (VERBOSE) {
+      System.out.println("    hit " + i + " expected="+ expected.hits.get(i).id);
+    }
+    assertEquals(expected.hits.get(i).id,s.doc(actual.hits.scoreDocs[i].doc).get("id"));
+    assertEquals(scores.get(expected.hits.get(i).id),actual.hits.scoreDocs[i].score,0.0f);
+  }
+  for (int dim=0; dim < expected.counts.length; dim++) {
+    int topN=random().nextBoolean() ? dimValues[dim].length : _TestUtil.nextInt(random(),1,dimValues[dim].length);
+    SimpleFacetResult fr=actual.facets.getTopChildren(topN,"dim" + dim);
+    if (VERBOSE) {
+      System.out.println("    dim" + dim + " topN="+ topN+ " (vs "+ dimValues[dim].length+ " unique values)");
+      System.out.println("      actual");
+    }
+    int idx=0;
+    Map<String,Integer> actualValues=new HashMap<String,Integer>();
+    if (fr != null) {
+      for (      LabelAndValue labelValue : fr.labelValues) {
+        actualValues.put(labelValue.label,labelValue.value.intValue());
+        if (VERBOSE) {
+          System.out.println("        " + idx + ": "+ new BytesRef(labelValue.label)+ ": "+ labelValue.value);
+          idx++;
+        }
+      }
+    }
+    if (topN < dimValues[dim].length) {
+      int[] topNIDs=getTopNOrds(expected.counts[dim],dimValues[dim],topN);
+      if (VERBOSE) {
+        idx=0;
+        System.out.println("      expected (sorted)");
+        for (int i=0; i < topNIDs.length; i++) {
+          int expectedOrd=topNIDs[i];
+          String value=dimValues[dim][expectedOrd];
+          System.out.println("        " + idx + ": "+ new BytesRef(value)+ ": "+ expected.counts[dim][expectedOrd]);
+          idx++;
+        }
+      }
+      if (VERBOSE) {
+        System.out.println("      topN=" + topN + " expectedTopN="+ topNIDs.length);
+      }
+      if (fr != null) {
+        assertEquals(topNIDs.length,fr.labelValues.length);
+      }
+ else {
+        assertEquals(0,topNIDs.length);
+      }
+      for (int i=0; i < topNIDs.length; i++) {
+        int expectedOrd=topNIDs[i];
+        assertEquals(expected.counts[dim][expectedOrd],fr.labelValues[i].value.intValue());
+        if (isSortedSetDV) {
+          assertEquals("value @ idx=" + i,dimValues[dim][expectedOrd],fr.labelValues[i].label);
+        }
+      }
+    }
+ else {
+      if (VERBOSE) {
+        idx=0;
+        System.out.println("      expected (unsorted)");
+        for (int i=0; i < dimValues[dim].length; i++) {
+          String value=dimValues[dim][i];
+          if (expected.counts[dim][i] != 0) {
+            System.out.println("        " + idx + ": "+ new BytesRef(value)+ ": "+ expected.counts[dim][i]);
+            idx++;
+          }
+        }
+      }
+      int setCount=0;
+      for (int i=0; i < dimValues[dim].length; i++) {
+        String value=dimValues[dim][i];
+        if (expected.counts[dim][i] != 0) {
+          assertTrue(actualValues.containsKey(value));
+          assertEquals(expected.counts[dim][i],actualValues.get(value).intValue());
+          setCount++;
+        }
+ else {
+          assertFalse(actualValues.containsKey(value));
+        }
+      }
+      assertEquals(setCount,actualValues.size());
+    }
+  }
+}
