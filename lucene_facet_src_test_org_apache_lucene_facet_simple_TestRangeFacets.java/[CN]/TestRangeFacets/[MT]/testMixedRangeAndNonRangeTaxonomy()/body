@@ -1,0 +1,66 @@
+{
+  Directory d=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),d);
+  Directory td=newDirectory();
+  DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(td,IndexWriterConfig.OpenMode.CREATE);
+  FacetsConfig config=new FacetsConfig();
+  DocumentBuilder builder=new DocumentBuilder(tw,config);
+  for (long l=0; l < 100; l++) {
+    Document doc=new Document();
+    doc.add(new NumericDocValuesField("field",l));
+    doc.add(new LongField("field",l,Field.Store.NO));
+    if ((l & 3) == 0) {
+      doc.add(new FacetField("dim","a"));
+    }
+ else {
+      doc.add(new FacetField("dim","b"));
+    }
+    w.addDocument(builder.build(doc));
+  }
+  final IndexReader r=w.getReader();
+  final TaxonomyReader tr=new DirectoryTaxonomyReader(tw);
+  IndexSearcher s=newSearcher(r);
+  SimpleDrillSideways ds=new SimpleDrillSideways(s,config,tr){
+    @Override protected Facets buildFacetsResult(    SimpleFacetsCollector drillDowns,    SimpleFacetsCollector[] drillSideways,    String[] drillSidewaysDims) throws IOException {
+      SimpleFacetsCollector dimFC=drillDowns;
+      SimpleFacetsCollector fieldFC=drillDowns;
+      if (drillSideways != null) {
+        for (int i=0; i < drillSideways.length; i++) {
+          String dim=drillSidewaysDims[i];
+          if (dim.equals("field")) {
+            fieldFC=drillSideways[i];
+          }
+ else {
+            dimFC=drillSideways[i];
+          }
+        }
+      }
+      Map<String,Facets> byDim=new HashMap<String,Facets>();
+      byDim.put("field",new RangeFacetCounts("field",fieldFC,new LongRange("less than 10",0L,true,10L,false),new LongRange("less than or equal to 10",0L,true,10L,true),new LongRange("over 90",90L,false,100L,false),new LongRange("90 or above",90L,true,100L,false),new LongRange("over 1000",1000L,false,Long.MAX_VALUE,false)));
+      byDim.put("dim",getTaxonomyFacetCounts(taxoReader,config,dimFC));
+      return new MultiFacets(byDim,null);
+    }
+    @Override protected boolean scoreSubDocsAtOnce(){
+      return random().nextBoolean();
+    }
+  }
+;
+  SimpleDrillDownQuery ddq=new SimpleDrillDownQuery(config);
+  SimpleDrillSidewaysResult dsr=ds.search(null,ddq,10);
+  assertEquals(100,dsr.hits.totalHits);
+  assertEquals("dim (100)\n  b (75)\n  a (25)\n",dsr.facets.getTopChildren(10,"dim").toString());
+  assertEquals("field (100)\n  less than 10 (10)\n  less than or equal to 10 (11)\n  over 90 (9)\n  90 or above (10)\n  over 1000 (0)\n",dsr.facets.getTopChildren(10,"field").toString());
+  ddq=new SimpleDrillDownQuery(config);
+  ddq.add("dim","b");
+  dsr=ds.search(null,ddq,10);
+  assertEquals(75,dsr.hits.totalHits);
+  assertEquals("dim (100)\n  b (75)\n  a (25)\n",dsr.facets.getTopChildren(10,"dim").toString());
+  assertEquals("field (75)\n  less than 10 (7)\n  less than or equal to 10 (8)\n  over 90 (7)\n  90 or above (8)\n  over 1000 (0)\n",dsr.facets.getTopChildren(10,"field").toString());
+  ddq=new SimpleDrillDownQuery(config);
+  ddq.add("field",NumericRangeQuery.newLongRange("field",0L,10L,true,true));
+  dsr=ds.search(null,ddq,10);
+  assertEquals(11,dsr.hits.totalHits);
+  assertEquals("dim (11)\n  b (8)\n  a (3)\n",dsr.facets.getTopChildren(10,"dim").toString());
+  assertEquals("field (100)\n  less than 10 (10)\n  less than or equal to 10 (11)\n  over 90 (9)\n  90 or above (10)\n  over 1000 (0)\n",dsr.facets.getTopChildren(10,"field").toString());
+  IOUtils.close(tw,tr,td,w,r,d);
+}
