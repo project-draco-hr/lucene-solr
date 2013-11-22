@@ -3,7 +3,9 @@
   IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
   iwc.setMergePolicy(newLogMergePolicy());
   RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
-  Map<String,Document> docs=generateIndexDocuments(10);
+  Map.Entry<List<String>,Map<String,Document>> res=generateIndexDocuments(atLeast(1000),false);
+  Map<String,Document> docs=res.getValue();
+  List<String> invalidDocTerms=res.getKey();
   for (  Document doc : docs.values()) {
     writer.addDocument(doc);
   }
@@ -11,13 +13,17 @@
   writer.close();
   IndexReader ir=DirectoryReader.open(dir);
   Dictionary dictionary=new DocumentDictionary(ir,FIELD_NAME,WEIGHT_FIELD_NAME);
-  InputIterator tfp=(InputIterator)dictionary.getWordsIterator();
+  InputIterator inputIterator=(InputIterator)dictionary.getWordsIterator();
   BytesRef f;
-  while ((f=tfp.next()) != null) {
+  while ((f=inputIterator.next()) != null) {
     Document doc=docs.remove(f.utf8ToString());
     assertTrue(f.equals(new BytesRef(doc.get(FIELD_NAME))));
-    assertEquals(tfp.weight(),doc.getField(WEIGHT_FIELD_NAME).numericValue().longValue());
-    assertEquals(tfp.payload(),null);
+    Field weightField=doc.getField(WEIGHT_FIELD_NAME);
+    assertEquals(inputIterator.weight(),(weightField != null) ? weightField.numericValue().longValue() : 0);
+    assertEquals(inputIterator.payload(),null);
+  }
+  for (  String invalidTerm : invalidDocTerms) {
+    assertNotNull(docs.remove(invalidTerm));
   }
   assertTrue(docs.isEmpty());
   ir.close();
