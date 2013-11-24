@@ -3,43 +3,19 @@
   Collection<Slice> slices=clusterState.getActiveSlices(collectionName);
   boolean byCoreName=false;
   if (slices == null) {
+    slices=new ArrayList<Slice>();
     byCoreName=true;
-    Set<String> collections=clusterState.getCollections();
-    for (    String collection : collections) {
-      slices=new ArrayList<Slice>();
-      slices.addAll(clusterState.getSlices(collection));
+    slices=getSlicesForCollections(clusterState,slices,true);
+    if (slices == null || slices.size() == 0) {
+      slices=getSlicesForCollections(clusterState,slices,false);
     }
   }
   if (slices == null || slices.size() == 0) {
     return null;
   }
-  Set<String> liveNodes=clusterState.getLiveNodes();
-  Iterator<Slice> it=slices.iterator();
-  while (it.hasNext()) {
-    Slice slice=it.next();
-    Map<String,Replica> sliceShards=slice.getReplicasMap();
-    for (    ZkNodeProps nodeProps : sliceShards.values()) {
-      ZkCoreNodeProps coreNodeProps=new ZkCoreNodeProps(nodeProps);
-      if (liveNodes.contains(coreNodeProps.getNodeName()) && coreNodeProps.getState().equals(ZkStateReader.ACTIVE)) {
-        if (byCoreName && !collectionName.equals(coreNodeProps.getCoreName())) {
-          continue;
-        }
-        if (coreNodeProps.getBaseUrl().equals(cores.getZkController().getBaseUrl())) {
-          continue;
-        }
-        String coreUrl;
-        if (origCorename != null) {
-          coreUrl=coreNodeProps.getBaseUrl() + "/" + origCorename;
-        }
- else {
-          coreUrl=coreNodeProps.getCoreUrl();
-          if (coreUrl.endsWith("/")) {
-            coreUrl=coreUrl.substring(0,coreUrl.length() - 1);
-          }
-        }
-        return coreUrl;
-      }
-    }
+  String coreUrl=getCoreUrl(cores,collectionName,origCorename,clusterState,slices,byCoreName,true);
+  if (coreUrl == null) {
+    coreUrl=getCoreUrl(cores,collectionName,origCorename,clusterState,slices,byCoreName,false);
   }
-  return null;
+  return coreUrl;
 }
