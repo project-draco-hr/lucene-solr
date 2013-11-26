@@ -1,0 +1,27 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  RandomIndexWriter iw=new RandomIndexWriter(random(),indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random(),MockTokenizer.WHITESPACE,false)));
+  TaxonomyWriter tw=new DirectoryTaxonomyWriter(taxoDir,OpenMode.CREATE);
+  FacetsConfig config=getConfig(tw);
+  config.setIndexFieldName("Band","$music");
+  config.setIndexFieldName("Composer","$music");
+  config.setIndexFieldName("Author","$literature");
+  seedIndex(iw,config);
+  IndexReader ir=iw.getReader();
+  tw.commit();
+  TaxonomyReader tr=new DirectoryTaxonomyReader(taxoDir);
+  IndexSearcher searcher=newSearcher(ir);
+  FacetsCollector sfc=performSearch(tr,ir,searcher);
+  Map<String,Facets> facetsMap=new HashMap<String,Facets>();
+  Facets facets2=getTaxonomyFacetCounts(tr,config,sfc,"$music");
+  facetsMap.put("Band",facets2);
+  facetsMap.put("Composer",facets2);
+  facetsMap.put("Author",getTaxonomyFacetCounts(tr,config,sfc,"$literature"));
+  Facets facets=new MultiFacets(facetsMap,getTaxonomyFacetCounts(tr,config,sfc));
+  assertCorrectResults(facets);
+  assertOrdinalsExist("$music",ir);
+  assertOrdinalsExist("$literature",ir);
+  IOUtils.close(tr,ir,iw,tw);
+  IOUtils.close(indexDir,taxoDir);
+}

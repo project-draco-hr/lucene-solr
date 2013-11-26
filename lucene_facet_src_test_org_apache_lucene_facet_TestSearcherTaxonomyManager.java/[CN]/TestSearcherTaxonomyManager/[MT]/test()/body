@@ -1,0 +1,103 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  final IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  final DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(taxoDir);
+  final FacetsConfig config=new FacetsConfig(tw);
+  config.setMultiValued("field",true);
+  final AtomicBoolean stop=new AtomicBoolean();
+  final int ordLimit=TEST_NIGHTLY ? 100000 : 6000;
+  Thread indexer=new Thread(){
+    @Override public void run(){
+      try {
+        Set<String> seen=new HashSet<String>();
+        List<String> paths=new ArrayList<String>();
+        while (true) {
+          Document doc=new Document();
+          int numPaths=_TestUtil.nextInt(random(),1,5);
+          for (int i=0; i < numPaths; i++) {
+            String path;
+            if (!paths.isEmpty() && random().nextInt(5) != 4) {
+              path=paths.get(random().nextInt(paths.size()));
+            }
+ else {
+              path=null;
+              while (true) {
+                path=_TestUtil.randomRealisticUnicodeString(random());
+                if (path.length() != 0 && !seen.contains(path)) {
+                  seen.add(path);
+                  paths.add(path);
+                  break;
+                }
+              }
+            }
+            doc.add(new FacetField("field",path));
+          }
+          try {
+            w.addDocument(config.build(doc));
+          }
+ catch (          IOException ioe) {
+            throw new RuntimeException(ioe);
+          }
+          if (tw.getSize() >= ordLimit) {
+            break;
+          }
+        }
+      }
+  finally {
+        stop.set(true);
+      }
+    }
+  }
+;
+  final SearcherTaxonomyManager mgr=new SearcherTaxonomyManager(w,true,null,tw);
+  Thread reopener=new Thread(){
+    @Override public void run(){
+      while (!stop.get()) {
+        try {
+          Thread.sleep(random().nextInt(20));
+          if (VERBOSE) {
+            System.out.println("TEST: reopen");
+          }
+          mgr.maybeRefresh();
+          if (VERBOSE) {
+            System.out.println("TEST: reopen done");
+          }
+        }
+ catch (        Exception ioe) {
+          throw new RuntimeException(ioe);
+        }
+      }
+    }
+  }
+;
+  reopener.start();
+  indexer.start();
+  try {
+    while (!stop.get()) {
+      SearcherAndTaxonomy pair=mgr.acquire();
+      try {
+        int topN=_TestUtil.nextInt(random(),1,20);
+        FacetsCollector sfc=new FacetsCollector();
+        pair.searcher.search(new MatchAllDocsQuery(),sfc);
+        Facets facets=getTaxonomyFacetCounts(pair.taxonomyReader,config,sfc);
+        FacetResult result=facets.getTopChildren(10,"field");
+        if (pair.searcher.getIndexReader().numDocs() > 0) {
+          assertTrue(result.childCount > 0);
+          assertTrue(result.labelValues.length > 0);
+        }
+      }
+  finally {
+        mgr.release(pair);
+      }
+    }
+  }
+  finally {
+    indexer.join();
+    reopener.join();
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: now stop");
+  }
+  IOUtils.close(mgr,tw,w,taxoDir,dir);
+}
