@@ -6,28 +6,31 @@
   final IndexWriter iw=new IndexWriter(indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,null));
   final DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(taxoDir,OpenMode.CREATE,newTaxoWriterCache(numDocs.get()));
   final Thread[] indexThreads=new Thread[atLeast(4)];
+  final FacetsConfig config=new FacetsConfig(tw);
+  for (int i=0; i < 10; i++) {
+    config.setHierarchical("l1." + i,true);
+    config.setMultiValued("l1." + i,true);
+  }
   for (int i=0; i < indexThreads.length; i++) {
     indexThreads[i]=new Thread(){
-      private final FacetFields facetFields=new FacetFields(tw);
       @Override public void run(){
         Random random=random();
         while (numDocs.decrementAndGet() > 0) {
           try {
             Document doc=new Document();
             int numCats=random.nextInt(3) + 1;
-            List<FacetLabel> cats=new ArrayList<FacetLabel>(numCats);
             while (numCats-- > 0) {
-              FacetLabel cp=newCategory();
-              cats.add(cp);
-              int level=cp.length;
+              FacetField ff=newCategory();
+              doc.add(ff);
+              FacetLabel label=FacetLabel.create(ff.dim,ff.path);
+              int level=label.length;
               while (level > 0) {
-                String s=cp.subpath(level).toString('/');
+                String s=label.subpath(level).toString('/');
                 values.put(s,s);
                 --level;
               }
             }
-            facetFields.addFields(doc,cats);
-            iw.addDocument(doc);
+            iw.addDocument(config.build(doc));
           }
  catch (          IOException e) {
             throw new RuntimeException(e);
@@ -55,6 +58,5 @@
       parentOrd=ord;
     }
   }
-  tr.close();
-  IOUtils.close(tw,iw,taxoDir,indexDir);
+  IOUtils.close(tw,iw,tr,taxoDir,indexDir);
 }

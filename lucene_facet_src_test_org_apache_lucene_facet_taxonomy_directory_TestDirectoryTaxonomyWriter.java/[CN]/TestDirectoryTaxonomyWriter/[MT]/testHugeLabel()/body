@@ -2,35 +2,31 @@
   Directory indexDir=newDirectory(), taxoDir=newDirectory();
   IndexWriter indexWriter=new IndexWriter(indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
   DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,OpenMode.CREATE,new Cl2oTaxonomyWriterCache(2,1f,1));
-  FacetFields facetFields=new FacetFields(taxoWriter);
+  FacetsConfig config=new FacetsConfig(taxoWriter);
   String bigs=null;
   int ordinal=-1;
-  FacetLabel cp=null;
-  while (true) {
-    int len=FacetLabel.MAX_CATEGORY_PATH_LENGTH - 4;
-    bigs=_TestUtil.randomSimpleString(random(),len,len);
-    cp=new FacetLabel("dim",bigs);
-    ordinal=taxoWriter.addCategory(cp);
-    Document doc=new Document();
-    facetFields.addFields(doc,Collections.singletonList(cp));
-    indexWriter.addDocument(doc);
-    break;
-  }
+  int len=FacetLabel.MAX_CATEGORY_PATH_LENGTH - 4;
+  bigs=_TestUtil.randomSimpleString(random(),len,len);
+  FacetField ff=new FacetField("dim",bigs);
+  FacetLabel cp=FacetLabel.create("dim",bigs);
+  ordinal=taxoWriter.addCategory(cp);
+  Document doc=new Document();
+  doc.add(ff);
+  indexWriter.addDocument(config.build(doc));
   for (int i=0; i < 3; i++) {
     String s=_TestUtil.randomSimpleString(random(),1,10);
     taxoWriter.addCategory(new FacetLabel("dim",s));
-    Document doc=new Document();
-    facetFields.addFields(doc,Collections.singletonList(new FacetLabel("dim",s)));
-    indexWriter.addDocument(doc);
+    doc=new Document();
+    doc.add(new FacetField("dim",s));
+    indexWriter.addDocument(config.build(doc));
   }
   assertEquals(ordinal,taxoWriter.addCategory(cp));
   IOUtils.close(indexWriter,taxoWriter);
   DirectoryReader indexReader=DirectoryReader.open(indexDir);
   TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
   IndexSearcher searcher=new IndexSearcher(indexReader);
-  DrillDownQuery ddq=new DrillDownQuery(FacetIndexingParams.DEFAULT);
-  ddq.add(cp);
+  SimpleDrillDownQuery ddq=new SimpleDrillDownQuery(new FacetsConfig());
+  ddq.add("dim",bigs);
   assertEquals(1,searcher.search(ddq,10).totalHits);
-  IOUtils.close(indexReader,taxoReader);
-  IOUtils.close(indexDir,taxoDir);
+  IOUtils.close(indexReader,taxoReader,indexDir,taxoDir);
 }
