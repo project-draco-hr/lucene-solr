@@ -2,15 +2,16 @@
   DirectoryReader indexReader=DirectoryReader.open(indexDir);
   IndexSearcher searcher=new IndexSearcher(indexReader);
   TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
+  FacetsConfig config=new FacetsConfig();
   Expression expr=JavascriptCompiler.compile("_score * sqrt(popularity)");
   SimpleBindings bindings=new SimpleBindings();
   bindings.add(new SortField("_score",SortField.Type.SCORE));
   bindings.add(new SortField("popularity",SortField.Type.LONG));
-  FacetSearchParams fsp=new FacetSearchParams(new SumValueSourceFacetRequest(new FacetLabel("A"),10,expr.getValueSource(bindings),true));
-  FacetsCollector fc=FacetsCollector.create(fsp,searcher.getIndexReader(),taxoReader);
-  searcher.search(new MatchAllDocsQuery(),fc);
-  List<FacetResult> facetResults=fc.getFacetResults();
+  SimpleFacetsCollector sfc=new SimpleFacetsCollector(true);
+  searcher.search(new MatchAllDocsQuery(),sfc);
+  Facets facets=new TaxonomyFacetSumValueSource(taxoReader,config,sfc,expr.getValueSource(bindings));
+  SimpleFacetResult result=facets.getTopChildren(10,"A");
   indexReader.close();
   taxoReader.close();
-  return facetResults;
+  return result;
 }
