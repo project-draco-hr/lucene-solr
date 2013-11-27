@@ -1,2 +1,30 @@
 {
+  final FakeScorer scorer=new FakeScorer();
+  Map<String,Scorer> context=new HashMap<String,Scorer>();
+  if (keepScores) {
+    context.put("scorer",scorer);
+  }
+  IntsRef scratch=new IntsRef();
+  for (  MatchingDocs hits : matchingDocs) {
+    OrdinalsReader.OrdinalsSegmentReader ords=ordinalsReader.getReader(hits.context);
+    FixedBitSet bits=hits.bits;
+    final int length=hits.bits.length();
+    int doc=0;
+    int scoresIdx=0;
+    float[] scores=hits.scores;
+    FunctionValues functionValues=valueSource.getValues(context,hits.context);
+    while (doc < length && (doc=bits.nextSetBit(doc)) != -1) {
+      ords.get(doc,scratch);
+      if (keepScores) {
+        scorer.docID=doc;
+        scorer.score=scores[scoresIdx++];
+      }
+      float value=(float)functionValues.doubleVal(doc);
+      for (int i=0; i < scratch.length; i++) {
+        values[scratch.ints[i]]+=value;
+      }
+      ++doc;
+    }
+  }
+  rollup();
 }
