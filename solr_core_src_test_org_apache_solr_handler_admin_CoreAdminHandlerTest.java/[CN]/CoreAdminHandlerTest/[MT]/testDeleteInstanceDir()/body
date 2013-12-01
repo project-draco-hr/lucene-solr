@@ -1,0 +1,42 @@
+{
+  File solrHomeDirectory=new File(TEMP_DIR,getClass().getName() + "-corex-" + System.currentTimeMillis());
+  solrHomeDirectory.mkdirs();
+  copySolrHomeToTemp(solrHomeDirectory,"corex",true);
+  File corex=new File(solrHomeDirectory,"corex");
+  FileUtils.write(new File(corex,"core.properties"),"",Charsets.UTF_8.toString());
+  JettySolrRunner runner=new JettySolrRunner(solrHomeDirectory.getAbsolutePath(),"/solr",0);
+  HttpSolrServer server=null;
+  try {
+    runner.start();
+    server=new HttpSolrServer("http://localhost:" + runner.getLocalPort() + "/solr/corex");
+    server.setConnectionTimeout(SolrTestCaseJ4.DEFAULT_CONNECTION_TIMEOUT);
+    server.setSoTimeout(SolrTestCaseJ4.DEFAULT_CONNECTION_TIMEOUT);
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField("id","123");
+    server.add(doc);
+    server.commit();
+    server.shutdown();
+    server=new HttpSolrServer("http://localhost:" + runner.getLocalPort() + "/solr");
+    server.setConnectionTimeout(SolrTestCaseJ4.DEFAULT_CONNECTION_TIMEOUT);
+    server.setSoTimeout(SolrTestCaseJ4.DEFAULT_CONNECTION_TIMEOUT);
+    CoreAdminRequest.Unload req=new CoreAdminRequest.Unload(false);
+    req.setDeleteInstanceDir(true);
+    req.setCoreName("corex");
+    req.process(server);
+    server.shutdown();
+    runner.stop();
+    assertFalse("Instance directory exists after core unload with deleteInstanceDir=true : " + corex,corex.exists());
+  }
+ catch (  Exception e) {
+    log.error("Exception testing core unload with deleteInstanceDir=true",e);
+  }
+ finally {
+    if (server != null) {
+      server.shutdown();
+    }
+    if (!runner.isStopped()) {
+      runner.stop();
+    }
+    recurseDelete(solrHomeDirectory);
+  }
+}
