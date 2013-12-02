@@ -1,0 +1,39 @@
+{
+  conf.set(MRConfig.FRAMEWORK_NAME,MRConfig.YARN_FRAMEWORK_NAME);
+  if (conf.get(MRJobConfig.MR_AM_STAGING_DIR) == null) {
+    conf.set(MRJobConfig.MR_AM_STAGING_DIR,new File(getTestWorkDir(),"apps_staging_dir/").getAbsolutePath());
+  }
+  if (!conf.getBoolean(MRConfig.MAPREDUCE_MINICLUSTER_CONTROL_RESOURCE_MONITORING,MRConfig.DEFAULT_MAPREDUCE_MINICLUSTER_CONTROL_RESOURCE_MONITORING)) {
+    conf.setBoolean(YarnConfiguration.NM_PMEM_CHECK_ENABLED,false);
+    conf.setBoolean(YarnConfiguration.NM_VMEM_CHECK_ENABLED,false);
+  }
+  conf.set(CommonConfigurationKeys.FS_PERMISSIONS_UMASK_KEY,"000");
+  try {
+    Path stagingPath=FileContext.getFileContext(conf).makeQualified(new Path(conf.get(MRJobConfig.MR_AM_STAGING_DIR)));
+    if (Path.WINDOWS) {
+      if (LocalFileSystem.class.isInstance(stagingPath.getFileSystem(conf))) {
+        conf.set(MRJobConfig.MR_AM_STAGING_DIR,new File(conf.get(MRJobConfig.MR_AM_STAGING_DIR)).getAbsolutePath());
+      }
+    }
+    FileContext fc=FileContext.getFileContext(stagingPath.toUri(),conf);
+    if (fc.util().exists(stagingPath)) {
+      LOG.info(stagingPath + " exists! deleting...");
+      fc.delete(stagingPath,true);
+    }
+    LOG.info("mkdir: " + stagingPath);
+    fc.mkdir(stagingPath,null,true);
+    String doneDir=JobHistoryUtils.getConfiguredHistoryServerDoneDirPrefix(conf);
+    Path doneDirPath=fc.makeQualified(new Path(doneDir));
+    fc.mkdir(doneDirPath,null,true);
+  }
+ catch (  IOException e) {
+    throw new YarnRuntimeException("Could not create staging directory. ",e);
+  }
+  conf.set(MRConfig.MASTER_ADDRESS,"test");
+  conf.setStrings(YarnConfiguration.NM_AUX_SERVICES,new String[]{ShuffleHandler.MAPREDUCE_SHUFFLE_SERVICEID});
+  conf.setClass(String.format(Locale.ENGLISH,YarnConfiguration.NM_AUX_SERVICE_FMT,ShuffleHandler.MAPREDUCE_SHUFFLE_SERVICEID),ShuffleHandler.class,Service.class);
+  conf.setInt(ShuffleHandler.SHUFFLE_PORT_CONFIG_KEY,0);
+  conf.setClass(YarnConfiguration.NM_CONTAINER_EXECUTOR,DefaultContainerExecutor.class,ContainerExecutor.class);
+  conf.setBoolean(MRJobConfig.JOB_UBERTASK_ENABLE,false);
+  super.serviceInit(conf);
+}

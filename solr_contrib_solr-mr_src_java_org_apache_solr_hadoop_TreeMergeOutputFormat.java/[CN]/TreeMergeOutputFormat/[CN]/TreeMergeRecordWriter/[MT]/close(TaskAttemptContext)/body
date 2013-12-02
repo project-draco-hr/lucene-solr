@@ -1,0 +1,56 @@
+{
+  LOG.debug("Merging into dstDir: " + workDir + ", srcDirs: {}",shards);
+  heartBeater.needHeartBeat();
+  try {
+    Directory mergedIndex=new HdfsDirectory(workDir,context.getConfiguration());
+    IndexWriterConfig writerConfig=new IndexWriterConfig(Version.LUCENE_CURRENT,null).setOpenMode(OpenMode.CREATE);
+    if (LOG.isDebugEnabled()) {
+      writerConfig.setInfoStream(System.out);
+    }
+    MergePolicy mergePolicy=writerConfig.getMergePolicy();
+    LOG.debug("mergePolicy was: {}",mergePolicy);
+    if (mergePolicy instanceof TieredMergePolicy) {
+      ((TieredMergePolicy)mergePolicy).setNoCFSRatio(0.0);
+    }
+ else     if (mergePolicy instanceof LogMergePolicy) {
+      ((LogMergePolicy)mergePolicy).setNoCFSRatio(0.0);
+    }
+    LOG.info("Using mergePolicy: {}",mergePolicy);
+    IndexWriter writer=new IndexWriter(mergedIndex,writerConfig);
+    Directory[] indexes=new Directory[shards.size()];
+    for (int i=0; i < shards.size(); i++) {
+      indexes[i]=new HdfsDirectory(shards.get(i),context.getConfiguration());
+    }
+    context.setStatus("Logically merging " + shards.size() + " shards into one shard");
+    LOG.info("Logically merging " + shards.size() + " shards into one shard: "+ workDir);
+    long start=System.currentTimeMillis();
+    writer.addIndexes(indexes);
+    if (LOG.isDebugEnabled()) {
+      context.getCounter(SolrCounters.class.getName(),SolrCounters.LOGICAL_TREE_MERGE_TIME.toString()).increment(System.currentTimeMillis() - start);
+    }
+    float secs=(System.currentTimeMillis() - start) / 1000.0f;
+    LOG.info("Logical merge took {} secs",secs);
+    int maxSegments=context.getConfiguration().getInt(TreeMergeMapper.MAX_SEGMENTS_ON_TREE_MERGE,Integer.MAX_VALUE);
+    context.setStatus("Optimizing Solr: forcing mtree merge down to " + maxSegments + " segments");
+    LOG.info("Optimizing Solr: forcing tree merge down to {} segments",maxSegments);
+    start=System.currentTimeMillis();
+    if (maxSegments < Integer.MAX_VALUE) {
+      writer.forceMerge(maxSegments);
+    }
+    if (LOG.isDebugEnabled()) {
+      context.getCounter(SolrCounters.class.getName(),SolrCounters.PHYSICAL_TREE_MERGE_TIME.toString()).increment(System.currentTimeMillis() - start);
+    }
+    secs=(System.currentTimeMillis() - start) / 1000.0f;
+    LOG.info("Optimizing Solr: done forcing tree merge down to {} segments in {} secs",maxSegments,secs);
+    start=System.currentTimeMillis();
+    LOG.info("Optimizing Solr: Closing index writer");
+    writer.close();
+    secs=(System.currentTimeMillis() - start) / 1000.0f;
+    LOG.info("Optimizing Solr: Done closing index writer in {} secs",secs);
+    context.setStatus("Done");
+  }
+  finally {
+    heartBeater.cancelHeartBeat();
+    heartBeater.close();
+  }
+}

@@ -1,0 +1,57 @@
+{
+  FileSystem fs=dfsCluster.getFileSystem();
+  Path inDir=fs.makeQualified(new Path("/user/testing/testMapperReducer/input"));
+  fs.delete(inDir,true);
+  String DATADIR="/user/testing/testMapperReducer/data";
+  Path dataDir=fs.makeQualified(new Path(DATADIR));
+  fs.delete(dataDir,true);
+  Path outDir=fs.makeQualified(new Path("/user/testing/testMapperReducer/output"));
+  fs.delete(outDir,true);
+  assertTrue(fs.mkdirs(inDir));
+  Path INPATH=new Path(inDir,"input.txt");
+  OutputStream os=fs.create(INPATH);
+  Writer wr=new OutputStreamWriter(os,"UTF-8");
+  wr.write(DATADIR + "/" + inputAvroFile);
+  wr.close();
+  assertTrue(fs.mkdirs(dataDir));
+  fs.copyFromLocalFile(new Path(DOCUMENTS_DIR,inputAvroFile),dataDir);
+  JobConf jobConf=getJobConf();
+  if (ENABLE_LOCAL_JOB_RUNNER) {
+    jobConf.set("mapred.job.tracker","local");
+  }
+  jobConf.setMaxMapAttempts(1);
+  jobConf.setMaxReduceAttempts(1);
+  jobConf.setJar(SEARCH_ARCHIVES_JAR);
+  jobConf.setBoolean("ignoreTikaException",false);
+  int shards=2;
+  int maxReducers=Integer.MAX_VALUE;
+  if (ENABLE_LOCAL_JOB_RUNNER) {
+    maxReducers=1;
+    shards=1;
+  }
+  String[] args=new String[]{"--morphline-file=" + tempDir + "/test-morphlines/solrCellDocumentTypes.conf","--morphline-id=morphline1","--solr-home-dir=" + MINIMR_CONF_DIR.getAbsolutePath(),"--output-dir=" + outDir.toString(),"--shards=" + shards,"--verbose",numRuns % 2 == 0 ? "--input-list=" + INPATH.toString() : dataDir.toString(),numRuns % 3 == 0 ? "--reducers=" + shards : (numRuns % 3 == 1 ? "--reducers=-1" : "--reducers=" + Math.min(8,maxReducers))};
+  if (numRuns % 3 == 2) {
+    args=concat(args,new String[]{"--fanout=2"});
+  }
+  if (numRuns == 0) {
+    args=concat(new String[]{"-D",MapReduceIndexerTool.MAIN_MEMORY_RANDOMIZATION_THRESHOLD + "=-1"},args);
+  }
+  MapReduceIndexerTool tool=createTool();
+  int res=ToolRunner.run(jobConf,tool,args);
+  assertEquals(0,res);
+  Job job=tool.job;
+  assertTrue(job.isComplete());
+  assertTrue(job.isSuccessful());
+  if (numRuns % 3 != 2) {
+    assertEquals("Invalid counter " + SolrRecordWriter.class.getName() + "."+ SolrCounters.DOCUMENTS_WRITTEN,count,job.getCounters().findCounter(SolrCounters.class.getName(),SolrCounters.DOCUMENTS_WRITTEN.toString()).getValue());
+  }
+  outDir=new Path(outDir,MapReduceIndexerTool.RESULTS_DIR);
+  Path[] outputFiles=FileUtil.stat2Paths(fs.listStatus(outDir));
+  System.out.println("outputfiles:" + Arrays.toString(outputFiles));
+  UtilsForTests.validateSolrServerDocumentCount(MINIMR_CONF_DIR,fs,outDir,count,shards);
+  tool=createTool();
+  args=concat(args,new String[]{"--dry-run"});
+  res=ToolRunner.run(jobConf,tool,args);
+  assertEquals(0,res);
+  numRuns++;
+}

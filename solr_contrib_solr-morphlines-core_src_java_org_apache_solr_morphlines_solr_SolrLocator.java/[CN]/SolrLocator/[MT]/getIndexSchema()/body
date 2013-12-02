@@ -1,0 +1,67 @@
+{
+  if (context instanceof SolrMorphlineContext) {
+    IndexSchema schema=((SolrMorphlineContext)context).getIndexSchema();
+    if (schema != null) {
+      validateSchema(schema);
+      return schema;
+    }
+  }
+  String oldSolrHomeDir=null;
+  String mySolrHomeDir=solrHomeDir;
+  if (solrHomeDir == null || solrHomeDir.length() == 0) {
+    if (zkHost == null || zkHost.length() == 0) {
+      throw new MorphlineCompilationException("Downloading a Solr schema requires either parameter 'solrHomeDir' or parameters 'zkHost' and 'collection'",config);
+    }
+    if (collectionName == null || collectionName.length() == 0) {
+      throw new MorphlineCompilationException("Parameter 'zkHost' requires that you also pass parameter 'collection'",config);
+    }
+    ZooKeeperDownloader zki=new ZooKeeperDownloader();
+    SolrZkClient zkClient=zki.getZkClient(zkHost);
+    try {
+      String configName=zki.readConfigName(zkClient,collectionName);
+      File downloadedSolrHomeDir=zki.downloadConfigDir(zkClient,configName);
+      mySolrHomeDir=downloadedSolrHomeDir.getAbsolutePath();
+    }
+ catch (    KeeperException e) {
+      throw new MorphlineCompilationException("Cannot download schema.xml from ZooKeeper",config,e);
+    }
+catch (    InterruptedException e) {
+      throw new MorphlineCompilationException("Cannot download schema.xml from ZooKeeper",config,e);
+    }
+catch (    IOException e) {
+      throw new MorphlineCompilationException("Cannot download schema.xml from ZooKeeper",config,e);
+    }
+ finally {
+      zkClient.close();
+    }
+  }
+  oldSolrHomeDir=System.setProperty(SOLR_HOME_PROPERTY_NAME,mySolrHomeDir);
+  try {
+    SolrConfig solrConfig=new SolrConfig();
+    SolrResourceLoader loader=solrConfig.getResourceLoader();
+    InputSource is=new InputSource(loader.openSchema("schema.xml"));
+    is.setSystemId(SystemIdResolver.createSystemIdFromResourceName("schema.xml"));
+    IndexSchema schema=new IndexSchema(solrConfig,"schema.xml",is);
+    validateSchema(schema);
+    return schema;
+  }
+ catch (  ParserConfigurationException e) {
+    throw new MorphlineRuntimeException(e);
+  }
+catch (  IOException e) {
+    throw new MorphlineRuntimeException(e);
+  }
+catch (  SAXException e) {
+    throw new MorphlineRuntimeException(e);
+  }
+ finally {
+    if (solrHomeDir != null) {
+      if (oldSolrHomeDir == null) {
+        System.clearProperty(SOLR_HOME_PROPERTY_NAME);
+      }
+ else {
+        System.setProperty(SOLR_HOME_PROPERTY_NAME,oldSolrHomeDir);
+      }
+    }
+  }
+}

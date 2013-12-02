@@ -1,0 +1,36 @@
+{
+  HashSet<File> files=new HashSet<File>();
+  for (  String allowedDirectory : SolrRecordWriter.getAllowedConfigDirectories()) {
+    File configDir=new File(dir,allowedDirectory);
+    boolean configDirExists;
+    if (!(configDirExists=configDir.exists()) && SolrRecordWriter.isRequiredConfigDirectory(allowedDirectory)) {
+      throw new IOException(String.format(Locale.ENGLISH,"required configuration directory %s is not present in %s",allowedDirectory,dir));
+    }
+    if (!configDirExists) {
+      continue;
+    }
+    listFiles(configDir,files);
+  }
+  out.delete();
+  int subst=dir.toString().length();
+  ZipOutputStream zos=new ZipOutputStream(new FileOutputStream(out));
+  byte[] buf=new byte[1024];
+  for (  File f : files) {
+    ZipEntry ze=new ZipEntry(f.toString().substring(subst));
+    zos.putNextEntry(ze);
+    InputStream is=new FileInputStream(f);
+    int cnt;
+    while ((cnt=is.read(buf)) >= 0) {
+      zos.write(buf,0,cnt);
+    }
+    is.close();
+    zos.flush();
+    zos.closeEntry();
+  }
+  ZipEntry ze=new ZipEntry("solr.xml");
+  zos.putNextEntry(ze);
+  zos.write("<cores><core name=\"collection1\" instanceDir=\".\"/></cores>".getBytes("UTF-8"));
+  zos.flush();
+  zos.closeEntry();
+  zos.close();
+}

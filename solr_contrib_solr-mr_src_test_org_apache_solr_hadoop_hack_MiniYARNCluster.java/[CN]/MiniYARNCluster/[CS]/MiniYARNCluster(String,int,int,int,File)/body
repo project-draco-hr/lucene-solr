@@ -1,0 +1,44 @@
+{
+  super(testName.replace("$",""));
+  this.numLocalDirs=numLocalDirs;
+  this.numLogDirs=numLogDirs;
+  String testSubDir=testName.replace("$","");
+  File targetWorkDir=new File(testWorkDir,testSubDir);
+  try {
+    FileContext.getLocalFSFileContext().delete(new Path(targetWorkDir.getAbsolutePath()),true);
+  }
+ catch (  Exception e) {
+    LOG.warn("COULD NOT CLEANUP",e);
+    throw new YarnRuntimeException("could not cleanup test dir: " + e,e);
+  }
+  if (Shell.WINDOWS) {
+    String targetPath=targetWorkDir.getAbsolutePath();
+    File link=new File(System.getProperty("java.io.tmpdir"),String.valueOf(System.currentTimeMillis()));
+    String linkPath=link.getAbsolutePath();
+    try {
+      FileContext.getLocalFSFileContext().delete(new Path(linkPath),true);
+    }
+ catch (    IOException e) {
+      throw new YarnRuntimeException("could not cleanup symlink: " + linkPath,e);
+    }
+    targetWorkDir.mkdirs();
+    ShellCommandExecutor shexec=new ShellCommandExecutor(Shell.getSymlinkCommand(targetPath,linkPath));
+    try {
+      shexec.execute();
+    }
+ catch (    IOException e) {
+      throw new YarnRuntimeException(String.format(Locale.ENGLISH,"failed to create symlink from %s to %s, shell output: %s",linkPath,targetPath,shexec.getOutput()),e);
+    }
+    this.testWorkDir=link;
+  }
+ else {
+    this.testWorkDir=targetWorkDir;
+  }
+  resourceManagerWrapper=new ResourceManagerWrapper();
+  addService(resourceManagerWrapper);
+  nodeManagers=new CustomNodeManager[noOfNodeManagers];
+  for (int index=0; index < noOfNodeManagers; index++) {
+    addService(new NodeManagerWrapper(index));
+    nodeManagers[index]=new CustomNodeManager();
+  }
+}
