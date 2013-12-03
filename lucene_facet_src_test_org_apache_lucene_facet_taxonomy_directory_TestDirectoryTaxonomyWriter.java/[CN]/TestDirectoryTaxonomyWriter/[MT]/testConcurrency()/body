@@ -15,6 +15,9 @@
  else {
     cache=new LruTaxonomyWriterCache(ncats / 10);
   }
+  if (VERBOSE) {
+    System.out.println("TEST: use cache=" + cache);
+  }
   final DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(dir,OpenMode.CREATE,cache);
   Thread[] addThreads=new Thread[atLeast(4)];
   for (int z=0; z < addThreads.length; z++) {
@@ -48,7 +51,15 @@
   for (  Thread t : addThreads)   t.join();
   tw.close();
   DirectoryTaxonomyReader dtr=new DirectoryTaxonomyReader(dir);
-  assertEquals("mismatch number of categories",values.size() + 1,dtr.getSize());
+  if (values.size() + 1 != dtr.getSize()) {
+    for (    String value : values.keySet()) {
+      FacetLabel label=new FacetLabel(FacetsConfig.stringToPath(value));
+      if (dtr.getOrdinal(label) == -1) {
+        System.out.println("FAIL: path=" + label + " not recognized");
+      }
+    }
+    fail("mismatch number of categories");
+  }
   int[] parents=dtr.getParallelTaxonomyArrays().parents();
   for (  String cat : values.keySet()) {
     FacetLabel cp=new FacetLabel(FacetsConfig.stringToPath(cat));
@@ -63,6 +74,5 @@
       parentOrd=ord;
     }
   }
-  dtr.close();
-  dir.close();
+  IOUtils.close(dtr,dir);
 }
