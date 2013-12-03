@@ -3,8 +3,6 @@
   SolrQueryResponse rsp=rb.rsp;
   boolean fsv=req.getParams().getBool(ResponseBuilder.FIELD_SORT_VALUES,false);
   if (fsv) {
-    Sort sort=searcher.weightSort(rb.getSortSpec().getSort());
-    SortField[] sortFields=sort == null ? new SortField[]{SortField.FIELD_SCORE} : sort.getSort();
     NamedList<Object[]> sortVals=new NamedList<Object[]>();
     IndexReaderContext topReaderContext=searcher.getTopReaderContext();
     List<AtomicReaderContext> leaves=topReaderContext.leaves();
@@ -21,12 +19,17 @@
       sortedIds[i]=(((long)it.nextDoc()) << 32) | i;
     }
     Arrays.sort(sortedIds);
-    for (    SortField sortField : sortFields) {
+    SortSpec sortSpec=rb.getSortSpec();
+    Sort sort=searcher.weightSort(sortSpec.getSort());
+    SortField[] sortFields=sort == null ? new SortField[]{SortField.FIELD_SCORE} : sort.getSort();
+    List<SchemaField> schemaFields=sortSpec.getSchemaFields();
+    for (int fld=0; fld < schemaFields.size(); fld++) {
+      SchemaField schemaField=schemaFields.get(fld);
+      FieldType ft=null == schemaField ? null : schemaField.getType();
+      SortField sortField=sortFields[fld];
       SortField.Type type=sortField.getType();
       if (type == SortField.Type.SCORE || type == SortField.Type.DOC)       continue;
       FieldComparator comparator=null;
-      String fieldname=sortField.getField();
-      FieldType ft=fieldname == null ? null : searcher.getSchema().getFieldTypeNoEx(fieldname);
       Object[] vals=new Object[nDocs];
       int lastIdx=-1;
       int idx=0;
@@ -50,7 +53,7 @@
         if (null != ft)         val=ft.marshalSortValue(val);
         vals[position]=val;
       }
-      sortVals.add(fieldname,vals);
+      sortVals.add(sortField.getField(),vals);
     }
     rsp.add("sort_values",sortVals);
   }
