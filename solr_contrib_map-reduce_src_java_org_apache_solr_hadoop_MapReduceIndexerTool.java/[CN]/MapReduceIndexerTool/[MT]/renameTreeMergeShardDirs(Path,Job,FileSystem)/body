@@ -1,0 +1,43 @@
+{
+  final String dirPrefix=SolrOutputFormat.getOutputName(job);
+  FileStatus[] dirs=fs.listStatus(outputTreeMergeStep,new PathFilter(){
+    @Override public boolean accept(    Path path){
+      return path.getName().startsWith(dirPrefix);
+    }
+  }
+);
+  for (  FileStatus dir : dirs) {
+    if (!dir.isDirectory()) {
+      throw new IllegalStateException("Not a directory: " + dir.getPath());
+    }
+  }
+  for (  FileStatus dir : dirs) {
+    Path path=dir.getPath();
+    Path renamedPath=new Path(path.getParent(),"_" + path.getName());
+    if (!rename(path,renamedPath,fs)) {
+      return false;
+    }
+  }
+  for (  FileStatus dir : dirs) {
+    Path path=dir.getPath();
+    Path renamedPath=new Path(path.getParent(),"_" + path.getName());
+    Path solrShardNumberFile=new Path(renamedPath,TreeMergeMapper.SOLR_SHARD_NUMBER);
+    InputStream in=fs.open(solrShardNumberFile);
+    byte[] bytes=ByteStreams.toByteArray(in);
+    in.close();
+    Preconditions.checkArgument(bytes.length > 0);
+    int solrShard=Integer.parseInt(new String(bytes,Charsets.UTF_8));
+    if (!delete(solrShardNumberFile,false,fs)) {
+      return false;
+    }
+    NumberFormat numberFormat=NumberFormat.getInstance(Locale.ENGLISH);
+    numberFormat.setMinimumIntegerDigits(5);
+    numberFormat.setGroupingUsed(false);
+    Path finalPath=new Path(renamedPath.getParent(),dirPrefix + "-m-" + numberFormat.format(solrShard));
+    LOG.info("MTree merge renaming solr shard: " + solrShard + " from dir: "+ dir.getPath()+ " to dir: "+ finalPath);
+    if (!rename(renamedPath,finalPath,fs)) {
+      return false;
+    }
+  }
+  return true;
+}
