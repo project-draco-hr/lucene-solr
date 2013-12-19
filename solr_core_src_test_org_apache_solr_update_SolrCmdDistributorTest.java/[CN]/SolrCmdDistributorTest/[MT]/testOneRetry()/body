@@ -1,0 +1,31 @@
+{
+  final HttpSolrServer solrclient=(HttpSolrServer)clients.get(0);
+  long numFoundBefore=solrclient.query(new SolrQuery("*:*")).getResults().getNumFound();
+  final MockStreamingSolrServers ss=new MockStreamingSolrServers(updateShardHandler);
+  SolrCmdDistributor cmdDistrib=new SolrCmdDistributor(ss,5,0);
+  ss.setExp(Exp.CONNECT_EXCEPTION);
+  ArrayList<Node> nodes=new ArrayList<Node>();
+  ZkNodeProps nodeProps=new ZkNodeProps(ZkStateReader.BASE_URL_PROP,solrclient.getBaseURL(),ZkStateReader.CORE_NAME_PROP,"");
+  final AtomicInteger retries=new AtomicInteger();
+  nodeProps=new ZkNodeProps(ZkStateReader.BASE_URL_PROP,solrclient.getBaseURL(),ZkStateReader.CORE_NAME_PROP,"");
+  RetryNode retryNode=new RetryNode(new ZkCoreNodeProps(nodeProps),null,"collection1","shard1"){
+    @Override public boolean checkRetry(){
+      ss.setExp(null);
+      retries.incrementAndGet();
+      return true;
+    }
+  }
+;
+  nodes.add(retryNode);
+  AddUpdateCommand cmd=new AddUpdateCommand(null);
+  cmd.solrDoc=sdoc("id",id.incrementAndGet());
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  CommitUpdateCommand ccmd=new CommitUpdateCommand(null,false);
+  cmdDistrib.distribAdd(cmd,nodes,params);
+  cmdDistrib.distribCommit(ccmd,nodes,params);
+  cmdDistrib.finish();
+  assertEquals(1,retries.get());
+  long numFoundAfter=solrclient.query(new SolrQuery("*:*")).getResults().getNumFound();
+  assertEquals(numFoundBefore + 1,numFoundAfter);
+  assertEquals(0,cmdDistrib.getErrors().size());
+}

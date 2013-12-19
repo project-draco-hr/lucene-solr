@@ -1,0 +1,98 @@
+{
+  Map<String,AnalyticsRequest> requestMap=new HashMap<String,AnalyticsRequest>();
+  Map<String,Map<String,FieldFacetRequest>> fieldFacetMap=new HashMap<String,Map<String,FieldFacetRequest>>();
+  Map<String,Set<String>> fieldFacetSet=new HashMap<String,Set<String>>();
+  Map<String,Map<String,RangeFacetRequest>> rangeFacetMap=new HashMap<String,Map<String,RangeFacetRequest>>();
+  Map<String,Set<String>> rangeFacetSet=new HashMap<String,Set<String>>();
+  Map<String,Map<String,QueryFacetRequest>> queryFacetMap=new HashMap<String,Map<String,QueryFacetRequest>>();
+  Map<String,Set<String>> queryFacetSet=new HashMap<String,Set<String>>();
+  List<AnalyticsRequest> requestList=new ArrayList<AnalyticsRequest>();
+  Iterator<String> paramsIterator=params.getParameterNamesIterator();
+  while (paramsIterator.hasNext()) {
+    String param=paramsIterator.next();
+    CharSequence paramSequence=param.subSequence(0,param.length());
+    Matcher m=statPattern.matcher(paramSequence);
+    if (m.matches()) {
+      makeExpression(requestMap,m.group(1),m.group(2),params.get(param));
+    }
+ else {
+      m=hiddenStatPattern.matcher(paramSequence);
+      if (m.matches()) {
+        makeHiddenExpression(requestMap,m.group(1),m.group(2),params.get(param));
+      }
+ else {
+        m=fieldFacetPattern.matcher(paramSequence);
+        if (m.matches()) {
+          makeFieldFacet(schema,fieldFacetMap,fieldFacetSet,m.group(1),params.getParams(param));
+        }
+ else {
+          m=fieldFacetParamPattern.matcher(paramSequence);
+          if (m.matches()) {
+            setFieldFacetParam(schema,fieldFacetMap,m.group(1),m.group(2),m.group(3),params.getParams(param));
+          }
+ else {
+            m=rangeFacetPattern.matcher(paramSequence);
+            if (m.matches()) {
+              makeRangeFacet(schema,rangeFacetSet,m.group(1),params.getParams(param));
+            }
+ else {
+              m=rangeFacetParamPattern.matcher(paramSequence);
+              if (m.matches()) {
+                setRangeFacetParam(schema,rangeFacetMap,m.group(1),m.group(2),m.group(3),params.getParams(param));
+              }
+ else {
+                m=queryFacetPattern.matcher(paramSequence);
+                if (m.matches()) {
+                  makeQueryFacet(schema,queryFacetSet,m.group(1),params.getParams(param));
+                }
+ else {
+                  m=queryFacetParamPattern.matcher(paramSequence);
+                  if (m.matches()) {
+                    setQueryFacetParam(schema,queryFacetMap,m.group(1),m.group(2),m.group(3),params.getParams(param));
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  for (  String reqName : requestMap.keySet()) {
+    AnalyticsRequest ar=requestMap.get(reqName);
+    List<FieldFacetRequest> ffrs=new ArrayList<FieldFacetRequest>();
+    if (fieldFacetSet.get(reqName) != null) {
+      for (      String field : fieldFacetSet.get(reqName)) {
+        ffrs.add(fieldFacetMap.get(reqName).get(field));
+      }
+    }
+    ar.setFieldFacets(ffrs);
+    List<RangeFacetRequest> rfrs=new ArrayList<RangeFacetRequest>();
+    if (rangeFacetSet.get(reqName) != null) {
+      for (      String field : rangeFacetSet.get(reqName)) {
+        RangeFacetRequest rfr=rangeFacetMap.get(reqName).get(field);
+        if (rfr != null) {
+          rfrs.add(rfr);
+        }
+      }
+    }
+    ar.setRangeFacets(rfrs);
+    List<QueryFacetRequest> qfrs=new ArrayList<QueryFacetRequest>();
+    if (queryFacetSet.get(reqName) != null) {
+      for (      String name : queryFacetSet.get(reqName)) {
+        QueryFacetRequest qfr=queryFacetMap.get(reqName).get(name);
+        if (qfr != null) {
+          addQueryFacet(qfrs,qfr);
+        }
+      }
+    }
+    for (    QueryFacetRequest qfr : qfrs) {
+      if (qfr.getDependencies().size() > 0) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"The query facet dependencies " + qfr.getDependencies().toString() + " either do not exist or are defined in a dependency looop.");
+      }
+    }
+    ar.setQueryFacets(qfrs);
+    requestList.add(ar);
+  }
+  return requestList;
+}

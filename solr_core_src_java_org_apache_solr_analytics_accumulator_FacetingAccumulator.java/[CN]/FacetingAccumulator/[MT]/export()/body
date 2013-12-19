@@ -1,0 +1,66 @@
+{
+  final NamedList<Object> base=(NamedList<Object>)super.export();
+  NamedList<NamedList<?>> facetList=new NamedList<NamedList<?>>();
+  base.add("fieldFacets",facetList);
+  for (  FieldFacetRequest freq : request.getFieldFacets()) {
+    final String name=freq.getName();
+    if (hiddenFieldFacets.contains(name)) {
+      continue;
+    }
+    final Map<String,Expression[]> buckets=fieldFacetExpressions.get(name);
+    final NamedList<Object> bucketBase=new NamedList<Object>();
+    Iterable<Entry<String,Expression[]>> iter=buckets.entrySet();
+    final FieldFacetRequest fr=(FieldFacetRequest)freq;
+    final FacetSortSpecification sort=fr.getSort();
+    final int limit=fr.getLimit();
+    final int offset=fr.getOffset();
+    final boolean showMissing=fr.showsMissing();
+    if (!showMissing) {
+      buckets.remove(MISSING_VALUE);
+    }
+    if (sort != null && buckets.values().iterator().hasNext()) {
+      int sortPlace=Arrays.binarySearch(expressionNames,sort.getStatistic());
+      final Expression first=buckets.values().iterator().next()[sortPlace];
+      final Comparator<Expression> comp=(Comparator<Expression>)first.comparator(sort.getDirection());
+      final List<Entry<String,Expression[]>> sorted=new ArrayList<Entry<String,Expression[]>>(buckets.size());
+      Iterables.addAll(sorted,iter);
+      Collections.sort(sorted,new EntryComparator(comp,sortPlace));
+      iter=sorted;
+    }
+    if (limit > AnalyticsContentHandler.DEFAULT_FACET_LIMIT) {
+      if (offset > 0) {
+        iter=Iterables.skip(iter,offset);
+      }
+      iter=Iterables.limit(iter,limit);
+    }
+    for (    Entry<String,Expression[]> bucket : iter) {
+      bucketBase.add(bucket.getKey(),export(bucket.getValue()));
+    }
+    facetList.add(name,bucketBase);
+  }
+  facetList=new NamedList<NamedList<?>>();
+  base.add("rangeFacets",facetList);
+  for (  RangeFacetRequest freq : request.getRangeFacets()) {
+    final String name=freq.getName();
+    final Map<String,Expression[]> buckets=rangeFacetExpressions.get(name);
+    final NamedList<Object> bucketBase=new NamedList<Object>();
+    Iterable<Entry<String,Expression[]>> iter=buckets.entrySet();
+    for (    Entry<String,Expression[]> bucket : iter) {
+      bucketBase.add(bucket.getKey(),export(bucket.getValue()));
+    }
+    facetList.add(name,bucketBase);
+  }
+  facetList=new NamedList<NamedList<?>>();
+  base.add("queryFacets",facetList);
+  for (  QueryFacetRequest freq : request.getQueryFacets()) {
+    final String name=freq.getName();
+    final Map<String,Expression[]> buckets=queryFacetExpressions.get(name);
+    final NamedList<Object> bucketBase=new NamedList<Object>();
+    Iterable<Entry<String,Expression[]>> iter=buckets.entrySet();
+    for (    Entry<String,Expression[]> bucket : iter) {
+      bucketBase.add(bucket.getKey(),export(bucket.getValue()));
+    }
+    facetList.add(name,bucketBase);
+  }
+  return base;
+}

@@ -1,0 +1,30 @@
+{
+  if (collection == null) {
+    throw new IllegalArgumentException("collection must not be null");
+  }
+  String configName=null;
+  byte[] aliasData=zkClient.getData(ZkStateReader.ALIASES,null,null,true);
+  Aliases aliases=ClusterState.load(aliasData);
+  String alias=aliases.getCollectionAlias(collection);
+  if (alias != null) {
+    List<String> aliasList=StrUtils.splitSmart(alias,",",true);
+    if (aliasList.size() > 1) {
+      throw new IllegalArgumentException("collection cannot be an alias that maps to multiple collections");
+    }
+    collection=aliasList.get(0);
+  }
+  String path=ZkStateReader.COLLECTIONS_ZKNODE + "/" + collection;
+  if (LOG.isInfoEnabled()) {
+    LOG.info("Load collection config from:" + path);
+  }
+  byte[] data=zkClient.getData(path,null,null,true);
+  if (data != null) {
+    ZkNodeProps props=ZkNodeProps.load(data);
+    configName=props.getStr(ZkController.CONFIGNAME_PROP);
+  }
+  if (configName != null && !zkClient.exists(ZkController.CONFIGS_ZKNODE + "/" + configName,true)) {
+    LOG.error("Specified config does not exist in ZooKeeper:" + configName);
+    throw new IllegalArgumentException("Specified config does not exist in ZooKeeper:" + configName);
+  }
+  return configName;
+}

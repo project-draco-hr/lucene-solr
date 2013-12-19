@@ -1,0 +1,39 @@
+{
+  try {
+    getConfig().setBoolean(YarnConfiguration.IS_MINI_YARN_CLUSTER,true);
+    if (!getConfig().getBoolean(YarnConfiguration.YARN_MINICLUSTER_FIXED_PORTS,YarnConfiguration.DEFAULT_YARN_MINICLUSTER_FIXED_PORTS)) {
+      String hostname=MiniYARNCluster.getHostname();
+      getConfig().set(YarnConfiguration.RM_ADDRESS,hostname + ":0");
+      getConfig().set(YarnConfiguration.RM_ADMIN_ADDRESS,hostname + ":0");
+      getConfig().set(YarnConfiguration.RM_SCHEDULER_ADDRESS,hostname + ":0");
+      getConfig().set(YarnConfiguration.RM_RESOURCE_TRACKER_ADDRESS,hostname + ":0");
+      getConfig().set(YarnConfiguration.RM_WEBAPP_ADDRESS,hostname + ":0");
+    }
+    resourceManager=new ResourceManager(){
+      @Override protected void doSecureLogin() throws IOException {
+      }
+    }
+;
+    resourceManager.init(getConfig());
+    new Thread(){
+      public void run(){
+        resourceManager.start();
+      }
+    }
+.start();
+    int waitCount=0;
+    while (resourceManager.getServiceState() == STATE.INITED && waitCount++ < 60) {
+      LOG.info("Waiting for RM to start...");
+      Thread.sleep(1500);
+    }
+    if (resourceManager.getServiceState() != STATE.STARTED) {
+      throw new IOException("ResourceManager failed to start. Final state is " + resourceManager.getServiceState());
+    }
+    super.serviceStart();
+  }
+ catch (  Throwable t) {
+    throw new YarnRuntimeException(t);
+  }
+  LOG.info("MiniYARN ResourceManager address: " + getConfig().get(YarnConfiguration.RM_ADDRESS));
+  LOG.info("MiniYARN ResourceManager web address: " + getConfig().get(YarnConfiguration.RM_WEBAPP_ADDRESS));
+}

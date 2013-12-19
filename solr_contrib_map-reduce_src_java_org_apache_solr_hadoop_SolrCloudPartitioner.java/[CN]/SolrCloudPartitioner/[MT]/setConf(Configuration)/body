@@ -1,0 +1,37 @@
+{
+  this.conf=conf;
+  this.shards=conf.getInt(SHARDS,-1);
+  if (shards <= 0) {
+    throw new IllegalArgumentException("Illegal shards: " + shards);
+  }
+  String zkHost=conf.get(ZKHOST);
+  if (zkHost == null) {
+    throw new IllegalArgumentException("zkHost must not be null");
+  }
+  String collection=conf.get(COLLECTION);
+  if (collection == null) {
+    throw new IllegalArgumentException("collection must not be null");
+  }
+  LOG.info("Using SolrCloud zkHost: {}, collection: {}",zkHost,collection);
+  docCollection=new ZooKeeperInspector().extractDocCollection(zkHost,collection);
+  if (docCollection == null) {
+    throw new IllegalArgumentException("docCollection must not be null");
+  }
+  if (docCollection.getSlicesMap().size() != shards) {
+    throw new IllegalArgumentException("Incompatible shards: + " + shards + " for docCollection: "+ docCollection);
+  }
+  List<Slice> slices=new ZooKeeperInspector().getSortedSlices(docCollection.getSlices());
+  if (slices.size() != shards) {
+    throw new IllegalStateException("Incompatible sorted shards: + " + shards + " for docCollection: "+ docCollection);
+  }
+  shardNumbers=new HashMap(10 * slices.size());
+  for (int i=0; i < slices.size(); i++) {
+    shardNumbers.put(slices.get(i).getName(),i);
+  }
+  LOG.debug("Using SolrCloud docCollection: {}",docCollection);
+  DocRouter docRouter=docCollection.getRouter();
+  if (docRouter == null) {
+    throw new IllegalArgumentException("docRouter must not be null");
+  }
+  LOG.info("Using SolrCloud docRouterClass: {}",docRouter.getClass());
+}

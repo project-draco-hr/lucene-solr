@@ -1,11 +1,30 @@
 {
   try {
-    IntOpenHashSet boostDocs=getBoostDocs(indexSearcher,(Set<String>)(this.context.get(QueryElevationComponent.BOOSTED)));
-    if (this.min != null || this.max != null) {
-      return new CollapsingFieldValueCollector(this.maxDoc,this.leafCount,this.docValues,this.searcher,this.nullPolicy,max != null ? this.max : this.min,max != null,needsScores(this.solrParams),this.fieldType,boostDocs);
+    SolrIndexSearcher searcher=(SolrIndexSearcher)indexSearcher;
+    IndexSchema schema=searcher.getSchema();
+    SchemaField schemaField=schema.getField(this.field);
+    SortedDocValues docValues=null;
+    if (schemaField.hasDocValues()) {
+      docValues=searcher.getAtomicReader().getSortedDocValues(this.field);
     }
  else {
-      return new CollapsingScoreCollector(this.maxDoc,this.leafCount,this.docValues,this.nullPolicy,boostDocs);
+      docValues=FieldCache.DEFAULT.getTermsIndex(searcher.getAtomicReader(),this.field);
+    }
+    FieldType fieldType=null;
+    if (this.max != null) {
+      fieldType=searcher.getSchema().getField(this.max).getType();
+    }
+    if (this.min != null) {
+      fieldType=searcher.getSchema().getField(this.min).getType();
+    }
+    int maxDoc=searcher.maxDoc();
+    int leafCount=searcher.getTopReaderContext().leaves().size();
+    IntOpenHashSet boostDocs=getBoostDocs(searcher,(Set<String>)(this.context.get(QueryElevationComponent.BOOSTED)));
+    if (this.min != null || this.max != null) {
+      return new CollapsingFieldValueCollector(maxDoc,leafCount,docValues,this.nullPolicy,max != null ? this.max : this.min,max != null,this.needsScores,fieldType,boostDocs);
+    }
+ else {
+      return new CollapsingScoreCollector(maxDoc,leafCount,docValues,this.nullPolicy,boostDocs);
     }
   }
  catch (  Exception e) {

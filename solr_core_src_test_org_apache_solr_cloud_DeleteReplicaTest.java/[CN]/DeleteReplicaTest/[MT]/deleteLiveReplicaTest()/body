@@ -1,18 +1,22 @@
 {
-  String COLL_NAME="delLiveColl";
+  String collectionName="delLiveColl";
   CloudSolrServer client=createCloudClient(null);
-  createColl(COLL_NAME,client);
-  DocCollection testcoll=getCommonCloudSolrServer().getZkStateReader().getClusterState().getCollection(COLL_NAME);
-  Slice shard1=null;
-  Replica replica1=null;
-  for (  Slice slice : testcoll.getSlices()) {
-    if ("active".equals(slice.getStr("state"))) {
-      shard1=slice;
-      for (      Replica replica : shard1.getReplicas())       if ("active".equals(replica.getStr("state")))       replica1=replica;
+  try {
+    createCollection(collectionName,client);
+    waitForRecoveriesToFinish(collectionName,false);
+    DocCollection testcoll=getCommonCloudSolrServer().getZkStateReader().getClusterState().getCollection(collectionName);
+    Slice shard1=null;
+    Replica replica1=null;
+    for (    Slice slice : testcoll.getSlices()) {
+      if ("active".equals(slice.getStr("state"))) {
+        shard1=slice;
+        for (        Replica replica : shard1.getReplicas())         if ("active".equals(replica.getStr("state")))         replica1=replica;
+      }
     }
+    if (replica1 == null)     fail("no active replicas found");
+    removeAndWaitForReplicaGone(collectionName,client,replica1,shard1.getName());
   }
-  if (replica1 == null)   fail("no active replicas found");
-  Thread.sleep(2500);
-  removeAndWaitForReplicaGone(COLL_NAME,client,replica1,shard1.getName());
-  client.shutdown();
+  finally {
+    client.shutdown();
+  }
 }

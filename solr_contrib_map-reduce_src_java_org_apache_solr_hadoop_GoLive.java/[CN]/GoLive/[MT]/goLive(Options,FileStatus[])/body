@@ -1,0 +1,121 @@
+{
+  LOG.info("Live merging of output shards into Solr cluster...");
+  boolean success=false;
+  long start=System.currentTimeMillis();
+  int concurrentMerges=options.goLiveThreads;
+  ThreadPoolExecutor executor=new ThreadPoolExecutor(concurrentMerges,concurrentMerges,1,TimeUnit.SECONDS,new LinkedBlockingQueue<Runnable>());
+  try {
+    CompletionService<Request> completionService=new ExecutorCompletionService<Request>(executor);
+    Set<Future<Request>> pending=new HashSet<Future<Request>>();
+    int cnt=-1;
+    for (    final FileStatus dir : outDirs) {
+      LOG.debug("processing: " + dir.getPath());
+      cnt++;
+      List<String> urls=options.shardUrls.get(cnt);
+      for (      String url : urls) {
+        String baseUrl=url;
+        if (baseUrl.endsWith("/")) {
+          baseUrl=baseUrl.substring(0,baseUrl.length() - 1);
+        }
+        int lastPathIndex=baseUrl.lastIndexOf("/");
+        if (lastPathIndex == -1) {
+          LOG.error("Found unexpected shardurl, live merge failed: " + baseUrl);
+          return false;
+        }
+        final String name=baseUrl.substring(lastPathIndex + 1);
+        baseUrl=baseUrl.substring(0,lastPathIndex);
+        final String mergeUrl=baseUrl;
+        Callable<Request> task=new Callable<Request>(){
+          @Override public Request call(){
+            Request req=new Request();
+            LOG.info("Live merge " + dir.getPath() + " into "+ mergeUrl);
+            final HttpSolrServer server=new HttpSolrServer(mergeUrl);
+            try {
+              CoreAdminRequest.MergeIndexes mergeRequest=new CoreAdminRequest.MergeIndexes();
+              mergeRequest.setCoreName(name);
+              mergeRequest.setIndexDirs(Arrays.asList(dir.getPath().toString() + "/data/index"));
+              try {
+                mergeRequest.process(server);
+                req.success=true;
+              }
+ catch (              SolrServerException e) {
+                req.e=e;
+                return req;
+              }
+catch (              IOException e) {
+                req.e=e;
+                return req;
+              }
+            }
+  finally {
+              server.shutdown();
+            }
+            return req;
+          }
+        }
+;
+        pending.add(completionService.submit(task));
+      }
+    }
+    while (pending != null && pending.size() > 0) {
+      try {
+        Future<Request> future=completionService.take();
+        if (future == null)         break;
+        pending.remove(future);
+        try {
+          Request req=future.get();
+          if (!req.success) {
+            LOG.error("A live merge command failed",req.e);
+            return false;
+          }
+        }
+ catch (        ExecutionException e) {
+          LOG.error("Error sending live merge command",e);
+          return false;
+        }
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        LOG.error("Live merge process interrupted",e);
+        return false;
+      }
+    }
+    cnt=-1;
+    try {
+      LOG.info("Committing live merge...");
+      if (options.zkHost != null) {
+        CloudSolrServer server=new CloudSolrServer(options.zkHost);
+        server.setDefaultCollection(options.collection);
+        server.commit();
+        server.shutdown();
+      }
+ else {
+        for (        List<String> urls : options.shardUrls) {
+          for (          String url : urls) {
+            HttpSolrServer server=new HttpSolrServer(url);
+            server.commit();
+            server.shutdown();
+          }
+        }
+      }
+      LOG.info("Done committing live merge");
+    }
+ catch (    Exception e) {
+      LOG.error("Error sending commits to live Solr cluster",e);
+      return false;
+    }
+    success=true;
+    return true;
+  }
+  finally {
+    shutdownNowAndAwaitTermination(executor);
+    float secs=(System.currentTimeMillis() - start) / 1000.0f;
+    LOG.info("Live merging of index shards into Solr cluster took " + secs + " secs");
+    if (success) {
+      LOG.info("Live merging completed successfully");
+    }
+ else {
+      LOG.info("Live merging failed");
+    }
+  }
+}

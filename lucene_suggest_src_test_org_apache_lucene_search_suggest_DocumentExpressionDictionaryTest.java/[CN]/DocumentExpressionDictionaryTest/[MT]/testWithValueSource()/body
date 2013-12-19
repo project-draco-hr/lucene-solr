@@ -1,0 +1,25 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  Map<String,Document> docs=generateIndexDocuments(atLeast(100));
+  for (  Document doc : docs.values()) {
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.close();
+  IndexReader ir=DirectoryReader.open(dir);
+  Dictionary dictionary=new DocumentExpressionDictionary(ir,FIELD_NAME,new DoubleConstValueSource(10),PAYLOAD_FIELD_NAME);
+  InputIterator inputIterator=(InputIterator)dictionary.getWordsIterator();
+  BytesRef f;
+  while ((f=inputIterator.next()) != null) {
+    Document doc=docs.remove(f.utf8ToString());
+    assertTrue(f.equals(new BytesRef(doc.get(FIELD_NAME))));
+    assertEquals(inputIterator.weight(),10);
+    assertTrue(inputIterator.payload().equals(doc.getField(PAYLOAD_FIELD_NAME).binaryValue()));
+  }
+  assertTrue(docs.isEmpty());
+  ir.close();
+  dir.close();
+}

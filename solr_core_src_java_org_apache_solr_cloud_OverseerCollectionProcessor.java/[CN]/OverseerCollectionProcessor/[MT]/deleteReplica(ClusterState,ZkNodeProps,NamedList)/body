@@ -16,27 +16,22 @@
   }
   String baseUrl=replica.getStr(ZkStateReader.BASE_URL_PROP);
   String core=replica.getStr(ZkStateReader.CORE_NAME_PROP);
-  if (!Slice.ACTIVE.equals(replica.getStr(Slice.STATE))) {
-    deleteCoreNode(collectionName,replicaName,replica,core);
-    if (waitForCoreNodeGone(collectionName,shard,replicaName))     return;
+  Map m=ZkNodeProps.makeMap("qt",adminPath,CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString(),CoreAdminParams.CORE,core);
+  ShardRequest sreq=new ShardRequest();
+  sreq.purpose=1;
+  if (baseUrl.startsWith("http://"))   baseUrl=baseUrl.substring(7);
+  sreq.shards=new String[]{baseUrl};
+  sreq.actualShards=sreq.shards;
+  sreq.params=new ModifiableSolrParams(new MapSolrParams(m));
+  try {
+    shardHandler.submit(sreq,baseUrl,sreq.params);
   }
- else {
-    Map m=ZkNodeProps.makeMap("qt",adminPath,CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString(),CoreAdminParams.CORE,core);
-    ShardRequest sreq=new ShardRequest();
-    sreq.purpose=1;
-    if (baseUrl.startsWith("http://"))     baseUrl=baseUrl.substring(7);
-    sreq.shards=new String[]{baseUrl};
-    sreq.actualShards=sreq.shards;
-    sreq.params=new ModifiableSolrParams(new MapSolrParams(m));
-    try {
-      shardHandler.submit(sreq,baseUrl,sreq.params);
-    }
- catch (    Exception e) {
-      log.info("Exception trying to unload core " + sreq,e);
-    }
-    if (waitForCoreNodeGone(collectionName,shard,replicaName))     return;
-    deleteCoreNode(collectionName,replicaName,replica,core);
-    if (waitForCoreNodeGone(collectionName,shard,replicaName))     return;
+ catch (  Exception e) {
+    log.warn("Exception trying to unload core " + sreq,e);
   }
+  collectShardResponses(!Slice.ACTIVE.equals(replica.getStr(Slice.STATE)) ? new NamedList() : results,false,null);
+  if (waitForCoreNodeGone(collectionName,shard,replicaName,5000))   return;
+  deleteCoreNode(collectionName,replicaName,replica,core);
+  if (waitForCoreNodeGone(collectionName,shard,replicaName,30000))   return;
   throw new SolrException(ErrorCode.SERVER_ERROR,"Could not  remove replica : " + collectionName + "/"+ shard+ "/"+ replicaName);
 }

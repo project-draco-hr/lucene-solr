@@ -1,0 +1,39 @@
+{
+  int paren=expressionString.indexOf('(');
+  String[] arguments;
+  if (paren < 0) {
+    return buildFieldSource(schema,expressionString,FIELD_TYPE);
+  }
+ else {
+    arguments=ExpressionFactory.getArguments(expressionString.substring(paren + 1,expressionString.lastIndexOf(')')).trim());
+  }
+  String operands=arguments[0];
+  String operation=expressionString.substring(0,paren).trim();
+  if (operation.equals(AnalyticsParams.CONSTANT_STRING)) {
+    operands=expressionString.substring(paren + 1,expressionString.lastIndexOf(')'));
+    return new ConstStringSource(operands);
+  }
+ else   if (operation.equals(AnalyticsParams.FILTER)) {
+    return buildFilterSource(schema,operands,FIELD_TYPE);
+  }
+ else   if (operation.equals(AnalyticsParams.REVERSE)) {
+    if (arguments.length != 1) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"\"" + AnalyticsParams.REVERSE + "\" requires exactly one argument. The number of arguments in "+ expressionString+ " is not 1.");
+    }
+    return new ReverseStringFunction(buildStringSource(schema,operands));
+  }
+  List<ValueSource> subExpressions=new ArrayList<ValueSource>();
+  for (  String argument : arguments) {
+    subExpressions.add(buildSourceTree(schema,argument));
+  }
+  if (operation.equals(AnalyticsParams.CONCATENATE)) {
+    return new ConcatStringFunction(subExpressions.toArray(new ValueSource[0]));
+  }
+  if (AnalyticsParams.NUMERIC_OPERATION_SET.contains(operation)) {
+    return buildNumericSource(schema,expressionString);
+  }
+ else   if (AnalyticsParams.DATE_OPERATION_SET.contains(operation)) {
+    return buildDateSource(schema,expressionString);
+  }
+  throw new SolrException(ErrorCode.BAD_REQUEST,"The operation [" + expressionString + "] is not supported.");
+}

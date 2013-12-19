@@ -1,0 +1,39 @@
+{
+  try {
+    String localDirsString=prepareDirs("local",numLocalDirs);
+    getConfig().set(YarnConfiguration.NM_LOCAL_DIRS,localDirsString);
+    String logDirsString=prepareDirs("log",numLogDirs);
+    getConfig().set(YarnConfiguration.NM_LOG_DIRS,logDirsString);
+    File remoteLogDir=new File(testWorkDir,MiniYARNCluster.this.getName() + "-remoteLogDir-nm-" + index);
+    remoteLogDir.mkdir();
+    getConfig().set(YarnConfiguration.NM_REMOTE_APP_LOG_DIR,remoteLogDir.getAbsolutePath());
+    getConfig().setInt(YarnConfiguration.NM_PMEM_MB,4 * 1024);
+    getConfig().set(YarnConfiguration.NM_ADDRESS,MiniYARNCluster.getHostname() + ":0");
+    getConfig().set(YarnConfiguration.NM_LOCALIZER_ADDRESS,MiniYARNCluster.getHostname() + ":0");
+    getConfig().set(YarnConfiguration.NM_WEBAPP_ADDRESS,MiniYARNCluster.getHostname() + ":0");
+    if (!getConfig().getBoolean(YarnConfiguration.YARN_MINICLUSTER_CONTROL_RESOURCE_MONITORING,YarnConfiguration.DEFAULT_YARN_MINICLUSTER_CONTROL_RESOURCE_MONITORING)) {
+      getConfig().setBoolean(YarnConfiguration.NM_PMEM_CHECK_ENABLED,false);
+      getConfig().setBoolean(YarnConfiguration.NM_VMEM_CHECK_ENABLED,false);
+    }
+    LOG.info("Starting NM: " + index);
+    nodeManagers[index].init(getConfig());
+    new Thread(){
+      public void run(){
+        nodeManagers[index].start();
+      }
+    }
+.start();
+    int waitCount=0;
+    while (nodeManagers[index].getServiceState() == STATE.INITED && waitCount++ < 60) {
+      LOG.info("Waiting for NM " + index + " to start...");
+      Thread.sleep(1000);
+    }
+    if (nodeManagers[index].getServiceState() != STATE.STARTED) {
+      throw new IOException("NodeManager " + index + " failed to start");
+    }
+    super.serviceStart();
+  }
+ catch (  Throwable t) {
+    throw new YarnRuntimeException(t);
+  }
+}

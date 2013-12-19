@@ -1,7 +1,11 @@
 {
   System.setProperty("solrcloud.update.delay","1");
+  container1.getZkController().getZkStateReader().updateClusterState(true);
+  OverseerThread updaterThread=container1.getZkController().getOverseer().getUpdaterThread();
+  closeThread(updaterThread);
+  updaterThread=container2.getZkController().getOverseer().getUpdaterThread();
+  closeThread(updaterThread);
   ClusterState clusterState=container1.getZkController().getClusterState();
-  Map<String,DocCollection> collectionStates=new LinkedHashMap<String,DocCollection>(clusterState.getCollectionStates());
   Map<String,Slice> slicesMap=clusterState.getSlicesMap("collection1");
   Map<String,Object> props=new HashMap<String,Object>(1);
   Slice slice=slicesMap.get("shard1");
@@ -11,15 +15,14 @@
   slicesMap.put(newSlice.getName(),newSlice);
   props.put(DocCollection.DOC_ROUTER,ZkNodeProps.makeMap("name",ImplicitDocRouter.NAME));
   DocCollection coll=new DocCollection("collection1",slicesMap,props,DocRouter.DEFAULT);
-  collectionStates.put("collection1",coll);
   SolrZkClient zkClient=new SolrZkClient(zkServer.getZkAddress(),AbstractZkTestCase.TIMEOUT);
-  ClusterState newState=new ClusterState(clusterState.getLiveNodes(),collectionStates);
+  ClusterState newState=clusterState.copyWith(Collections.singletonMap(coll.getName(),coll));
   zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(newState),true);
   zkClient.close();
   ZkController zkController2=container2.getZkController();
   ClusterState clusterState2=null;
   Map<String,Slice> slices=null;
-  for (int i=100; i > 0; i--) {
+  for (int i=60; i > 0; i--) {
     clusterState2=zkController2.getClusterState();
     slices=clusterState2.getSlicesMap("collection1");
     if (slices != null && slices.containsKey("shard1") && slices.get("shard1").getState().equals("inactive")) {
@@ -30,4 +33,6 @@
   assertNotNull(slices);
   assertEquals("shard1",slices.get("shard1").getName());
   assertEquals("inactive",slices.get("shard1").getState());
+  container1.getZkController().getOverseerElector().getContext().cancelElection();
+  container2.getZkController().getOverseerElector().getContext().cancelElection();
 }

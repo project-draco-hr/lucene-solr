@@ -1,0 +1,71 @@
+{
+  FileSystem fs=dfsCluster.getFileSystem();
+  int dfsClusterPort=fs.getWorkingDirectory().toUri().getPort();
+  assertTrue(dfsClusterPort > 0);
+  JobConf jobConf=getJobConf();
+  Configuration simpleConf=new Configuration();
+  for (  Configuration conf : Arrays.asList(jobConf,simpleConf)) {
+    for (    String queryAndFragment : Arrays.asList("","?key=value#fragment")) {
+      for (      String up : Arrays.asList("","../")) {
+        String down=up.length() == 0 ? "foo/" : "";
+        String uploadURL="hdfs://localhost:12345/user/foo/" + up + "bar.txt"+ queryAndFragment;
+        PathParts parts=new PathParts(uploadURL,conf);
+        assertEquals(uploadURL,parts.getUploadURL());
+        assertEquals("/user/" + down + "bar.txt",parts.getURIPath());
+        assertEquals("bar.txt",parts.getName());
+        assertEquals("hdfs",parts.getScheme());
+        assertEquals("localhost",parts.getHost());
+        assertEquals(12345,parts.getPort());
+        assertEquals("hdfs://localhost:12345/user/" + down + "bar.txt",parts.getId());
+        assertEquals(parts.getId(),parts.getDownloadURL());
+        assertFileNotFound(parts);
+        uploadURL="hdfs://localhost/user/foo/" + up + "bar.txt"+ queryAndFragment;
+        parts=new PathParts(uploadURL,conf);
+        assertEquals(uploadURL,parts.getUploadURL());
+        assertEquals("/user/" + down + "bar.txt",parts.getURIPath());
+        assertEquals("bar.txt",parts.getName());
+        assertEquals("hdfs",parts.getScheme());
+        assertEquals("localhost",parts.getHost());
+        assertEquals(8020,parts.getPort());
+        assertEquals("hdfs://localhost:8020/user/" + down + "bar.txt",parts.getId());
+        assertEquals(parts.getId(),parts.getDownloadURL());
+        assertFileNotFound(parts);
+      }
+    }
+  }
+  for (  Configuration conf : Arrays.asList(jobConf)) {
+    for (    String queryAndFragment : Arrays.asList("","?key=value#fragment")) {
+      for (      String up : Arrays.asList("","../")) {
+        String down=up.length() == 0 ? "foo/" : "";
+        String uploadURL="/user/foo/" + up + "bar.txt"+ queryAndFragment;
+        PathParts parts=new PathParts(uploadURL,conf);
+        assertEquals(uploadURL,parts.getUploadURL());
+        assertEquals("/user/" + down + "bar.txt",parts.getURIPath());
+        assertEquals("bar.txt",parts.getName());
+        assertEquals("hdfs",parts.getScheme());
+        assertTrue("localhost".equals(parts.getHost()) || "localhost.localdomain".equals(parts.getHost()));
+        assertEquals(dfsClusterPort,parts.getPort());
+        assertTrue(parts.getId().equals("hdfs://localhost:" + dfsClusterPort + "/user/"+ down+ "bar.txt") || parts.getId().equals("hdfs://localhost.localdomain:" + dfsClusterPort + "/user/"+ down+ "bar.txt"));
+        assertFileNotFound(parts);
+        uploadURL="xuser/foo/" + up + "bar.txt"+ queryAndFragment;
+        parts=new PathParts(uploadURL,conf);
+        assertEquals(uploadURL,parts.getUploadURL());
+        String homeDir="/user/" + System.getProperty("user.name");
+        assertEquals(homeDir + "/xuser/" + down+ "bar.txt",parts.getURIPath());
+        assertEquals("bar.txt",parts.getName());
+        assertEquals("hdfs",parts.getScheme());
+        assertTrue("localhost".equals(parts.getHost()) || "localhost.localdomain".equals(parts.getHost()));
+        assertEquals(dfsClusterPort,parts.getPort());
+        assertTrue(parts.getId().equals("hdfs://localhost:" + dfsClusterPort + homeDir+ "/xuser/"+ down+ "bar.txt") || parts.getId().equals("hdfs://localhost.localdomain:" + dfsClusterPort + homeDir+ "/xuser/"+ down+ "bar.txt"));
+        assertFileNotFound(parts);
+      }
+    }
+  }
+  try {
+    new PathParts("/user/foo/bar.txt",simpleConf);
+    fail("host/port resolution requires minimr conf, not a simple conf");
+  }
+ catch (  IllegalArgumentException e) {
+    ;
+  }
+}

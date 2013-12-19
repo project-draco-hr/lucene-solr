@@ -7,17 +7,20 @@
     HttpURLConnection con=(HttpURLConnection)url.openConnection();
     con.setRequestMethod(req.getMethod());
     con.setUseCaches(false);
-    con.setDoOutput(true);
+    boolean isPostOrPutRequest="POST".equals(req.getMethod()) || "PUT".equals(req.getMethod());
+    if (isPostOrPutRequest) {
+      con.setDoOutput(true);
+    }
     con.setDoInput(true);
-    for (Enumeration e=req.getHeaderNames(); e.hasMoreElements(); ) {
-      String headerName=e.nextElement().toString();
+    for (Enumeration<String> e=req.getHeaderNames(); e.hasMoreElements(); ) {
+      String headerName=e.nextElement();
       con.setRequestProperty(headerName,req.getHeader(headerName));
     }
     try {
       con.connect();
       InputStream is;
       OutputStream os;
-      if ("POST".equals(req.getMethod())) {
+      if (isPostOrPutRequest) {
         is=req.getInputStream();
         os=con.getOutputStream();
         try {
@@ -30,9 +33,14 @@
         }
       }
       resp.setStatus(con.getResponseCode());
-      for (Iterator i=con.getHeaderFields().entrySet().iterator(); i.hasNext(); ) {
-        Map.Entry mapEntry=(Map.Entry)i.next();
-        if (mapEntry.getKey() != null)         resp.setHeader(mapEntry.getKey().toString(),((List)mapEntry.getValue()).get(0).toString());
+      for (Iterator<Entry<String,List<String>>> i=con.getHeaderFields().entrySet().iterator(); i.hasNext(); ) {
+        Map.Entry<String,List<String>> mapEntry=i.next();
+        String header=mapEntry.getKey();
+        if (header != null && !header.equals(TRANSFER_ENCODING_HEADER) && !header.equals(CONNECTION_HEADER)) {
+          for (          String value : mapEntry.getValue()) {
+            resp.addHeader(mapEntry.getKey(),value);
+          }
+        }
       }
       resp.setCharacterEncoding(con.getContentEncoding());
       resp.setContentType(con.getContentType());

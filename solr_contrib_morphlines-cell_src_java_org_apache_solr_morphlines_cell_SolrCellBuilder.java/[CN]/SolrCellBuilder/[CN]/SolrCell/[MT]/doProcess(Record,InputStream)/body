@@ -1,0 +1,49 @@
+{
+  Parser parser=detectParser(record);
+  if (parser == null) {
+    return false;
+  }
+  ParseContext parseContext=new ParseContext();
+  parseContext.set(Parser.class,parser);
+  Metadata metadata=new Metadata();
+  for (  Entry<String,Object> entry : record.getFields().entries()) {
+    metadata.add(entry.getKey(),entry.getValue().toString());
+  }
+  SolrContentHandler handler=solrContentHandlerFactory.createSolrContentHandler(metadata,solrParams,schema);
+  try {
+    inputStream=TikaInputStream.get(inputStream);
+    ContentHandler parsingHandler=handler;
+    StringWriter debugWriter=null;
+    if (LOG.isTraceEnabled()) {
+      debugWriter=new StringWriter();
+      ContentHandler serializer=new XMLSerializer(debugWriter,new OutputFormat("XML","UTF-8",true));
+      parsingHandler=new TeeContentHandler(parsingHandler,serializer);
+    }
+    if (xpathExpr != null) {
+      Matcher matcher=PARSER.parse(xpathExpr);
+      parsingHandler=new MatchingContentHandler(parsingHandler,matcher);
+    }
+    try {
+      parser.parse(inputStream,parsingHandler,metadata,parseContext);
+    }
+ catch (    IOException e) {
+      throw new MorphlineRuntimeException("Cannot parse",e);
+    }
+catch (    SAXException e) {
+      throw new MorphlineRuntimeException("Cannot parse",e);
+    }
+catch (    TikaException e) {
+      throw new MorphlineRuntimeException("Cannot parse",e);
+    }
+    LOG.trace("debug XML doc: {}",debugWriter);
+  }
+  finally {
+    if (inputStream != null) {
+      Closeables.closeQuietly(inputStream);
+    }
+  }
+  SolrInputDocument doc=handler.newDocument();
+  LOG.debug("solr doc: {}",doc);
+  Record outputRecord=toRecord(doc);
+  return getChild().process(outputRecord);
+}

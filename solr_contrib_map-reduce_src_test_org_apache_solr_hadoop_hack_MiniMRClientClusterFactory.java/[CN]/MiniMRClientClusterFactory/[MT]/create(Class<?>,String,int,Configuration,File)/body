@@ -1,0 +1,30 @@
+{
+  if (conf == null) {
+    conf=new Configuration();
+  }
+  FileSystem fs=FileSystem.get(conf);
+  Path testRootDir=new Path(testWorkDir.getPath(),identifier + "-tmpDir").makeQualified(fs);
+  Path appJar=new Path(testRootDir,"MRAppJar.jar");
+  Path appMasterJar=new Path(MiniMRYarnCluster.APPJAR);
+  fs.copyFromLocalFile(appMasterJar,appJar);
+  fs.setPermission(appJar,new FsPermission("744"));
+  Job job=Job.getInstance(conf);
+  job.addFileToClassPath(appJar);
+  Path callerJar=new Path(JarFinder.getJar(caller));
+  Path remoteCallerJar=new Path(testRootDir,callerJar.getName());
+  fs.copyFromLocalFile(callerJar,remoteCallerJar);
+  fs.setPermission(remoteCallerJar,new FsPermission("744"));
+  job.addFileToClassPath(remoteCallerJar);
+  MiniMRYarnCluster miniMRYarnCluster;
+  try {
+    miniMRYarnCluster=new MiniMRYarnCluster(identifier,noOfNMs,testWorkDir);
+  }
+ catch (  Exception e) {
+    throw new RuntimeException(e);
+  }
+  job.getConfiguration().set("minimrclientcluster.caller.name",identifier);
+  job.getConfiguration().setInt("minimrclientcluster.nodemanagers.number",noOfNMs);
+  miniMRYarnCluster.init(job.getConfiguration());
+  miniMRYarnCluster.start();
+  return new MiniMRYarnClusterAdapter(miniMRYarnCluster,testWorkDir);
+}

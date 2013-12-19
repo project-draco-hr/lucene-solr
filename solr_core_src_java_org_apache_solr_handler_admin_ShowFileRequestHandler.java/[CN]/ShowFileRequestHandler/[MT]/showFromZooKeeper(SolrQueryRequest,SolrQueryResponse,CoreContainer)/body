@@ -1,45 +1,19 @@
 {
-  String adminFile=null;
-  SolrCore core=req.getCore();
   SolrZkClient zkClient=coreContainer.getZkController().getZkClient();
-  final ZkSolrResourceLoader loader=(ZkSolrResourceLoader)core.getResourceLoader();
-  String confPath=loader.getCollectionZkPath();
-  String fname=req.getParams().get("file",null);
-  if (fname == null) {
-    adminFile=confPath;
-  }
- else {
-    fname=fname.replace('\\','/');
-    if (hiddenFiles.contains(fname.toUpperCase(Locale.ROOT))) {
-      rsp.setException(new SolrException(ErrorCode.FORBIDDEN,"Can not access: " + fname));
-      return;
-    }
-    if (fname.indexOf("..") >= 0) {
-      rsp.setException(new SolrException(ErrorCode.FORBIDDEN,"Invalid path: " + fname));
-      return;
-    }
-    if (fname.startsWith("/")) {
-      fname=fname.substring(1);
-    }
-    adminFile=confPath + "/" + fname;
-  }
-  if (!zkClient.exists(adminFile,true)) {
-    rsp.setException(new SolrException(ErrorCode.NOT_FOUND,"Can not find: " + adminFile));
+  String adminFile=getAdminFileFromZooKeeper(req,rsp,zkClient,hiddenFiles);
+  if (adminFile == null) {
     return;
   }
   List<String> children=zkClient.getChildren(adminFile,null,true);
   if (children.size() > 0) {
     NamedList<SimpleOrderedMap<Object>> files=new SimpleOrderedMap<SimpleOrderedMap<Object>>();
     for (    String f : children) {
-      if (hiddenFiles.contains(f.toUpperCase(Locale.ROOT))) {
-        continue;
-      }
-      if (f.startsWith(".")) {
+      if (isHiddenFile(req,rsp,f,false,hiddenFiles)) {
         continue;
       }
       SimpleOrderedMap<Object> fileInfo=new SimpleOrderedMap<Object>();
       files.add(f,fileInfo);
-      List<String> fchildren=zkClient.getChildren(adminFile,null,true);
+      List<String> fchildren=zkClient.getChildren(adminFile + "/" + f,null,true);
       if (fchildren.size() > 0) {
         fileInfo.add("directory",true);
       }
