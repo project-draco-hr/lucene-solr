@@ -1,0 +1,44 @@
+{
+  if (core == null) {
+    throw new RuntimeException("Can not register a null core.");
+  }
+  if (name == null || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+    throw new RuntimeException("Invalid core name: " + name);
+  }
+  CoreDescriptor cd=core.getCoreDescriptor();
+  if ((cd.isTransient() || !cd.isLoadOnStartup()) && solrCores.getDynamicDescriptor(name) == null) {
+    solrCores.putDynamicDescriptor(name,cd);
+  }
+  SolrCore old=null;
+  if (isShutDown) {
+    core.close();
+    throw new IllegalStateException("This CoreContainer has been shutdown");
+  }
+  if (isTransientCore) {
+    old=solrCores.putTransientCore(cfg,name,core,loader);
+  }
+ else {
+    old=solrCores.putCore(name,core);
+  }
+  core.setName(name);
+synchronized (coreInitFailures) {
+    coreInitFailures.remove(name);
+  }
+  if (old == null || old == core) {
+    log.info("registering core: " + name);
+    if (registerInZk) {
+      zkSys.registerInZk(core,false);
+    }
+    return null;
+  }
+ else {
+    log.info("replacing core: " + name);
+    if (!returnPrevNotClosed) {
+      old.close();
+    }
+    if (registerInZk) {
+      zkSys.registerInZk(core,false);
+    }
+    return old;
+  }
+}
