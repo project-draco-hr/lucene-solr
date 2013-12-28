@@ -1,0 +1,28 @@
+{
+  createTempDir();
+  String zkDir=dataDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  ZkTestServer server=new ZkTestServer(zkDir);
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    SolrZkClient zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    ConnectionManager cm=zkClient.getConnectionManager();
+    try {
+      System.err.println("ISEXPIRED:" + cm.isLikelyExpired());
+      assertFalse(cm.isLikelyExpired());
+      zkClient.getSolrZooKeeper().pauseCnxn(TIMEOUT);
+      long sessionId=zkClient.getSolrZooKeeper().getSessionId();
+      server.expire(sessionId);
+      Thread.sleep(TIMEOUT);
+      assertTrue(cm.isLikelyExpired());
+    }
+  finally {
+      cm.close();
+      zkClient.close();
+    }
+  }
+  finally {
+    server.shutdown();
+  }
+}
