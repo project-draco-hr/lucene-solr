@@ -1,0 +1,24 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir);
+  IndexWriter iw=new IndexWriter(indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  FacetsConfig config=new FacetsConfig();
+  config.setIndexFieldName("b","$b");
+  for (int i=atLeast(30); i > 0; --i) {
+    Document doc=new Document();
+    doc.add(new StringField("f","v",Field.Store.NO));
+    doc.add(new FacetField("a","1"));
+    doc.add(new FacetField("b","1"));
+    iw.addDocument(config.build(taxoWriter,doc));
+  }
+  DirectoryReader r=DirectoryReader.open(iw,true);
+  DirectoryTaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  FacetsCollector fc=new FacetsCollector(true);
+  FacetsCollector.search(newSearcher(r),new MatchAllDocsQuery(),10,fc);
+  Facets facets1=getTaxonomyFacetCounts(taxoReader,config,fc);
+  Facets facets2=new TaxonomyFacetSumValueSource(new DocValuesOrdinalsReader("$b"),taxoReader,config,fc,new TaxonomyFacetSumValueSource.ScoreValueSource());
+  assertEquals(r.maxDoc(),facets1.getTopChildren(10,"a").value.intValue());
+  assertEquals(r.maxDoc(),facets2.getTopChildren(10,"b").value.doubleValue(),1E-10);
+  IOUtils.close(taxoWriter,iw,taxoReader,taxoDir,r,indexDir);
+}
