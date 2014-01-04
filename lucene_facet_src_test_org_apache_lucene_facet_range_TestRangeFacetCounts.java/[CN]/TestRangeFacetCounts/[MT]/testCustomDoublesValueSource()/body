@@ -1,0 +1,39 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  writer.addDocument(doc);
+  doc=new Document();
+  writer.addDocument(doc);
+  doc=new Document();
+  writer.addDocument(doc);
+  writer.forceMerge(1);
+  ValueSource vs=new ValueSource(){
+    @SuppressWarnings("rawtypes") @Override public FunctionValues getValues(    Map ignored,    AtomicReaderContext ignored2){
+      return new DoubleDocValues(null){
+        @Override public double doubleVal(        int doc){
+          return doc + 1;
+        }
+      }
+;
+    }
+    @Override public boolean equals(    Object o){
+      throw new UnsupportedOperationException();
+    }
+    @Override public int hashCode(){
+      throw new UnsupportedOperationException();
+    }
+    @Override public String description(){
+      throw new UnsupportedOperationException();
+    }
+  }
+;
+  FacetsCollector fc=new FacetsCollector();
+  IndexReader r=writer.getReader();
+  IndexSearcher s=newSearcher(r);
+  s.search(new MatchAllDocsQuery(),fc);
+  Facets facets=new DoubleRangeFacetCounts("field",vs,fc,new DoubleRange("< 1",0.0,true,1.0,false),new DoubleRange("< 2",0.0,true,2.0,false),new DoubleRange("< 5",0.0,true,5.0,false),new DoubleRange("< 10",0.0,true,10.0,false),new DoubleRange("< 20",0.0,true,20.0,false),new DoubleRange("< 50",0.0,true,50.0,false));
+  assertEquals("dim=field path=[] value=3 childCount=6\n  < 1 (0)\n  < 2 (1)\n  < 5 (3)\n  < 10 (3)\n  < 20 (3)\n  < 50 (3)\n",facets.getTopChildren(10,"field").toString());
+  assertEquals(1,s.search(new ConstantScoreQuery(new DoubleRange("< 2",0.0,true,2.0,false).getFilter(vs)),10).totalHits);
+  IOUtils.close(r,writer,dir);
+}

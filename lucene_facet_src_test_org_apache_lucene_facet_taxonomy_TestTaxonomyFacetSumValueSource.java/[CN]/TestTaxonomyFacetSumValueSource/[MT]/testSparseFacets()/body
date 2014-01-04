@@ -1,0 +1,41 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  FacetsConfig config=new FacetsConfig();
+  Document doc=new Document();
+  doc.add(new IntField("num",10,Field.Store.NO));
+  doc.add(new FacetField("a","foo1"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new IntField("num",20,Field.Store.NO));
+  doc.add(new FacetField("a","foo2"));
+  doc.add(new FacetField("b","bar1"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new IntField("num",30,Field.Store.NO));
+  doc.add(new FacetField("a","foo3"));
+  doc.add(new FacetField("b","bar2"));
+  doc.add(new FacetField("c","baz1"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  writer.close();
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  taxoWriter.close();
+  FacetsCollector c=new FacetsCollector();
+  searcher.search(new MatchAllDocsQuery(),c);
+  TaxonomyFacetSumValueSource facets=new TaxonomyFacetSumValueSource(taxoReader,new FacetsConfig(),c,new IntFieldSource("num"));
+  List<FacetResult> results=facets.getAllDims(10);
+  assertEquals(3,results.size());
+  assertEquals("dim=a path=[] value=60.0 childCount=3\n  foo3 (30.0)\n  foo2 (20.0)\n  foo1 (10.0)\n",results.get(0).toString());
+  assertEquals("dim=b path=[] value=50.0 childCount=2\n  bar2 (30.0)\n  bar1 (20.0)\n",results.get(1).toString());
+  assertEquals("dim=c path=[] value=30.0 childCount=1\n  baz1 (30.0)\n",results.get(2).toString());
+  IOUtils.close(searcher.getIndexReader(),taxoReader,dir,taxoDir);
+}

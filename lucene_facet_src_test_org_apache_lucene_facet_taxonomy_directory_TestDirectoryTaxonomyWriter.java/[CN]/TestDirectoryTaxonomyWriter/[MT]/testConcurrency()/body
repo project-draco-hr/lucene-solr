@@ -15,6 +15,9 @@
  else {
     cache=new LruTaxonomyWriterCache(ncats / 10);
   }
+  if (VERBOSE) {
+    System.out.println("TEST: use cache=" + cache);
+  }
   final DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(dir,OpenMode.CREATE,cache);
   Thread[] addThreads=new Thread[atLeast(4)];
   for (int z=0; z < addThreads.length; z++) {
@@ -24,13 +27,13 @@
         while (numCats.decrementAndGet() > 0) {
           try {
             int value=random.nextInt(range);
-            CategoryPath cp=new CategoryPath(Integer.toString(value / 1000),Integer.toString(value / 10000),Integer.toString(value / 100000),Integer.toString(value));
+            FacetLabel cp=new FacetLabel(Integer.toString(value / 1000),Integer.toString(value / 10000),Integer.toString(value / 100000),Integer.toString(value));
             int ord=tw.addCategory(cp);
             assertTrue("invalid parent for ordinal " + ord + ", category "+ cp,tw.getParent(ord) != -1);
-            String l1=cp.subpath(1).toString('/');
-            String l2=cp.subpath(2).toString('/');
-            String l3=cp.subpath(3).toString('/');
-            String l4=cp.subpath(4).toString('/');
+            String l1=FacetsConfig.pathToString(cp.components,1);
+            String l2=FacetsConfig.pathToString(cp.components,2);
+            String l3=FacetsConfig.pathToString(cp.components,3);
+            String l4=FacetsConfig.pathToString(cp.components,4);
             values.put(l1,l1);
             values.put(l2,l2);
             values.put(l3,l3);
@@ -48,14 +51,22 @@
   for (  Thread t : addThreads)   t.join();
   tw.close();
   DirectoryTaxonomyReader dtr=new DirectoryTaxonomyReader(dir);
-  assertEquals("mismatch number of categories",values.size() + 1,dtr.getSize());
+  if (values.size() + 1 != dtr.getSize()) {
+    for (    String value : values.keySet()) {
+      FacetLabel label=new FacetLabel(FacetsConfig.stringToPath(value));
+      if (dtr.getOrdinal(label) == -1) {
+        System.out.println("FAIL: path=" + label + " not recognized");
+      }
+    }
+    fail("mismatch number of categories");
+  }
   int[] parents=dtr.getParallelTaxonomyArrays().parents();
   for (  String cat : values.keySet()) {
-    CategoryPath cp=new CategoryPath(cat,'/');
+    FacetLabel cp=new FacetLabel(FacetsConfig.stringToPath(cat));
     assertTrue("category not found " + cp,dtr.getOrdinal(cp) > 0);
     int level=cp.length;
     int parentOrd=0;
-    CategoryPath path=CategoryPath.EMPTY;
+    FacetLabel path=new FacetLabel();
     for (int i=0; i < level; i++) {
       path=cp.subpath(i + 1);
       int ord=dtr.getOrdinal(path);
@@ -63,6 +74,5 @@
       parentOrd=ord;
     }
   }
-  dtr.close();
-  dir.close();
+  IOUtils.close(dtr,dir);
 }

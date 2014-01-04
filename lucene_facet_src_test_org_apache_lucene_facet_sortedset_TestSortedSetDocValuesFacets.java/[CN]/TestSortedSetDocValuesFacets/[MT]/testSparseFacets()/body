@@ -1,0 +1,37 @@
+{
+  assumeTrue("Test requires SortedSetDV support",defaultCodecSupportsSortedSet());
+  Directory dir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  FacetsConfig config=new FacetsConfig();
+  Document doc=new Document();
+  doc.add(new SortedSetDocValuesFacetField("a","foo1"));
+  writer.addDocument(config.build(doc));
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new SortedSetDocValuesFacetField("a","foo2"));
+  doc.add(new SortedSetDocValuesFacetField("b","bar1"));
+  writer.addDocument(config.build(doc));
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  doc=new Document();
+  doc.add(new SortedSetDocValuesFacetField("a","foo3"));
+  doc.add(new SortedSetDocValuesFacetField("b","bar2"));
+  doc.add(new SortedSetDocValuesFacetField("c","baz1"));
+  writer.addDocument(config.build(doc));
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  writer.close();
+  SortedSetDocValuesReaderState state=new SortedSetDocValuesReaderState(searcher.getIndexReader());
+  FacetsCollector c=new FacetsCollector();
+  searcher.search(new MatchAllDocsQuery(),c);
+  SortedSetDocValuesFacetCounts facets=new SortedSetDocValuesFacetCounts(state,c);
+  List<FacetResult> results=facets.getAllDims(10);
+  assertEquals(3,results.size());
+  assertEquals("dim=a path=[] value=3 childCount=3\n  foo1 (1)\n  foo2 (1)\n  foo3 (1)\n",results.get(0).toString());
+  assertEquals("dim=b path=[] value=2 childCount=2\n  bar1 (1)\n  bar2 (1)\n",results.get(1).toString());
+  assertEquals("dim=c path=[] value=1 childCount=1\n  baz1 (1)\n",results.get(2).toString());
+  searcher.getIndexReader().close();
+  dir.close();
+}

@@ -1,0 +1,35 @@
+{
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  FacetsConfig config=new FacetsConfig();
+  config.setHierarchical("dim",true);
+  Document doc=new Document();
+  doc.add(new FacetField("dim","a","x"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","a","y"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","a","z"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","b"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","c"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  doc=new Document();
+  doc.add(new FacetField("dim","d"));
+  writer.addDocument(config.build(taxoWriter,doc));
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  DrillDownQuery ddq=new DrillDownQuery(config);
+  ddq.add("dim","a");
+  DrillSidewaysResult r=new DrillSideways(searcher,config,taxoReader).search(null,ddq,10);
+  assertEquals(3,r.hits.totalHits);
+  assertEquals("dim=dim path=[] value=6 childCount=4\n  a (3)\n  b (1)\n  c (1)\n  d (1)\n",r.facets.getTopChildren(10,"dim").toString());
+  assertEquals("dim=dim path=[a] value=3 childCount=3\n  x (1)\n  y (1)\n  z (1)\n",r.facets.getTopChildren(10,"dim","a").toString());
+  IOUtils.close(searcher.getIndexReader(),taxoReader,writer,taxoWriter,dir,taxoDir);
+}

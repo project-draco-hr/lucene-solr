@@ -1,0 +1,30 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setMergePolicy(NoMergePolicy.COMPOUND_FILES);
+  IndexWriter indexWriter=new IndexWriter(indexDir,iwc);
+  TaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir);
+  FacetsConfig config=new FacetsConfig();
+  indexTwoDocs(taxoWriter,indexWriter,config,false);
+  indexTwoDocs(taxoWriter,indexWriter,null,true);
+  indexTwoDocs(taxoWriter,indexWriter,config,true);
+  indexTwoDocs(taxoWriter,indexWriter,null,false);
+  indexTwoDocs(taxoWriter,indexWriter,null,true);
+  indexTwoDocs(taxoWriter,indexWriter,config,true);
+  indexTwoDocs(taxoWriter,indexWriter,null,true);
+  IOUtils.close(indexWriter,taxoWriter);
+  DirectoryReader indexReader=DirectoryReader.open(indexDir);
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoDir);
+  IndexSearcher indexSearcher=newSearcher(indexReader);
+  Query q=new TermQuery(new Term("f","a"));
+  FacetsCollector sfc=new FacetsCollector();
+  indexSearcher.search(q,sfc);
+  Facets facets=getTaxonomyFacetCounts(taxoReader,config,sfc);
+  FacetResult result=facets.getTopChildren(10,"A");
+  assertEquals("wrong number of children",2,result.labelValues.length);
+  for (  LabelAndValue labelValue : result.labelValues) {
+    assertEquals("wrong weight for child " + labelValue.label,2,labelValue.value.intValue());
+  }
+  IOUtils.close(indexReader,taxoReader,indexDir,taxoDir);
+}

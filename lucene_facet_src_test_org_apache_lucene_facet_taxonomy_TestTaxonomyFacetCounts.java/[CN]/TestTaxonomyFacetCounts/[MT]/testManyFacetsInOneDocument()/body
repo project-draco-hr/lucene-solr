@@ -1,0 +1,31 @@
+{
+  assumeTrue("default Codec doesn't support huge BinaryDocValues",_TestUtil.fieldSupportsHugeBinaryDocValues(FacetsConfig.DEFAULT_INDEX_FIELD_NAME));
+  Directory dir=newDirectory();
+  Directory taxoDir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  DirectoryTaxonomyWriter taxoWriter=new DirectoryTaxonomyWriter(taxoDir,IndexWriterConfig.OpenMode.CREATE);
+  FacetsConfig config=new FacetsConfig();
+  config.setMultiValued("dim",true);
+  int numLabels=_TestUtil.nextInt(random(),40000,100000);
+  Document doc=new Document();
+  doc.add(newTextField("field","text",Field.Store.NO));
+  for (int i=0; i < numLabels; i++) {
+    doc.add(new FacetField("dim","" + i));
+  }
+  writer.addDocument(config.build(taxoWriter,doc));
+  IndexSearcher searcher=newSearcher(writer.getReader());
+  TaxonomyReader taxoReader=new DirectoryTaxonomyReader(taxoWriter);
+  FacetsCollector c=new FacetsCollector();
+  searcher.search(new MatchAllDocsQuery(),c);
+  Facets facets=getTaxonomyFacetCounts(taxoReader,config,c);
+  FacetResult result=facets.getTopChildren(Integer.MAX_VALUE,"dim");
+  assertEquals(numLabels,result.labelValues.length);
+  Set<String> allLabels=new HashSet<String>();
+  for (  LabelAndValue labelValue : result.labelValues) {
+    allLabels.add(labelValue.label);
+    assertEquals(1,labelValue.value.intValue());
+  }
+  assertEquals(numLabels,allLabels.size());
+  IOUtils.close(searcher.getIndexReader(),taxoWriter,writer,taxoReader,dir,taxoDir);
+}
