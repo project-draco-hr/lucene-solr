@@ -1,0 +1,29 @@
+{
+  SentinelIntSet ids=new SentinelIntSet(maxSize,-1);
+  String cursorMark=CURSOR_MARK_START;
+  int docsOnThisPage=Integer.MAX_VALUE;
+  while (0 < docsOnThisPage) {
+    String json=assertJQ(req(params,CURSOR_MARK_PARAM,cursorMark));
+    Map rsp=(Map)ObjectBuilder.fromJSON(json);
+    assertTrue("response doesn't contain " + CURSOR_MARK_NEXT + ": "+ json,rsp.containsKey(CURSOR_MARK_NEXT));
+    String nextCursorMark=(String)rsp.get(CURSOR_MARK_NEXT);
+    assertNotNull(CURSOR_MARK_NEXT + " is null",nextCursorMark);
+    List<Map<Object,Object>> docs=(List)(((Map)rsp.get("response")).get("docs"));
+    docsOnThisPage=docs.size();
+    if (null != params.getInt(CommonParams.ROWS)) {
+      int rows=params.getInt(CommonParams.ROWS);
+      assertTrue("Too many docs on this page: " + rows + " < "+ docsOnThisPage,docsOnThisPage <= rows);
+    }
+    if (0 == docsOnThisPage) {
+      assertEquals("no more docs, but " + CURSOR_MARK_NEXT + " isn't same",cursorMark,nextCursorMark);
+    }
+    for (    Map<Object,Object> doc : docs) {
+      int id=((Long)doc.get("id")).intValue();
+      assertFalse("walk already seen: " + id,ids.exists(id));
+      ids.put(id);
+      assertFalse("id set bigger then max allowed (" + maxSize + "): "+ ids.size(),maxSize < ids.size());
+    }
+    cursorMark=nextCursorMark;
+  }
+  return ids;
+}

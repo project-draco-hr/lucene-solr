@@ -1,0 +1,34 @@
+{
+  DocSet set=qr.getDocListAndSet().docSet;
+  int nDocs=cmd.getSupersetMaxDoc();
+  if (nDocs == 0) {
+    qr.getDocListAndSet().docList=new DocSlice(0,0,new int[0],null,set.size(),0f);
+    qr.setNextCursorMark(cmd.getCursorMark());
+    return;
+  }
+  boolean inOrder=set instanceof BitDocSet || set instanceof SortedIntDocSet;
+  TopDocsCollector topCollector=buildTopDocsCollector(nDocs,cmd);
+  DocIterator iter=set.iterator();
+  int base=0;
+  int end=0;
+  int readerIndex=0;
+  while (iter.hasNext()) {
+    int doc=iter.nextDoc();
+    while (doc >= end) {
+      AtomicReaderContext leaf=leafContexts.get(readerIndex++);
+      base=leaf.docBase;
+      end=base + leaf.reader().maxDoc();
+      topCollector.setNextReader(leaf);
+    }
+    topCollector.collect(doc - base);
+  }
+  TopDocs topDocs=topCollector.topDocs(0,nDocs);
+  int nDocsReturned=topDocs.scoreDocs.length;
+  int[] ids=new int[nDocsReturned];
+  for (int i=0; i < nDocsReturned; i++) {
+    ScoreDoc scoreDoc=topDocs.scoreDocs[i];
+    ids[i]=scoreDoc.doc;
+  }
+  qr.getDocListAndSet().docList=new DocSlice(0,nDocsReturned,ids,null,topDocs.totalHits,0.0f);
+  populateNextCursorMarkFromTopDocs(qr,cmd,topDocs);
+}

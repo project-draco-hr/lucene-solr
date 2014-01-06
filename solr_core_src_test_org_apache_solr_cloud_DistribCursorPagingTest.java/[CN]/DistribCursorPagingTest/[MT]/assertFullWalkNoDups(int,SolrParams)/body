@@ -1,0 +1,26 @@
+{
+  SentinelIntSet ids=new SentinelIntSet(maxSize,-1);
+  String cursorMark=CURSOR_MARK_START;
+  int docsOnThisPage=Integer.MAX_VALUE;
+  while (0 < docsOnThisPage) {
+    QueryResponse rsp=cloudClient.query(p(params,CURSOR_MARK_PARAM,cursorMark));
+    String nextCursorMark=assertHashNextCursorMark(rsp);
+    SolrDocumentList docs=extractDocList(rsp);
+    docsOnThisPage=docs.size();
+    if (null != params.getInt(CommonParams.ROWS)) {
+      int rows=params.getInt(CommonParams.ROWS);
+      assertTrue("Too many docs on this page: " + rows + " < "+ docsOnThisPage,docsOnThisPage <= rows);
+    }
+    if (0 == docsOnThisPage) {
+      assertEquals("no more docs, but " + CURSOR_MARK_NEXT + " isn't same",cursorMark,nextCursorMark);
+    }
+    for (    SolrDocument doc : docs) {
+      int id=((Integer)doc.get("id")).intValue();
+      assertFalse("walk already seen: " + id,ids.exists(id));
+      ids.put(id);
+      assertFalse("id set bigger then max allowed (" + maxSize + "): "+ ids.size(),maxSize < ids.size());
+    }
+    cursorMark=nextCursorMark;
+  }
+  return ids;
+}
