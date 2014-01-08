@@ -1,14 +1,16 @@
 {
   if (sourceQuery instanceof BooleanQuery) {
     BooleanQuery bq=(BooleanQuery)sourceQuery;
-    for (    BooleanClause clause : bq.getClauses()) {
-      if (!clause.isProhibited())       flatten(clause.getQuery(),reader,flatQueries);
+    for (    BooleanClause clause : bq) {
+      if (!clause.isProhibited()) {
+        flatten(applyParentBoost(clause.getQuery(),bq),reader,flatQueries);
+      }
     }
   }
  else   if (sourceQuery instanceof DisjunctionMaxQuery) {
     DisjunctionMaxQuery dmq=(DisjunctionMaxQuery)sourceQuery;
     for (    Query query : dmq) {
-      flatten(query,reader,flatQueries);
+      flatten(applyParentBoost(query,dmq),reader,flatQueries);
     }
   }
  else   if (sourceQuery instanceof TermQuery) {
@@ -19,20 +21,22 @@
       PhraseQuery pq=(PhraseQuery)sourceQuery;
       if (pq.getTerms().length > 1)       flatQueries.add(pq);
  else       if (pq.getTerms().length == 1) {
-        flatQueries.add(new TermQuery(pq.getTerms()[0]));
+        Query flat=new TermQuery(pq.getTerms()[0]);
+        flat.setBoost(pq.getBoost());
+        flatQueries.add(flat);
       }
     }
   }
  else   if (sourceQuery instanceof ConstantScoreQuery) {
     final Query q=((ConstantScoreQuery)sourceQuery).getQuery();
     if (q != null) {
-      flatten(q,reader,flatQueries);
+      flatten(applyParentBoost(q,sourceQuery),reader,flatQueries);
     }
   }
  else   if (sourceQuery instanceof FilteredQuery) {
     final Query q=((FilteredQuery)sourceQuery).getQuery();
     if (q != null) {
-      flatten(q,reader,flatQueries);
+      flatten(applyParentBoost(q,sourceQuery),reader,flatQueries);
     }
   }
  else   if (reader != null) {
