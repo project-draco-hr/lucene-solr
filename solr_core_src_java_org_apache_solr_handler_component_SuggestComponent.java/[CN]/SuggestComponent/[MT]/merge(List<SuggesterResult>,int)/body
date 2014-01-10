@@ -1,26 +1,29 @@
 {
-  if (suggesterResults.size() == 1) {
-    return suggesterResults.get(0);
-  }
   SuggesterResult result=new SuggesterResult();
   Set<String> allTokens=new HashSet<String>();
+  Set<String> suggesterNames=new HashSet<String>();
   for (  SuggesterResult shardResult : suggesterResults) {
-    allTokens.addAll(shardResult.getTokens());
-  }
-  for (  String token : allTokens) {
-    Lookup.LookupPriorityQueue resultQueue=new Lookup.LookupPriorityQueue(count);
-    for (    SuggesterResult shardResult : suggesterResults) {
-      List<LookupResult> suggests=shardResult.getLookupResult(token);
-      if (suggests == null) {
-        continue;
-      }
-      for (      LookupResult res : suggests) {
-        resultQueue.insertWithOverflow(res);
-      }
+    for (    String suggesterName : shardResult.getSuggesterNames()) {
+      allTokens.addAll(shardResult.getTokens(suggesterName));
+      suggesterNames.add(suggesterName);
     }
-    List<LookupResult> sortedSuggests=new LinkedList<LookupResult>();
-    Collections.addAll(sortedSuggests,resultQueue.getResults());
-    result.add(token,sortedSuggests);
+  }
+  for (  String suggesterName : suggesterNames) {
+    for (    String token : allTokens) {
+      Lookup.LookupPriorityQueue resultQueue=new Lookup.LookupPriorityQueue(count);
+      for (      SuggesterResult shardResult : suggesterResults) {
+        List<LookupResult> suggests=shardResult.getLookupResult(suggesterName,token);
+        if (suggests == null) {
+          continue;
+        }
+        for (        LookupResult res : suggests) {
+          resultQueue.insertWithOverflow(res);
+        }
+      }
+      List<LookupResult> sortedSuggests=new LinkedList<LookupResult>();
+      Collections.addAll(sortedSuggests,resultQueue.getResults());
+      result.add(suggesterName,token,sortedSuggests);
+    }
   }
   return result;
 }

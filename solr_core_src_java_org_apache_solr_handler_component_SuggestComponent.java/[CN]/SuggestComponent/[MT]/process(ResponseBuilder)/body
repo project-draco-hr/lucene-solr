@@ -4,7 +4,20 @@
   if (!params.getBool(COMPONENT_NAME,false) || suggesters.isEmpty()) {
     return;
   }
-  SolrSuggester suggester=getSuggester(params);
+  boolean buildAll=params.getBool(SUGGEST_BUILD_ALL,false);
+  boolean reloadAll=params.getBool(SUGGEST_RELOAD_ALL,false);
+  Set<SolrSuggester> querySuggesters;
+  try {
+    querySuggesters=getSuggesters(params);
+  }
+ catch (  IllegalArgumentException ex) {
+    if (!buildAll && !reloadAll) {
+      throw ex;
+    }
+ else {
+      querySuggesters=new HashSet<SolrSuggester>();
+    }
+  }
   String query=params.get(SUGGEST_Q);
   if (query == null) {
     query=rb.getQueryString();
@@ -15,8 +28,11 @@
   if (query != null) {
     int count=params.getInt(SUGGEST_COUNT,1);
     SuggesterOptions options=new SuggesterOptions(new CharsRef(query),count);
-    SuggesterResult suggesterResult=suggester.getSuggestions(options);
-    NamedList<NamedList<Object>> namedListResult=toNamedList(suggesterResult);
-    rb.rsp.add(SuggesterResultLabels.SUGGEST,namedListResult);
+    Map<String,SimpleOrderedMap<NamedList<Object>>> namedListResults=new HashMap<String,SimpleOrderedMap<NamedList<Object>>>();
+    for (    SolrSuggester suggester : querySuggesters) {
+      SuggesterResult suggesterResult=suggester.getSuggestions(options);
+      toNamedList(suggesterResult,namedListResults);
+    }
+    rb.rsp.add(SuggesterResultLabels.SUGGEST,namedListResults);
   }
 }
