@@ -1,0 +1,60 @@
+{
+  final String facetField=params.get("facet.field");
+  assertNotNull("facet.field param not specified",facetField);
+  assertFalse("facet.field param contains multiple values",facetField.contains(","));
+  assertEquals("facet.limit param not set to -1","-1",params.get("facet.limit"));
+  final Map<String,MutableValueInt> facetCounts=new HashMap<String,MutableValueInt>();
+  SentinelIntSet ids=new SentinelIntSet(maxSize,-1);
+  String cursorMark=CURSOR_MARK_START;
+  int docsOnThisPage=Integer.MAX_VALUE;
+  List previousFacets=null;
+  while (0 < docsOnThisPage) {
+    String json=assertJQ(req(params,CURSOR_MARK_PARAM,cursorMark));
+    Map rsp=(Map)ObjectBuilder.fromJSON(json);
+    assertTrue("response doesn't contain " + CURSOR_MARK_NEXT + ": "+ json,rsp.containsKey(CURSOR_MARK_NEXT));
+    String nextCursorMark=(String)rsp.get(CURSOR_MARK_NEXT);
+    assertNotNull(CURSOR_MARK_NEXT + " is null",nextCursorMark);
+    List<Map<Object,Object>> docs=(List)(((Map)rsp.get("response")).get("docs"));
+    docsOnThisPage=docs.size();
+    if (null != params.getInt(CommonParams.ROWS)) {
+      int rows=params.getInt(CommonParams.ROWS);
+      assertTrue("Too many docs on this page: " + rows + " < "+ docsOnThisPage,docsOnThisPage <= rows);
+    }
+    if (0 == docsOnThisPage) {
+      assertEquals("no more docs, but " + CURSOR_MARK_NEXT + " isn't same",cursorMark,nextCursorMark);
+    }
+    for (    Map<Object,Object> doc : docs) {
+      int id=((Long)doc.get("id")).intValue();
+      assertFalse("walk already seen: " + id,ids.exists(id));
+      ids.put(id);
+      assertFalse("id set bigger then max allowed (" + maxSize + "): "+ ids.size(),maxSize < ids.size());
+      Object facet=doc.get(facetField);
+      String facetString=null == facet ? null : facet.toString();
+      MutableValueInt count=facetCounts.get(facetString);
+      if (null == count) {
+        count=new MutableValueInt();
+        facetCounts.put(facetString,count);
+      }
+      ++count.value;
+    }
+    cursorMark=nextCursorMark;
+    Map facetFields=(Map)((Map)rsp.get("facet_counts")).get("facet_fields");
+    List facets=(List)facetFields.get(facetField);
+    if (null != previousFacets) {
+      assertEquals("Facets not the same as on previous page:\nprevious page facets: " + Arrays.toString(facets.toArray(new Object[facets.size()])) + "\ncurrent page facets: "+ Arrays.toString(previousFacets.toArray(new Object[previousFacets.size()])),previousFacets,facets);
+    }
+    previousFacets=facets;
+  }
+  assertNotNull("previousFacets is null",previousFacets);
+  assertEquals("Mismatch in number of facets: ",facetCounts.size(),previousFacets.size() / 2);
+  int pos;
+  for (pos=0; pos < previousFacets.size(); pos+=2) {
+    String label=(String)previousFacets.get(pos);
+    int expectedCount=((Number)previousFacets.get(pos + 1)).intValue();
+    MutableValueInt count=facetCounts.get(label);
+    assertNotNull("Expected facet label #" + (pos / 2) + " not found: '"+ label+ "'",count);
+    assertEquals("Facet count mismatch for label #" + (pos / 2) + " '"+ label+ "'",expectedCount,facetCounts.get(label).value);
+    pos+=2;
+  }
+  return ids;
+}
