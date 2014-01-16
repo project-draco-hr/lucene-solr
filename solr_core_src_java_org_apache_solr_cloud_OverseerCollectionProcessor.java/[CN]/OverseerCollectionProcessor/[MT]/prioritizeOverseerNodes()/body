@@ -1,0 +1,57 @@
+{
+  log.info("prioritizing overseer nodes");
+  SolrZkClient zk=zkStateReader.getZkClient();
+  if (!zk.exists(ZkStateReader.ROLES,true))   return;
+  Map m=(Map)ZkStateReader.fromJSON(zk.getData(ZkStateReader.ROLES,null,new Stat(),true));
+  List overseerDesignates=(List)m.get("overseer");
+  if (overseerDesignates == null || overseerDesignates.isEmpty())   return;
+  log.debug("overseer designates {}",overseerDesignates);
+  List<String> children=zk.getChildren(OverseerElectionContext.PATH + LeaderElector.ELECTION_NODE,null,true);
+  if (children.size() < 2)   return;
+  LeaderElector.sortSeqs(children);
+  ArrayList<String> nodeNames=new ArrayList<>(children.size());
+  for (  String c : children)   nodeNames.add(LeaderElector.getNodeName(c));
+  boolean overseerDesignateAvailable=false;
+  String newOverseerDesignate=null;
+  log.debug("sorted nodes {}",nodeNames);
+  for (int i=1; i < nodeNames.size(); i++) {
+    String s=nodeNames.get(i);
+    if (overseerDesignates.contains(s)) {
+      log.info(" found an overseer designate to be promoted to the front : {}, pushing others back",s);
+      overseerDesignateAvailable=true;
+      newOverseerDesignate=s;
+      for (int j=1; j < i; j++) {
+        String nodeName=nodeNames.get(j);
+        log.debug("pushing back {} ",nodeName);
+        invokeRejoinOverseer(nodeName);
+      }
+      break;
+    }
+    if (overseerDesignateAvailable)     break;
+  }
+  if (overseerDesignateAvailable) {
+    boolean prioritizationComplete=false;
+    long timeout=System.currentTimeMillis() + 5000;
+    for (; System.currentTimeMillis() < timeout; ) {
+      children=zk.getChildren(OverseerElectionContext.PATH + LeaderElector.ELECTION_NODE,null,true);
+      LeaderElector.sortSeqs(children);
+      String frontRunner=LeaderElector.getNodeName(children.get(1));
+      log.debug("Frontrunner : {}",frontRunner);
+      if (newOverseerDesignate.equals(frontRunner)) {
+        prioritizationComplete=true;
+        break;
+      }
+      Thread.sleep(50);
+    }
+    if (!prioritizationComplete) {
+      log.warn("Could not make the Overseer designate '{}' the frontrunner",newOverseerDesignate);
+    }
+  }
+ else {
+    log.warn("No overseer designates are available");
+    return;
+  }
+  if (!overseerDesignates.contains(nodeNames.get(0)) && overseerDesignateAvailable) {
+    invokeRejoinOverseer(nodeNames.get(0));
+  }
+}
