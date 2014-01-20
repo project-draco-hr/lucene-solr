@@ -5,53 +5,58 @@
   Map m=(Map)ZkStateReader.fromJSON(zk.getData(ZkStateReader.ROLES,null,new Stat(),true));
   List overseerDesignates=(List)m.get("overseer");
   if (overseerDesignates == null || overseerDesignates.isEmpty())   return;
-  log.debug("overseer designates {}",overseerDesignates);
-  List<String> children=zk.getChildren(OverseerElectionContext.PATH + LeaderElector.ELECTION_NODE,null,true);
-  if (children.size() < 2)   return;
-  LeaderElector.sortSeqs(children);
-  ArrayList<String> nodeNames=new ArrayList<>(children.size());
-  for (  String c : children)   nodeNames.add(LeaderElector.getNodeName(c));
-  boolean overseerDesignateAvailable=false;
-  String newOverseerDesignate=null;
+  log.info("overseer designates {}",overseerDesignates);
+  List<String> nodeNames=getSortedNodeNames(zk);
+  if (nodeNames.size() < 2)   return;
+  Set<String> nodesTobePushedBack=new HashSet<String>();
+  Set<String> availableDesignates=new HashSet<String>();
   log.debug("sorted nodes {}",nodeNames);
-  for (int i=1; i < nodeNames.size(); i++) {
+  for (int i=0; i < nodeNames.size(); i++) {
     String s=nodeNames.get(i);
     if (overseerDesignates.contains(s)) {
-      log.info(" found an overseer designate to be promoted to the front : {}, pushing others back",s);
-      overseerDesignateAvailable=true;
-      newOverseerDesignate=s;
-      for (int j=1; j < i; j++) {
-        String nodeName=nodeNames.get(j);
-        log.debug("pushing back {} ",nodeName);
-        invokeRejoinOverseer(nodeName);
+      availableDesignates.add(s);
+      for (int j=0; j < i; j++) {
+        if (!overseerDesignates.contains(nodeNames.get(j))) {
+          nodesTobePushedBack.add(nodeNames.get(j));
+        }
       }
-      break;
     }
-    if (overseerDesignateAvailable)     break;
+    if (availableDesignates.size() > 1)     break;
   }
-  if (overseerDesignateAvailable) {
+  if (!availableDesignates.isEmpty()) {
+    for (    String s : nodesTobePushedBack) {
+      log.info("pushing back {} ",s);
+      invokeRejoinOverseer(s);
+    }
     boolean prioritizationComplete=false;
-    long timeout=System.currentTimeMillis() + 5000;
+    long timeout=System.currentTimeMillis() + 2500;
     for (; System.currentTimeMillis() < timeout; ) {
-      children=zk.getChildren(OverseerElectionContext.PATH + LeaderElector.ELECTION_NODE,null,true);
-      LeaderElector.sortSeqs(children);
-      String frontRunner=LeaderElector.getNodeName(children.get(1));
-      log.debug("Frontrunner : {}",frontRunner);
-      if (newOverseerDesignate.equals(frontRunner)) {
+      List<String> currentNodeNames=getSortedNodeNames(zk);
+      int totalLeaders=0;
+      for (int i=0; i < availableDesignates.size(); i++) {
+        if (overseerDesignates.contains(currentNodeNames.get(i)))         totalLeaders++;
+      }
+      if (totalLeaders == availableDesignates.size()) {
         prioritizationComplete=true;
         break;
       }
-      Thread.sleep(50);
+      try {
+        Thread.sleep(50);
+      }
+ catch (      InterruptedException e) {
+        log.warn("Thread interrupted",e);
+        break;
+      }
     }
     if (!prioritizationComplete) {
-      log.warn("Could not make the Overseer designate '{}' the frontrunner",newOverseerDesignate);
+      log.warn("available designates and current state {} {} ",availableDesignates,getSortedNodeNames(zk));
     }
   }
  else {
     log.warn("No overseer designates are available, overseerDesignates: {}, live nodes : {}",overseerDesignates,nodeNames);
     return;
   }
-  if (!overseerDesignates.contains(nodeNames.get(0)) && overseerDesignateAvailable) {
+  if (!overseerDesignates.contains(getLeaderNode(zkStateReader.getZkClient())) && !availableDesignates.isEmpty()) {
     invokeRejoinOverseer(nodeNames.get(0));
   }
 }
