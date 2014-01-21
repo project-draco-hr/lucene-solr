@@ -1,0 +1,45 @@
+{
+  SentinelIntSet ids=new SentinelIntSet(maxSize,-1);
+  String cursorMark=CURSOR_MARK_START;
+  int docsOnThisPage=Integer.MAX_VALUE;
+  while (0 < docsOnThisPage) {
+    final SolrParams p=p(params,CURSOR_MARK_PARAM,cursorMark);
+    QueryResponse rsp=cloudClient.query(p);
+    String nextCursorMark=assertHashNextCursorMark(rsp);
+    SolrDocumentList docs=extractDocList(rsp);
+    docsOnThisPage=docs.size();
+    if (null != params.getInt(CommonParams.ROWS)) {
+      int rows=params.getInt(CommonParams.ROWS);
+      assertTrue("Too many docs on this page: " + rows + " < "+ docsOnThisPage,docsOnThisPage <= rows);
+    }
+    if (0 == docsOnThisPage) {
+      assertEquals("no more docs, but " + CURSOR_MARK_NEXT + " isn't same",cursorMark,nextCursorMark);
+    }
+    if (verbose) {
+      StringBuilder s=new StringBuilder();
+      for (      SolrDocument doc : docs) {
+        s.append(doc.getFieldValuesMap().toString());
+        s.append("; ");
+      }
+      log.info("SOLR-5652: ({}) gave us these docs: {}",p,s);
+    }
+    for (    SolrDocument doc : docs) {
+      int id=((Integer)doc.get("id")).intValue();
+      if (ids.exists(id)) {
+        String msg="(" + p + ") walk already seen: "+ id;
+        try {
+          queryAndCompareShards(params("distrib","false","q","id:" + id));
+        }
+ catch (        AssertionError ae) {
+          throw new AssertionError(msg + ", found shard inconsistency that would explain it...",ae);
+        }
+        rsp=cloudClient.query(params("q","id:" + id));
+        throw new AssertionError(msg + ", don't know why; q=id:" + id+ " gives: "+ rsp.toString());
+      }
+      ids.put(id);
+      assertFalse("id set bigger then max allowed (" + maxSize + "): "+ ids.size(),maxSize < ids.size());
+    }
+    cursorMark=nextCursorMark;
+  }
+  return ids;
+}
