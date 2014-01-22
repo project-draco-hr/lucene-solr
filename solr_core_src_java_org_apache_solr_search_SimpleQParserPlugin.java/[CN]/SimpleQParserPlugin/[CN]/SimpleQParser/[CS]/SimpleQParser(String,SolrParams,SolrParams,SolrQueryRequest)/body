@@ -1,0 +1,39 @@
+{
+  super(qstr,localParams,params,req);
+  SolrParams defaultParams=SolrParams.wrapDefaults(localParams,params);
+  Map<String,Float> queryFields=SolrPluginUtils.parseFieldBoosts(defaultParams.get(SimpleParams.QF));
+  if (queryFields.isEmpty()) {
+    String defaultField=QueryParsing.getDefaultField(req.getSchema(),defaultParams.get(CommonParams.DF));
+    if (defaultField == null) {
+      throw new IllegalStateException("Neither " + SimpleParams.QF + ", "+ CommonParams.DF+ ", nor the default search field are present.");
+    }
+    queryFields.put(defaultField,1.0F);
+  }
+ else {
+    for (    Map.Entry<String,Float> queryField : queryFields.entrySet()) {
+      if (queryField.getValue() == null) {
+        queryField.setValue(1.0F);
+      }
+    }
+  }
+  int enabledOps=0;
+  String opParam=defaultParams.get(SimpleParams.QO);
+  if (opParam == null) {
+    enabledOps=-1;
+  }
+ else {
+    String[] operations=opParam.split(",");
+    for (    String operation : operations) {
+      Integer enabledOp=OPERATORS.get(operation.trim().toUpperCase(Locale.ROOT));
+      if (enabledOp != null) {
+        enabledOps|=enabledOp;
+      }
+    }
+  }
+  final IndexSchema schema=req.getSchema();
+  parser=new SolrSimpleQueryParser(req.getSchema().getAnalyzer(),queryFields,enabledOps,this,schema);
+  QueryParser.Operator defaultOp=QueryParsing.getQueryParserDefaultOperator(req.getSchema(),defaultParams.get(QueryParsing.OP));
+  if (defaultOp == QueryParser.Operator.AND) {
+    parser.setDefaultOperator(BooleanClause.Occur.MUST);
+  }
+}
