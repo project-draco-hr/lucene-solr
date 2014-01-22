@@ -1,22 +1,48 @@
 {
   FSDataOutputStream file=null;
-  FileSystem fs=null;
+  FileSystem fs=FileSystem.newInstance(lockPath.toUri(),conf);
   try {
-    fs=FileSystem.newInstance(lockPath.toUri(),conf);
-    if (!fs.exists(lockPath)) {
-      fs.mkdirs(lockPath);
-    }
-    file=fs.create(new Path(lockPath,lockName),false);
-  }
- catch (  FileAlreadyExistsException e) {
-    return false;
-  }
-catch (  IOException e) {
-    log.error("Error creating lock file",e);
-    return false;
-  }
+    while (true) {
+      try {
+        if (!fs.exists(lockPath)) {
+          boolean success=fs.mkdirs(lockPath);
+          if (!success) {
+            throw new RuntimeException("Could not create directory: " + lockPath);
+          }
+        }
+ else {
+          fs.mkdirs(lockPath);
+        }
+        file=fs.create(new Path(lockPath,lockName),false);
+        break;
+      }
+ catch (      FileAlreadyExistsException e) {
+        return false;
+      }
+catch (      RemoteException e) {
+        if (e.getClassName().equals("org.apache.hadoop.hdfs.server.namenode.SafeModeException")) {
+          log.warn("The NameNode is in SafeMode - Solr will wait 5 seconds and try again.");
+          try {
+            Thread.sleep(5000);
+          }
+ catch (          InterruptedException e1) {
+            Thread.interrupted();
+          }
+          continue;
+        }
+        log.error("Error creating lock file",e);
+        return false;
+      }
+catch (      IOException e) {
+        log.error("Error creating lock file",e);
+        return false;
+      }
  finally {
-    IOUtils.closeQuietly(file);
+        IOUtils.closeQuietly(file);
+      }
+    }
+  }
+  finally {
     IOUtils.closeQuietly(fs);
   }
   return true;

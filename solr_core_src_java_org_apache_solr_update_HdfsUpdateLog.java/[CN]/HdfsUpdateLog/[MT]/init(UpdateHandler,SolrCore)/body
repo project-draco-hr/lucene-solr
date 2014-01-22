@@ -38,16 +38,35 @@
   }
   lastDataDir=dataDir;
   tlogDir=new Path(dataDir,TLOG_NAME);
-  try {
-    if (!fs.exists(tlogDir)) {
-      boolean success=fs.mkdirs(tlogDir);
-      if (!success) {
-        throw new RuntimeException("Could not create directory:" + tlogDir);
+  while (true) {
+    try {
+      if (!fs.exists(tlogDir)) {
+        boolean success=fs.mkdirs(tlogDir);
+        if (!success) {
+          throw new RuntimeException("Could not create directory:" + tlogDir);
+        }
       }
+ else {
+        fs.mkdirs(tlogDir);
+      }
+      break;
     }
-  }
- catch (  IOException e) {
-    throw new RuntimeException(e);
+ catch (    RemoteException e) {
+      if (e.getClassName().equals("org.apache.hadoop.hdfs.server.namenode.SafeModeException")) {
+        log.warn("The NameNode is in SafeMode - Solr will wait 5 seconds and try again.");
+        try {
+          Thread.sleep(5000);
+        }
+ catch (        InterruptedException e1) {
+          Thread.interrupted();
+        }
+        continue;
+      }
+      throw new RuntimeException("Problem creating directory: " + tlogDir,e);
+    }
+catch (    IOException e) {
+      throw new RuntimeException("Problem creating directory: " + tlogDir,e);
+    }
   }
   tlogFiles=getLogList(fs,tlogDir);
   id=getLastLogId() + 1;
