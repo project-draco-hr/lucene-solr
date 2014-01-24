@@ -1,0 +1,61 @@
+{
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set("action",CollectionAction.DELETE.toString());
+  params.set("name","collection1");
+  QueryRequest request=new QueryRequest(params);
+  request.setPath("/admin/collections");
+  cloudClient.request(request);
+  controlClient.deleteByQuery("*:*");
+  controlClient.commit();
+  createCollection(null,"collection2",36,3,100000,cloudClient,null,"conf1");
+  cloudClient.setDefaultCollection("collection2");
+  waitForRecoveriesToFinish("collection2",false);
+class IndexThread extends Thread {
+    Integer name;
+    public IndexThread(    Integer name){
+      this.name=name;
+    }
+    @Override public void run(){
+      int rnds=random().nextInt(TEST_NIGHTLY ? 25 : 3) + 1;
+      for (int i=0; i < rnds; i++) {
+        UpdateRequest uReq;
+        uReq=new UpdateRequest();
+        int cnt=random().nextInt(TEST_NIGHTLY ? 3313 : 350) + 1;
+        for (int j=0; j < cnt; j++) {
+          addDoc("thread" + name + "_"+ i+ "_"+ j,uReq);
+        }
+        try {
+          uReq.process(cloudClient);
+          uReq.process(controlClient);
+        }
+ catch (        SolrServerException e) {
+          throw new RuntimeException(e);
+        }
+catch (        IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+  }
+  ;
+  List<Thread> threads=new ArrayList<Thread>();
+  int nthreads=random().nextInt(TEST_NIGHTLY ? 4 : 2) + 1;
+  for (int i=0; i < nthreads; i++) {
+    IndexThread thread=new IndexThread(i);
+    threads.add(thread);
+    thread.start();
+  }
+  for (  Thread thread : threads) {
+    thread.join();
+  }
+  commit();
+  waitForRecoveriesToFinish("collection2",false);
+  printLayout();
+  SolrQuery query=new SolrQuery("*:*");
+  long controlCount=controlClient.query(query).getResults().getNumFound();
+  long cloudCount=cloudClient.query(query).getResults().getNumFound();
+  compareResults(controlCount,cloudCount);
+  assertEquals("Control does not match cloud",controlCount,cloudCount);
+  System.out.println("DOCS:" + controlCount);
+  return docId;
+}
