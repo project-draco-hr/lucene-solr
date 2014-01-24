@@ -1,13 +1,7 @@
 {
-  double[] point=null;
-  try {
-    point=ParseUtils.parseLatitudeLongitude(options.pointStr);
-  }
- catch (  InvalidShapeException e) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
-  }
-  double latCenter=point[LAT];
-  double lonCenter=point[LON];
+  Point point=SpatialUtils.parsePointSolrException(options.pointStr,SpatialContext.GEO);
+  double latCenter=point.getY();
+  double lonCenter=point.getX();
   double distDeg=DistanceUtils.dist2Degrees(options.distance,options.radius);
   Rectangle bbox=DistanceUtils.calcBoxByDistFromPtDEG(latCenter,lonCenter,distDeg,SpatialContext.GEO,null);
   double latMin=bbox.getMinY();
@@ -26,19 +20,19 @@
     lon2Max=180;
   }
   IndexSchema schema=parser.getReq().getSchema();
-  SchemaField latField=subField(options.field,LAT,schema);
-  SchemaField lonField=subField(options.field,LON,schema);
+  SchemaField latSF=subField(options.field,LAT,schema);
+  SchemaField lonSF=subField(options.field,LON,schema);
   SpatialDistanceQuery spatial=new SpatialDistanceQuery();
   if (options.bbox) {
     BooleanQuery result=new BooleanQuery();
-    Query latRange=latField.getType().getRangeQuery(parser,latField,String.valueOf(latMin),String.valueOf(latMax),true,true);
+    Query latRange=latSF.getType().getRangeQuery(parser,latSF,String.valueOf(latMin),String.valueOf(latMax),true,true);
     result.add(latRange,BooleanClause.Occur.MUST);
     if (lonMin != -180 || lonMax != 180) {
-      Query lonRange=lonField.getType().getRangeQuery(parser,lonField,String.valueOf(lonMin),String.valueOf(lonMax),true,true);
+      Query lonRange=lonSF.getType().getRangeQuery(parser,lonSF,String.valueOf(lonMin),String.valueOf(lonMax),true,true);
       if (lon2Min != -180 || lon2Max != 180) {
         BooleanQuery bothLons=new BooleanQuery();
         bothLons.add(lonRange,BooleanClause.Occur.SHOULD);
-        lonRange=lonField.getType().getRangeQuery(parser,lonField,String.valueOf(lon2Min),String.valueOf(lon2Max),true,true);
+        lonRange=lonSF.getType().getRangeQuery(parser,lonSF,String.valueOf(lon2Min),String.valueOf(lon2Max),true,true);
         bothLons.add(lonRange,BooleanClause.Occur.SHOULD);
         lonRange=bothLons;
       }
@@ -47,8 +41,8 @@
     spatial.bboxQuery=result;
   }
   spatial.origField=options.field.getName();
-  spatial.latSource=latField.getType().getValueSource(latField,parser);
-  spatial.lonSource=lonField.getType().getValueSource(lonField,parser);
+  spatial.latSource=latSF.getType().getValueSource(latSF,parser);
+  spatial.lonSource=lonSF.getType().getValueSource(lonSF,parser);
   spatial.latMin=latMin;
   spatial.latMax=latMax;
   spatial.lonMin=lonMin;
