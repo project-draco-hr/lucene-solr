@@ -1,0 +1,78 @@
+{
+  Directory dir=newDirectory();
+  final Analyzer analyzer=new MockAnalyzer(random(),MockTokenizer.SIMPLE,true);
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,analyzer);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  FieldType offsetsType=new FieldType(TextField.TYPE_STORED);
+  offsetsType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+  Field body=new Field("body","",offsetsType);
+  Document doc=new Document();
+  doc.add(body);
+  body.setStringValue("Test a one sentence document.");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  PostingsHighlighter highlighter=new PostingsHighlighter(){
+    @Override protected Analyzer getIndexAnalyzer(    String field){
+      return analyzer;
+    }
+  }
+;
+  BooleanQuery query=new BooleanQuery();
+  query.add(new WildcardQuery(new Term("body","te*")),BooleanClause.Occur.SHOULD);
+  query.add(new WildcardQuery(new Term("body","one")),BooleanClause.Occur.SHOULD);
+  query.add(new WildcardQuery(new Term("body","se*")),BooleanClause.Occur.SHOULD);
+  TopDocs topDocs=searcher.search(query,null,10,Sort.INDEXORDER);
+  assertEquals(1,topDocs.totalHits);
+  String snippets[]=highlighter.highlight("body",query,searcher,topDocs);
+  assertEquals(1,snippets.length);
+  assertEquals("<b>Test</b> a <b>one</b> <b>sentence</b> document.",snippets[0]);
+  highlighter=new PostingsHighlighter(){
+    @Override protected Analyzer getIndexAnalyzer(    String field){
+      return analyzer;
+    }
+    @Override protected PassageFormatter getFormatter(    String field){
+      return new PassageFormatter(){
+        @Override public Object format(        Passage passages[],        String content){
+          StringBuilder sb=new StringBuilder();
+          int pos=0;
+          for (          Passage passage : passages) {
+            if (passage.startOffset > pos && pos > 0) {
+              sb.append("... ");
+            }
+            pos=passage.startOffset;
+            for (int i=0; i < passage.numMatches; i++) {
+              int start=passage.matchStarts[i];
+              int end=passage.matchEnds[i];
+              if (start > pos) {
+                sb.append(content,pos,start);
+              }
+              if (end > pos) {
+                sb.append("<b>");
+                sb.append(content,Math.max(pos,start),end);
+                sb.append('(');
+                sb.append(passage.getMatchTerms()[i].utf8ToString());
+                sb.append(')');
+                sb.append("</b>");
+                pos=end;
+              }
+            }
+            sb.append(content,pos,Math.max(pos,passage.endOffset));
+            pos=passage.endOffset;
+          }
+          return sb.toString();
+        }
+      }
+;
+    }
+  }
+;
+  assertEquals(1,topDocs.totalHits);
+  snippets=highlighter.highlight("body",query,searcher,topDocs);
+  assertEquals(1,snippets.length);
+  assertEquals("<b>Test(body:te*)</b> a <b>one(body:one)</b> <b>sentence(body:se*)</b> document.",snippets[0]);
+  ir.close();
+  dir.close();
+}

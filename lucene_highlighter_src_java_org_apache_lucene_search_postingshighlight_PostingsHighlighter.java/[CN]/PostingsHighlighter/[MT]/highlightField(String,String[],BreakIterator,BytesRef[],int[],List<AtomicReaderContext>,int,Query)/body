@@ -7,6 +7,19 @@
   if (fieldFormatter == null) {
     throw new NullPointerException("PassageFormatter cannot be null");
   }
+  Analyzer analyzer=getIndexAnalyzer(field);
+  CharacterRunAutomaton automata[]=new CharacterRunAutomaton[0];
+  if (analyzer != null) {
+    automata=MultiTermHighlighting.extractAutomata(query,field);
+  }
+  final BytesRef allTerms[];
+  if (automata.length > 0) {
+    allTerms=new BytesRef[terms.length + 1];
+    System.arraycopy(terms,0,allTerms,0,terms.length);
+  }
+ else {
+    allTerms=terms;
+  }
   for (int i=0; i < docids.length; i++) {
     String content=contents[i];
     if (content.length() == 0) {
@@ -23,9 +36,14 @@
     }
     if (leaf != lastLeaf) {
       termsEnum=t.iterator(null);
-      postings=new DocsAndPositionsEnum[terms.length];
+      postings=new DocsAndPositionsEnum[allTerms.length];
     }
-    Passage passages[]=highlightDoc(field,terms,content.length(),bi,doc - subContext.docBase,termsEnum,postings,maxPassages);
+    if (automata.length > 0) {
+      DocsAndPositionsEnum dp=MultiTermHighlighting.getDocsEnum(analyzer.tokenStream(field,content),automata);
+      dp.advance(doc - subContext.docBase);
+      postings[terms.length]=dp;
+    }
+    Passage passages[]=highlightDoc(field,allTerms,content.length(),bi,doc - subContext.docBase,termsEnum,postings,maxPassages);
     if (passages.length == 0) {
       passages=getEmptyHighlight(field,bi,maxPassages);
     }
