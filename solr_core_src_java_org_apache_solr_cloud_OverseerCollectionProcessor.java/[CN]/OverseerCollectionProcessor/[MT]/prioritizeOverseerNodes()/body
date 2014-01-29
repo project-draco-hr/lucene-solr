@@ -5,28 +5,30 @@
   Map m=(Map)ZkStateReader.fromJSON(zk.getData(ZkStateReader.ROLES,null,new Stat(),true));
   List overseerDesignates=(List)m.get("overseer");
   if (overseerDesignates == null || overseerDesignates.isEmpty())   return;
+  if (overseerDesignates.size() == 1 && overseerDesignates.contains(getLeaderNode(zk)))   return;
   log.info("overseer designates {}",overseerDesignates);
   List<String> nodeNames=getSortedNodeNames(zk);
   if (nodeNames.size() < 2)   return;
-  Set<String> nodesTobePushedBack=new HashSet<String>();
-  Set<String> availableDesignates=new HashSet<String>();
-  log.debug("sorted nodes {}",nodeNames);
+  ArrayList<String> nodesTobePushedBack=new ArrayList<>();
+  List<String> availableDesignates=new ArrayList<String>();
+  log.info("sorted nodes {}",nodeNames);
   for (int i=0; i < nodeNames.size(); i++) {
     String s=nodeNames.get(i);
     if (overseerDesignates.contains(s)) {
       availableDesignates.add(s);
       for (int j=0; j < i; j++) {
         if (!overseerDesignates.contains(nodeNames.get(j))) {
-          nodesTobePushedBack.add(nodeNames.get(j));
+          if (!nodesTobePushedBack.contains(nodeNames.get(j)))           nodesTobePushedBack.add(nodeNames.get(j));
         }
       }
     }
     if (availableDesignates.size() > 1)     break;
   }
   if (!availableDesignates.isEmpty()) {
-    for (    String s : nodesTobePushedBack) {
+    for (int i=nodesTobePushedBack.size() - 1; i >= 0; i--) {
+      String s=nodesTobePushedBack.get(i);
       log.info("pushing back {} ",s);
-      invokeRejoinOverseer(s);
+      invokeOverseerOp(s,"rejoin");
     }
     boolean prioritizationComplete=false;
     long timeout=System.currentTimeMillis() + 2500;
@@ -59,7 +61,8 @@
   String leaderNode=getLeaderNode(zkStateReader.getZkClient());
   if (leaderNode == null)   return;
   if (!overseerDesignates.contains(leaderNode) && !availableDesignates.isEmpty()) {
-    log.info("I am not an overseerdesignate , rejoining election {} ",leaderNode);
-    invokeRejoinOverseer(leaderNode);
+    String newLeader=availableDesignates.get(0);
+    log.info("I am not an overseerdesignate , forcing a new leader {} ",newLeader);
+    invokeOverseerOp(newLeader,"leader");
   }
 }
