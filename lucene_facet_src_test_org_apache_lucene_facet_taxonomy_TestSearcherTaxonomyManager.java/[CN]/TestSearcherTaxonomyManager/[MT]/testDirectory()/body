@@ -1,0 +1,40 @@
+{
+  Directory indexDir=newDirectory();
+  Directory taxoDir=newDirectory();
+  final IndexWriter w=new IndexWriter(indexDir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  final DirectoryTaxonomyWriter tw=new DirectoryTaxonomyWriter(taxoDir);
+  w.commit();
+  tw.commit();
+  final SearcherTaxonomyManager mgr=new SearcherTaxonomyManager(indexDir,taxoDir,null);
+  final FacetsConfig config=new FacetsConfig();
+  config.setMultiValued("field",true);
+  final AtomicBoolean stop=new AtomicBoolean();
+  final int ordLimit=TEST_NIGHTLY ? 100000 : 6000;
+  Thread indexer=new IndexerThread(w,config,tw,mgr,ordLimit,stop);
+  indexer.start();
+  try {
+    while (!stop.get()) {
+      SearcherAndTaxonomy pair=mgr.acquire();
+      try {
+        FacetsCollector sfc=new FacetsCollector();
+        pair.searcher.search(new MatchAllDocsQuery(),sfc);
+        Facets facets=getTaxonomyFacetCounts(pair.taxonomyReader,config,sfc);
+        FacetResult result=facets.getTopChildren(10,"field");
+        if (pair.searcher.getIndexReader().numDocs() > 0) {
+          assertTrue(result.childCount > 0);
+          assertTrue(result.labelValues.length > 0);
+        }
+      }
+  finally {
+        mgr.release(pair);
+      }
+    }
+  }
+  finally {
+    indexer.join();
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: now stop");
+  }
+  IOUtils.close(mgr,tw,w,taxoDir,indexDir);
+}
