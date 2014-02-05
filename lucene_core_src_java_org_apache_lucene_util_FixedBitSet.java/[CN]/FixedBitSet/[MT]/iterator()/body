@@ -1,3 +1,51 @@
 {
-  return new OpenBitSetIterator(bits,wordLength);
+  final long[] bits=this.bits;
+  final int wordLength=this.wordLength;
+  final int numBits=this.numBits;
+  return new DocIdSetIterator(){
+    int doc=-1;
+    @Override public int nextDoc() throws IOException {
+      if (doc == NO_MORE_DOCS || ++doc >= numBits) {
+        return doc=NO_MORE_DOCS;
+      }
+      int i=doc >> 6;
+      final int subIndex=doc & 0x3f;
+      long word=bits[i] >> subIndex;
+      if (word != 0) {
+        return doc=doc + Long.numberOfTrailingZeros(word);
+      }
+      while (++i < wordLength) {
+        word=bits[i];
+        if (word != 0) {
+          return doc=(i << 6) + Long.numberOfTrailingZeros(word);
+        }
+      }
+      return doc=NO_MORE_DOCS;
+    }
+    @Override public int docID(){
+      return doc;
+    }
+    @Override public long cost(){
+      return bits.length;
+    }
+    @Override public int advance(    int target) throws IOException {
+      if (doc == NO_MORE_DOCS || target >= numBits) {
+        return doc=NO_MORE_DOCS;
+      }
+      int i=target >> 6;
+      final int subIndex=target & 0x3f;
+      long word=bits[i] >> subIndex;
+      if (word != 0) {
+        return doc=target + Long.numberOfTrailingZeros(word);
+      }
+      while (++i < wordLength) {
+        word=bits[i];
+        if (word != 0) {
+          return doc=(i << 6) + Long.numberOfTrailingZeros(word);
+        }
+      }
+      return doc=NO_MORE_DOCS;
+    }
+  }
+;
 }

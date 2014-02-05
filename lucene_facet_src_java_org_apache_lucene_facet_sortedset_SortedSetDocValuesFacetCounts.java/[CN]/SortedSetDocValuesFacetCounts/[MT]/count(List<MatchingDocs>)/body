@@ -1,2 +1,64 @@
 {
+  MultiDocValues.OrdinalMap ordinalMap;
+  if (dv instanceof MultiSortedSetDocValues && matchingDocs.size() > 1) {
+    ordinalMap=((MultiSortedSetDocValues)dv).mapping;
+  }
+ else {
+    ordinalMap=null;
+  }
+  for (  MatchingDocs hits : matchingDocs) {
+    AtomicReader reader=hits.context.reader();
+    if (ReaderUtil.getTopLevelContext(hits.context).reader() != state.origReader) {
+      throw new IllegalStateException("the SortedSetDocValuesReaderState provided to this class does not match the reader being searched; you must create a new SortedSetDocValuesReaderState every time you open a new IndexReader");
+    }
+    SortedSetDocValues segValues=reader.getSortedSetDocValues(field);
+    if (segValues == null) {
+      continue;
+    }
+    DocIdSetIterator docs=hits.bits.iterator();
+    if (ordinalMap != null) {
+      int segOrd=hits.context.ord;
+      int numSegOrds=(int)segValues.getValueCount();
+      if (hits.totalHits < numSegOrds / 10) {
+        int doc;
+        while ((doc=docs.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+          segValues.setDocument(doc);
+          int term=(int)segValues.nextOrd();
+          while (term != SortedSetDocValues.NO_MORE_ORDS) {
+            counts[(int)ordinalMap.getGlobalOrd(segOrd,term)]++;
+            term=(int)segValues.nextOrd();
+          }
+        }
+      }
+ else {
+        final int[] segCounts=new int[numSegOrds];
+        int doc;
+        while ((doc=docs.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+          segValues.setDocument(doc);
+          int term=(int)segValues.nextOrd();
+          while (term != SortedSetDocValues.NO_MORE_ORDS) {
+            segCounts[term]++;
+            term=(int)segValues.nextOrd();
+          }
+        }
+        for (int ord=0; ord < numSegOrds; ord++) {
+          int count=segCounts[ord];
+          if (count != 0) {
+            counts[(int)ordinalMap.getGlobalOrd(segOrd,ord)]+=count;
+          }
+        }
+      }
+    }
+ else {
+      int doc;
+      while ((doc=docs.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+        segValues.setDocument(doc);
+        int term=(int)segValues.nextOrd();
+        while (term != SortedSetDocValues.NO_MORE_ORDS) {
+          counts[term]++;
+          term=(int)segValues.nextOrd();
+        }
+      }
+    }
+  }
 }
