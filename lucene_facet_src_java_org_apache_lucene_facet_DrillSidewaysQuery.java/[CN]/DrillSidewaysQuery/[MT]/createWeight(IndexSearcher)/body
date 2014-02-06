@@ -1,5 +1,16 @@
 {
   final Weight baseWeight=baseQuery.createWeight(searcher);
+  final Object[] drillDowns=new Object[drillDownQueries.length];
+  for (int dim=0; dim < drillDownQueries.length; dim++) {
+    Query query=drillDownQueries[dim];
+    Filter filter=DrillDownQuery.getFilter(query);
+    if (filter != null) {
+      drillDowns[dim]=filter;
+    }
+ else {
+      drillDowns[dim]=searcher.rewrite(query).createWeight(searcher);
+    }
+  }
   return new Weight(){
     @Override public Explanation explain(    AtomicReaderContext context,    int doc) throws IOException {
       return baseWeight.explain(context,doc);
@@ -17,50 +28,47 @@
       return false;
     }
     @Override public Scorer scorer(    AtomicReaderContext context,    boolean scoreDocsInOrder,    boolean topScorer,    Bits acceptDocs) throws IOException {
-      DrillSidewaysScorer.DocsEnumsAndFreq[] dims=new DrillSidewaysScorer.DocsEnumsAndFreq[drillDownTerms.length];
-      TermsEnum termsEnum=null;
-      String lastField=null;
+      Scorer baseScorer=baseWeight.scorer(context,scoreDocsInOrder,false,acceptDocs);
+      DrillSidewaysScorer.DocsAndCost[] dims=new DrillSidewaysScorer.DocsAndCost[drillDowns.length];
       int nullCount=0;
       for (int dim=0; dim < dims.length; dim++) {
-        dims[dim]=new DrillSidewaysScorer.DocsEnumsAndFreq();
+        dims[dim]=new DrillSidewaysScorer.DocsAndCost();
         dims[dim].sidewaysCollector=drillSidewaysCollectors[dim];
-        String field=drillDownTerms[dim][0].field();
-        dims[dim].dim=drillDownTerms[dim][0].text();
-        if (lastField == null || !lastField.equals(field)) {
-          AtomicReader reader=context.reader();
-          Terms terms=reader.terms(field);
-          if (terms != null) {
-            termsEnum=terms.iterator(null);
+        if (drillDowns[dim] instanceof Filter) {
+          DocIdSet dis=((Filter)drillDowns[dim]).getDocIdSet(context,null);
+          if (dis == null) {
+            continue;
+          }
+          Bits bits=dis.bits();
+          if (bits != null) {
+            dims[dim].bits=bits;
           }
  else {
-            termsEnum=null;
-          }
-          lastField=field;
-        }
-        dims[dim].docsEnums=new DocsEnum[drillDownTerms[dim].length];
-        if (termsEnum == null) {
-          nullCount++;
-          continue;
-        }
-        for (int i=0; i < drillDownTerms[dim].length; i++) {
-          if (termsEnum.seekExact(drillDownTerms[dim][i].bytes())) {
-            DocsEnum docsEnum=termsEnum.docs(null,null,0);
-            if (docsEnum != null) {
-              dims[dim].docsEnums[i]=docsEnum;
-              dims[dim].maxCost=Math.max(dims[dim].maxCost,docsEnum.cost());
+            DocIdSetIterator disi=dis.iterator();
+            if (disi == null) {
+              nullCount++;
+              continue;
             }
+            dims[dim].disi=disi;
           }
+        }
+ else {
+          DocIdSetIterator disi=((Weight)drillDowns[dim]).scorer(context,true,false,null);
+          if (disi == null) {
+            nullCount++;
+            continue;
+          }
+          dims[dim].disi=disi;
         }
       }
-      if (nullCount > 1 || (nullCount == 1 && dims.length == 1)) {
+      if (nullCount > 1) {
         return null;
       }
       Arrays.sort(dims);
-      Scorer baseScorer=baseWeight.scorer(context,scoreDocsInOrder,false,acceptDocs);
       if (baseScorer == null) {
         return null;
       }
-      return new DrillSidewaysScorer(this,context,baseScorer,drillDownCollector,dims);
+      return new DrillSidewaysScorer(this,context,baseScorer,drillDownCollector,dims,scoreSubDocsAtOnce);
     }
   }
 ;

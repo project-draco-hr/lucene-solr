@@ -3,6 +3,8 @@
   RandomIndexWriter w=new RandomIndexWriter(random(),dir);
   int numDocs=atLeast(1000);
   double[] values=new double[numDocs];
+  double minValue=Double.POSITIVE_INFINITY;
+  double maxValue=Double.NEGATIVE_INFINITY;
   for (int i=0; i < numDocs; i++) {
     Document doc=new Document();
     double v=random().nextDouble();
@@ -10,6 +12,8 @@
     doc.add(new DoubleDocValuesField("field",v));
     doc.add(new DoubleField("field",v,Field.Store.NO));
     w.addDocument(doc);
+    minValue=Math.min(minValue,v);
+    maxValue=Math.max(maxValue,v);
   }
   IndexReader r=w.getReader();
   IndexSearcher s=newSearcher(r);
@@ -22,6 +26,8 @@
     int numRange=_TestUtil.nextInt(random(),1,5);
     DoubleRange[] ranges=new DoubleRange[numRange];
     int[] expectedCounts=new int[numRange];
+    double minAcceptedValue=Double.POSITIVE_INFINITY;
+    double maxAcceptedValue=Double.NEGATIVE_INFINITY;
     for (int rangeID=0; rangeID < numRange; rangeID++) {
       double min;
       if (rangeID > 0 && random().nextInt(10) == 7) {
@@ -81,12 +87,27 @@
         }
         if (accept) {
           expectedCounts[rangeID]++;
+          minAcceptedValue=Math.min(minAcceptedValue,values[i]);
+          maxAcceptedValue=Math.max(maxAcceptedValue,values[i]);
         }
       }
     }
     FacetsCollector sfc=new FacetsCollector();
     s.search(new MatchAllDocsQuery(),sfc);
-    Facets facets=new DoubleRangeFacetCounts("field",sfc,ranges);
+    Filter fastMatchFilter;
+    if (random().nextBoolean()) {
+      if (random().nextBoolean()) {
+        fastMatchFilter=NumericRangeFilter.newDoubleRange("field",minValue,maxValue,true,true);
+      }
+ else {
+        fastMatchFilter=NumericRangeFilter.newDoubleRange("field",minAcceptedValue,maxAcceptedValue,true,true);
+      }
+    }
+ else {
+      fastMatchFilter=null;
+    }
+    ValueSource vs=new DoubleFieldSource("field");
+    Facets facets=new DoubleRangeFacetCounts("field",vs,sfc,fastMatchFilter,ranges);
     FacetResult result=facets.getTopChildren(10,"field");
     assertEquals(numRange,result.labelValues.length);
     for (int rangeID=0; rangeID < numRange; rangeID++) {
@@ -98,7 +119,17 @@
       assertEquals(expectedCounts[rangeID],subNode.value.intValue());
       DoubleRange range=ranges[rangeID];
       DrillDownQuery ddq=new DrillDownQuery(config);
-      ddq.add("field",NumericRangeQuery.newDoubleRange("field",range.min,range.max,range.minInclusive,range.maxInclusive));
+      if (random().nextBoolean()) {
+        if (random().nextBoolean()) {
+          ddq.add("field",NumericRangeFilter.newDoubleRange("field",range.min,range.max,range.minInclusive,range.maxInclusive));
+        }
+ else {
+          ddq.add("field",NumericRangeQuery.newDoubleRange("field",range.min,range.max,range.minInclusive,range.maxInclusive));
+        }
+      }
+ else {
+        ddq.add("field",range.getFilter(fastMatchFilter,vs));
+      }
       assertEquals(expectedCounts[rangeID],s.search(ddq,10).totalHits);
     }
   }
