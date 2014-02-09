@@ -1,51 +1,50 @@
 {
+  HttpRequestBase method=null;
+  boolean success=false;
   try {
     String urlstr=coreUrl;
     String queryString=req.getQueryString();
     urlstr+=queryString == null ? "" : "?" + queryString;
     URL url=new URL(urlstr);
-    HttpURLConnection con=(HttpURLConnection)url.openConnection();
-    con.setRequestMethod(req.getMethod());
-    con.setUseCaches(false);
     boolean isPostOrPutRequest="POST".equals(req.getMethod()) || "PUT".equals(req.getMethod());
-    if (isPostOrPutRequest) {
-      con.setDoOutput(true);
+    if ("GET".equals(req.getMethod())) {
+      method=new HttpGet(urlstr);
     }
-    con.setDoInput(true);
+ else     if ("HEAD".equals(req.getMethod())) {
+      method=new HttpHead(urlstr);
+    }
+ else     if (isPostOrPutRequest) {
+      HttpEntityEnclosingRequestBase entityRequest="POST".equals(req.getMethod()) ? new HttpPost(urlstr) : new HttpPut(urlstr);
+      HttpEntity entity=new InputStreamEntity(req.getInputStream(),req.getContentLength());
+      entityRequest.setEntity(entity);
+      method=entityRequest;
+    }
+ else {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unexpected method type: " + req.getMethod());
+    }
     for (Enumeration<String> e=req.getHeaderNames(); e.hasMoreElements(); ) {
       String headerName=e.nextElement();
-      con.setRequestProperty(headerName,req.getHeader(headerName));
+      method.addHeader(headerName,req.getHeader(headerName));
     }
-    try {
-      con.connect();
-      InputStream is;
-      OutputStream os;
-      if (isPostOrPutRequest) {
-        is=req.getInputStream();
-        os=con.getOutputStream();
-        try {
-          IOUtils.copyLarge(is,os);
-          os.flush();
-        }
-  finally {
-          IOUtils.closeQuietly(os);
-          IOUtils.closeQuietly(is);
-        }
+    if (method instanceof HttpEntityEnclosingRequest) {
+      method.removeHeaders(TRANSFER_ENCODING_HEADER);
+      method.removeHeaders(CONTENT_LENGTH_HEADER);
+    }
+    final HttpResponse response=httpClient.execute(method);
+    int httpStatus=response.getStatusLine().getStatusCode();
+    HttpEntity httpEntity=response.getEntity();
+    resp.setStatus(httpStatus);
+    for (HeaderIterator responseHeaders=response.headerIterator(); responseHeaders.hasNext(); ) {
+      Header header=responseHeaders.nextHeader();
+      if (header != null && !header.getName().equals(TRANSFER_ENCODING_HEADER) && !header.getName().equals(CONNECTION_HEADER)) {
+        resp.addHeader(header.getName(),header.getValue());
       }
-      resp.setStatus(con.getResponseCode());
-      for (Iterator<Entry<String,List<String>>> i=con.getHeaderFields().entrySet().iterator(); i.hasNext(); ) {
-        Map.Entry<String,List<String>> mapEntry=i.next();
-        String header=mapEntry.getKey();
-        if (header != null && !header.equals(TRANSFER_ENCODING_HEADER) && !header.equals(CONNECTION_HEADER)) {
-          for (          String value : mapEntry.getValue()) {
-            resp.addHeader(mapEntry.getKey(),value);
-          }
-        }
-      }
-      resp.setCharacterEncoding(con.getContentEncoding());
-      resp.setContentType(con.getContentType());
-      is=con.getInputStream();
-      os=resp.getOutputStream();
+    }
+    if (httpEntity != null) {
+      if (httpEntity.getContentEncoding() != null)       resp.setCharacterEncoding(httpEntity.getContentEncoding().getValue());
+      if (httpEntity.getContentType() != null)       resp.setContentType(httpEntity.getContentType().getValue());
+      InputStream is=httpEntity.getContent();
+      OutputStream os=resp.getOutputStream();
       try {
         IOUtils.copyLarge(is,os);
         os.flush();
@@ -55,11 +54,14 @@
         IOUtils.closeQuietly(is);
       }
     }
-  finally {
-      con.disconnect();
-    }
+    success=true;
   }
  catch (  IOException e) {
     sendError(null,solrReq,req,resp,new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error trying to proxy request for url: " + coreUrl,e));
+  }
+ finally {
+    if (method != null && !success) {
+      method.abort();
+    }
   }
 }
