@@ -1,6 +1,7 @@
 {
   Rsp rsp=new Rsp();
   Exception ex=null;
+  boolean isUpdate=req.request instanceof IsUpdateRequest;
   List<ServerWrapper> skipped=new ArrayList<ServerWrapper>(req.getNumDeadServersToTry());
   for (  String serverStr : req.getServers()) {
     serverStr=normalize(serverStr);
@@ -16,7 +17,7 @@
       return rsp;
     }
  catch (    SolrException e) {
-      if (e.code() == 404 || e.code() == 403 || e.code() == 503 || e.code() == 500) {
+      if (!isUpdate && RETRY_CODES.contains(e.code())) {
         ex=addZombie(server,e);
       }
  else {
@@ -24,14 +25,27 @@
       }
     }
 catch (    SocketException e) {
-      ex=addZombie(server,e);
+      if (!isUpdate || e instanceof ConnectException) {
+        ex=addZombie(server,e);
+      }
+ else {
+        throw e;
+      }
     }
 catch (    SocketTimeoutException e) {
-      ex=addZombie(server,e);
+      if (!isUpdate) {
+        ex=addZombie(server,e);
+      }
+ else {
+        throw e;
+      }
     }
 catch (    SolrServerException e) {
       Throwable rootCause=e.getRootCause();
-      if (rootCause instanceof IOException) {
+      if (!isUpdate && rootCause instanceof IOException) {
+        ex=addZombie(server,e);
+      }
+ else       if (isUpdate && rootCause instanceof ConnectException) {
         ex=addZombie(server,e);
       }
  else {
@@ -49,7 +63,7 @@ catch (    Exception e) {
       return rsp;
     }
  catch (    SolrException e) {
-      if (e.code() == 404 || e.code() == 403 || e.code() == 503 || e.code() == 500) {
+      if (!isUpdate && RETRY_CODES.contains(e.code())) {
         ex=e;
       }
  else {
@@ -58,14 +72,27 @@ catch (    Exception e) {
       }
     }
 catch (    SocketException e) {
-      ex=e;
+      if (!isUpdate || e instanceof ConnectException) {
+        ex=e;
+      }
+ else {
+        throw e;
+      }
     }
 catch (    SocketTimeoutException e) {
-      ex=e;
+      if (!isUpdate) {
+        ex=e;
+      }
+ else {
+        throw e;
+      }
     }
 catch (    SolrServerException e) {
       Throwable rootCause=e.getRootCause();
-      if (rootCause instanceof IOException) {
+      if (!isUpdate && rootCause instanceof IOException) {
+        ex=e;
+      }
+ else       if (isUpdate && rootCause instanceof ConnectException) {
         ex=e;
       }
  else {
