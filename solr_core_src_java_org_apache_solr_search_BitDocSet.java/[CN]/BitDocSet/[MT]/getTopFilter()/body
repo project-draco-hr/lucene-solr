@@ -1,5 +1,5 @@
 {
-  final OpenBitSet bs=bits;
+  final FixedBitSet bs=bits;
   return new Filter(){
     @Override public DocIdSet getDocIdSet(    final AtomicReaderContext context,    final Bits acceptDocs){
       AtomicReader reader=context.reader();
@@ -19,17 +19,28 @@
               return adjustedDoc;
             }
             @Override public int nextDoc(){
-              pos=bs.nextSetBit(pos + 1);
-              return adjustedDoc=(pos >= 0 && pos < max) ? pos - base : NO_MORE_DOCS;
+              if (pos >= bs.length() - 1) {
+                return adjustedDoc=NO_MORE_DOCS;
+              }
+ else {
+                pos=bs.nextSetBit(pos + 1);
+                return adjustedDoc=(pos >= 0 && pos < max) ? pos - base : NO_MORE_DOCS;
+              }
             }
             @Override public int advance(            int target){
               if (target == NO_MORE_DOCS)               return adjustedDoc=NO_MORE_DOCS;
-              pos=bs.nextSetBit(target + base);
-              return adjustedDoc=(pos >= 0 && pos < max) ? pos - base : NO_MORE_DOCS;
+              int adjusted=target + base;
+              if (adjusted >= bs.length()) {
+                return adjustedDoc=NO_MORE_DOCS;
+              }
+ else {
+                pos=bs.nextSetBit(adjusted);
+                return adjustedDoc=(pos >= 0 && pos < max) ? pos - base : NO_MORE_DOCS;
+              }
             }
             @Override public long cost(){
               if (size != -1) {
-                return (long)(size * ((OpenBitSet.bits2words(maxDoc) << 6) / (float)bs.capacity()));
+                return (long)(size * ((FixedBitSet.bits2words(maxDoc) << 6) / (float)bs.length()));
               }
  else {
                 return maxDoc;
@@ -44,7 +55,7 @@
         @Override public Bits bits(){
           return new Bits(){
             @Override public boolean get(            int index){
-              return bs.fastGet(index + base);
+              return bs.get(index + base);
             }
             @Override public int length(){
               return maxDoc;
