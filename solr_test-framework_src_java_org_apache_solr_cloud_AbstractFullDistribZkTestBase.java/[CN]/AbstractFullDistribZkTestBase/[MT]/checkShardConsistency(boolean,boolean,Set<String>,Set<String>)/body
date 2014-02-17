@@ -1,0 +1,55 @@
+{
+  updateMappingsFromZk(jettys,clients,true);
+  Set<String> theShards=shardToJetty.keySet();
+  String failMessage=null;
+  for (  String shard : theShards) {
+    String shardFailMessage=checkShardConsistency(shard,false,verbose);
+    if (shardFailMessage != null && failMessage == null) {
+      failMessage=shardFailMessage;
+    }
+  }
+  if (failMessage != null) {
+    fail(failMessage);
+  }
+  if (!checkVsControl)   return;
+  SolrParams q=params("q","*:*","rows","0","tests","checkShardConsistency(vsControl)");
+  SolrDocumentList controlDocList=controlClient.query(q).getResults();
+  long controlDocs=controlDocList.getNumFound();
+  SolrDocumentList cloudDocList=cloudClient.query(q).getResults();
+  long cloudClientDocs=cloudDocList.getNumFound();
+  theShards=shardToJetty.keySet();
+  int cnt=0;
+  for (  String s : theShards) {
+    int times=shardToJetty.get(s).size();
+    for (int i=0; i < times; i++) {
+      try {
+        CloudJettyRunner cjetty=shardToJetty.get(s).get(i);
+        ZkNodeProps props=cjetty.info;
+        SolrServer client=cjetty.client.solrClient;
+        boolean active=props.getStr(ZkStateReader.STATE_PROP).equals(ZkStateReader.ACTIVE);
+        if (active) {
+          SolrQuery query=new SolrQuery("*:*");
+          query.set("distrib",false);
+          long results=client.query(query).getResults().getNumFound();
+          if (verbose)           System.err.println(new ZkCoreNodeProps(props).getCoreUrl() + " : " + results);
+          if (verbose)           System.err.println("shard:" + props.getStr(ZkStateReader.SHARD_ID_PROP));
+          cnt+=results;
+          break;
+        }
+      }
+ catch (      Exception e) {
+        if (i == times - 1) {
+          throw e;
+        }
+      }
+    }
+  }
+  if (controlDocs != cnt || cloudClientDocs != controlDocs) {
+    String msg="document count mismatch.  control=" + controlDocs + " sum(shards)="+ cnt+ " cloudClient="+ cloudClientDocs;
+    log.error(msg);
+    boolean shouldFail=compareResults(controlDocs,cloudClientDocs,addFails,deleteFails);
+    if (shouldFail) {
+      fail(msg);
+    }
+  }
+}
