@@ -1,0 +1,44 @@
+{
+  BytesRef flagsScratch=new BytesRef();
+  BytesRef flagsScratch2=new BytesRef();
+  BufferedReader reader=new BufferedReader(new InputStreamReader(dictionary,decoder));
+  String line=reader.readLine();
+  line=line.replaceFirst("\\s*\\#.*$","");
+  int numEntries=Integer.parseInt(line);
+  while ((line=reader.readLine()) != null) {
+    String entry;
+    char wordForm[];
+    int flagSep=line.lastIndexOf('/');
+    if (flagSep == -1) {
+      wordForm=NOFLAGS;
+      entry=line;
+    }
+ else {
+      int end=line.indexOf('\t',flagSep);
+      if (end == -1)       end=line.length();
+      String flagPart=line.substring(flagSep + 1,end);
+      if (aliasCount > 0) {
+        flagPart=getAliasValue(Integer.parseInt(flagPart));
+      }
+      wordForm=flagParsingStrategy.parseFlags(flagPart);
+      Arrays.sort(wordForm);
+      entry=line.substring(0,flagSep);
+    }
+    BytesRef scratch=new BytesRef(entry);
+    Integer existingOrd=words.get(scratch);
+    final char mergedEntries[];
+    if (existingOrd == null || existingOrd == 0) {
+      mergedEntries=wordForm;
+    }
+ else {
+      flagLookup.get(existingOrd,flagsScratch2);
+      mergedEntries=merge(decodeFlags(flagsScratch2),wordForm);
+    }
+    final int hashCode=encodeFlagsWithHash(flagsScratch,mergedEntries);
+    int ord=flagLookup.add(flagsScratch,hashCode);
+    if (ord < 0) {
+      ord=(-ord) - 1;
+    }
+    words.put(scratch,ord);
+  }
+}
