@@ -1,0 +1,79 @@
+{
+  BytesRef flagsScratch=new BytesRef();
+  IntsRef scratchInts=new IntsRef();
+  BufferedReader reader=new BufferedReader(new InputStreamReader(dictionary,decoder));
+  String line=reader.readLine();
+  line=line.replaceFirst("\\s*\\#.*$","");
+  int numEntries=Integer.parseInt(line);
+  String lines[]=new String[numEntries];
+  int upto=0;
+  while ((line=reader.readLine()) != null) {
+    if (upto == lines.length) {
+      lines=Arrays.copyOf(lines,(int)(lines.length * 1.25));
+    }
+    lines[upto++]=line;
+  }
+  Arrays.sort(lines,0,upto,new Comparator<String>(){
+    @Override public int compare(    String o1,    String o2){
+      int sep1=o1.lastIndexOf('/');
+      if (sep1 >= 0) {
+        o1=o1.substring(0,sep1);
+      }
+      int sep2=o2.lastIndexOf('/');
+      if (sep2 >= 0) {
+        o2=o2.substring(0,sep2);
+      }
+      return o1.compareTo(o2);
+    }
+  }
+);
+  BytesRef currentEntry=new BytesRef();
+  char currentFlags[]=new char[0];
+  for (int i=0; i < upto; i++) {
+    line=lines[i];
+    String entry;
+    char wordForm[];
+    int flagSep=line.lastIndexOf('/');
+    if (flagSep == -1) {
+      wordForm=NOFLAGS;
+      entry=line;
+    }
+ else {
+      int end=line.indexOf('\t',flagSep);
+      if (end == -1)       end=line.length();
+      String flagPart=line.substring(flagSep + 1,end);
+      if (aliasCount > 0) {
+        flagPart=getAliasValue(Integer.parseInt(flagPart));
+      }
+      wordForm=flagParsingStrategy.parseFlags(flagPart);
+      Arrays.sort(wordForm);
+      entry=line.substring(0,flagSep);
+    }
+    BytesRef scratch=new BytesRef(entry);
+    int cmp=scratch.compareTo(currentEntry);
+    if (cmp < 0) {
+      throw new IllegalArgumentException("out of order: " + scratch.utf8ToString() + " < "+ currentEntry.utf8ToString());
+    }
+ else     if (cmp == 0) {
+      currentFlags=merge(currentFlags,wordForm);
+    }
+ else {
+      final int hashCode=encodeFlagsWithHash(flagsScratch,currentFlags);
+      int ord=flagLookup.add(flagsScratch,hashCode);
+      if (ord < 0) {
+        ord=(-ord) - 1;
+      }
+      UnicodeUtil.UTF8toUTF32(currentEntry,scratchInts);
+      words.add(scratchInts,(long)ord);
+      currentEntry=scratch;
+      currentFlags=wordForm;
+    }
+  }
+  final int hashCode=encodeFlagsWithHash(flagsScratch,currentFlags);
+  int ord=flagLookup.add(flagsScratch,hashCode);
+  if (ord < 0) {
+    ord=(-ord) - 1;
+  }
+  UnicodeUtil.UTF8toUTF32(currentEntry,scratchInts);
+  words.add(scratchInts,(long)ord);
+}
