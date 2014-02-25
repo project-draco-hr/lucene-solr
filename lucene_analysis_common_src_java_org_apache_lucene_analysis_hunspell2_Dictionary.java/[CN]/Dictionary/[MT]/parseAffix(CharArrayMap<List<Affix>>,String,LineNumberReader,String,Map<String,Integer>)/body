@@ -1,4 +1,5 @@
 {
+  BytesRef scratch=new BytesRef();
   String args[]=header.split("\\s+");
   boolean crossProduct=args[2].equals("Y");
   int numLines=Integer.parseInt(args[3]);
@@ -8,20 +9,19 @@
     if (ruleArgs.length < 5) {
       throw new ParseException("The affix file contains a rule with less than five elements",reader.getLineNumber());
     }
-    Affix affix=new Affix();
-    affix.setFlag(flagParsingStrategy.parseFlag(ruleArgs[1]));
-    affix.setStrip(ruleArgs[2].equals("0") ? "" : ruleArgs[2]);
+    char flag=flagParsingStrategy.parseFlag(ruleArgs[1]);
+    String strip=ruleArgs[2].equals("0") ? "" : ruleArgs[2];
     String affixArg=ruleArgs[3];
+    char appendFlags[]=null;
     int flagSep=affixArg.lastIndexOf('/');
     if (flagSep != -1) {
       String flagPart=affixArg.substring(flagSep + 1);
+      affixArg=affixArg.substring(0,flagSep);
       if (aliasCount > 0) {
         flagPart=getAliasValue(Integer.parseInt(flagPart));
       }
-      char appendFlags[]=flagParsingStrategy.parseFlags(flagPart);
+      appendFlags=flagParsingStrategy.parseFlags(flagPart);
       Arrays.sort(appendFlags);
-      affix.setAppendFlags(appendFlags);
-      affixArg=affixArg.substring(0,flagSep);
     }
     String condition=ruleArgs[4];
     if (condition.startsWith("[") && !condition.endsWith("]")) {
@@ -38,8 +38,25 @@
       Pattern pattern=Pattern.compile(regex);
       patterns.add(pattern);
     }
-    affix.setCondition(patterns.get(patternIndex));
+    Affix affix=new Affix();
+    scratch.copyChars(strip);
+    int ord=stripLookup.add(scratch);
+    if (ord < 0) {
+      ord=(-ord) - 1;
+    }
+    affix.setStrip(ord);
+    affix.setFlag(flag);
+    affix.setCondition(patternIndex);
     affix.setCrossProduct(crossProduct);
+    if (appendFlags == null) {
+      appendFlags=NOFLAGS;
+    }
+    final int hashCode=encodeFlagsWithHash(scratch,appendFlags);
+    ord=flagLookup.add(scratch,hashCode);
+    if (ord < 0) {
+      ord=(-ord) - 1;
+    }
+    affix.setAppendFlags(ord);
     List<Affix> list=affixes.get(affixArg);
     if (list == null) {
       list=new ArrayList<Affix>();
