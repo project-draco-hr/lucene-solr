@@ -43,7 +43,8 @@
     if (maxShardsAllowedToCreate < requestedShardsToCreate) {
       throw new SolrException(ErrorCode.BAD_REQUEST,"Cannot create collection " + collectionName + ". Value of "+ MAX_SHARDS_PER_NODE+ " is "+ maxShardsPerNode+ ", and the number of live nodes is "+ nodeList.size()+ ". This allows a maximum of "+ maxShardsAllowedToCreate+ " to be created. Value of "+ NUM_SLICES+ " is "+ numSlices+ " and value of "+ REPLICATION_FACTOR+ " is "+ repFactor+ ". This requires "+ requestedShardsToCreate+ " shards to be created (higher than the allowed number)");
     }
-    String configName=createConfNode(collectionName,message);
+    boolean isLegacyCloud=Overseer.isLegacy(zkStateReader.getClusterProps());
+    String configName=createConfNode(collectionName,message,isLegacyCloud);
     Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(message));
     long waitUntil=System.currentTimeMillis() + 30000;
     boolean created=false;
@@ -54,15 +55,21 @@
     }
     if (!created)     throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully createcollection: " + message.getStr("name"));
     log.info("going to create cores replicas shardNames {} , repFactor : {}",shardNames,repFactor);
+    Map<String,ShardRequest> coresToCreate=new LinkedHashMap<String,ShardRequest>();
     for (int i=1; i <= shardNames.size(); i++) {
       String sliceName=shardNames.get(i - 1);
       for (int j=1; j <= repFactor; j++) {
         String nodeName=nodeList.get((repFactor * (i - 1) + (j - 1)) % nodeList.size());
-        String shardName=collectionName + "_" + sliceName+ "_replica"+ j;
-        log.info("Creating shard " + shardName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ nodeName);
+        String coreName=collectionName + "_" + sliceName+ "_replica"+ j;
+        log.info("Creating shard " + coreName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ nodeName);
+        String baseUrl=zkStateReader.getBaseUrlForNodeName(nodeName);
+        if (!isLegacyCloud) {
+          ZkNodeProps props=new ZkNodeProps(Overseer.QUEUE_OPERATION,CollectionParams.CollectionAction.ADDREPLICA.toString(),ZkStateReader.COLLECTION_PROP,collectionName,ZkStateReader.SHARD_ID_PROP,sliceName,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.STATE_PROP,ZkStateReader.DOWN,ZkStateReader.BASE_URL_PROP,baseUrl);
+          Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(props));
+        }
         ModifiableSolrParams params=new ModifiableSolrParams();
         params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
-        params.set(CoreAdminParams.NAME,shardName);
+        params.set(CoreAdminParams.NAME,coreName);
         params.set(COLL_CONF,configName);
         params.set(CoreAdminParams.COLLECTION,collectionName);
         params.set(CoreAdminParams.SHARD,sliceName);
@@ -71,11 +78,19 @@
         ShardRequest sreq=new ShardRequest();
         params.set("qt",adminPath);
         sreq.purpose=1;
-        String replica=zkStateReader.getBaseUrlForNodeName(nodeName);
-        sreq.shards=new String[]{replica};
+        sreq.shards=new String[]{baseUrl};
         sreq.actualShards=sreq.shards;
         sreq.params=params;
-        shardHandler.submit(sreq,replica,sreq.params);
+        if (isLegacyCloud)         shardHandler.submit(sreq,sreq.shards[0],sreq.params);
+ else         coresToCreate.put(coreName,sreq);
+      }
+    }
+    if (!isLegacyCloud) {
+      Map<String,Replica> replicas=lookupReplicas(collectionName,coresToCreate.keySet());
+      for (      Map.Entry<String,ShardRequest> e : coresToCreate.entrySet()) {
+        ShardRequest sreq=e.getValue();
+        sreq.params.set(CoreAdminParams.CORE_NODE_NAME,replicas.get(e.getKey()).getName());
+        shardHandler.submit(sreq,sreq.shards[0],sreq.params);
       }
     }
     ShardResponse srsp;
