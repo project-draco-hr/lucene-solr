@@ -50,7 +50,13 @@
           break;
         }
       }
-      return scratch1.compareTo(scratch2);
+      int cmp=scratch1.compareTo(scratch2);
+      if (cmp == 0) {
+        return o1.compareTo(o2);
+      }
+ else {
+        return cmp;
+      }
     }
   }
 );
@@ -58,8 +64,8 @@
   unsorted.delete();
   ByteSequencesReader reader=new ByteSequencesReader(sorted);
   BytesRef scratchLine=new BytesRef();
-  BytesRef currentEntry=new BytesRef();
-  char currentFlags[]=new char[0];
+  String currentEntry=null;
+  IntsRef currentOrds=new IntsRef();
   String line;
   while (reader.read(scratchLine)) {
     line=scratchLine.utf8ToString();
@@ -73,6 +79,9 @@
  else {
       int end=line.indexOf('\t',flagSep);
       if (end == -1)       end=line.length();
+      int end2=line.indexOf(' ',flagSep);
+      if (end2 == -1)       end2=line.length();
+      end=Math.min(end,end2);
       String flagPart=line.substring(flagSep + 1,end);
       if (aliasCount > 0) {
         flagPart=getAliasValue(Integer.parseInt(flagPart));
@@ -81,33 +90,30 @@
       Arrays.sort(wordForm);
       entry=line.substring(0,flagSep);
     }
-    BytesRef scratch=new BytesRef(entry);
-    int cmp=scratch.compareTo(currentEntry);
+    int cmp=currentEntry == null ? 1 : entry.compareTo(currentEntry);
     if (cmp < 0) {
-      throw new IllegalArgumentException("out of order: " + scratch.utf8ToString() + " < "+ currentEntry.utf8ToString());
-    }
- else     if (cmp == 0) {
-      currentFlags=merge(currentFlags,wordForm);
+      throw new IllegalArgumentException("out of order: " + entry + " < "+ currentEntry);
     }
  else {
-      final int hashCode=encodeFlagsWithHash(flagsScratch,currentFlags);
+      final int hashCode=encodeFlagsWithHash(flagsScratch,wordForm);
       int ord=flagLookup.add(flagsScratch,hashCode);
       if (ord < 0) {
         ord=(-ord) - 1;
       }
-      UnicodeUtil.UTF8toUTF32(currentEntry,scratchInts);
-      words.add(scratchInts,(long)ord);
-      currentEntry=scratch;
-      currentFlags=wordForm;
+      if (cmp > 0 && currentEntry != null) {
+        Util.toUTF32(currentEntry,scratchInts);
+        words.add(scratchInts,currentOrds);
+      }
+      if (cmp > 0 || currentEntry == null) {
+        currentEntry=entry;
+        currentOrds=new IntsRef();
+      }
+      currentOrds.grow(currentOrds.length + 1);
+      currentOrds.ints[currentOrds.length++]=ord;
     }
   }
-  final int hashCode=encodeFlagsWithHash(flagsScratch,currentFlags);
-  int ord=flagLookup.add(flagsScratch,hashCode);
-  if (ord < 0) {
-    ord=(-ord) - 1;
-  }
-  UnicodeUtil.UTF8toUTF32(currentEntry,scratchInts);
-  words.add(scratchInts,(long)ord);
+  Util.toUTF32(currentEntry,scratchInts);
+  words.add(scratchInts,currentOrds);
   reader.close();
   sorted.delete();
 }
