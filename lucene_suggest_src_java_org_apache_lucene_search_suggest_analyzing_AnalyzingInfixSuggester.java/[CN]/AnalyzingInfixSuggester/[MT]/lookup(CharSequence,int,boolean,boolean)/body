@@ -1,5 +1,5 @@
 {
-  if (searcher == null) {
+  if (searcherMgr == null) {
     throw new IllegalStateException("suggester was not built");
   }
   final BooleanClause.Occur occur;
@@ -9,14 +9,17 @@
  else {
     occur=BooleanClause.Occur.SHOULD;
   }
+  BooleanQuery query;
+  Set<String> matchedTokens=new HashSet<String>();
+  String prefixToken=null;
   try (TokenStream ts=queryAnalyzer.tokenStream("",new StringReader(key.toString()))){
     ts.reset();
     final CharTermAttribute termAtt=ts.addAttribute(CharTermAttribute.class);
     final OffsetAttribute offsetAtt=ts.addAttribute(OffsetAttribute.class);
     String lastToken=null;
-    BooleanQuery query=new BooleanQuery();
+    query=new BooleanQuery();
     int maxEndOffset=-1;
-    final Set<String> matchedTokens=new HashSet<String>();
+    matchedTokens=new HashSet<String>();
     while (ts.incrementToken()) {
       if (lastToken != null) {
         matchedTokens.add(lastToken);
@@ -28,7 +31,6 @@
       }
     }
     ts.end();
-    String prefixToken=null;
     if (lastToken != null) {
       Query lastQuery;
       if (maxEndOffset == offsetAtt.endOffset()) {
@@ -43,19 +45,19 @@
         query.add(lastQuery,occur);
       }
     }
-    ts.close();
-    Query finalQuery=finishQuery(query,allTermsRequired);
-    FirstNDocsCollector c=new FirstNDocsCollector(num);
-    try {
-      searcher.search(finalQuery,c);
-    }
- catch (    FirstNDocsCollector.DoneException done) {
-    }
-    TopDocs hits=c.getHits();
-    List<LookupResult> results=createResults(hits,num,key,doHighlight,matchedTokens,prefixToken);
-    return results;
   }
- catch (  IOException ioe) {
-    throw new RuntimeException(ioe);
+   Query finalQuery=finishQuery(query,allTermsRequired);
+  TopFieldCollector c=TopFieldCollector.create(new Sort(new SortField("weight",SortField.Type.LONG,true)),num,true,false,false,false);
+  Collector c2=new EarlyTerminatingSortingCollector(c,sorter,num);
+  IndexSearcher searcher=searcherMgr.acquire();
+  List<LookupResult> results=null;
+  try {
+    searcher.search(finalQuery,c2);
+    TopFieldDocs hits=(TopFieldDocs)c.topDocs();
+    results=createResults(searcher,hits,num,key,doHighlight,matchedTokens,prefixToken);
   }
+  finally {
+    searcherMgr.release(searcher);
+  }
+  return results;
 }
