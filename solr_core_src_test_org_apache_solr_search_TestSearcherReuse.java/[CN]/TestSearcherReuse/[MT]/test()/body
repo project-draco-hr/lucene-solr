@@ -1,0 +1,87 @@
+{
+  int numDocs=atLeast(1);
+  for (int i=1; i <= numDocs; i++) {
+    assertU(adoc("id","" + i));
+    if (random().nextBoolean()) {
+      assertU(commit());
+    }
+  }
+  assertU(commit());
+  assertQ(req("*:*"),"//*[@numFound='" + numDocs + "']");
+  final SolrQueryRequest baseReq=req("q","foo");
+  try {
+    final SolrIndexSearcher expectedSearcher=baseReq.getSearcher();
+    assertU(commit());
+    assertSearcherHasNotChanged(expectedSearcher);
+    assertU(commit("openSearcher","true"));
+    assertSearcherHasNotChanged(expectedSearcher);
+    assertU(commit("softCommit","true"));
+    assertSearcherHasNotChanged(expectedSearcher);
+    assertU(commit("softCommit","true","openSearcher","true"));
+    assertSearcherHasNotChanged(expectedSearcher);
+    assertU(delQ("id:match_no_documents"));
+    assertU(commit());
+    assertSearcherHasNotChanged(expectedSearcher);
+    assertU(delI("0"));
+    assertU(commit());
+    assertSearcherHasNotChanged(expectedSearcher);
+  }
+  finally {
+    baseReq.close();
+  }
+  SolrQueryRequest beforeReq;
+  beforeReq=req("q","foo");
+  try {
+    SolrIndexSearcher before=beforeReq.getSearcher();
+    assertU(delI("1"));
+    assertU(commit());
+    assertSearcherHasChanged(before);
+  }
+  finally {
+    beforeReq.close();
+  }
+  beforeReq=req("q","foo");
+  try {
+    SolrIndexSearcher before=beforeReq.getSearcher();
+    assertU(adoc("id","0"));
+    assertU(commit());
+    assertSearcherHasChanged(before);
+  }
+  finally {
+    beforeReq.close();
+  }
+  beforeReq=req("q","foo");
+  try {
+    SolrIndexSearcher before=beforeReq.getSearcher();
+    assertU(delQ("id:[0 TO 5]"));
+    assertU(commit());
+    assertSearcherHasChanged(before);
+  }
+  finally {
+    beforeReq.close();
+  }
+  beforeReq=req("q","foo");
+  try {
+    SolrIndexSearcher before=beforeReq.getSearcher();
+    assertTrue("schema not mutable",beforeReq.getSchema().isMutable());
+    ManagedIndexSchema oldSchema=(ManagedIndexSchema)beforeReq.getSchema();
+    SchemaField newField=oldSchema.newField("hoss","string",Collections.<String,Object>emptyMap());
+    IndexSchema newSchema=oldSchema.addField(newField);
+    h.getCore().setLatestSchema(newSchema);
+    assertNotSame(oldSchema,newSchema);
+    assertSearcherHasNotChanged(before);
+    assertU(commit("softCommit","true","openSearcher","true"));
+    assertSearcherHasChanged(before);
+    SolrQueryRequest afterReq=req("q","foo");
+    try {
+      assertSame(newSchema,afterReq.getSchema());
+      assertSame(newSchema,afterReq.getSearcher().getSchema());
+    }
+  finally {
+      afterReq.close();
+    }
+  }
+  finally {
+    beforeReq.close();
+  }
+}
