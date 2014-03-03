@@ -1,0 +1,88 @@
+{
+  if (!rb.doExpand) {
+    return;
+  }
+  SolrQueryRequest req=rb.req;
+  SolrParams params=req.getParams();
+  boolean isShard=params.getBool(ShardParams.IS_SHARD,false);
+  String ids=params.get(ShardParams.IDS);
+  if (ids == null && isShard) {
+    return;
+  }
+  String field=null;
+  String sortParam=params.get(ExpandParams.EXPAND_SORT);
+  int limit=params.getInt(ExpandParams.EXPAND_ROWS,5);
+  Sort sort=null;
+  if (sortParam != null) {
+    sort=QueryParsing.parseSortSpec(sortParam,rb.req).getSort();
+  }
+  Query query=rb.getQuery();
+  List<Query> filters=rb.getFilters();
+  List<Query> newFilters=new ArrayList();
+  for (  Query q : filters) {
+    if (!(q instanceof CollapsingQParserPlugin.CollapsingPostFilter)) {
+      newFilters.add(q);
+    }
+ else {
+      CollapsingQParserPlugin.CollapsingPostFilter cp=(CollapsingQParserPlugin.CollapsingPostFilter)q;
+      field=cp.getField();
+    }
+  }
+  if (field == null) {
+    throw new IOException("Expand field is null.");
+  }
+  SolrIndexSearcher searcher=req.getSearcher();
+  AtomicReader reader=searcher.getAtomicReader();
+  SortedDocValues values=FieldCache.DEFAULT.getTermsIndex(reader,field);
+  FixedBitSet groupBits=new FixedBitSet(values.getValueCount());
+  DocList docList=rb.getResults().docList;
+  IntOpenHashSet collapsedSet=new IntOpenHashSet(docList.size() * 2);
+  DocIterator idit=docList.iterator();
+  while (idit.hasNext()) {
+    int doc=idit.nextDoc();
+    int ord=values.getOrd(doc);
+    if (ord > -1) {
+      groupBits.set(ord);
+      collapsedSet.add(doc);
+    }
+  }
+  Collector collector=null;
+  GroupExpandCollector groupExpandCollector=new GroupExpandCollector(values,groupBits,collapsedSet,limit,sort);
+  SolrIndexSearcher.ProcessedFilter pfilter=searcher.getProcessedFilter(null,newFilters);
+  if (pfilter.postFilter != null) {
+    pfilter.postFilter.setLastDelegate(groupExpandCollector);
+    collector=pfilter.postFilter;
+  }
+ else {
+    collector=groupExpandCollector;
+  }
+  searcher.search(query,pfilter.filter,collector);
+  IntObjectOpenHashMap groups=groupExpandCollector.getGroups();
+  Iterator<IntObjectCursor> it=groups.iterator();
+  Map<String,DocSlice> outMap=new HashMap<>();
+  BytesRef bytesRef=new BytesRef();
+  CharsRef charsRef=new CharsRef();
+  FieldType fieldType=searcher.getSchema().getField(field).getType();
+  while (it.hasNext()) {
+    IntObjectCursor cursor=it.next();
+    int ord=cursor.key;
+    TopDocsCollector topDocsCollector=(TopDocsCollector)cursor.value;
+    TopDocs topDocs=topDocsCollector.topDocs();
+    ScoreDoc[] scoreDocs=topDocs.scoreDocs;
+    if (scoreDocs.length > 0) {
+      int[] docs=new int[scoreDocs.length];
+      float[] scores=new float[scoreDocs.length];
+      for (int i=0; i < docs.length; i++) {
+        ScoreDoc scoreDoc=scoreDocs[i];
+        docs[i]=scoreDoc.doc;
+        scores[i]=scoreDoc.score;
+      }
+      DocSlice slice=new DocSlice(0,docs.length,docs,scores,topDocs.totalHits,topDocs.getMaxScore());
+      values.lookupOrd(ord,bytesRef);
+      fieldType.indexedToReadable(bytesRef,charsRef);
+      String group=charsRef.toString();
+      outMap.put(group,slice);
+    }
+  }
+  rb.rsp.add("expanded",outMap);
+}
