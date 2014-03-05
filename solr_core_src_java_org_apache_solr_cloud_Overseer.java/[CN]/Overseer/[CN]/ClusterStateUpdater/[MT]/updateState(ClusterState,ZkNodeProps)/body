@@ -1,41 +1,41 @@
 {
   final String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
-  checkCollection(message,collection);
+  if (!checkCollectionKeyExistence(message))   return clusterState;
   Integer numShards=message.getInt(ZkStateReader.NUM_SHARDS_PROP,null);
   log.info("Update state numShards={} message={}",numShards,message);
   List<String> shardNames=new ArrayList<String>();
-  boolean collectionExists=state.hasCollection(collection);
+  boolean collectionExists=clusterState.hasCollection(collection);
   if (!collectionExists && numShards != null) {
     getShardNames(numShards,shardNames);
-    state=createCollection(state,collection,shardNames,message);
+    clusterState=createCollection(clusterState,collection,shardNames,message);
   }
   String sliceName=message.getStr(ZkStateReader.SHARD_ID_PROP);
   String coreNodeName=message.getStr(ZkStateReader.CORE_NODE_NAME_PROP);
   if (coreNodeName == null) {
-    coreNodeName=getAssignedCoreNodeName(state,message);
+    coreNodeName=getAssignedCoreNodeName(clusterState,message);
     if (coreNodeName != null) {
       log.info("node=" + coreNodeName + " is already registered");
     }
  else {
-      coreNodeName=Assign.assignNode(collection,state);
+      coreNodeName=Assign.assignNode(collection,clusterState);
     }
     message.getProperties().put(ZkStateReader.CORE_NODE_NAME_PROP,coreNodeName);
   }
   if (sliceName == null) {
-    sliceName=getAssignedId(state,coreNodeName,message);
+    sliceName=getAssignedId(clusterState,coreNodeName,message);
     if (sliceName != null) {
       log.info("shard=" + sliceName + " is already registered");
     }
   }
   if (sliceName == null) {
     if (collectionExists) {
-      numShards=state.getCollection(collection).getSlices().size();
+      numShards=clusterState.getCollection(collection).getSlices().size();
       log.info("Collection already exists with " + ZkStateReader.NUM_SHARDS_PROP + "="+ numShards);
     }
-    sliceName=Assign.assignShard(collection,state,numShards);
+    sliceName=Assign.assignShard(collection,clusterState,numShards);
     log.info("Assigning new node to shard shard=" + sliceName);
   }
-  Slice slice=state.getSlice(collection,sliceName);
+  Slice slice=clusterState.getSlice(collection,sliceName);
   Map<String,Object> replicaProps=new LinkedHashMap<String,Object>();
   replicaProps.putAll(message.getProperties());
   if (slice != null) {
@@ -67,8 +67,8 @@
   Map<String,Object> sliceProps=null;
   Map<String,Replica> replicas;
   if (slice != null) {
-    state=checkAndCompleteShardSplit(state,collection,coreNodeName,sliceName,replicaProps);
-    slice=state.getSlice(collection,sliceName);
+    clusterState=checkAndCompleteShardSplit(clusterState,collection,coreNodeName,sliceName,replicaProps);
+    slice=clusterState.getSlice(collection,sliceName);
     sliceProps=slice.getProperties();
     replicas=slice.getReplicasCopy();
   }
@@ -81,6 +81,6 @@
   }
   replicas.put(replica.getName(),replica);
   slice=new Slice(sliceName,replicas,sliceProps);
-  ClusterState newClusterState=updateSlice(state,collection,slice);
+  ClusterState newClusterState=updateSlice(clusterState,collection,slice);
   return newClusterState;
 }
