@@ -54,7 +54,7 @@
       if (created)       break;
     }
     if (!created)     throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully createcollection: " + message.getStr("name"));
-    log.info("going to create cores replicas shardNames {} , repFactor : {}",shardNames,repFactor);
+    log.info("Creating SolrCores for new collection, shardNames {} , replicationFactor : {}",shardNames,repFactor);
     Map<String,ShardRequest> coresToCreate=new LinkedHashMap<String,ShardRequest>();
     for (int i=1; i <= shardNames.size(); i++) {
       String sliceName=shardNames.get(i - 1);
@@ -81,12 +81,16 @@
         sreq.shards=new String[]{baseUrl};
         sreq.actualShards=sreq.shards;
         sreq.params=params;
-        if (isLegacyCloud)         shardHandler.submit(sreq,sreq.shards[0],sreq.params);
- else         coresToCreate.put(coreName,sreq);
+        if (isLegacyCloud) {
+          shardHandler.submit(sreq,sreq.shards[0],sreq.params);
+        }
+ else {
+          coresToCreate.put(coreName,sreq);
+        }
       }
     }
     if (!isLegacyCloud) {
-      Map<String,Replica> replicas=lookupReplicas(collectionName,coresToCreate.keySet());
+      Map<String,Replica> replicas=waitToSeeReplicasInState(collectionName,coresToCreate.keySet());
       for (      Map.Entry<String,ShardRequest> e : coresToCreate.entrySet()) {
         ShardRequest sreq=e.getValue();
         sreq.params.set(CoreAdminParams.CORE_NODE_NAME,replicas.get(e.getKey()).getName());
