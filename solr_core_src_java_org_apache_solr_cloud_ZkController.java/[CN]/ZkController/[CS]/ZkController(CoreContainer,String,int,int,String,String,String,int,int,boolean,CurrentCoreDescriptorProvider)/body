@@ -1,0 +1,69 @@
+{
+  if (cc == null)   throw new IllegalArgumentException("CoreContainer cannot be null.");
+  this.cc=cc;
+  this.genericCoreNodeNames=genericCoreNodeNames;
+  localHostContext=trimLeadingAndTrailingSlashes(localHostContext);
+  this.zkServerAddress=zkServerAddress;
+  this.localHostPort=locaHostPort;
+  this.localHostContext=localHostContext;
+  this.hostName=normalizeHostName(localHost);
+  this.nodeName=generateNodeName(this.hostName,this.localHostPort,this.localHostContext);
+  this.leaderVoteWait=leaderVoteWait;
+  this.leaderConflictResolveWait=leaderConflictResolveWait;
+  this.clientTimeout=zkClientTimeout;
+  zkClient=new SolrZkClient(zkServerAddress,zkClientTimeout,zkClientConnectTimeout,new DefaultConnectionStrategy(),new OnReconnect(){
+    @Override public void command(){
+      try {
+        cc.cancelCoreRecoveries();
+        registerAllCoresAsDown(registerOnReconnect,false);
+        ElectionContext context=new OverseerElectionContext(zkClient,overseer,getNodeName());
+        ElectionContext prevContext=overseerElector.getContext();
+        if (prevContext != null) {
+          prevContext.cancelElection();
+        }
+        overseerElector.setup(context);
+        overseerElector.joinElection(context,true);
+        zkStateReader.createClusterStateWatchersAndUpdate();
+        createEphemeralLiveNode();
+        List<CoreDescriptor> descriptors=registerOnReconnect.getCurrentDescriptors();
+        if (descriptors != null) {
+          for (          CoreDescriptor descriptor : descriptors) {
+            try {
+              register(descriptor.getName(),descriptor,true,true);
+            }
+ catch (            Exception e) {
+              SolrException.log(log,"Error registering SolrCore",e);
+            }
+          }
+        }
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      Exception e) {
+        SolrException.log(log,"",e);
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+    }
+  }
+,new BeforeReconnect(){
+    @Override public void command(){
+      try {
+        ZkController.this.overseer.close();
+      }
+ catch (      Exception e) {
+        log.error("Error trying to stop any Overseer threads",e);
+      }
+      markAllAsNotLeader(registerOnReconnect);
+    }
+  }
+);
+  this.overseerJobQueue=Overseer.getInQueue(zkClient);
+  this.overseerCollectionQueue=Overseer.getCollectionQueue(zkClient);
+  cmdExecutor=new ZkCmdExecutor(zkClientTimeout);
+  leaderElector=new LeaderElector(zkClient);
+  zkStateReader=new ZkStateReader(zkClient);
+  this.baseURL=zkStateReader.getBaseUrlForNodeName(this.nodeName);
+  init(registerOnReconnect);
+}
