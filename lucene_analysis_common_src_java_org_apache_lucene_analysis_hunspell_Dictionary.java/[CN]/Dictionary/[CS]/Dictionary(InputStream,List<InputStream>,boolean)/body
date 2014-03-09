@@ -2,16 +2,32 @@
   this.ignoreCase=ignoreCase;
   this.needsInputCleaning=ignoreCase;
   this.needsOutputCleaning=false;
-  BufferedInputStream buffered=new BufferedInputStream(affix,65536);
-  buffered.mark(65536);
-  String encoding=getDictionaryEncoding(buffered);
-  buffered.reset();
-  CharsetDecoder decoder=getJavaEncoding(encoding);
-  readAffixFile(buffered,decoder);
   flagLookup.add(new BytesRef());
   stripLookup.add(new BytesRef());
-  IntSequenceOutputs o=IntSequenceOutputs.getSingleton();
-  Builder<IntsRef> b=new Builder<IntsRef>(FST.INPUT_TYPE.BYTE4,o);
-  readDictionaryFiles(dictionaries,decoder,b);
-  words=b.finish();
+  File aff=File.createTempFile("affix","aff",tempDir);
+  OutputStream out=new BufferedOutputStream(new FileOutputStream(aff));
+  InputStream aff1=null;
+  InputStream aff2=null;
+  try {
+    final byte[] buffer=new byte[1024 * 8];
+    int len;
+    while ((len=affix.read(buffer)) > 0) {
+      out.write(buffer,0,len);
+    }
+    out.close();
+    aff1=new BufferedInputStream(new FileInputStream(aff));
+    String encoding=getDictionaryEncoding(aff1);
+    CharsetDecoder decoder=getJavaEncoding(encoding);
+    aff2=new BufferedInputStream(new FileInputStream(aff));
+    readAffixFile(aff2,decoder);
+    IntSequenceOutputs o=IntSequenceOutputs.getSingleton();
+    Builder<IntsRef> b=new Builder<IntsRef>(FST.INPUT_TYPE.BYTE4,o);
+    readDictionaryFiles(dictionaries,decoder,b);
+    words=b.finish();
+    aliases=null;
+  }
+  finally {
+    IOUtils.closeWhileHandlingException(out,aff1,aff2);
+    aff.delete();
+  }
 }
