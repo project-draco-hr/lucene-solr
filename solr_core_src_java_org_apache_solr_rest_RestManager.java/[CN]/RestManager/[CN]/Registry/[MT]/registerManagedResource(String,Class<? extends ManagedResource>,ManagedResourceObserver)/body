@@ -1,0 +1,27 @@
+{
+  if (resourceId == null)   throw new IllegalArgumentException("Must provide a non-null resourceId to register a ManagedResource!");
+  Matcher resourceIdValidator=resourceIdRegex.matcher(resourceId);
+  if (!resourceIdValidator.matches()) {
+    String errMsg=String.format(Locale.ROOT,"Invalid resourceId '%s'; must start with %s or %s.",resourceId,CONFIG_BASE_PATH,SCHEMA_BASE_PATH);
+    throw new SolrException(ErrorCode.SERVER_ERROR,errMsg);
+  }
+  Matcher reservedEndpointsMatcher=reservedEndpointsPattern.matcher(resourceId);
+  if (reservedEndpointsMatcher.matches()) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,reservedEndpointsMatcher.group(1) + " is a reserved endpoint used by the Solr REST API!");
+  }
+  ManagedResourceRegistration reg=registered.get(resourceId);
+  if (reg != null) {
+    if (!reg.implClass.equals(implClass)) {
+      String errMsg=String.format(Locale.ROOT,"REST API path %s already registered to instances of %s",resourceId,reg.implClass.getName());
+      throw new SolrException(ErrorCode.SERVER_ERROR,errMsg);
+    }
+    if (observer != null) {
+      reg.observers.add(observer);
+      log.info("Added observer of type {} to existing ManagedResource {}",observer.getClass().getName(),resourceId);
+    }
+  }
+ else {
+    registered.put(resourceId,new ManagedResourceRegistration(resourceId,implClass,observer));
+    log.info("Registered ManagedResource impl {} for path {}",implClass.getName(),resourceId);
+  }
+}

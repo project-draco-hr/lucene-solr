@@ -1,0 +1,47 @@
+{
+  SolrResourceLoader loader=new SolrResourceLoader("./");
+  RestManager.Registry registry=loader.getManagedResourceRegistry();
+  assertNotNull("Expected a non-null RestManager.Registry from the SolrResourceLoader!",registry);
+  String resourceId="/config/test/foo";
+  registry.registerManagedResource(resourceId,ManagedWordSetResource.class,new MockAnalysisComponent());
+  registry.registerManagedResource(resourceId,ManagedWordSetResource.class,new MockAnalysisComponent());
+  registry.registerManagedResource("/config/test/foo2",ManagedWordSetResource.class,new MockAnalysisComponent());
+  ignoreException("REST API path .* already registered to instances of ");
+  String failureMessage="Should not be able to register a different" + " ManagedResource implementation for {}";
+  try {
+    registry.registerManagedResource(resourceId,BogusManagedResource.class,new MockAnalysisComponent());
+    fail(String.format(Locale.ROOT,failureMessage,resourceId));
+  }
+ catch (  SolrException solrExc) {
+  }
+  resetExceptionIgnores();
+  ignoreException("is a reserved endpoint used by the Solr REST API!");
+  failureMessage="Should not be able to register reserved endpoint {}";
+  Set<String> reservedEndpoints=registry.getReservedEndpoints();
+  assertTrue(reservedEndpoints.size() > 2);
+  assertTrue(reservedEndpoints.contains(RestManager.SCHEMA_BASE_PATH + RestManager.MANAGED_ENDPOINT));
+  assertTrue(reservedEndpoints.contains(RestManager.CONFIG_BASE_PATH + RestManager.MANAGED_ENDPOINT));
+  for (  String endpoint : reservedEndpoints) {
+    try {
+      registry.registerManagedResource(endpoint,BogusManagedResource.class,new MockAnalysisComponent());
+      fail(String.format(Locale.ROOT,failureMessage,endpoint));
+    }
+ catch (    SolrException solrExc) {
+    }
+    endpoint+="/kid";
+    try {
+      registry.registerManagedResource(endpoint,BogusManagedResource.class,new MockAnalysisComponent());
+      fail(String.format(Locale.ROOT,failureMessage,endpoint));
+    }
+ catch (    SolrException solrExc) {
+    }
+  }
+  resetExceptionIgnores();
+  NamedList<String> initArgs=new NamedList<>();
+  RestManager restManager=new RestManager();
+  restManager.init(loader,initArgs,new ManagedResourceStorage.InMemoryStorageIO());
+  ManagedResource res=restManager.getManagedResource(resourceId);
+  assertTrue(res instanceof ManagedWordSetResource);
+  assertEquals(res.getResourceId(),resourceId);
+  restManager.getManagedResource("/config/test/foo2");
+}

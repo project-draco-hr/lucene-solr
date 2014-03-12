@@ -1,0 +1,54 @@
+{
+  super.doInit();
+  setNegotiated(false);
+  if (isExisting()) {
+    try {
+      SolrRequestInfo solrRequestInfo=SolrRequestInfo.getRequestInfo();
+      if (null == solrRequestInfo) {
+        final String message="No handler or core found in " + getRequest().getOriginalRef().getPath();
+        doError(Status.CLIENT_ERROR_BAD_REQUEST,message);
+        setExisting(false);
+      }
+ else {
+        solrRequest=solrRequestInfo.getReq();
+        if (null == solrRequest) {
+          final String message="No handler or core found in " + getRequest().getOriginalRef().getPath();
+          doError(Status.CLIENT_ERROR_BAD_REQUEST,message);
+          setExisting(false);
+        }
+ else {
+          solrResponse=solrRequestInfo.getRsp();
+          solrCore=solrRequest.getCore();
+          schema=solrRequest.getSchema();
+          String responseWriterName=solrRequest.getParams().get(CommonParams.WT);
+          if (null == responseWriterName) {
+            responseWriterName="json";
+          }
+          String indent=solrRequest.getParams().get("indent");
+          if (null == indent || !("off".equals(indent) || "false".equals(indent))) {
+            ModifiableSolrParams newParams=new ModifiableSolrParams(solrRequest.getParams());
+            newParams.remove(indent);
+            newParams.add("indent","on");
+            solrRequest.setParams(newParams);
+          }
+          responseWriter=solrCore.getQueryResponseWriter(responseWriterName);
+          contentType=responseWriter.getContentType(solrRequest,solrResponse);
+          final String path=getRequest().getRootRef().getPath();
+          if (!RestManager.SCHEMA_BASE_PATH.equals(path) && !RestManager.CONFIG_BASE_PATH.equals(path)) {
+            final int cutoffPoint=path.indexOf("/",1);
+            final String firstPathElement=-1 == cutoffPoint ? path : path.substring(0,cutoffPoint);
+            solrRequest.getContext().put("webapp",firstPathElement);
+          }
+          SolrCore.preDecorateResponse(solrRequest,solrResponse);
+        }
+      }
+    }
+ catch (    Throwable t) {
+      if (t instanceof OutOfMemoryError) {
+        throw (OutOfMemoryError)t;
+      }
+      setExisting(false);
+      throw new ResourceException(t);
+    }
+  }
+}
