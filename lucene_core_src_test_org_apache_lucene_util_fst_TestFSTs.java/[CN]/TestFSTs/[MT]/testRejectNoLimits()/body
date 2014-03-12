@@ -1,0 +1,44 @@
+{
+  final PositiveIntOutputs outputs=PositiveIntOutputs.getSingleton();
+  final Builder<Long> builder=new Builder<Long>(FST.INPUT_TYPE.BYTE1,outputs);
+  final IntsRef scratch=new IntsRef();
+  builder.add(Util.toIntsRef(new BytesRef("aab"),scratch),22L);
+  builder.add(Util.toIntsRef(new BytesRef("aac"),scratch),7L);
+  builder.add(Util.toIntsRef(new BytesRef("adcd"),scratch),17L);
+  builder.add(Util.toIntsRef(new BytesRef("adcde"),scratch),17L);
+  builder.add(Util.toIntsRef(new BytesRef("ax"),scratch),17L);
+  final FST<Long> fst=builder.finish();
+  final AtomicInteger rejectCount=new AtomicInteger();
+  Util.TopNSearcher<Long> searcher=new Util.TopNSearcher<Long>(fst,2,6,minLongComparator){
+    @Override protected boolean acceptResult(    IntsRef input,    Long output){
+      boolean accept=output.intValue() == 7;
+      if (!accept) {
+        rejectCount.incrementAndGet();
+      }
+      return accept;
+    }
+  }
+;
+  searcher.addStartPaths(fst.getFirstArc(new FST.Arc<Long>()),outputs.getNoOutput(),true,new IntsRef());
+  Util.TopResults<Long> res=searcher.search();
+  assertEquals(rejectCount.get(),4);
+  assertTrue(res.isComplete);
+  assertEquals(1,res.topN.size());
+  assertEquals(Util.toIntsRef(new BytesRef("aac"),scratch),res.topN.get(0).input);
+  assertEquals(7L,res.topN.get(0).output.longValue());
+  rejectCount.set(0);
+  searcher=new Util.TopNSearcher<Long>(fst,2,5,minLongComparator){
+    @Override protected boolean acceptResult(    IntsRef input,    Long output){
+      boolean accept=output.intValue() == 7;
+      if (!accept) {
+        rejectCount.incrementAndGet();
+      }
+      return accept;
+    }
+  }
+;
+  searcher.addStartPaths(fst.getFirstArc(new FST.Arc<Long>()),outputs.getNoOutput(),true,new IntsRef());
+  res=searcher.search();
+  assertEquals(rejectCount.get(),4);
+  assertFalse(res.isComplete);
+}
