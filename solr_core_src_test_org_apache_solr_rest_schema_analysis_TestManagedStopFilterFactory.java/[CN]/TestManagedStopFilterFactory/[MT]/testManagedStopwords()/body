@@ -1,0 +1,32 @@
+{
+  String endpoint="/schema/analysis/stopwords/english";
+  assertJQ(endpoint,"/wordSet/initArgs/ignoreCase==false","/wordSet/managedList==[]");
+  assertJPut(endpoint,JSONUtil.toJSON(Arrays.asList("a","an","the")),"/responseHeader/status==0");
+  assertJQ(endpoint + "/the","/the=='the'");
+  assertJQ(endpoint + "/foo","/error/code==404");
+  assertJQ(endpoint + "/An","/error/code==404");
+  String updateIgnoreCase="{ 'initArgs':{ 'ignoreCase':true }, " + "'managedList':['A','a','AN','an','THE','the','of','OF'] }";
+  assertJPut(endpoint,json(updateIgnoreCase),"/responseHeader/status==0");
+  assertJQ(endpoint,"/wordSet/initArgs/ignoreCase==true","/wordSet/managedList==['a','an','of','the']");
+  assertJQ("/schema/analysis/stopwords/english/The","/The=='the'");
+  assertQ(endpoint,"count(/response/lst[@name='wordSet']/arr[@name='managedList']/*) = 4","(/response/lst[@name='wordSet']/arr[@name='managedList']/str)[1] = 'a'","(/response/lst[@name='wordSet']/arr[@name='managedList']/str)[2] = 'an'","(/response/lst[@name='wordSet']/arr[@name='managedList']/str)[3] = 'of'","(/response/lst[@name='wordSet']/arr[@name='managedList']/str)[4] = 'the'");
+  restTestHarness.reload();
+  String newFieldName="managed_en_field";
+  assertQ("/schema/fields/" + newFieldName + "?indent=on&wt=xml","count(/response/lst[@name='field']) = 0","/response/lst[@name='responseHeader']/int[@name='status'] = '404'","/response/lst[@name='error']/int[@name='code'] = '404'");
+  assertJPut("/schema/fields/" + newFieldName,json("{'type':'managed_en'}"),"/responseHeader/status==0");
+  assertQ("/schema/fields/" + newFieldName + "?indent=on&wt=xml","count(/response/lst[@name='field']) = 1","/response/lst[@name='responseHeader']/int[@name='status'] = '0'");
+  assertU(adoc(newFieldName,"This is the one","id","6"));
+  assertU(commit());
+  assertQ("/select?q=" + newFieldName + ":This","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='1']","/response/result[@name='response']/doc/str[@name='id'][.='6']");
+  assertQ("/select?q=%7B%21raw%20f=" + newFieldName + "%7Dthe","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='0']");
+  assertJDelete(endpoint + "/the","/responseHeader/status==0");
+  assertU(adoc(newFieldName,"This is the other one","id","7"));
+  assertU(commit());
+  assertQ("/select?q=%7B%21raw%20f=" + newFieldName + "%7Dthe","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='0']");
+  restTestHarness.reload();
+  assertU(adoc(newFieldName,"This is the other other one","id","8"));
+  assertU(commit());
+  assertQ("/select?q=%7B%21raw%20f=" + newFieldName + "%7Dthe","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='1']","/response/result[@name='response']/doc/str[@name='id'][.='8']");
+  assertJQ(endpoint,"/wordSet/initArgs/ignoreCase==true","/wordSet/managedList==['a','an','of']");
+  assertJDelete(endpoint + "/foo","/error/code==404");
+}
