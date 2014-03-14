@@ -1,5 +1,22 @@
 {
   long time=System.nanoTime();
+  if (m.containsKey(ASYNC) && m.get(ASYNC) != null) {
+    String asyncId=m.getStr(ASYNC);
+    if (asyncId.equals("-1")) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"requestid can not be -1. It is reserved for cleanup purposes.");
+    }
+    NamedList<String> r=new NamedList<>();
+    if (coreContainer.getZkController().getOverseerCompletedMap().contains(asyncId) || coreContainer.getZkController().getOverseerFailureMap().contains(asyncId) || coreContainer.getZkController().getOverseerRunningMap().contains(asyncId)) {
+      r.add("error","Task with the same requestid already exists.");
+    }
+ else {
+      coreContainer.getZkController().getOverseerCollectionQueue().offer(ZkStateReader.toJSON(m));
+    }
+    r.add(CoreAdminParams.REQUESTID,(String)m.get(ASYNC));
+    SolrResponse response=new OverseerSolrResponse(r);
+    rsp.getValues().addAll(response.getResponse());
+    return;
+  }
   QueueEvent event=coreContainer.getZkController().getOverseerCollectionQueue().offer(ZkStateReader.toJSON(m),timeout);
   if (event.getBytes() != null) {
     SolrResponse response=SolrResponse.deserialize(event.getBytes());

@@ -1,0 +1,62 @@
+{
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set(CoreAdminParams.ACTION,CoreAdminAction.REQUESTSTATUS.toString());
+  params.set(CoreAdminParams.REQUESTID,requestId);
+  int counter=0;
+  ShardRequest sreq;
+  do {
+    sreq=new ShardRequest();
+    params.set("qt",adminPath);
+    sreq.purpose=1;
+    String replica=zkStateReader.getBaseUrlForNodeName(nodeName);
+    if (replica.startsWith("http://"))     replica=replica.substring(7);
+    sreq.shards=new String[]{replica};
+    sreq.actualShards=sreq.shards;
+    sreq.params=params;
+    shardHandler.submit(sreq,replica,sreq.params);
+    ShardResponse srsp;
+    do {
+      srsp=shardHandler.takeCompletedOrError();
+      if (srsp != null) {
+        NamedList results=new NamedList();
+        processResponse(results,srsp);
+        String r=(String)srsp.getSolrResponse().getResponse().get("STATUS");
+        if (r.equals("running")) {
+          log.debug("The task is still RUNNING, continuing to wait.");
+          try {
+            Thread.sleep(1000);
+          }
+ catch (          InterruptedException e) {
+            e.printStackTrace();
+          }
+          continue;
+        }
+ else         if (r.equals("completed")) {
+          log.debug("The task is COMPLETED, returning");
+          return srsp.getSolrResponse().getResponse();
+        }
+ else         if (r.equals("failed")) {
+          log.debug("The task is FAILED, returning");
+          return srsp.getSolrResponse().getResponse();
+        }
+ else         if (r.equals("notfound")) {
+          log.debug("The task is notfound, retry");
+          if (counter++ < 5) {
+            try {
+              Thread.sleep(1000);
+            }
+ catch (            InterruptedException e) {
+            }
+            break;
+          }
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid status request: " + srsp.getSolrResponse().getResponse().get("STATUS") + "retried "+ counter+ "times");
+        }
+ else {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid status request " + srsp.getSolrResponse().getResponse().get("STATUS"));
+        }
+      }
+    }
+ while (srsp != null);
+  }
+ while (true);
+}

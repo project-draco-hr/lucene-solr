@@ -1,0 +1,39 @@
+{
+  final File workDir=new File(TEMP_DIR,this.getClass().getName());
+  if (workDir.exists()) {
+    FileUtils.deleteDirectory(workDir);
+  }
+  assertTrue("Failed to mkdirs workDir",workDir.mkdirs());
+  final CoreContainer cores=h.getCoreContainer();
+  final CoreAdminHandler admin=new CoreAdminHandler(cores);
+  String instDir=null;
+{
+    SolrCore template=null;
+    try {
+      template=cores.getCore("collection1");
+      instDir=template.getCoreDescriptor().getInstanceDir();
+    }
+  finally {
+      if (null != template)       template.close();
+    }
+  }
+  final File instDirFile=new File(instDir);
+  assertTrue("instDir doesn't exist: " + instDir,instDirFile.exists());
+  final File instPropFile=new File(workDir,"instProp");
+  FileUtils.copyDirectory(instDirFile,instPropFile);
+  SolrQueryResponse resp=new SolrQueryResponse();
+  admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.INSTANCE_DIR,instPropFile.getAbsolutePath(),CoreAdminParams.NAME,"dummycore","async","42"),resp);
+  assertNull("Exception on create",resp.getException());
+  int maxRetries=10;
+  while (maxRetries-- > 0) {
+    resp=new SolrQueryResponse();
+    admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.REQUESTSTATUS.toString(),CoreAdminParams.REQUESTID,"42"),resp);
+    if (resp.getValues().get("STATUS") != null && resp.getValues().get("STATUS").equals("completed"))     break;
+    Thread.sleep(1000);
+  }
+  assertEquals("The status of request was expected to be completed","completed",resp.getValues().get("STATUS"));
+  resp=new SolrQueryResponse();
+  admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.REQUESTSTATUS.toString(),CoreAdminParams.REQUESTID,"9999999"),resp);
+  assertEquals("Was expecting it to be invalid but found a task with the id.","notfound",resp.getValues().get("STATUS"));
+  admin.shutdown();
+}

@@ -23,10 +23,25 @@
       }
       QueueEvent head=workQueue.peek(true);
       final ZkNodeProps message=ZkNodeProps.load(head.getBytes());
+      final String asyncId=(message.containsKey(ASYNC) && message.get(ASYNC) != null) ? (String)message.get(ASYNC) : null;
+      try {
+        if (message.containsKey(ASYNC) && message.get(ASYNC) != null && !runningMap.contains(message.getStr(ASYNC)))         runningMap.put(asyncId,null);
+      }
+ catch (      KeeperException.NodeExistsException e) {
+      }
       log.info("Overseer Collection Processor: Get the message id:" + head.getId() + " message:"+ message.toString());
       final String operation=message.getStr(QUEUE_OPERATION);
       SolrResponse response=processMessage(message,operation);
       head.setBytes(SolrResponse.serializable(response));
+      if (!operation.equals(REQUESTSTATUS) && asyncId != null) {
+        if (response.getResponse().get("failure") != null || response.getResponse().get("exception") != null) {
+          failureMap.put(asyncId,null);
+        }
+ else {
+          completedMap.put(asyncId,null);
+        }
+      }
+      if (asyncId != null)       runningMap.remove(asyncId);
       workQueue.remove(head);
       log.info("Overseer Collection Processor: Message id:" + head.getId() + " complete, response:"+ response.getResponse().toString());
     }
