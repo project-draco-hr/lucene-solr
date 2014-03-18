@@ -1,0 +1,32 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setCodec(new Lucene46Codec(){
+    @Override public DocValuesFormat getDocValuesFormatForField(    String field){
+      return new Lucene45DocValuesFormat();
+    }
+  }
+);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  Document doc=new Document();
+  doc.add(new StringField("key","doc",Store.NO));
+  doc.add(new BinaryDocValuesField("bdv",toBytes(5L)));
+  doc.add(new SortedDocValuesField("sorted",new BytesRef("value")));
+  writer.addDocument(doc);
+  writer.commit();
+  writer.addDocument(doc);
+  writer.updateBinaryDocValue(new Term("key","doc"),"bdv",toBytes(17L));
+  writer.close();
+  final DirectoryReader reader=DirectoryReader.open(dir);
+  AtomicReader r=SlowCompositeReaderWrapper.wrap(reader);
+  BinaryDocValues bdv=r.getBinaryDocValues("bdv");
+  SortedDocValues sdv=r.getSortedDocValues("sorted");
+  BytesRef scratch=new BytesRef();
+  for (int i=0; i < r.maxDoc(); i++) {
+    assertEquals(17,getValue(bdv,i,scratch));
+    sdv.get(i,scratch);
+    assertEquals(new BytesRef("value"),scratch);
+  }
+  reader.close();
+  dir.close();
+}

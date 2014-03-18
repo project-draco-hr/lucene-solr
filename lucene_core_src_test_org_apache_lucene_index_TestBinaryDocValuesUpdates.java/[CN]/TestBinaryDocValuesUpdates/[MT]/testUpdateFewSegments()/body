@@ -1,0 +1,43 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMaxBufferedDocs(2);
+  conf.setMergePolicy(NoMergePolicy.COMPOUND_FILES);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  int numDocs=10;
+  long[] expectedValues=new long[numDocs];
+  for (int i=0; i < numDocs; i++) {
+    writer.addDocument(doc(i));
+    expectedValues[i]=i + 1;
+  }
+  writer.commit();
+  for (int i=0; i < numDocs; i++) {
+    if (random().nextDouble() < 0.4) {
+      long value=(i + 1) * 2;
+      writer.updateBinaryDocValue(new Term("id","doc-" + i),"val",toBytes(value));
+      expectedValues[i]=value;
+    }
+  }
+  final DirectoryReader reader;
+  if (random().nextBoolean()) {
+    writer.close();
+    reader=DirectoryReader.open(dir);
+  }
+ else {
+    reader=DirectoryReader.open(writer,true);
+    writer.close();
+  }
+  BytesRef scratch=new BytesRef();
+  for (  AtomicReaderContext context : reader.leaves()) {
+    AtomicReader r=context.reader();
+    BinaryDocValues bdv=r.getBinaryDocValues("val");
+    assertNotNull(bdv);
+    for (int i=0; i < r.maxDoc(); i++) {
+      long expected=expectedValues[i + context.docBase];
+      long actual=getValue(bdv,i,scratch);
+      assertEquals(expected,actual);
+    }
+  }
+  reader.close();
+  dir.close();
+}

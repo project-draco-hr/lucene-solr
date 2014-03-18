@@ -1,0 +1,27 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMaxBufferedDocs(10);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  for (int i=0; i < 2; i++) {
+    Document doc=new Document();
+    doc.add(new StringField("dvUpdateKey","dv",Store.NO));
+    doc.add(new BinaryDocValuesField("bdv1",toBytes(i)));
+    doc.add(new BinaryDocValuesField("bdv2",toBytes(i)));
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.updateBinaryDocValue(new Term("dvUpdateKey","dv"),"bdv1",toBytes(17L));
+  writer.close();
+  final DirectoryReader reader=DirectoryReader.open(dir);
+  AtomicReader r=reader.leaves().get(0).reader();
+  BinaryDocValues bdv1=r.getBinaryDocValues("bdv1");
+  BinaryDocValues bdv2=r.getBinaryDocValues("bdv2");
+  BytesRef scratch=new BytesRef();
+  for (int i=0; i < r.maxDoc(); i++) {
+    assertEquals(17,getValue(bdv1,i,scratch));
+    assertEquals(i,getValue(bdv2,i,scratch));
+  }
+  reader.close();
+  dir.close();
+}

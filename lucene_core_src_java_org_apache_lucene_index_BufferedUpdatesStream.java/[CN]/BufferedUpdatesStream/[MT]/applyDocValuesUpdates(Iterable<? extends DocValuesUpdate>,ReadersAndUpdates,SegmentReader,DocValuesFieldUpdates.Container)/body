@@ -1,0 +1,41 @@
+{
+  Fields fields=reader.fields();
+  if (fields == null) {
+    return;
+  }
+  String currentField=null;
+  TermsEnum termsEnum=null;
+  DocsEnum docs=null;
+  for (  DocValuesUpdate update : updates) {
+    Term term=update.term;
+    int limit=update.docIDUpto;
+    if (!term.field().equals(currentField)) {
+      currentField=term.field();
+      Terms terms=fields.terms(currentField);
+      if (terms != null) {
+        termsEnum=terms.iterator(termsEnum);
+      }
+ else {
+        termsEnum=null;
+        continue;
+      }
+    }
+    if (termsEnum == null) {
+      continue;
+    }
+    if (termsEnum.seekExact(term.bytes())) {
+      DocsEnum docsEnum=termsEnum.docs(rld.getLiveDocs(),docs,DocsEnum.FLAG_NONE);
+      DocValuesFieldUpdates dvUpdates=dvUpdatesContainer.getUpdates(update.field,update.type);
+      if (dvUpdates == null) {
+        dvUpdates=dvUpdatesContainer.newUpdates(update.field,update.type,reader.maxDoc());
+      }
+      int doc;
+      while ((doc=docsEnum.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+        if (doc >= limit) {
+          break;
+        }
+        dvUpdates.add(doc,update.value);
+      }
+    }
+  }
+}

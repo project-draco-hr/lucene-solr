@@ -1,0 +1,53 @@
+{
+  Directory dir=newDirectory();
+  final Random random=random();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random));
+  conf.setRAMBufferSizeMB(IndexWriterConfig.DEFAULT_RAM_BUFFER_SIZE_MB);
+  conf.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  final int numDocs=atLeast(20000);
+  final int numBinaryFields=atLeast(5);
+  final int numTerms=TestUtil.nextInt(random,10,100);
+  Set<String> updateTerms=new HashSet<>();
+  while (updateTerms.size() < numTerms) {
+    updateTerms.add(TestUtil.randomSimpleString(random));
+  }
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    int numUpdateTerms=TestUtil.nextInt(random,1,numTerms / 10);
+    for (int j=0; j < numUpdateTerms; j++) {
+      doc.add(new StringField("upd",RandomPicks.randomFrom(random,updateTerms),Store.NO));
+    }
+    for (int j=0; j < numBinaryFields; j++) {
+      long val=random.nextInt();
+      doc.add(new BinaryDocValuesField("f" + j,toBytes(val)));
+      doc.add(new BinaryDocValuesField("cf" + j,toBytes(val * 2)));
+    }
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.getConfig().setRAMBufferSizeMB(2048.0 / 1024 / 1024);
+  final int numUpdates=atLeast(100);
+  for (int i=0; i < numUpdates; i++) {
+    int field=random.nextInt(numBinaryFields);
+    Term updateTerm=new Term("upd",RandomPicks.randomFrom(random,updateTerms));
+    long value=random.nextInt();
+    writer.updateBinaryDocValue(updateTerm,"f" + field,toBytes(value));
+    writer.updateBinaryDocValue(updateTerm,"cf" + field,toBytes(value * 2));
+  }
+  writer.close();
+  DirectoryReader reader=DirectoryReader.open(dir);
+  BytesRef scratch=new BytesRef();
+  for (  AtomicReaderContext context : reader.leaves()) {
+    for (int i=0; i < numBinaryFields; i++) {
+      AtomicReader r=context.reader();
+      BinaryDocValues f=r.getBinaryDocValues("f" + i);
+      BinaryDocValues cf=r.getBinaryDocValues("cf" + i);
+      for (int j=0; j < r.maxDoc(); j++) {
+        assertEquals("reader=" + r + ", field=f"+ i+ ", doc="+ j,getValue(cf,j,scratch),getValue(f,j,scratch) * 2);
+      }
+    }
+  }
+  reader.close();
+  dir.close();
+}

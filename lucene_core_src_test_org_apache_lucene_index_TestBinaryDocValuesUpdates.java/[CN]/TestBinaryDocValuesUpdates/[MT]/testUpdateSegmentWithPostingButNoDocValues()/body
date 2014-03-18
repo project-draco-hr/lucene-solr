@@ -1,0 +1,30 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMergePolicy(NoMergePolicy.COMPOUND_FILES);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  Document doc=new Document();
+  doc.add(new StringField("id","doc0",Store.NO));
+  doc.add(new StringField("bdv","mock-value",Store.NO));
+  doc.add(new BinaryDocValuesField("bdv",toBytes(5L)));
+  writer.addDocument(doc);
+  writer.commit();
+  doc=new Document();
+  doc.add(new StringField("id","doc1",Store.NO));
+  doc.add(new StringField("bdv","mock-value",Store.NO));
+  writer.addDocument(doc);
+  writer.commit();
+  writer.updateBinaryDocValue(new Term("id","doc1"),"bdv",toBytes(5L));
+  writer.close();
+  DirectoryReader reader=DirectoryReader.open(dir);
+  BytesRef scratch=new BytesRef();
+  for (  AtomicReaderContext context : reader.leaves()) {
+    AtomicReader r=context.reader();
+    BinaryDocValues bdv=r.getBinaryDocValues("bdv");
+    for (int i=0; i < r.maxDoc(); i++) {
+      assertEquals(5L,getValue(bdv,i,scratch));
+    }
+  }
+  reader.close();
+  dir.close();
+}

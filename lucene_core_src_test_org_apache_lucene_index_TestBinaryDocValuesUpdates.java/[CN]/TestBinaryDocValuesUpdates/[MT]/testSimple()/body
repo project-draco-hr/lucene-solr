@@ -1,0 +1,30 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMaxBufferedDocs(10);
+  conf.setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  writer.addDocument(doc(0));
+  writer.addDocument(doc(1));
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  writer.updateBinaryDocValue(new Term("id","doc-0"),"val",toBytes(2));
+  final DirectoryReader reader;
+  if (random().nextBoolean()) {
+    writer.close();
+    reader=DirectoryReader.open(dir);
+  }
+ else {
+    reader=DirectoryReader.open(writer,true);
+    writer.close();
+  }
+  assertEquals(1,reader.leaves().size());
+  AtomicReader r=reader.leaves().get(0).reader();
+  BinaryDocValues bdv=r.getBinaryDocValues("val");
+  BytesRef scratch=new BytesRef();
+  assertEquals(2,getValue(bdv,0,scratch));
+  assertEquals(2,getValue(bdv,1,scratch));
+  reader.close();
+  dir.close();
+}

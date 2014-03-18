@@ -1,0 +1,36 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  conf.setMaxBufferedDocs(4);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  final int numDocs=atLeast(10);
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    doc.add(new StringField("id","doc" + i,Store.NO));
+    long value=random().nextInt();
+    doc.add(new BinaryDocValuesField("f",TestBinaryDocValuesUpdates.toBytes(value)));
+    doc.add(new NumericDocValuesField("cf",value * 2));
+    writer.addDocument(doc);
+  }
+  int numGens=atLeast(5);
+  BytesRef scratch=new BytesRef();
+  for (int i=0; i < numGens; i++) {
+    int doc=random().nextInt(numDocs);
+    Term t=new Term("id","doc" + doc);
+    long value=random().nextLong();
+    writer.updateBinaryDocValue(t,"f",TestBinaryDocValuesUpdates.toBytes(value));
+    writer.updateNumericDocValue(t,"cf",value * 2);
+    DirectoryReader reader=DirectoryReader.open(writer,true);
+    for (    AtomicReaderContext context : reader.leaves()) {
+      AtomicReader r=context.reader();
+      BinaryDocValues fbdv=r.getBinaryDocValues("f");
+      NumericDocValues cfndv=r.getNumericDocValues("cf");
+      for (int j=0; j < r.maxDoc(); j++) {
+        assertEquals(cfndv.get(j),TestBinaryDocValuesUpdates.getValue(fbdv,j,scratch) * 2);
+      }
+    }
+    reader.close();
+  }
+  writer.close();
+  dir.close();
+}

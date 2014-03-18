@@ -1,0 +1,50 @@
+{
+  Directory dir1=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  IndexWriter writer=new IndexWriter(dir1,conf);
+  final int numDocs=atLeast(50);
+  final int numTerms=TestUtil.nextInt(random(),1,numDocs / 5);
+  Set<String> randomTerms=new HashSet<>();
+  while (randomTerms.size() < numTerms) {
+    randomTerms.add(TestUtil.randomSimpleString(random()));
+  }
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    doc.add(new StringField("id",RandomPicks.randomFrom(random(),randomTerms),Store.NO));
+    doc.add(new BinaryDocValuesField("bdv",toBytes(4L)));
+    doc.add(new BinaryDocValuesField("control",toBytes(8L)));
+    writer.addDocument(doc);
+  }
+  if (random().nextBoolean()) {
+    writer.commit();
+  }
+  long value=random().nextInt();
+  Term term=new Term("id",RandomPicks.randomFrom(random(),randomTerms));
+  writer.updateBinaryDocValue(term,"bdv",toBytes(value));
+  writer.updateBinaryDocValue(term,"control",toBytes(value * 2));
+  writer.close();
+  Directory dir2=newDirectory();
+  conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  writer=new IndexWriter(dir2,conf);
+  if (random().nextBoolean()) {
+    writer.addIndexes(dir1);
+  }
+ else {
+    DirectoryReader reader=DirectoryReader.open(dir1);
+    writer.addIndexes(reader);
+    reader.close();
+  }
+  writer.close();
+  DirectoryReader reader=DirectoryReader.open(dir2);
+  BytesRef scratch=new BytesRef();
+  for (  AtomicReaderContext context : reader.leaves()) {
+    AtomicReader r=context.reader();
+    BinaryDocValues bdv=r.getBinaryDocValues("bdv");
+    BinaryDocValues control=r.getBinaryDocValues("control");
+    for (int i=0; i < r.maxDoc(); i++) {
+      assertEquals(getValue(bdv,i,scratch) * 2,getValue(control,i,scratch));
+    }
+  }
+  reader.close();
+  IOUtils.close(dir1,dir2);
+}

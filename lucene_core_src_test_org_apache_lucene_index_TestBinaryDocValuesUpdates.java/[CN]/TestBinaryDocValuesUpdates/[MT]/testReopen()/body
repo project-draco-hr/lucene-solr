@@ -1,0 +1,29 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  IndexWriter writer=new IndexWriter(dir,conf);
+  writer.addDocument(doc(0));
+  writer.addDocument(doc(1));
+  final boolean isNRT=random().nextBoolean();
+  final DirectoryReader reader1;
+  if (isNRT) {
+    reader1=DirectoryReader.open(writer,true);
+  }
+ else {
+    writer.commit();
+    reader1=DirectoryReader.open(dir);
+  }
+  writer.updateBinaryDocValue(new Term("id","doc-0"),"val",toBytes(10));
+  if (!isNRT) {
+    writer.commit();
+  }
+  final DirectoryReader reader2=DirectoryReader.openIfChanged(reader1);
+  assertNotNull(reader2);
+  assertTrue(reader1 != reader2);
+  BytesRef scratch=new BytesRef();
+  BinaryDocValues bdv1=reader1.leaves().get(0).reader().getBinaryDocValues("val");
+  BinaryDocValues bdv2=reader2.leaves().get(0).reader().getBinaryDocValues("val");
+  assertEquals(1,getValue(bdv1,0,scratch));
+  assertEquals(10,getValue(bdv2,0,scratch));
+  IOUtils.close(writer,reader1,reader2,dir);
+}

@@ -1,0 +1,28 @@
+{
+  assumeTrue("codec does not support docsWithField",defaultCodecSupportsDocsWithField());
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  IndexWriter writer=new IndexWriter(dir,conf);
+  for (int i=0; i < 2; i++) {
+    Document doc=new Document();
+    doc.add(new StringField("id","doc",Store.NO));
+    doc.add(new BinaryDocValuesField("bdv",toBytes(5L)));
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.updateBinaryDocValue(new Term("id","doc"),"bdv",null);
+  writer.close();
+  final DirectoryReader reader=DirectoryReader.open(dir);
+  AtomicReader r=reader.leaves().get(0).reader();
+  BinaryDocValues bdv=r.getBinaryDocValues("bdv");
+  BytesRef scratch=new BytesRef();
+  for (int i=0; i < r.maxDoc(); i++) {
+    bdv.get(i,scratch);
+    assertEquals(0,scratch.length);
+  }
+  Bits docsWithField=r.getDocsWithField("bdv");
+  assertFalse(docsWithField.get(0));
+  assertFalse(docsWithField.get(1));
+  reader.close();
+  dir.close();
+}

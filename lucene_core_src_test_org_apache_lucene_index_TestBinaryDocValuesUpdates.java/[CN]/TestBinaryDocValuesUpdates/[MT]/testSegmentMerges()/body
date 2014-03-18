@@ -1,0 +1,57 @@
+{
+  Directory dir=newDirectory();
+  Random random=random();
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random));
+  IndexWriter writer=new IndexWriter(dir,conf.clone());
+  int docid=0;
+  int numRounds=atLeast(10);
+  for (int rnd=0; rnd < numRounds; rnd++) {
+    Document doc=new Document();
+    doc.add(new StringField("key","doc",Store.NO));
+    doc.add(new BinaryDocValuesField("bdv",toBytes(-1)));
+    int numDocs=atLeast(30);
+    for (int i=0; i < numDocs; i++) {
+      doc.removeField("id");
+      doc.add(new StringField("id",Integer.toString(docid++),Store.NO));
+      writer.addDocument(doc);
+    }
+    long value=rnd + 1;
+    writer.updateBinaryDocValue(new Term("key","doc"),"bdv",toBytes(value));
+    if (random.nextDouble() < 0.2) {
+      writer.deleteDocuments(new Term("id",Integer.toString(random.nextInt(docid))));
+    }
+    if (random.nextDouble() < 0.4) {
+      writer.commit();
+    }
+ else     if (random.nextDouble() < 0.1) {
+      writer.close();
+      writer=new IndexWriter(dir,conf.clone());
+    }
+    doc=new Document();
+    doc.add(new StringField("id",Integer.toString(docid++),Store.NO));
+    doc.add(new StringField("key","doc",Store.NO));
+    doc.add(new BinaryDocValuesField("bdv",toBytes(value)));
+    writer.addDocument(doc);
+    writer.forceMerge(1,true);
+    final DirectoryReader reader;
+    if (random.nextBoolean()) {
+      writer.commit();
+      reader=DirectoryReader.open(dir);
+    }
+ else {
+      reader=DirectoryReader.open(writer,true);
+    }
+    assertEquals(1,reader.leaves().size());
+    final AtomicReader r=reader.leaves().get(0).reader();
+    assertNull("index should have no deletes after forceMerge",r.getLiveDocs());
+    BinaryDocValues bdv=r.getBinaryDocValues("bdv");
+    assertNotNull(bdv);
+    BytesRef scratch=new BytesRef();
+    for (int i=0; i < r.maxDoc(); i++) {
+      assertEquals(value,getValue(bdv,i,scratch));
+    }
+    reader.close();
+  }
+  writer.close();
+  dir.close();
+}
