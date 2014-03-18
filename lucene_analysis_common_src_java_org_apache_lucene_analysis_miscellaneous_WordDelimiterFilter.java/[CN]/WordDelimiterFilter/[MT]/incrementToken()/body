@@ -12,6 +12,7 @@
       if ((iterator.current == 0 && iterator.end == termLength) || (protWords != null && protWords.contains(termBuffer,0,termLength))) {
         posIncAttribute.setPositionIncrement(accumPosInc);
         accumPosInc=0;
+        first=false;
         return true;
       }
       if (iterator.end == WordDelimiterIterator.DONE && !has(PRESERVE_ORIGINAL)) {
@@ -27,35 +28,53 @@
       if (has(PRESERVE_ORIGINAL)) {
         posIncAttribute.setPositionIncrement(accumPosInc);
         accumPosInc=0;
+        first=false;
         return true;
       }
     }
     if (iterator.end == WordDelimiterIterator.DONE) {
       if (!concat.isEmpty()) {
         if (flushConcatenation(concat)) {
-          return true;
+          buffer();
+          continue;
         }
       }
       if (!concatAll.isEmpty()) {
         if (concatAll.subwordCount > lastConcatCount) {
           concatAll.writeAndClear();
-          return true;
+          buffer();
+          continue;
         }
         concatAll.clear();
       }
+      if (bufferedPos < bufferedLen) {
+        if (bufferedPos == 0) {
+          sorter.sort(0,bufferedLen);
+        }
+        clearAttributes();
+        restoreState(buffered[bufferedPos++]);
+        if (first && posIncAttribute.getPositionIncrement() == 0) {
+          posIncAttribute.setPositionIncrement(1);
+        }
+        first=false;
+        return true;
+      }
+      bufferedPos=bufferedLen=0;
       hasSavedState=false;
       continue;
     }
     if (iterator.isSingleWord()) {
       generatePart(true);
       iterator.next();
+      first=false;
       return true;
     }
     int wordType=iterator.type();
     if (!concat.isEmpty() && (concat.type & wordType) == 0) {
       if (flushConcatenation(concat)) {
         hasOutputToken=false;
-        return true;
+        buffer();
+        continue;
       }
       hasOutputToken=false;
     }
@@ -70,8 +89,7 @@
     }
     if (shouldGenerateParts(wordType)) {
       generatePart(false);
-      iterator.next();
-      return true;
+      buffer();
     }
     iterator.next();
   }
