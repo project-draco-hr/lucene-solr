@@ -74,6 +74,61 @@
   finally {
     threadedClient.shutdown();
   }
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  DocCollection col=clusterState.getCollection(DEFAULT_COLLECTION);
+  Map<String,Long> requestCountsMap=Maps.newHashMap();
+  for (  Slice slice : col.getSlices()) {
+    for (    Replica replica : slice.getReplicas()) {
+      String baseURL=(String)replica.get(ZkStateReader.BASE_URL_PROP);
+      requestCountsMap.put(baseURL,getNumRequests(new HttpSolrServer(baseURL)));
+    }
+  }
+  DocRouter router=col.getRouter();
+  Collection<Slice> expectedSlices=router.getSearchSlicesSingle("0",null,col);
+  Set<String> expectedBaseURLs=Sets.newHashSet();
+  for (  Slice expectedSlice : expectedSlices) {
+    for (    Replica replica : expectedSlice.getReplicas()) {
+      String baseURL=(String)replica.get(ZkStateReader.BASE_URL_PROP);
+      expectedBaseURLs.add(baseURL);
+    }
+  }
+  assertTrue("expected urls is not fewer than all urls! expected=" + expectedBaseURLs + "; all="+ requestCountsMap.keySet(),expectedBaseURLs.size() < requestCountsMap.size());
+  List<String> sameShardRoutes=Lists.newArrayList();
+  sameShardRoutes.add("0");
+  for (int i=1; i < 1000; i++) {
+    String shardKey=Integer.toString(i);
+    Collection<Slice> slices=router.getSearchSlicesSingle(shardKey,null,col);
+    if (expectedSlices.equals(slices)) {
+      sameShardRoutes.add(shardKey);
+    }
+  }
+  assertTrue(sameShardRoutes.size() > 1);
+  for (int i=0; i < 1000; i++) {
+    ModifiableSolrParams solrParams=new ModifiableSolrParams();
+    solrParams.set(CommonParams.Q,"*:*");
+    solrParams.set(ShardParams._ROUTE_,sameShardRoutes.get(random().nextInt(sameShardRoutes.size())));
+    cloudClient.query(solrParams);
+  }
+  int increaseFromExpectedUrls=0;
+  int increaseFromUnexpectedUrls=0;
+  Map<String,Long> numRequestsToUnexpectedUrls=Maps.newHashMap();
+  for (  Slice slice : col.getSlices()) {
+    for (    Replica replica : slice.getReplicas()) {
+      String baseURL=(String)replica.get(ZkStateReader.BASE_URL_PROP);
+      Long prevNumRequests=requestCountsMap.get(baseURL);
+      Long curNumRequests=getNumRequests(new HttpSolrServer(baseURL));
+      long delta=curNumRequests - prevNumRequests;
+      if (expectedBaseURLs.contains(baseURL)) {
+        increaseFromExpectedUrls+=delta;
+      }
+ else {
+        increaseFromUnexpectedUrls+=delta;
+        numRequestsToUnexpectedUrls.put(baseURL,delta);
+      }
+    }
+  }
+  assertEquals("Unexpected number of requests to expected URLs",1000,increaseFromExpectedUrls);
+  assertEquals("Unexpected number of requests to unexpected URLs: " + numRequestsToUnexpectedUrls,0,increaseFromUnexpectedUrls);
   del("*:*");
   commit();
 }
