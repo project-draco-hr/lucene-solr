@@ -1,0 +1,44 @@
+{
+  int[] docIDs=new int[topDocs.scoreDocs.length];
+  for (int i=0; i < docIDs.length; i++) {
+    docIDs[i]=topDocs.scoreDocs[i].doc;
+  }
+  TopDocs topDocs2=searcher.search(query,new OnlyDocIDsFilter(docIDs),topDocs.scoreDocs.length);
+  Map<Integer,Float> newScores=new HashMap<Integer,Float>();
+  for (  ScoreDoc sd : topDocs2.scoreDocs) {
+    newScores.put(sd.doc,sd.score);
+  }
+  ScoreDoc[] newHits=new ScoreDoc[topDocs.scoreDocs.length];
+  for (int i=0; i < topDocs.scoreDocs.length; i++) {
+    ScoreDoc sd=topDocs.scoreDocs[i];
+    Float newScore=newScores.get(sd.doc);
+    float combinedScore;
+    if (newScore == null) {
+      combinedScore=combine(sd.score,false,0.0f);
+    }
+ else {
+      combinedScore=combine(sd.score,true,newScore.floatValue());
+    }
+    newHits[i]=new ScoreDoc(sd.doc,combinedScore);
+  }
+  Arrays.sort(newHits,new Comparator<ScoreDoc>(){
+    @Override public int compare(    ScoreDoc a,    ScoreDoc b){
+      if (a.score > b.score) {
+        return -1;
+      }
+ else       if (a.score < b.score) {
+        return 1;
+      }
+ else {
+        return a.doc - b.doc;
+      }
+    }
+  }
+);
+  if (topN < newHits.length) {
+    ScoreDoc[] subset=new ScoreDoc[topN];
+    System.arraycopy(newHits,0,subset,0,topN);
+    newHits=subset;
+  }
+  return new TopDocs(topDocs.totalHits,newHits,newHits[0].score);
+}
