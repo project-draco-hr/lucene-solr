@@ -1,0 +1,50 @@
+{
+  final int numIters=RANDOM_MULTIPLIER * 75;
+  for (int iter=0; iter < numIters; iter++) {
+    MockDirectoryWrapper dir=newMockDirectory();
+    dir.failOn(new MockDirectoryWrapper.Failure(){
+      @Override public void eval(      MockDirectoryWrapper dir) throws IOException {
+        boolean maybeFail=false;
+        StackTraceElement[] trace=new Exception().getStackTrace();
+        for (int i=0; i < trace.length; i++) {
+          if ("rollbackInternal".equals(trace[i].getMethodName())) {
+            maybeFail=true;
+            break;
+          }
+        }
+        if (maybeFail && random().nextInt(10) == 0) {
+          if (VERBOSE) {
+            System.out.println("TEST: now fail; thread=" + Thread.currentThread().getName() + " exc:");
+            new Throwable().printStackTrace(System.out);
+          }
+          throw new FakeIOException();
+        }
+      }
+    }
+);
+    IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,null);
+    IndexWriter iw=new IndexWriter(dir,iwc);
+    Document doc=new Document();
+    for (int i=0; i < 10; i++) {
+      iw.addDocument(doc);
+    }
+    iw.commit();
+    iw.addDocument(doc);
+    DirectoryReader r=DirectoryReader.open(iw,false);
+    if (random().nextBoolean()) {
+      iw.prepareCommit();
+    }
+    try {
+      iw.rollback();
+    }
+ catch (    FakeIOException expected) {
+    }
+    r.close();
+    assertTrue(iw.isClosed());
+    assertFalse(IndexWriter.isLocked(dir));
+    r=DirectoryReader.open(dir);
+    assertEquals(10,r.maxDoc());
+    r.close();
+    dir.close();
+  }
+}
