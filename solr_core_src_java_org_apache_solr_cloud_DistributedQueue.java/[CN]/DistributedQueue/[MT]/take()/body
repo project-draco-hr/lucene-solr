@@ -1,27 +1,33 @@
 {
   TreeMap<Long,String> orderedChildren;
-  while (true) {
-    LatchChildWatcher childWatcher=new LatchChildWatcher();
-    try {
-      orderedChildren=orderedChildren(childWatcher);
-    }
- catch (    KeeperException.NoNodeException e) {
-      zookeeper.create(dir,new byte[0],acl,CreateMode.PERSISTENT,true);
-      continue;
-    }
-    if (orderedChildren.size() == 0) {
-      childWatcher.await(DEFAULT_TIMEOUT);
-      continue;
-    }
-    for (    String headNode : orderedChildren.values()) {
-      String path=dir + "/" + headNode;
+  TimerContext timer=stats.time(dir + "_take");
+  try {
+    while (true) {
+      LatchChildWatcher childWatcher=new LatchChildWatcher();
       try {
-        byte[] data=zookeeper.getData(path,null,null,true);
-        zookeeper.delete(path,-1,true);
-        return data;
+        orderedChildren=orderedChildren(childWatcher);
       }
  catch (      KeeperException.NoNodeException e) {
+        zookeeper.create(dir,new byte[0],acl,CreateMode.PERSISTENT,true);
+        continue;
+      }
+      if (orderedChildren.size() == 0) {
+        childWatcher.await(DEFAULT_TIMEOUT);
+        continue;
+      }
+      for (      String headNode : orderedChildren.values()) {
+        String path=dir + "/" + headNode;
+        try {
+          byte[] data=zookeeper.getData(path,null,null,true);
+          zookeeper.delete(path,-1,true);
+          return data;
+        }
+ catch (        KeeperException.NoNodeException e) {
+        }
       }
     }
+  }
+  finally {
+    timer.stop();
   }
 }

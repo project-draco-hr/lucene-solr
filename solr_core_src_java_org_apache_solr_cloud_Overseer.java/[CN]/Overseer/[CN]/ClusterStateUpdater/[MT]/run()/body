@@ -20,11 +20,17 @@ synchronized (reader.getUpdateLock()) {
  else             if (LeaderStatus.YES == isLeader) {
               final ZkNodeProps message=ZkNodeProps.load(head);
               final String operation=message.getStr(QUEUE_OPERATION);
+              final TimerContext timerContext=stats.time(operation);
               try {
                 clusterState=processMessage(clusterState,message,operation);
+                stats.success(operation);
               }
  catch (              Exception e) {
                 log.error("Overseer could not process the current clusterstate state update message, skipping the message.",e);
+                stats.error(operation);
+              }
+ finally {
+                timerContext.stop();
               }
               zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(clusterState),true);
               workQueue.poll();
@@ -87,11 +93,17 @@ synchronized (reader.getUpdateLock()) {
         while (head != null) {
           final ZkNodeProps message=ZkNodeProps.load(head.getBytes());
           final String operation=message.getStr(QUEUE_OPERATION);
+          final TimerContext timerContext=stats.time(operation);
           try {
             clusterState=processMessage(clusterState,message,operation);
+            stats.success(operation);
           }
  catch (          Exception e) {
             log.error("Overseer could not process the current clusterstate state update message, skipping the message.",e);
+            stats.error(operation);
+          }
+ finally {
+            timerContext.stop();
           }
           workQueue.offer(head.getBytes());
           stateUpdateQueue.poll();

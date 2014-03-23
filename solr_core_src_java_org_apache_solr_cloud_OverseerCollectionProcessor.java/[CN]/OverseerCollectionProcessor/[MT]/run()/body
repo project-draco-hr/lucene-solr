@@ -31,7 +31,14 @@
       }
       log.info("Overseer Collection Processor: Get the message id:" + head.getId() + " message:"+ message.toString());
       final String operation=message.getStr(QUEUE_OPERATION);
-      SolrResponse response=processMessage(message,operation);
+      final TimerContext timerContext=stats.time("collection_" + operation);
+      SolrResponse response=null;
+      try {
+        response=processMessage(message,operation);
+      }
+  finally {
+        timerContext.stop();
+      }
       head.setBytes(SolrResponse.serializable(response));
       if (!operation.equals(REQUESTSTATUS) && asyncId != null) {
         if (response.getResponse().get("failure") != null || response.getResponse().get("exception") != null) {
@@ -43,6 +50,13 @@
       }
       if (asyncId != null)       runningMap.remove(asyncId);
       workQueue.remove(head);
+      if (response.getResponse().get("failure") != null || response.getResponse().get("exception") != null) {
+        stats.error("collection_" + operation);
+        stats.storeFailureDetails("collection_" + operation,message,response);
+      }
+ else {
+        stats.success("collection_" + operation);
+      }
       log.info("Overseer Collection Processor: Message id:" + head.getId() + " complete, response:"+ response.getResponse().toString());
     }
  catch (    KeeperException e) {
