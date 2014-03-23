@@ -1,0 +1,34 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  Map<String,Document> docs=generateIndexDocuments(atLeast(100));
+  for (  Document doc : docs.values()) {
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.close();
+  IndexReader ir=DirectoryReader.open(dir);
+  ValueSource[] toAdd=new ValueSource[]{new LongFieldSource(WEIGHT_FIELD_NAME_1),new LongFieldSource(WEIGHT_FIELD_NAME_2),new LongFieldSource(WEIGHT_FIELD_NAME_3)};
+  Dictionary dictionary=new DocumentValueSourceDictionary(ir,FIELD_NAME,new SumFloatFunction(toAdd),PAYLOAD_FIELD_NAME,CONTEXTS_FIELD_NAME);
+  InputIterator inputIterator=dictionary.getEntryIterator();
+  BytesRef f;
+  while ((f=inputIterator.next()) != null) {
+    Document doc=docs.remove(f.utf8ToString());
+    long w1=doc.getField(WEIGHT_FIELD_NAME_1).numericValue().longValue();
+    long w2=doc.getField(WEIGHT_FIELD_NAME_2).numericValue().longValue();
+    long w3=doc.getField(WEIGHT_FIELD_NAME_3).numericValue().longValue();
+    assertTrue(f.equals(new BytesRef(doc.get(FIELD_NAME))));
+    assertEquals(inputIterator.weight(),(w1 + w2 + w3));
+    assertTrue(inputIterator.payload().equals(doc.getField(PAYLOAD_FIELD_NAME).binaryValue()));
+    Set<BytesRef> originalCtxs=new HashSet<>();
+    for (    Field ctxf : doc.getFields(CONTEXTS_FIELD_NAME)) {
+      originalCtxs.add(ctxf.binaryValue());
+    }
+    assertEquals(originalCtxs,inputIterator.contexts());
+  }
+  assertTrue(docs.isEmpty());
+  ir.close();
+  dir.close();
+}

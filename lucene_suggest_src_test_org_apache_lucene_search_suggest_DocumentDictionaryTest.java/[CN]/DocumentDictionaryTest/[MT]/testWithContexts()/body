@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  Map.Entry<List<String>,Map<String,Document>> res=generateIndexDocuments(atLeast(1000),true,true);
+  Map<String,Document> docs=res.getValue();
+  List<String> invalidDocTerms=res.getKey();
+  for (  Document doc : docs.values()) {
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.close();
+  IndexReader ir=DirectoryReader.open(dir);
+  Dictionary dictionary=new DocumentDictionary(ir,FIELD_NAME,WEIGHT_FIELD_NAME,PAYLOAD_FIELD_NAME,CONTEXT_FIELD_NAME);
+  InputIterator inputIterator=dictionary.getEntryIterator();
+  BytesRef f;
+  while ((f=inputIterator.next()) != null) {
+    Document doc=docs.remove(f.utf8ToString());
+    assertTrue(f.equals(new BytesRef(doc.get(FIELD_NAME))));
+    Field weightField=doc.getField(WEIGHT_FIELD_NAME);
+    assertEquals(inputIterator.weight(),(weightField != null) ? weightField.numericValue().longValue() : 0);
+    assertTrue(inputIterator.payload().equals(doc.getField(PAYLOAD_FIELD_NAME).binaryValue()));
+    Set<BytesRef> oriCtxs=new HashSet<>();
+    Set<BytesRef> contextSet=inputIterator.contexts();
+    for (    StorableField ctxf : doc.getFields(CONTEXT_FIELD_NAME)) {
+      oriCtxs.add(ctxf.binaryValue());
+    }
+    assertEquals(oriCtxs.size(),contextSet.size());
+  }
+  for (  String invalidTerm : invalidDocTerms) {
+    assertNotNull(docs.remove(invalidTerm));
+  }
+  assertTrue(docs.isEmpty());
+  ir.close();
+  dir.close();
+}

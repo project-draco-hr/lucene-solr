@@ -1,6 +1,7 @@
 {
   BinaryDocValues textDV=MultiDocValues.getBinaryValues(searcher.getIndexReader(),TEXT_FIELD_NAME);
   BinaryDocValues payloadsDV=MultiDocValues.getBinaryValues(searcher.getIndexReader(),"payloads");
+  List<AtomicReaderContext> leaves=searcher.getIndexReader().leaves();
   List<LookupResult> results=new ArrayList<>();
   BytesRef scratch=new BytesRef();
   for (int i=0; i < hits.scoreDocs.length; i++) {
@@ -16,13 +17,29 @@
  else {
       payload=null;
     }
+    int segment=ReaderUtil.subIndex(fd.doc,leaves);
+    SortedSetDocValues contextsDV=leaves.get(segment).reader().getSortedSetDocValues(CONTEXTS_FIELD_NAME);
+    Set<BytesRef> contexts;
+    if (contextsDV != null) {
+      contexts=new HashSet<BytesRef>();
+      contextsDV.setDocument(fd.doc - leaves.get(segment).docBase);
+      long ord;
+      while ((ord=contextsDV.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+        BytesRef context=new BytesRef();
+        contextsDV.lookupOrd(ord,context);
+        contexts.add(context);
+      }
+    }
+ else {
+      contexts=null;
+    }
     LookupResult result;
     if (doHighlight) {
       Object highlightKey=highlight(text,matchedTokens,prefixToken);
-      result=new LookupResult(highlightKey.toString(),highlightKey,score,payload);
+      result=new LookupResult(highlightKey.toString(),highlightKey,score,payload,contexts);
     }
  else {
-      result=new LookupResult(text,score,payload);
+      result=new LookupResult(text,score,payload,contexts);
     }
     results.add(result);
   }
