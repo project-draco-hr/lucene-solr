@@ -1,0 +1,67 @@
+{
+  Directory dir=newDirectory();
+  int numDocs=atLeast(1000);
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  final int[] idToNum=new int[numDocs];
+  int maxValue=TestUtil.nextInt(random(),10,1000000);
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    doc.add(newStringField("id","" + i,Field.Store.YES));
+    int numTokens=TestUtil.nextInt(random(),1,10);
+    StringBuilder b=new StringBuilder();
+    for (int j=0; j < numTokens; j++) {
+      b.append("a ");
+    }
+    doc.add(newTextField("field",b.toString(),Field.Store.NO));
+    idToNum[i]=random().nextInt(maxValue);
+    doc.add(new NumericDocValuesField("num",idToNum[i]));
+    w.addDocument(doc);
+  }
+  final IndexReader r=w.getReader();
+  w.close();
+  IndexSearcher s=newSearcher(r);
+  int numHits=TestUtil.nextInt(random(),1,numDocs);
+  boolean reverse=random().nextBoolean();
+  TopDocs hits=s.search(new TermQuery(new Term("field","a")),numHits);
+  TopDocs hits2=new QueryRescorer(new FixedScoreQuery(idToNum,reverse)){
+    @Override protected float combine(    float firstPassScore,    boolean secondPassMatches,    float secondPassScore){
+      return secondPassScore;
+    }
+  }
+.rescore(s,hits,numHits);
+  Integer[] expected=new Integer[numHits];
+  for (int i=0; i < numHits; i++) {
+    expected[i]=hits.scoreDocs[i].doc;
+  }
+  final int reverseInt=reverse ? -1 : 1;
+  Arrays.sort(expected,new Comparator<Integer>(){
+    @Override public int compare(    Integer a,    Integer b){
+      try {
+        int av=idToNum[Integer.parseInt(r.document(a).get("id"))];
+        int bv=idToNum[Integer.parseInt(r.document(b).get("id"))];
+        if (av < bv) {
+          return -reverseInt;
+        }
+ else         if (bv < av) {
+          return reverseInt;
+        }
+ else {
+          return a - b;
+        }
+      }
+ catch (      IOException ioe) {
+        throw new RuntimeException(ioe);
+      }
+    }
+  }
+);
+  boolean fail=false;
+  for (int i=0; i < numHits; i++) {
+    if (expected[i].intValue() != hits2.scoreDocs[i].doc) {
+      fail=true;
+    }
+  }
+  assertFalse(fail);
+  r.close();
+  dir.close();
+}

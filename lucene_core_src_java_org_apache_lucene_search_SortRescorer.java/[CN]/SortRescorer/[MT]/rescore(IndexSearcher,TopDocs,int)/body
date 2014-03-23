@@ -1,0 +1,36 @@
+{
+  ScoreDoc[] hits=firstPassTopDocs.scoreDocs.clone();
+  Arrays.sort(hits,new Comparator<ScoreDoc>(){
+    @Override public int compare(    ScoreDoc a,    ScoreDoc b){
+      return a.doc - b.doc;
+    }
+  }
+);
+  List<AtomicReaderContext> leaves=searcher.getIndexReader().leaves();
+  TopFieldCollector collector=TopFieldCollector.create(sort,topN,true,true,true,false);
+  int hitUpto=0;
+  int readerUpto=-1;
+  int endDoc=0;
+  int docBase=0;
+  FakeScorer fakeScorer=new FakeScorer();
+  while (hitUpto < hits.length) {
+    ScoreDoc hit=hits[hitUpto];
+    int docID=hit.doc;
+    AtomicReaderContext readerContext=null;
+    while (docID >= endDoc) {
+      readerUpto++;
+      readerContext=leaves.get(readerUpto);
+      endDoc=readerContext.docBase + readerContext.reader().maxDoc();
+    }
+    if (readerContext != null) {
+      collector.setNextReader(readerContext);
+      collector.setScorer(fakeScorer);
+      docBase=readerContext.docBase;
+    }
+    fakeScorer.score=hit.score;
+    fakeScorer.doc=docID - docBase;
+    collector.collect(fakeScorer.doc);
+    hitUpto++;
+  }
+  return collector.topDocs();
+}

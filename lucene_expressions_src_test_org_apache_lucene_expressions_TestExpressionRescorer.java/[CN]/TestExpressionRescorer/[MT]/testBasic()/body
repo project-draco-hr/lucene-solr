@@ -1,0 +1,23 @@
+{
+  Query query=new TermQuery(new Term("body","contents"));
+  IndexReader r=searcher.getIndexReader();
+  TopDocs hits=searcher.search(query,10);
+  assertEquals(3,hits.totalHits);
+  assertEquals("3",r.document(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("1",r.document(hits.scoreDocs[1].doc).get("id"));
+  assertEquals("2",r.document(hits.scoreDocs[2].doc).get("id"));
+  Expression e=JavascriptCompiler.compile("sqrt(_score) + ln(popularity)");
+  SimpleBindings bindings=new SimpleBindings();
+  bindings.add(new SortField("popularity",SortField.Type.INT));
+  bindings.add(new SortField("_score",SortField.Type.SCORE));
+  Rescorer rescorer=e.getRescorer(bindings);
+  hits=rescorer.rescore(searcher,hits,10);
+  assertEquals(3,hits.totalHits);
+  assertEquals("2",r.document(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("1",r.document(hits.scoreDocs[1].doc).get("id"));
+  assertEquals("3",r.document(hits.scoreDocs[2].doc).get("id"));
+  String expl=rescorer.explain(searcher,searcher.explain(query,hits.scoreDocs[0].doc),hits.scoreDocs[0].doc).toString();
+  assertTrue(expl.contains("= variable \"popularity\""));
+  assertTrue(expl.contains("= first pass score"));
+  assertTrue(expl.contains("body:contents in"));
+}
