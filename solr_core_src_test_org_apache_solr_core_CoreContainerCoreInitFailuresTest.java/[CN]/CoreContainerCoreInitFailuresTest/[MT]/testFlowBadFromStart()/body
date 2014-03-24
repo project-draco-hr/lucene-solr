@@ -91,8 +91,9 @@
     fail("corrupt solrconfig.xml failed to trigger exception from reload");
   }
  catch (  SolrException e) {
-    assertTrue("We're supposed to have a wrapped SAXParserException here, but we don't",e.getCause().getCause() instanceof SAXParseException);
-    SAXParseException se=(SAXParseException)e.getCause().getCause();
+    Throwable rootException=getWrappedException(e);
+    assertTrue("We're supposed to have a wrapped SAXParserException here, but we don't",rootException instanceof SAXParseException);
+    SAXParseException se=(SAXParseException)rootException;
     assertTrue("reload exception doesn't refer to slrconfig.xml " + se.getSystemId(),0 < se.getSystemId().indexOf("solrconfig.xml"));
   }
   assertEquals("Failed core reload should not have changed start time",col_bad_old_start,getCoreStartTime(cc,"col_bad"));
@@ -105,10 +106,11 @@
   failures=cc.getCoreInitFailures();
   assertNotNull("core failures is a null map",failures);
   assertEquals("wrong number of core failures",1,failures.size());
-  fail=failures.get("col_bad");
-  assertNotNull("null failure for test core",fail);
-  assertTrue("init failure isn't SAXParseException",fail.getCause() instanceof SAXParseException);
-  assertTrue("init failure doesn't mention problem: " + fail.toString(),0 < ((SAXParseException)fail.getCause()).getSystemId().indexOf("solrconfig.xml"));
+  Throwable ex=getWrappedException(failures.get("col_bad"));
+  assertNotNull("null failure for test core",ex);
+  assertTrue("init failure isn't SAXParseException",ex instanceof SAXParseException);
+  SAXParseException saxEx=(SAXParseException)ex;
+  assertTrue("init failure doesn't mention problem: " + saxEx.toString(),saxEx.getSystemId().contains("solrconfig.xml"));
   FileUtils.copyFile(getFile("solr/collection1/conf/solrconfig-defaults.xml"),FileUtils.getFile(solrHome,"col_bad","conf","solrconfig.xml"));
   cc.reload("col_bad");
   assertTrue("Core reload should have changed start time",col_bad_old_start < getCoreStartTime(cc,"col_bad"));

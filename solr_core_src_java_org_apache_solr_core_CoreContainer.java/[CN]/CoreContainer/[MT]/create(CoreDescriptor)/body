@@ -2,22 +2,17 @@
   if (isShutDown) {
     throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Solr has shutdown.");
   }
-  final String name=dcore.getName();
   try {
-    File idir=new File(dcore.getInstanceDir());
-    String instanceDir=idir.getPath();
-    log.info("Creating SolrCore '{}' using instanceDir: {}",dcore.getName(),instanceDir);
-    SolrCore created=null;
-    if (zkSys.getZkController() != null) {
-      created=zkSys.createFromZk(instanceDir,dcore,loader);
+    ConfigSet coreConfig=coreConfigService.getConfig(dcore);
+    log.info("Creating SolrCore '{}' using configuration from {}",dcore.getName(),coreConfig.getName());
+    SolrCore core=new SolrCore(dcore,coreConfig);
+    solrCores.addCreated(core);
+    if (!isZooKeeperAware() && core.getUpdateHandler().getUpdateLog() != null) {
+      core.getUpdateHandler().getUpdateLog().recoverFromLog();
     }
- else {
-      created=createFromLocal(instanceDir,dcore);
-    }
-    solrCores.addCreated(created);
-    return created;
+    return core;
   }
- catch (  Exception ex) {
-    throw recordAndThrow(name,"Unable to create core: " + name,ex);
+ catch (  Exception e) {
+    throw recordAndThrow(dcore.getName(),"Unable to create core: " + dcore.getName(),e);
   }
 }
