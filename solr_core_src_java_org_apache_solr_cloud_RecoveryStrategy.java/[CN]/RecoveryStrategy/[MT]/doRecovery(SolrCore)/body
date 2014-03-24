@@ -60,8 +60,8 @@
     try {
       CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
       ZkNodeProps leaderprops=zkStateReader.getLeaderRetry(cloudDesc.getCollectionName(),cloudDesc.getShardId());
-      String leaderBaseUrl=leaderprops.getStr(ZkStateReader.BASE_URL_PROP);
-      String leaderCoreName=leaderprops.getStr(ZkStateReader.CORE_NAME_PROP);
+      final String leaderBaseUrl=leaderprops.getStr(ZkStateReader.BASE_URL_PROP);
+      final String leaderCoreName=leaderprops.getStr(ZkStateReader.CORE_NAME_PROP);
       String leaderUrl=ZkCoreNodeProps.getCoreUrl(leaderBaseUrl,leaderCoreName);
       String ourUrl=ZkCoreNodeProps.getCoreUrl(baseUrl,coreName);
       boolean isLeader=leaderUrl.equals(ourUrl);
@@ -75,8 +75,21 @@
         return;
       }
       zkController.publish(core.getCoreDescriptor(),ZkStateReader.RECOVERING);
-      Slice slice=zkStateReader.getClusterState().getSlice(cloudDesc.getCollectionName(),cloudDesc.getShardId());
+      final Slice slice=zkStateReader.getClusterState().getSlice(cloudDesc.getCollectionName(),cloudDesc.getShardId());
+      try {
+        prevSendPreRecoveryHttpUriRequest.abort();
+      }
+ catch (      NullPointerException e) {
+      }
+      if (isClosed()) {
+        log.info("Recovery was cancelled");
+        break;
+      }
       sendPrepRecoveryCmd(leaderBaseUrl,leaderCoreName,slice);
+      if (isClosed()) {
+        log.info("Recovery was cancelled");
+        break;
+      }
       try {
         Thread.sleep(2000);
       }
@@ -115,14 +128,26 @@
         }
         log.info("PeerSync Recovery was not successful - trying replication. core=" + coreName);
       }
+      if (isClosed()) {
+        log.info("Recovery was cancelled");
+        break;
+      }
       log.info("Starting Replication Recovery. core=" + coreName);
       log.info("Begin buffering updates. core=" + coreName);
       ulog.bufferUpdates();
       replayed=false;
       try {
         replicate(zkController.getNodeName(),core,leaderprops);
+        if (isClosed()) {
+          log.info("Recovery was cancelled");
+          break;
+        }
         replay(core);
         replayed=true;
+        if (isClosed()) {
+          log.info("Recovery was cancelled");
+          break;
+        }
         log.info("Replication Recovery was successful - registering as Active. core=" + coreName);
         zkController.publish(core.getCoreDescriptor(),ZkStateReader.ACTIVE);
         close=true;
