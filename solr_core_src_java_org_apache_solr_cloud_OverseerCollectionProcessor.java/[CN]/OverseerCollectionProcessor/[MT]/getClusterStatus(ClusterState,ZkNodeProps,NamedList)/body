@@ -1,0 +1,73 @@
+{
+  String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
+  Aliases aliases=zkStateReader.getAliases();
+  Map<String,List<String>> collectionVsAliases=new HashMap<>();
+  Map<String,String> aliasVsCollections=aliases.getCollectionAliasMap();
+  if (aliasVsCollections != null) {
+    for (    Map.Entry<String,String> entry : aliasVsCollections.entrySet()) {
+      List<String> colls=StrUtils.splitSmart(entry.getValue(),',');
+      String alias=entry.getKey();
+      for (      String coll : colls) {
+        if (collection == null || collection.equals(coll)) {
+          List<String> list=collectionVsAliases.get(coll);
+          if (list == null) {
+            list=new ArrayList<>();
+            collectionVsAliases.put(coll,list);
+          }
+          list.add(alias);
+        }
+      }
+    }
+  }
+  byte[] bytes=ZkStateReader.toJSON(clusterState);
+  Map<String,Object> stateMap=(Map<String,Object>)ZkStateReader.fromJSON(bytes);
+  String shard=message.getStr(ZkStateReader.SHARD_ID_PROP);
+  NamedList<Object> collectionProps=new SimpleOrderedMap<Object>();
+  if (collection == null) {
+    Set<String> collections=clusterState.getCollections();
+    for (    String name : collections) {
+      Map<String,Object> collectionStatus=getCollectionStatus(stateMap,name,shard);
+      if (collectionVsAliases.containsKey(name) && !collectionVsAliases.get(name).isEmpty()) {
+        collectionStatus.put("aliases",collectionVsAliases.get(name));
+      }
+      collectionProps.add(name,collectionStatus);
+    }
+  }
+ else {
+    String routeKey=message.getStr(ShardParams._ROUTE_);
+    if (routeKey == null) {
+      Map<String,Object> collectionStatus=getCollectionStatus(stateMap,collection,shard);
+      if (collectionVsAliases.containsKey(collection) && !collectionVsAliases.get(collection).isEmpty()) {
+        collectionStatus.put("aliases",collectionVsAliases.get(collection));
+      }
+      collectionProps.add(collection,collectionStatus);
+    }
+ else {
+      DocCollection docCollection=clusterState.getCollection(collection);
+      DocRouter router=docCollection.getRouter();
+      Collection<Slice> slices=router.getSearchSlices(routeKey,null,docCollection);
+      String s="";
+      for (      Slice slice : slices) {
+        s+=slice.getName() + ",";
+      }
+      if (shard != null) {
+        s+=shard;
+      }
+      Map<String,Object> collectionStatus=getCollectionStatus(stateMap,collection,s);
+      if (collectionVsAliases.containsKey(collection) && !collectionVsAliases.get(collection).isEmpty()) {
+        collectionStatus.put("aliases",collectionVsAliases.get(collection));
+      }
+      collectionProps.add(collection,collectionStatus);
+    }
+  }
+  NamedList<Object> clusterStatus=new SimpleOrderedMap<>();
+  clusterStatus.add("collections",collectionProps);
+  Map clusterProps=zkStateReader.getClusterProps();
+  if (clusterProps != null && !clusterProps.isEmpty()) {
+    clusterStatus.add("properties",clusterProps);
+  }
+  if (aliasVsCollections != null && !aliasVsCollections.isEmpty()) {
+    clusterStatus.add("aliases",aliasVsCollections);
+  }
+  results.add("cluster",clusterStatus);
+}
