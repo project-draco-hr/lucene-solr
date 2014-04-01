@@ -1,0 +1,25 @@
+{
+  executor=new ScheduledThreadPoolExecutor(1,new DefaultSolrThreadFactory("autoExpireDocs"),new RejectedExecutionHandler(){
+    public void rejectedExecution(    Runnable r,    ThreadPoolExecutor e){
+      log.warn("Skipping execution of '{}' using '{}'",r,e);
+    }
+  }
+);
+  core.addCloseHook(new CloseHook(){
+    public void postClose(    SolrCore core){
+      if (executor.isTerminating()) {
+        log.info("Triggering hard shutdown of DocExpiration Executor");
+        executor.shutdownNow();
+      }
+    }
+    public void preClose(    SolrCore core){
+      log.info("Triggering Graceful shutdown of DocExpiration Executor");
+      executor.shutdown();
+    }
+  }
+);
+  executor.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+  executor.setContinueExistingPeriodicTasksAfterShutdownPolicy(false);
+  final long initialDelay=deletePeriodSeconds;
+  executor.scheduleAtFixedRate(new DeleteExpiredDocsRunnable(this),deletePeriodSeconds,deletePeriodSeconds,TimeUnit.SECONDS);
+}

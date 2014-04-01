@@ -1,0 +1,29 @@
+{
+  UpdateRequestProcessorChain chain=h.getCore().getUpdateProcessingChain("scheduled-delete");
+  assertNotNull(chain);
+  UpdateRequestProcessorFactory[] factories=chain.getFactories();
+  assertEquals("did number of processors configured in chain get changed?",5,factories.length);
+  assertTrue("Expected [1] RecordingUpdateProcessorFactory: " + factories[1].getClass(),factories[1] instanceof RecordingUpdateProcessorFactory);
+  RecordingUpdateProcessorFactory recorder=(RecordingUpdateProcessorFactory)factories[1];
+  try {
+    recorder.startRecording();
+    final int numItersToCheck=1 + RANDOM_MULTIPLIER;
+    for (int i=0; i < numItersToCheck; i++) {
+      UpdateCommand tmp;
+      tmp=recorder.commandQueue.poll(30,TimeUnit.SECONDS);
+      assertTrue("expected DeleteUpdateCommand: " + tmp.getClass(),tmp instanceof DeleteUpdateCommand);
+      DeleteUpdateCommand delete=(DeleteUpdateCommand)tmp;
+      assertFalse(delete.isDeleteById());
+      assertNotNull(delete.getQuery());
+      assertTrue(delete.getQuery(),delete.getQuery().startsWith("{!cache=false}eXpField_tdt:[* TO "));
+      tmp=recorder.commandQueue.poll(5,TimeUnit.SECONDS);
+      assertTrue("expected CommitUpdateCommand: " + tmp.getClass(),tmp instanceof CommitUpdateCommand);
+      CommitUpdateCommand commit=(CommitUpdateCommand)tmp;
+      assertTrue(commit.softCommit);
+      assertTrue(commit.openSearcher);
+    }
+  }
+  finally {
+    recorder.stopRecording();
+  }
+}
