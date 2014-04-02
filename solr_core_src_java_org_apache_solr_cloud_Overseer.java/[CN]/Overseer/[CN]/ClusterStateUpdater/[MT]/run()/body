@@ -59,60 +59,19 @@ catch (      Exception e) {
     }
   }
   log.info("Starting to work on the main queue");
-  while (!this.isClosed) {
-    isLeader=amILeader();
-    if (LeaderStatus.NO == isLeader) {
-      break;
-    }
- else     if (LeaderStatus.YES != isLeader) {
-      log.debug("am_i_leader unclear {}",isLeader);
-      continue;
-    }
-    DistributedQueue.QueueEvent head=null;
-    try {
-      head=stateUpdateQueue.peek(true);
-    }
- catch (    KeeperException e) {
-      if (e.code() == KeeperException.Code.SESSIONEXPIRED) {
-        log.warn("Solr cannot talk to ZK, exiting Overseer main queue loop",e);
-        return;
+  try {
+    while (!this.isClosed) {
+      isLeader=amILeader();
+      if (LeaderStatus.NO == isLeader) {
+        break;
       }
-      log.error("Exception in Overseer main queue loop",e);
-    }
-catch (    InterruptedException e) {
-      Thread.currentThread().interrupt();
-      return;
-    }
-catch (    Exception e) {
-      log.error("Exception in Overseer main queue loop",e);
-    }
-synchronized (reader.getUpdateLock()) {
+ else       if (LeaderStatus.YES != isLeader) {
+        log.debug("am_i_leader unclear {}",isLeader);
+        continue;
+      }
+      DistributedQueue.QueueEvent head=null;
       try {
-        reader.updateClusterState(true);
-        ClusterState clusterState=reader.getClusterState();
-        while (head != null) {
-          final ZkNodeProps message=ZkNodeProps.load(head.getBytes());
-          final String operation=message.getStr(QUEUE_OPERATION);
-          final TimerContext timerContext=stats.time(operation);
-          try {
-            clusterState=processMessage(clusterState,message,operation);
-            stats.success(operation);
-          }
- catch (          Exception e) {
-            log.error("Overseer could not process the current clusterstate state update message, skipping the message.",e);
-            stats.error(operation);
-          }
- finally {
-            timerContext.stop();
-          }
-          workQueue.offer(head.getBytes());
-          stateUpdateQueue.poll();
-          if (System.nanoTime() - lastUpdatedTime > TimeUnit.NANOSECONDS.convert(STATE_UPDATE_DELAY,TimeUnit.MILLISECONDS))           break;
-          head=stateUpdateQueue.peek(100);
-        }
-        lastUpdatedTime=System.nanoTime();
-        zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(clusterState),true);
-        while (workQueue.poll() != null)         ;
+        head=stateUpdateQueue.peek(true);
       }
  catch (      KeeperException e) {
         if (e.code() == KeeperException.Code.SESSIONEXPIRED) {
@@ -128,6 +87,57 @@ catch (      InterruptedException e) {
 catch (      Exception e) {
         log.error("Exception in Overseer main queue loop",e);
       }
+synchronized (reader.getUpdateLock()) {
+        try {
+          reader.updateClusterState(true);
+          ClusterState clusterState=reader.getClusterState();
+          while (head != null) {
+            final ZkNodeProps message=ZkNodeProps.load(head.getBytes());
+            final String operation=message.getStr(QUEUE_OPERATION);
+            final TimerContext timerContext=stats.time(operation);
+            try {
+              clusterState=processMessage(clusterState,message,operation);
+              stats.success(operation);
+            }
+ catch (            Exception e) {
+              log.error("Overseer could not process the current clusterstate state update message, skipping the message.",e);
+              stats.error(operation);
+            }
+ finally {
+              timerContext.stop();
+            }
+            workQueue.offer(head.getBytes());
+            stateUpdateQueue.poll();
+            if (isClosed || System.nanoTime() - lastUpdatedTime > TimeUnit.NANOSECONDS.convert(STATE_UPDATE_DELAY,TimeUnit.MILLISECONDS))             break;
+            head=stateUpdateQueue.peek(100);
+          }
+          lastUpdatedTime=System.nanoTime();
+          zkClient.setData(ZkStateReader.CLUSTER_STATE,ZkStateReader.toJSON(clusterState),true);
+          while (workQueue.poll() != null)           ;
+        }
+ catch (        KeeperException e) {
+          if (e.code() == KeeperException.Code.SESSIONEXPIRED) {
+            log.warn("Solr cannot talk to ZK, exiting Overseer main queue loop",e);
+            return;
+          }
+          log.error("Exception in Overseer main queue loop",e);
+        }
+catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          return;
+        }
+catch (        Exception e) {
+          log.error("Exception in Overseer main queue loop",e);
+        }
+      }
     }
+  }
+  finally {
+    new Thread("OverseerExitThread"){
+      @Override public void run(){
+        checkIfIamStillLeader();
+      }
+    }
+.start();
   }
 }
