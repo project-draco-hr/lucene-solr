@@ -1,5 +1,5 @@
 {
-  log.info("prioritizing overseer nodes");
+  log.info("prioritizing overseer nodes at {}",LeaderElector.getNodeName(myId));
   SolrZkClient zk=zkStateReader.getZkClient();
   if (!zk.exists(ZkStateReader.ROLES,true))   return;
   Map m=(Map)ZkStateReader.fromJSON(zk.getData(ZkStateReader.ROLES,null,new Stat(),true));
@@ -9,6 +9,7 @@
   log.info("overseer designates {}",overseerDesignates);
   List<String> nodeNames=getSortedOverseerNodeNames(zk);
   if (nodeNames.size() < 2)   return;
+  boolean designateIsInFront=overseerDesignates.contains(nodeNames.get(0));
   ArrayList<String> nodesTobePushedBack=new ArrayList<>();
   List<String> availableDesignates=new ArrayList<>();
   log.info("sorted nodes {}",nodeNames);
@@ -54,14 +55,17 @@
       log.warn("available designates and current state {} {} ",availableDesignates,getSortedOverseerNodeNames(zk));
     }
   }
- else {
+ else   if (!designateIsInFront) {
     log.warn("No overseer designates are available, overseerDesignates: {}, live nodes : {}",overseerDesignates,nodeNames);
     return;
   }
   String leaderNode=getLeaderNode(zkStateReader.getZkClient());
   if (leaderNode == null)   return;
-  if (!overseerDesignates.contains(leaderNode) && !availableDesignates.isEmpty()) {
-    log.info("I am not an overseer designate , forcing myself out {} ",leaderNode);
-    Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(new ZkNodeProps(Overseer.QUEUE_OPERATION,Overseer.QUIT)));
+  if (!overseerDesignates.contains(leaderNode)) {
+    List<String> sortedNodes=getSortedOverseerNodeNames(zk);
+    if (leaderNode.equals(sortedNodes.get(0)) || overseerDesignates.contains(sortedNodes.get(0))) {
+      log.info("I am not an overseer designate , forcing myself out {} ",leaderNode);
+      Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(new ZkNodeProps(Overseer.QUEUE_OPERATION,Overseer.QUIT)));
+    }
   }
 }
