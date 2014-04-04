@@ -1,0 +1,34 @@
+{
+  String endpoint="/schema/analysis/synonyms/english";
+  assertJQ(endpoint,"/synonymMappings/initArgs/ignoreCase==false","/synonymMappings/managedMap=={}");
+  Map<String,List<String>> syns=new HashMap<>();
+  syns.put("happy",Arrays.asList("glad","cheerful","joyful"));
+  assertJPut(endpoint,JSONUtil.toJSON(syns),"/responseHeader/status==0");
+  assertJQ(endpoint,"/synonymMappings/managedMap/happy==['cheerful','glad','joyful']");
+  assertJQ(endpoint + "/happy","/happy==['cheerful','glad','joyful']");
+  assertJQ(endpoint + "/sad","/error/code==404");
+  assertJPut(endpoint,json("{ 'initArgs':{ 'ignoreCase':true } }"),"responseHeader/status==0");
+  assertJQ(endpoint,"/synonymMappings/initArgs/ignoreCase==true");
+  syns=new HashMap<>();
+  syns.put("sad",Arrays.asList("unhappy"));
+  syns.put("SAD",Arrays.asList("Unhappy"));
+  assertJPut(endpoint,JSONUtil.toJSON(syns),"/responseHeader/status==0");
+  assertJQ(endpoint,"/synonymMappings/managedMap/sad==['unhappy']");
+  assertJDelete(endpoint + "/sad","/responseHeader/status==0");
+  assertJQ(endpoint,"/synonymMappings/managedMap=={'happy':['cheerful','glad','joyful']}");
+  assertJDelete(endpoint + "/foo","/error/code==404");
+  String newFieldName="managed_en_field";
+  assertQ("/schema/fields/" + newFieldName + "?indent=on&wt=xml","count(/response/lst[@name='field']) = 0","/response/lst[@name='responseHeader']/int[@name='status'] = '404'","/response/lst[@name='error']/int[@name='code'] = '404'");
+  assertJPut("/schema/fields/" + newFieldName,json("{'type':'managed_en'}"),"/responseHeader/status==0");
+  assertQ("/schema/fields/" + newFieldName + "?indent=on&wt=xml","count(/response/lst[@name='field']) = 1","/response/lst[@name='responseHeader']/int[@name='status'] = '0'");
+  assertU(adoc(newFieldName,"I am a happy test today but yesterday I was angry","id","5150"));
+  assertU(commit());
+  assertQ("/select?q=" + newFieldName + ":angry","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='1']","/response/result[@name='response']/doc/str[@name='id'][.='5150']");
+  syns=new HashMap<>();
+  syns.put("mad",Arrays.asList("angry"));
+  assertJPut(endpoint,JSONUtil.toJSON(syns),"/responseHeader/status==0");
+  assertJQ(endpoint,"/synonymMappings/managedMap/mad==['angry']");
+  assertQ("/select?q=" + newFieldName + ":mad","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='0']");
+  restTestHarness.reload();
+  assertQ("/select?q=" + newFieldName + ":mad","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='1']","/response/result[@name='response']/doc/str[@name='id'][.='5150']");
+}

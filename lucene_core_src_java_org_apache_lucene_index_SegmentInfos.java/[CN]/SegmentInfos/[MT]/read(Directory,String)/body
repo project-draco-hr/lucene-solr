@@ -3,13 +3,13 @@
   this.clear();
   generation=generationFromSegmentsFileName(segmentFileName);
   lastGeneration=generation;
-  ChecksumIndexInput input=new ChecksumIndexInput(directory.openInput(segmentFileName,IOContext.READ));
+  ChecksumIndexInput input=directory.openChecksumInput(segmentFileName,IOContext.READ);
   try {
     int magic=input.readInt();
     if (magic != CodecUtil.CODEC_MAGIC) {
       throw new IndexFormatTooOldException(input,magic,CodecUtil.CODEC_MAGIC,CodecUtil.CODEC_MAGIC);
     }
-    int format=CodecUtil.checkHeaderNoMagic(input,"segments",VERSION_40,VERSION_46);
+    int format=CodecUtil.checkHeaderNoMagic(input,"segments",VERSION_40,VERSION_48);
     version=input.readLong();
     counter=input.readInt();
     int numSegments=input.readInt();
@@ -48,10 +48,16 @@
       add(siPerCommit);
     }
     userData=input.readStringStringMap();
-    final long checksumNow=input.getChecksum();
-    final long checksumThen=input.readLong();
-    if (checksumNow != checksumThen) {
-      throw new CorruptIndexException("checksum mismatch in segments file (resource: " + input + ")");
+    if (format >= VERSION_48) {
+      CodecUtil.checkFooter(input);
+    }
+ else {
+      final long checksumNow=input.getChecksum();
+      final long checksumThen=input.readLong();
+      if (checksumNow != checksumThen) {
+        throw new CorruptIndexException("checksum mismatch in segments file (resource: " + input + ")");
+      }
+      CodecUtil.checkEOF(input);
     }
     success=true;
   }

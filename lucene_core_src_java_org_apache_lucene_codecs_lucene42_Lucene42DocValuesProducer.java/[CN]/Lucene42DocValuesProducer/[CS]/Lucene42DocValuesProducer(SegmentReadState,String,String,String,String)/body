@@ -1,18 +1,20 @@
 {
   maxDoc=state.segmentInfo.getDocCount();
   String metaName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,metaExtension);
-  IndexInput in=state.directory.openInput(metaName,state.context);
+  ChecksumIndexInput in=state.directory.openChecksumInput(metaName,state.context);
   boolean success=false;
   ramBytesUsed=new AtomicLong(RamUsageEstimator.shallowSizeOfInstance(getClass()));
-  final int version;
   try {
     version=CodecUtil.checkHeader(in,metaCodec,VERSION_START,VERSION_CURRENT);
     numerics=new HashMap<>();
     binaries=new HashMap<>();
     fsts=new HashMap<>();
     readFields(in,state.fieldInfos);
-    if (in.getFilePointer() != in.length()) {
-      throw new CorruptIndexException("did not read all bytes from file \"" + metaName + "\": read "+ in.getFilePointer()+ " vs size "+ in.length()+ " (resource: "+ in+ ")");
+    if (version >= VERSION_CHECKSUM) {
+      CodecUtil.checkFooter(in);
+    }
+ else {
+      CodecUtil.checkEOF(in);
     }
     success=true;
   }

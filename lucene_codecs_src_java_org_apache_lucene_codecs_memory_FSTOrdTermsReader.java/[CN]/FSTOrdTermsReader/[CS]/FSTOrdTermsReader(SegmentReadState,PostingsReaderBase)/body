@@ -2,11 +2,17 @@
   final String termsIndexFileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,FSTOrdTermsWriter.TERMS_INDEX_EXTENSION);
   final String termsBlockFileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,FSTOrdTermsWriter.TERMS_BLOCK_EXTENSION);
   this.postingsReader=postingsReader;
+  ChecksumIndexInput indexIn=null;
+  IndexInput blockIn=null;
+  boolean success=false;
   try {
-    this.indexIn=state.directory.openInput(termsIndexFileName,state.context);
-    this.blockIn=state.directory.openInput(termsBlockFileName,state.context);
-    readHeader(indexIn);
+    indexIn=state.directory.openChecksumInput(termsIndexFileName,state.context);
+    blockIn=state.directory.openInput(termsBlockFileName,state.context);
+    version=readHeader(indexIn);
     readHeader(blockIn);
+    if (version >= FSTOrdTermsWriter.TERMS_VERSION_CHECKSUM) {
+      CodecUtil.checksumEntireFile(blockIn);
+    }
     this.postingsReader.init(blockIn);
     seekDir(blockIn);
     final FieldInfos fieldInfos=state.fieldInfos;
@@ -20,12 +26,24 @@
       int docCount=blockIn.readVInt();
       int longsSize=blockIn.readVInt();
       FST<Long> index=new FST<>(indexIn,PositiveIntOutputs.getSingleton());
-      TermsReader current=new TermsReader(fieldInfo,numTerms,sumTotalTermFreq,sumDocFreq,docCount,longsSize,index);
+      TermsReader current=new TermsReader(fieldInfo,blockIn,numTerms,sumTotalTermFreq,sumDocFreq,docCount,longsSize,index);
       TermsReader previous=fields.put(fieldInfo.name,current);
-      checkFieldSummary(state.segmentInfo,current,previous);
+      checkFieldSummary(state.segmentInfo,indexIn,blockIn,current,previous);
     }
+    if (version >= FSTOrdTermsWriter.TERMS_VERSION_CHECKSUM) {
+      CodecUtil.checkFooter(indexIn);
+    }
+ else {
+      CodecUtil.checkEOF(indexIn);
+    }
+    success=true;
   }
   finally {
-    IOUtils.closeWhileHandlingException(indexIn,blockIn);
+    if (success) {
+      IOUtils.close(indexIn,blockIn);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(indexIn,blockIn);
+    }
   }
 }

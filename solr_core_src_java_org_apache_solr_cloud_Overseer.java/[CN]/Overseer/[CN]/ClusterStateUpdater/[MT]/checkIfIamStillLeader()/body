@@ -1,0 +1,38 @@
+{
+  org.apache.zookeeper.data.Stat stat=new org.apache.zookeeper.data.Stat();
+  String path="/overseer_elect/leader";
+  byte[] data=null;
+  try {
+    data=zkClient.getData(path,null,stat,true);
+  }
+ catch (  Exception e) {
+    log.error("could not read the data",e);
+    return;
+  }
+  Map m=(Map)ZkStateReader.fromJSON(data);
+  String id=(String)m.get("id");
+  if (overseerCollectionProcessor.getId().equals(id)) {
+    try {
+      log.info("I'm exiting , but I'm still the leader");
+      zkClient.delete(path,stat.getVersion(),true);
+    }
+ catch (    KeeperException.BadVersionException e) {
+    }
+catch (    Exception e) {
+      log.error("Could not delete my leader node ",e);
+    }
+ finally {
+      try {
+        if (zkController != null && !zkController.getCoreContainer().isShutDown()) {
+          zkController.rejoinOverseerElection();
+        }
+      }
+ catch (      Exception e) {
+        log.error("error canceling overseer election election  ",e);
+      }
+    }
+  }
+ else {
+    log.info("somebody else has already taken up the overseer position");
+  }
+}

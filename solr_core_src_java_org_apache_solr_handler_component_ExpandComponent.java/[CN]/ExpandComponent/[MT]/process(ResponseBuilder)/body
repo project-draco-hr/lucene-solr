@@ -9,27 +9,65 @@
   if (ids == null && isShard) {
     return;
   }
-  String field=null;
+  String field=params.get(ExpandParams.EXPAND_FIELD);
+  if (field == null) {
+    List<Query> filters=rb.getFilters();
+    if (filters != null) {
+      for (      Query q : filters) {
+        if (q instanceof CollapsingQParserPlugin.CollapsingPostFilter) {
+          CollapsingQParserPlugin.CollapsingPostFilter cp=(CollapsingQParserPlugin.CollapsingPostFilter)q;
+          field=cp.getField();
+        }
+      }
+    }
+  }
+  if (field == null) {
+    throw new IOException("Expand field is null.");
+  }
   String sortParam=params.get(ExpandParams.EXPAND_SORT);
+  String[] fqs=params.getParams(ExpandParams.EXPAND_FQ);
+  String qs=params.get(ExpandParams.EXPAND_Q);
   int limit=params.getInt(ExpandParams.EXPAND_ROWS,5);
   Sort sort=null;
   if (sortParam != null) {
     sort=QueryParsing.parseSortSpec(sortParam,rb.req).getSort();
   }
-  Query query=rb.getQuery();
-  List<Query> filters=rb.getFilters();
-  List<Query> newFilters=new ArrayList();
-  for (  Query q : filters) {
-    if (!(q instanceof CollapsingQParserPlugin.CollapsingPostFilter)) {
-      newFilters.add(q);
-    }
+  Query query=null;
+  if (qs == null) {
+    query=rb.getQuery();
+  }
  else {
-      CollapsingQParserPlugin.CollapsingPostFilter cp=(CollapsingQParserPlugin.CollapsingPostFilter)q;
-      field=cp.getField();
+    try {
+      QParser parser=QParser.getParser(qs,null,req);
+      query=parser.getQuery();
+    }
+ catch (    Exception e) {
+      throw new IOException(e);
     }
   }
-  if (field == null) {
-    throw new IOException("Expand field is null.");
+  List<Query> newFilters=new ArrayList();
+  if (fqs == null) {
+    List<Query> filters=rb.getFilters();
+    if (filters != null) {
+      for (      Query q : filters) {
+        if (!(q instanceof CollapsingQParserPlugin.CollapsingPostFilter)) {
+          newFilters.add(q);
+        }
+      }
+    }
+  }
+ else {
+    try {
+      for (      String fq : fqs) {
+        if (fq != null && fq.trim().length() != 0 && !fq.equals("*:*")) {
+          QParser fqp=QParser.getParser(fq,null,req);
+          newFilters.add(fqp.getQuery());
+        }
+      }
+    }
+ catch (    Exception e) {
+      throw new IOException(e);
+    }
   }
   SolrIndexSearcher searcher=req.getSearcher();
   AtomicReader reader=searcher.getAtomicReader();

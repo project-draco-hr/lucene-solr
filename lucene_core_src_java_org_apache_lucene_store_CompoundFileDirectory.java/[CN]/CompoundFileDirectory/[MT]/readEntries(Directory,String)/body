@@ -1,10 +1,10 @@
 {
   IOException priorE=null;
-  IndexInput entriesStream=null;
+  ChecksumIndexInput entriesStream=null;
   try {
     final String entriesFileName=IndexFileNames.segmentFileName(IndexFileNames.stripExtension(name),"",IndexFileNames.COMPOUND_FILE_ENTRIES_EXTENSION);
-    entriesStream=dir.openInput(entriesFileName,IOContext.READONCE);
-    CodecUtil.checkHeader(entriesStream,CompoundFileWriter.ENTRY_CODEC,CompoundFileWriter.VERSION_START,CompoundFileWriter.VERSION_START);
+    entriesStream=dir.openChecksumInput(entriesFileName,IOContext.READONCE);
+    version=CodecUtil.checkHeader(entriesStream,CompoundFileWriter.ENTRY_CODEC,CompoundFileWriter.VERSION_START,CompoundFileWriter.VERSION_CURRENT);
     final int numEntries=entriesStream.readVInt();
     final Map<String,FileEntry> mapping=new HashMap<>(numEntries);
     for (int i=0; i < numEntries; i++) {
@@ -17,8 +17,11 @@
       fileEntry.offset=entriesStream.readLong();
       fileEntry.length=entriesStream.readLong();
     }
-    if (entriesStream.getFilePointer() != entriesStream.length()) {
-      throw new CorruptIndexException("did not read all bytes from file \"" + entriesFileName + "\": read "+ entriesStream.getFilePointer()+ " vs size "+ entriesStream.length()+ " (resource: "+ entriesStream+ ")");
+    if (version >= CompoundFileWriter.VERSION_CHECKSUM) {
+      CodecUtil.checkFooter(entriesStream);
+    }
+ else {
+      CodecUtil.checkEOF(entriesStream);
     }
     return mapping;
   }
