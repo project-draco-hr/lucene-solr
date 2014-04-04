@@ -1,0 +1,61 @@
+{
+  Random random=random();
+  if (usually()) {
+    if (maybeWrap) {
+      try {
+        r=maybeWrapReader(r);
+      }
+ catch (      IOException e) {
+        throw new AssertionError(e);
+      }
+    }
+    if (random.nextInt(500) == 0 && r instanceof AtomicReader) {
+      try {
+        TestUtil.checkReader(r);
+      }
+ catch (      IOException e) {
+        throw new AssertionError(e);
+      }
+    }
+    final IndexSearcher ret;
+    if (wrapWithAssertions) {
+      ret=random.nextBoolean() ? new AssertingIndexSearcher(random,r) : new AssertingIndexSearcher(random,r.getContext());
+    }
+ else {
+      ret=random.nextBoolean() ? new IndexSearcher(r) : new IndexSearcher(r.getContext());
+    }
+    ret.setSimilarity(classEnvRule.similarity);
+    return ret;
+  }
+ else {
+    int threads=0;
+    final ThreadPoolExecutor ex;
+    if (random.nextBoolean()) {
+      ex=null;
+    }
+ else {
+      threads=TestUtil.nextInt(random,1,8);
+      ex=new ThreadPoolExecutor(threads,threads,0L,TimeUnit.MILLISECONDS,new LinkedBlockingQueue<Runnable>(),new NamedThreadFactory("LuceneTestCase"));
+    }
+    if (ex != null) {
+      if (VERBOSE) {
+        System.out.println("NOTE: newSearcher using ExecutorService with " + threads + " threads");
+      }
+      r.addReaderClosedListener(new ReaderClosedListener(){
+        @Override public void onClose(        IndexReader reader){
+          TestUtil.shutdownExecutorService(ex);
+        }
+      }
+);
+    }
+    IndexSearcher ret;
+    if (wrapWithAssertions) {
+      ret=random.nextBoolean() ? new AssertingIndexSearcher(random,r,ex) : new AssertingIndexSearcher(random,r.getContext(),ex);
+    }
+ else {
+      ret=random.nextBoolean() ? new IndexSearcher(r,ex) : new IndexSearcher(r.getContext(),ex);
+    }
+    ret.setSimilarity(classEnvRule.similarity);
+    return ret;
+  }
+}
