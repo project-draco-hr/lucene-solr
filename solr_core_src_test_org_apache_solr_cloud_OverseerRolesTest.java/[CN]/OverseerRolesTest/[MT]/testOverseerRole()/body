@@ -44,11 +44,14 @@
   Pattern pattern=Pattern.compile("(.*):(\\d*)(.*)");
   Matcher m=pattern.matcher(currentOverseer);
   JettySolrRunner stoppedJetty=null;
+  String hostPort=null;
+  StringBuilder sb=new StringBuilder();
   if (m.matches()) {
-    String hostPort=m.group(1) + ":" + m.group(2);
+    hostPort=m.group(1) + ":" + m.group(2);
     log.info("hostPort : {}",hostPort);
     for (    JettySolrRunner jetty : jettys) {
       String s=jetty.getBaseUrl().toString();
+      sb.append(s).append(" , ");
       if (s.contains(hostPort)) {
         log.info("leader node {}",s);
         ChaosMonkey.stop(jetty);
@@ -67,16 +70,24 @@
       }
     }
   }
-  ChaosMonkey.start(stoppedJetty);
-  timeout=System.currentTimeMillis() + 10000;
-  leaderchanged=false;
-  for (; System.currentTimeMillis() < timeout; ) {
-    List<String> sortedNodeNames=getSortedOverseerNodeNames(client.getZkStateReader().getZkClient());
-    if (sortedNodeNames.get(1).equals(killedOverseer) || sortedNodeNames.get(0).equals(killedOverseer)) {
-      leaderchanged=true;
-      break;
-    }
-    Thread.sleep(100);
+ else {
+    fail("pattern didn't match for" + currentOverseer);
   }
-  assertTrue("New overseer not the frontrunner : " + getSortedOverseerNodeNames(client.getZkStateReader().getZkClient()) + " expected : "+ killedOverseer,leaderchanged);
+  if (stoppedJetty != null) {
+    ChaosMonkey.start(stoppedJetty);
+    timeout=System.currentTimeMillis() + 10000;
+    leaderchanged=false;
+    for (; System.currentTimeMillis() < timeout; ) {
+      List<String> sortedNodeNames=getSortedOverseerNodeNames(client.getZkStateReader().getZkClient());
+      if (sortedNodeNames.get(1).equals(killedOverseer) || sortedNodeNames.get(0).equals(killedOverseer)) {
+        leaderchanged=true;
+        break;
+      }
+      Thread.sleep(100);
+    }
+    assertTrue("New overseer not the frontrunner : " + getSortedOverseerNodeNames(client.getZkStateReader().getZkClient()) + " expected : "+ killedOverseer,leaderchanged);
+  }
+ else {
+    log.warn("The jetty where the overseer {} is running could not be located in {}",hostPort,sb);
+  }
 }
