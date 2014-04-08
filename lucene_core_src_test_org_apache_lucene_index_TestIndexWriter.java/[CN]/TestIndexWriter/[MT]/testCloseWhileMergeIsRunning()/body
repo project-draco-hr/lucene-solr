@@ -1,0 +1,55 @@
+{
+  Directory dir=newDirectory();
+  final CountDownLatch mergeStarted=new CountDownLatch(1);
+  final CountDownLatch closeStarted=new CountDownLatch(1);
+  IndexWriterConfig iwc=newIndexWriterConfig(Version.LUCENE_48,new MockAnalyzer(random()));
+  LogDocMergePolicy mp=new LogDocMergePolicy();
+  mp.setMergeFactor(2);
+  iwc.setMergePolicy(mp);
+  iwc.setInfoStream(new InfoStream(){
+    @Override public boolean isEnabled(    String component){
+      return true;
+    }
+    @Override public void message(    String component,    String message){
+      if (message.equals("rollback")) {
+        closeStarted.countDown();
+      }
+    }
+    @Override public void close(){
+    }
+  }
+);
+  iwc.setMergeScheduler(new ConcurrentMergeScheduler(){
+    @Override public void doMerge(    MergePolicy.OneMerge merge) throws IOException {
+      mergeStarted.countDown();
+      try {
+        closeStarted.await();
+      }
+ catch (      InterruptedException ie) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(ie);
+      }
+      super.doMerge(merge);
+    }
+    @Override public void close(){
+    }
+  }
+);
+  IndexWriter w=new IndexWriter(dir,iwc);
+  Document doc=new Document();
+  doc.add(new SortedDocValuesField("dv",new BytesRef("foo!")));
+  w.addDocument(doc);
+  w.commit();
+  w.addDocument(doc);
+  w.commit();
+  try {
+    w.close();
+    fail("didn't hit exception");
+  }
+ catch (  RuntimeException re) {
+    System.out.println("GOT: " + re.getMessage());
+    assertTrue(re.getMessage().contains("this writer is closed, but some pending changes or running merges were discarded"));
+  }
+  w.rollback();
+  dir.close();
+}
