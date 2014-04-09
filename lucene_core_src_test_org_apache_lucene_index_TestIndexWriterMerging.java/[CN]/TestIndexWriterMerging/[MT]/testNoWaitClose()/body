@@ -4,7 +4,7 @@
     ((MockDirectoryWrapper)directory).setPreventDoubleWrite(false);
   }
   final Document doc=new Document();
-  FieldType customType=new FieldType(TextField.TYPE_STORED);
+  FieldType customType=new FieldType(TextField.TYPE_NOT_STORED);
   customType.setTokenized(false);
   Field idField=newField("id","",customType);
   doc.add(idField);
@@ -31,9 +31,10 @@
         writer.deleteDocuments(new Term("id",Integer.toString(delID)));
         delID+=5;
       }
+      writer.commit();
       ((LogMergePolicy)writer.getConfig().getMergePolicy()).setMergeFactor(2);
       final IndexWriter finalWriter=writer;
-      final ArrayList<Throwable> failure=new ArrayList<>();
+      final AtomicReference<Throwable> failure=new AtomicReference<>();
       Thread t1=new Thread(){
         @Override public void run(){
           boolean done=false;
@@ -52,7 +53,7 @@ catch (              NullPointerException e) {
               }
 catch (              Throwable e) {
                 e.printStackTrace(System.out);
-                failure.add(e);
+                failure.set(e);
                 done=true;
                 break;
               }
@@ -62,12 +63,12 @@ catch (              Throwable e) {
         }
       }
 ;
-      if (failure.size() > 0) {
-        throw failure.get(0);
-      }
       t1.start();
-      writer.shutdown(false);
+      writer.close();
       t1.join();
+      if (failure.get() != null) {
+        throw failure.get();
+      }
       IndexReader reader=DirectoryReader.open(directory);
       reader.close();
       writer=new IndexWriter(directory,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setOpenMode(OpenMode.APPEND).setMergePolicy(newLogMergePolicy()));
