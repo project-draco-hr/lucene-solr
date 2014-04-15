@@ -1,7 +1,8 @@
 {
-  final Directory raw=getDirectory(createTempDir("testThreadSafety"));
-  final BaseDirectoryWrapper dir=newDirectory(raw);
-  dir.setCheckIndexOnClose(false);
+  final Directory dir=getDirectory(createTempDir("testThreadSafety"));
+  if (dir instanceof BaseDirectoryWrapper) {
+    ((BaseDirectoryWrapper)dir).setCheckIndexOnClose(false);
+  }
   if (dir instanceof MockDirectoryWrapper) {
     ((MockDirectoryWrapper)dir).setThrottling(MockDirectoryWrapper.Throttling.NEVER);
   }
@@ -30,11 +31,12 @@ class TheThread extends Thread {
   ;
 class TheThread2 extends Thread {
     private String name;
+    private volatile boolean stop;
     public TheThread2(    String name){
       this.name=name;
     }
     @Override public void run(){
-      for (int i=0; i < 10000; i++) {
+      while (stop == false) {
         try {
           String[] files=dir.listAll();
           for (          String file : files) {
@@ -45,7 +47,7 @@ class TheThread2 extends Thread {
  catch (            FileNotFoundException|NoSuchFileException e) {
             }
 catch (            IOException e) {
-              if (e.getMessage().contains("still open for writing")) {
+              if (e.getMessage() != null && e.getMessage().contains("still open for writing")) {
               }
  else {
                 throw new RuntimeException(e);
@@ -68,7 +70,7 @@ catch (            IOException e) {
   theThread.start();
   theThread2.start();
   theThread.join();
+  theThread2.stop=true;
   theThread2.join();
   dir.close();
-  raw.close();
 }
