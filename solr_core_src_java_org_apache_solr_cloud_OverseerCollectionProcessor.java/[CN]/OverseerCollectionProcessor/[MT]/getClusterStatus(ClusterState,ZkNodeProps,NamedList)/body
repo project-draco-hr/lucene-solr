@@ -26,7 +26,15 @@
   if (collection == null) {
     Set<String> collections=clusterState.getCollections();
     for (    String name : collections) {
-      Map<String,Object> collectionStatus=getCollectionStatus(stateMap,name,shard);
+      Map<String,Object> collectionStatus=null;
+      if (clusterState.hasExternalCollection(name)) {
+        bytes=ZkStateReader.toJSON(clusterState.getCollection(name));
+        Map<String,Object> docCollection=(Map<String,Object>)ZkStateReader.fromJSON(bytes);
+        collectionStatus=getCollectionStatus(docCollection,name,shard);
+      }
+ else {
+        collectionStatus=getCollectionStatus((Map<String,Object>)stateMap.get(name),name,shard);
+      }
       if (collectionVsAliases.containsKey(name) && !collectionVsAliases.get(name).isEmpty()) {
         collectionStatus.put("aliases",collectionVsAliases.get(name));
       }
@@ -35,17 +43,25 @@
   }
  else {
     String routeKey=message.getStr(ShardParams._ROUTE_);
+    Map<String,Object> docCollection=null;
+    if (clusterState.hasExternalCollection(collection)) {
+      bytes=ZkStateReader.toJSON(clusterState.getCollection(collection));
+      docCollection=(Map<String,Object>)ZkStateReader.fromJSON(bytes);
+    }
+ else {
+      docCollection=(Map<String,Object>)stateMap.get(collection);
+    }
     if (routeKey == null) {
-      Map<String,Object> collectionStatus=getCollectionStatus(stateMap,collection,shard);
+      Map<String,Object> collectionStatus=getCollectionStatus(docCollection,collection,shard);
       if (collectionVsAliases.containsKey(collection) && !collectionVsAliases.get(collection).isEmpty()) {
         collectionStatus.put("aliases",collectionVsAliases.get(collection));
       }
       collectionProps.add(collection,collectionStatus);
     }
  else {
-      DocCollection docCollection=clusterState.getCollection(collection);
-      DocRouter router=docCollection.getRouter();
-      Collection<Slice> slices=router.getSearchSlices(routeKey,null,docCollection);
+      DocCollection coll=clusterState.getCollection(collection);
+      DocRouter router=coll.getRouter();
+      Collection<Slice> slices=router.getSearchSlices(routeKey,null,coll);
       String s="";
       for (      Slice slice : slices) {
         s+=slice.getName() + ",";
@@ -53,7 +69,7 @@
       if (shard != null) {
         s+=shard;
       }
-      Map<String,Object> collectionStatus=getCollectionStatus(stateMap,collection,s);
+      Map<String,Object> collectionStatus=getCollectionStatus(docCollection,collection,s);
       if (collectionVsAliases.containsKey(collection) && !collectionVsAliases.get(collection).isEmpty()) {
         collectionStatus.put("aliases",collectionVsAliases.get(collection));
       }
