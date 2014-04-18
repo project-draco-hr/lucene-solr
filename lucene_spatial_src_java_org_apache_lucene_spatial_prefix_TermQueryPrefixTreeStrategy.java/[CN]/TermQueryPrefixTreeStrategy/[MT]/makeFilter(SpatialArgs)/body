@@ -3,11 +3,24 @@
   if (op != SpatialOperation.Intersects)   throw new UnsupportedSpatialOperation(op);
   Shape shape=args.getShape();
   int detailLevel=grid.getLevelForDistance(args.resolveDistErr(ctx,distErrPct));
-  List<Cell> cells=grid.getCells(shape,detailLevel,false,true);
-  BytesRef[] terms=new BytesRef[cells.size()];
-  int i=0;
-  for (  Cell cell : cells) {
-    terms[i++]=cell.getTokenBytesNoLeaf(null);
+  final int GUESS_NUM_TERMS;
+  if (shape instanceof Point)   GUESS_NUM_TERMS=detailLevel;
+ else   GUESS_NUM_TERMS=4096;
+  BytesRef masterBytes=new BytesRef(GUESS_NUM_TERMS * detailLevel);
+  List<BytesRef> terms=new ArrayList<>(GUESS_NUM_TERMS);
+  CellIterator cells=grid.getTreeCellIterator(shape,detailLevel);
+  while (cells.hasNext()) {
+    Cell cell=cells.next();
+    if (!cell.isLeaf())     continue;
+    BytesRef term=cell.getTokenBytesNoLeaf(null);
+    masterBytes.grow(masterBytes.length + term.length);
+    masterBytes.append(term);
+    term.bytes=null;
+    term.offset=masterBytes.length - term.length;
+    terms.add(term);
+  }
+  for (  BytesRef byteRef : terms) {
+    byteRef.bytes=masterBytes.bytes;
   }
   return new TermsFilter(getFieldName(),terms);
 }
