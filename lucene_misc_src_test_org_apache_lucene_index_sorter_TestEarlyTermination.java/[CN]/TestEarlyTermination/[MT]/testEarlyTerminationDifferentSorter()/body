@@ -1,17 +1,23 @@
 {
-  createRandomIndexes(5);
-  final int numHits=TestUtil.nextInt(random(),1,numDocs / 10);
-  final Sort sort=new Sort(new SortField("ndv2",SortField.Type.LONG,false));
-  final boolean fillFields=random().nextBoolean();
-  final boolean trackDocScores=random().nextBoolean();
-  final boolean trackMaxScore=random().nextBoolean();
-  final boolean inOrder=random().nextBoolean();
-  final TopFieldCollector collector1=TopFieldCollector.create(sort,numHits,fillFields,trackDocScores,trackMaxScore,inOrder);
-  final TopFieldCollector collector2=TopFieldCollector.create(sort,numHits,fillFields,trackDocScores,trackMaxScore,inOrder);
-  final IndexSearcher searcher=newSearcher(reader);
-  final int iters=atLeast(5);
+  createRandomIndex();
+  final int iters=atLeast(3);
   for (int i=0; i < iters; ++i) {
-    final TermQuery query=new TermQuery(new Term("s",RandomPicks.randomFrom(random(),terms)));
+    final IndexSearcher searcher=newSearcher(reader);
+    final int numHits=TestUtil.nextInt(random(),1,numDocs);
+    final Sort sort=new Sort(new SortField("ndv2",SortField.Type.LONG,false));
+    final boolean fillFields=random().nextBoolean();
+    final boolean trackDocScores=random().nextBoolean();
+    final boolean trackMaxScore=random().nextBoolean();
+    final boolean inOrder=random().nextBoolean();
+    final TopFieldCollector collector1=TopFieldCollector.create(sort,numHits,fillFields,trackDocScores,trackMaxScore,inOrder);
+    final TopFieldCollector collector2=TopFieldCollector.create(sort,numHits,fillFields,trackDocScores,trackMaxScore,inOrder);
+    final Query query;
+    if (random().nextBoolean()) {
+      query=new TermQuery(new Term("s",RandomPicks.randomFrom(random(),terms)));
+    }
+ else {
+      query=new MatchAllDocsQuery();
+    }
     searcher.search(query,collector1);
     Sort different=new Sort(new SortField("ndv2",SortField.Type.LONG));
     searcher.search(query,new EarlyTerminatingSortingCollector(collector2,different,numHits){
@@ -22,7 +28,8 @@
       }
     }
 );
+    assertTrue(collector1.getTotalHits() >= collector2.getTotalHits());
+    assertTopDocsEquals(collector1.topDocs().scoreDocs,collector2.topDocs().scoreDocs);
   }
-  assertTrue(collector1.getTotalHits() >= collector2.getTotalHits());
-  assertTopDocsEquals(collector1.topDocs().scoreDocs,collector2.topDocs().scoreDocs);
+  closeIndex();
 }
