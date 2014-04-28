@@ -1,0 +1,99 @@
+{
+  if (first) {
+    invertState.reset();
+  }
+  IndexableFieldType fieldType=field.fieldType();
+  if (fieldType.omitNorms() && field.boost() != 1.0f) {
+    throw new UnsupportedOperationException("You cannot set an index-time boost: norms are omitted for field '" + field.name() + "'");
+  }
+  final boolean analyzed=fieldType.tokenized() && docState.analyzer != null;
+  final boolean checkOffsets=fieldType.indexOptions() == IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS;
+  int lastStartOffset=0;
+  boolean aborting=false;
+  boolean succeededInProcessingField=false;
+  try (TokenStream stream=field.tokenStream(docState.analyzer)){
+    stream.reset();
+    if (invertState.attributeSource != stream) {
+      if (stream.hasAttribute(TermToBytesRefAttribute.class)) {
+        invertState.termAttribute=stream.getAttribute(TermToBytesRefAttribute.class);
+      }
+ else {
+        invertState.termAttribute=null;
+      }
+      invertState.posIncrAttribute=stream.addAttribute(PositionIncrementAttribute.class);
+      invertState.offsetAttribute=stream.addAttribute(OffsetAttribute.class);
+      if (stream.hasAttribute(PayloadAttribute.class)) {
+        invertState.payloadAttribute=stream.getAttribute(PayloadAttribute.class);
+      }
+ else {
+        invertState.payloadAttribute=null;
+      }
+      invertState.attributeSource=stream;
+    }
+    termsHashPerField.start(field,first);
+    while (stream.incrementToken()) {
+      final int posIncr=invertState.posIncrAttribute.getPositionIncrement();
+      if (posIncr < 0) {
+        throw new IllegalArgumentException("position increment must be >=0 (got " + posIncr + ") for field '"+ field.name()+ "'");
+      }
+      if (invertState.position == 0 && posIncr == 0) {
+        throw new IllegalArgumentException("first position increment must be > 0 (got 0) for field '" + field.name() + "'");
+      }
+      int position=invertState.position + posIncr;
+      if (position > 0) {
+        position--;
+      }
+ else       if (position < 0) {
+        throw new IllegalArgumentException("position overflow for field '" + field.name() + "'");
+      }
+      invertState.position=position;
+      if (posIncr == 0) {
+        invertState.numOverlap++;
+      }
+      if (checkOffsets) {
+        int startOffset=invertState.offset + invertState.offsetAttribute.startOffset();
+        int endOffset=invertState.offset + invertState.offsetAttribute.endOffset();
+        if (startOffset < 0 || endOffset < startOffset) {
+          throw new IllegalArgumentException("startOffset must be non-negative, and endOffset must be >= startOffset, " + "startOffset=" + startOffset + ",endOffset="+ endOffset+ " for field '"+ field.name()+ "'");
+        }
+        if (startOffset < lastStartOffset) {
+          throw new IllegalArgumentException("offsets must not go backwards startOffset=" + startOffset + " is < lastStartOffset="+ lastStartOffset+ " for field '"+ field.name()+ "'");
+        }
+        lastStartOffset=startOffset;
+      }
+      aborting=true;
+      termsHashPerField.add();
+      aborting=false;
+      invertState.length++;
+      invertState.position++;
+    }
+    stream.end();
+    invertState.position+=invertState.posIncrAttribute.getPositionIncrement();
+    invertState.offset+=invertState.offsetAttribute.endOffset();
+    succeededInProcessingField=true;
+  }
+ catch (  MaxBytesLengthExceededException e) {
+    aborting=false;
+    byte[] prefix=new byte[30];
+    BytesRef bigTerm=invertState.termAttribute.getBytesRef();
+    System.arraycopy(bigTerm.bytes,bigTerm.offset,prefix,0,30);
+    String msg="Document contains at least one immense term in field=\"" + fieldInfo.name + "\" (whose UTF8 encoding is longer than the max length "+ DocumentsWriterPerThread.MAX_TERM_LENGTH_UTF8+ "), all of which were skipped.  Please correct the analyzer to not produce such terms.  The prefix of the first immense term is: '"+ Arrays.toString(prefix)+ "...'";
+    if (docState.infoStream.isEnabled("IW")) {
+      docState.infoStream.message("IW","ERROR: " + msg);
+    }
+    throw new IllegalArgumentException(msg);
+  }
+ finally {
+    if (succeededInProcessingField == false && aborting) {
+      docState.docWriter.setAborting();
+    }
+    if (!succeededInProcessingField && docState.infoStream.isEnabled("DW")) {
+      docState.infoStream.message("DW","An exception was thrown while processing field " + fieldInfo.name);
+    }
+  }
+  if (analyzed) {
+    invertState.position+=docState.analyzer.getPositionIncrementGap(fieldInfo.name);
+    invertState.offset+=docState.analyzer.getOffsetGap(fieldInfo.name);
+  }
+  invertState.boost*=field.boost();
+}

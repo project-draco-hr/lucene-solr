@@ -1,0 +1,56 @@
+{
+  int fieldCount=0;
+  long fieldGen=nextFieldGen++;
+  termsHash.startDocument();
+  for (  IndexableField field : docState.doc.indexableFields()) {
+    IndexableFieldType fieldType=field.fieldType();
+    PerField fp=getOrAddField(field.name(),fieldType,true);
+    boolean first=fp.fieldGen != fieldGen;
+    fp.invert(field,first);
+    if (first) {
+      fields[fieldCount++]=fp;
+      fp.fieldGen=fieldGen;
+    }
+  }
+  for (int i=0; i < fieldCount; i++) {
+    fields[i].finish();
+  }
+  boolean success=false;
+  try {
+    termsHash.finishDocument();
+    success=true;
+  }
+  finally {
+    if (success == false) {
+      docWriter.setAborting();
+    }
+  }
+  fillStoredFields(docState.docID);
+  storedFieldsWriter.startDocument();
+  lastStoredDocID++;
+  success=false;
+  try {
+    for (    StorableField field : docState.doc.storableFields()) {
+      final String fieldName=field.name();
+      IndexableFieldType fieldType=field.fieldType();
+      verifyFieldType(fieldName,fieldType);
+      PerField fp=getOrAddField(fieldName,fieldType,false);
+      if (fieldType.stored()) {
+        storedFieldsWriter.writeField(fp.fieldInfo,field);
+      }
+      DocValuesType dvType=fieldType.docValueType();
+      if (dvType != null) {
+        indexDocValue(fp,dvType,field);
+      }
+    }
+    success=true;
+  }
+  finally {
+    if (success == false) {
+      docWriter.setAborting();
+    }
+ else {
+      storedFieldsWriter.finishDocument();
+    }
+  }
+}
