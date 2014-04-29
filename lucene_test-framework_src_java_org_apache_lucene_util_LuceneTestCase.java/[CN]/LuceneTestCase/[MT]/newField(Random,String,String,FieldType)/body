@@ -1,41 +1,37 @@
 {
   name=new String(name);
-  if (usually(random) || !type.indexed()) {
-    fieldNamesSeen.add(name);
+  FieldType prevType=fieldToType.get(name);
+  if (usually(random) || !type.indexed() || prevType != null) {
+    if (prevType == null) {
+      fieldToType.put(name,new FieldType(type));
+    }
+ else {
+      type=mergeTermVectorOptions(type,prevType);
+    }
     return new Field(name,value,type);
   }
   FieldType newType=new FieldType(type);
   if (!newType.stored() && random.nextBoolean()) {
     newType.setStored(true);
   }
-  if (!newType.storeTermVectors() && fieldNamesSeen.contains(name) == false && random.nextBoolean()) {
-    FieldType prev;
-synchronized (fieldTermVectorOptions) {
-      prev=fieldTermVectorOptions.get(name);
-      if (prev == null) {
-        newType.setStoreTermVectors(true);
-        if (!newType.storeTermVectorPositions()) {
-          newType.setStoreTermVectorPositions(random.nextBoolean());
-          if (newType.storeTermVectorPositions()) {
-            if (!newType.storeTermVectorPayloads()) {
-              newType.setStoreTermVectorPayloads(random.nextBoolean());
-            }
-            if (!newType.storeTermVectorOffsets()) {
-              newType.setStoreTermVectorOffsets(random.nextBoolean());
-            }
-          }
+  if (!newType.storeTermVectors() && random.nextBoolean()) {
+    newType.setStoreTermVectors(true);
+    if (!newType.storeTermVectorPositions()) {
+      newType.setStoreTermVectorPositions(random.nextBoolean());
+      if (newType.storeTermVectorPositions()) {
+        if (!newType.storeTermVectorPayloads()) {
+          newType.setStoreTermVectorPayloads(random.nextBoolean());
         }
-        fieldTermVectorOptions.put(name,prev);
+        if (!newType.storeTermVectorOffsets()) {
+          newType.setStoreTermVectorOffsets(random.nextBoolean());
+        }
       }
     }
-    if (prev != null) {
-      newType.setStoreTermVectors(prev.storeTermVectors());
-      newType.setStoreTermVectorOffsets(prev.storeTermVectorOffsets());
-      newType.setStoreTermVectorPositions(prev.storeTermVectorPositions());
-      newType.setStoreTermVectorPayloads(prev.storeTermVectorPayloads());
+    if (VERBOSE) {
+      System.out.println("NOTE: LuceneTestCase: upgrade name=" + name + " type="+ newType);
     }
-    System.out.println("  LTC: upgrade name=" + name + " type="+ newType);
   }
   newType.freeze();
+  fieldToType.put(name,newType);
   return new Field(name,value,newType);
 }
