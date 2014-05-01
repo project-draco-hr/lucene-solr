@@ -32,26 +32,54 @@
   fillStoredFields(docState.docID);
   storedFieldsWriter.startDocument();
   lastStoredDocID++;
-  success=false;
-  try {
-    for (    StorableField field : docState.doc.storableFields()) {
-      final String fieldName=field.name();
-      IndexableFieldType fieldType=field.fieldType();
+  for (  StorableField field : docState.doc.storableFields()) {
+    final String fieldName=field.name();
+    IndexableFieldType fieldType=field.fieldType();
+    PerField fp=null;
+    success=false;
+    try {
       verifyFieldType(fieldName,fieldType);
-      PerField fp=getOrAddField(fieldName,fieldType,false);
+      fp=getOrAddField(fieldName,fieldType,false);
       if (fieldType.stored()) {
         storedFieldsWriter.writeField(fp.fieldInfo,field);
       }
+      success=true;
+    }
+  finally {
+      if (!success) {
+        docWriter.setAborting();
+      }
+    }
+    success=false;
+    try {
       DocValuesType dvType=fieldType.docValueType();
       if (dvType != null) {
         indexDocValue(fp,dvType,field);
       }
+      success=true;
     }
+  finally {
+      if (!success) {
+        success=false;
+        try {
+          storedFieldsWriter.finishDocument();
+          success=true;
+        }
+  finally {
+          if (!success) {
+            docWriter.setAborting();
+          }
+        }
+      }
+    }
+  }
+  success=false;
+  try {
     storedFieldsWriter.finishDocument();
     success=true;
   }
   finally {
-    if (success == false) {
+    if (!success) {
       docWriter.setAborting();
     }
   }
