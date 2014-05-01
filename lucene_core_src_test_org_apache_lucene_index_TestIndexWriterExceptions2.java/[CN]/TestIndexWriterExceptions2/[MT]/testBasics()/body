@@ -11,7 +11,11 @@
     @Override protected TokenStreamComponents createComponents(    String fieldName){
       MockTokenizer tokenizer=new MockTokenizer(MockTokenizer.SIMPLE,false);
       tokenizer.setEnableChecks(false);
-      TokenStream stream=new CrankyTokenFilter(tokenizer,new Random(analyzerSeed));
+      TokenStream stream=tokenizer;
+      if (fieldName.contains("payloads")) {
+        stream=new MockVariableLengthPayloadFilter(new Random(analyzerSeed),stream);
+      }
+      stream=new CrankyTokenFilter(stream,new Random(analyzerSeed));
       return new TokenStreamComponents(tokenizer,stream);
     }
   }
@@ -21,14 +25,26 @@
   IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,analyzer);
   conf.setMergeScheduler(new SerialMergeScheduler());
   conf.setCodec(codec);
-  int numDocs=atLeast(2500);
+  int numDocs=atLeast(2000);
   IndexWriter iw=new IndexWriter(dir,conf);
   try {
     for (int i=0; i < numDocs; i++) {
       Document doc=new Document();
       doc.add(newStringField("id",Integer.toString(i),Field.Store.NO));
       doc.add(new NumericDocValuesField("dv",i));
+      doc.add(new BinaryDocValuesField("dv2",new BytesRef(Integer.toString(i))));
+      doc.add(new SortedDocValuesField("dv3",new BytesRef(Integer.toString(i))));
+      if (defaultCodecSupportsSortedSet()) {
+        doc.add(new SortedSetDocValuesField("dv4",new BytesRef(Integer.toString(i))));
+        doc.add(new SortedSetDocValuesField("dv4",new BytesRef(Integer.toString(i - 1))));
+      }
       doc.add(newTextField("text1",TestUtil.randomAnalysisString(random(),20,true),Field.Store.NO));
+      doc.add(new StoredField("stored1","foo"));
+      doc.add(new StoredField("stored1","bar"));
+      doc.add(newTextField("text_payloads",TestUtil.randomAnalysisString(random(),6,true),Field.Store.NO));
+      FieldType ft=new FieldType(TextField.TYPE_NOT_STORED);
+      ft.setStoreTermVectors(true);
+      doc.add(newField("text_vectors",TestUtil.randomAnalysisString(random(),6,true),ft));
       try {
         iw.addDocument(doc);
         int thingToDo=random().nextInt(4);
@@ -37,6 +53,9 @@
         }
  else         if (thingToDo == 1 && defaultCodecSupportsFieldUpdates()) {
           iw.updateNumericDocValue(new Term("id",Integer.toString(i)),"dv",i + 1L);
+        }
+ else         if (thingToDo == 2 && defaultCodecSupportsFieldUpdates()) {
+          iw.updateBinaryDocValue(new Term("id",Integer.toString(i)),"dv2",new BytesRef(Integer.toString(i + 1)));
         }
       }
  catch (      Exception e) {
