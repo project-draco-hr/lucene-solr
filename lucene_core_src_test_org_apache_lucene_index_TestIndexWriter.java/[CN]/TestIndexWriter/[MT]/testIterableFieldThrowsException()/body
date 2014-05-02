@@ -1,0 +1,59 @@
+{
+  Directory dir=newDirectory();
+  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())));
+  int iters=atLeast(100);
+  int docCount=0;
+  int docId=0;
+  Set<String> liveIds=new HashSet<>();
+  for (int i=0; i < iters; i++) {
+    int numDocs=atLeast(4);
+    for (int j=0; j < numDocs; j++) {
+      String id=Integer.toString(docId++);
+      final List<StorableField> storedFields=new ArrayList<>();
+      storedFields.add(new StoredField("id",id));
+      storedFields.add(new StoredField("foo",TestUtil.randomSimpleString(random())));
+      final List<IndexableField> indexFields=new ArrayList<>();
+      indexFields.add(new StringField("id",id,Field.Store.NO));
+      indexFields.add(new StringField("foo",TestUtil.randomSimpleString(random()),Field.Store.NO));
+      docId++;
+      boolean success=false;
+      try {
+        w.addDocument(new IndexDocument(){
+          @Override public Iterable<IndexableField> indexableFields(){
+            return new RandomFailingIterable<IndexableField>(indexFields,random());
+          }
+          @Override public Iterable<StorableField> storableFields(){
+            return new RandomFailingIterable<StorableField>(storedFields,random());
+          }
+        }
+);
+        success=true;
+      }
+ catch (      RuntimeException e) {
+        assertEquals("boom",e.getMessage());
+      }
+ finally {
+        if (success) {
+          docCount++;
+          liveIds.add(id);
+        }
+      }
+    }
+  }
+  DirectoryReader reader=w.getReader();
+  assertEquals(docCount,reader.numDocs());
+  List<AtomicReaderContext> leaves=reader.leaves();
+  for (  AtomicReaderContext atomicReaderContext : leaves) {
+    AtomicReader ar=atomicReaderContext.reader();
+    Bits liveDocs=ar.getLiveDocs();
+    int maxDoc=ar.maxDoc();
+    for (int i=0; i < maxDoc; i++) {
+      if (liveDocs == null || liveDocs.get(i)) {
+        assertTrue(liveIds.remove(ar.document(i).get("id")));
+      }
+    }
+  }
+  assertTrue(liveIds.isEmpty());
+  w.shutdown();
+  IOUtils.close(reader,dir);
+}
