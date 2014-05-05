@@ -1,0 +1,66 @@
+{
+  final int NUM_ITERS=atLeast(50);
+  for (int i=0; i < NUM_ITERS; i++) {
+    SolrServer client=random().nextBoolean() ? collection1 : collection2;
+    SolrQuery q=new SolrQuery();
+    q.set("distrib","true");
+    q.setFields("id","text");
+    boolean shard1Results=random().nextBoolean();
+    boolean shard2Results=random().nextBoolean();
+    String qs="_query_with_no_results_";
+    if (shard1Results) {
+      qs+=" OR batman";
+    }
+    if (shard2Results) {
+      qs+=" OR superman";
+    }
+    q.setQuery(qs);
+    Set<String> shards=new HashSet<String>(Arrays.asList(shard1,shard2));
+    if (random().nextBoolean()) {
+      shards.remove(shard1);
+      shard1Results=false;
+    }
+ else     if (random().nextBoolean()) {
+      shards.remove(shard2);
+      shard2Results=false;
+    }
+    q.set("shards",StringUtils.join(shards,","));
+    List<String> debug=new ArrayList<String>(10);
+    boolean all=false;
+    final boolean timing=random().nextBoolean();
+    final boolean query=random().nextBoolean();
+    final boolean results=random().nextBoolean();
+    final boolean track=random().nextBoolean();
+    if (timing) {
+      debug.add("timing");
+    }
+    if (query) {
+      debug.add("query");
+    }
+    if (results) {
+      debug.add("results");
+    }
+    if (track) {
+      debug.add("track");
+    }
+    if (debug.isEmpty()) {
+      debug.add("true");
+      all=true;
+    }
+    q.set("debug",(String[])debug.toArray(new String[debug.size()]));
+    QueryResponse r=client.query(q);
+    try {
+      assertDebug(r,all || track,"track");
+      assertDebug(r,all || query,"rawquerystring");
+      assertDebug(r,all || query,"querystring");
+      assertDebug(r,all || query,"parsedquery");
+      assertDebug(r,all || query,"parsedquery_toString");
+      assertDebug(r,all || query,"QParser");
+      assertDebug(r,all || results,"explain");
+      assertDebug(r,all || timing,"timing");
+    }
+ catch (    AssertionError e) {
+      throw new AssertionError(q.toString() + ": " + e.getMessage(),e);
+    }
+  }
+}
