@@ -1,0 +1,54 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  int maxThreadStates=TestUtil.nextInt(random(),1,12);
+  if (VERBOSE) {
+    System.out.println("TEST: maxThreadStates=" + maxThreadStates);
+  }
+  iwc.setMaxBufferedDocs(100000000);
+  iwc.setRAMBufferSizeMB(-1);
+  iwc.setMaxThreadStates(maxThreadStates);
+  iwc.setMergePolicy(NoMergePolicy.INSTANCE);
+  final IndexWriter w=new IndexWriter(dir,iwc);
+  final AtomicInteger indexingCount=new AtomicInteger();
+  final AtomicInteger maxThreadCount=new AtomicInteger();
+  CheckSegmentCount checker=new CheckSegmentCount(w,maxThreadCount,indexingCount);
+  final int ITERS=100;
+  Thread[] threads=new Thread[MAX_THREADS_AT_ONCE];
+  final CyclicBarrier barrier=new CyclicBarrier(MAX_THREADS_AT_ONCE,checker);
+  for (int i=0; i < threads.length; i++) {
+    threads[i]=new Thread(){
+      @Override public void run(){
+        try {
+          for (int iter=0; iter < ITERS; iter++) {
+            if (indexingCount.incrementAndGet() <= maxThreadCount.get()) {
+              if (VERBOSE) {
+                System.out.println("TEST: " + Thread.currentThread().getName() + ": do index");
+              }
+              Document doc=new Document();
+              doc.add(newTextField("field","here is some text that is a bit longer than normal trivial text",Field.Store.NO));
+              for (int j=0; j < 200; j++) {
+                w.addDocument(doc);
+              }
+            }
+ else {
+              if (VERBOSE) {
+                System.out.println("TEST: " + Thread.currentThread().getName() + ": don't index");
+              }
+            }
+            barrier.await();
+          }
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    threads[i].start();
+  }
+  for (int i=0; i < threads.length; i++) {
+    threads[i].join();
+  }
+  IOUtils.close(checker,w,dir);
+}
