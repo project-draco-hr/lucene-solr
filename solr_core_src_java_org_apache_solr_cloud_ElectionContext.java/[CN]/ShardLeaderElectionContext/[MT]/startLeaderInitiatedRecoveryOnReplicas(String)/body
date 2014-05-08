@@ -1,0 +1,37 @@
+{
+  try (SolrCore core=cc.getCore(coreName)){
+    CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
+    String coll=cloudDesc.getCollectionName();
+    String shardId=cloudDesc.getShardId();
+    String znodePath=zkController.getLeaderInitiatedRecoveryZnodePath(coll,shardId);
+    List<String> replicas=null;
+    try {
+      replicas=zkClient.getChildren(znodePath,null,false);
+    }
+ catch (    NoNodeException nne) {
+    }
+    if (replicas != null && replicas.size() > 0) {
+      for (      String replicaCore : replicas) {
+        if (coreName.equals(replicaCore))         continue;
+        String lirState=zkController.getLeaderInitiatedRecoveryState(coll,shardId,replicaCore);
+        if (ZkStateReader.DOWN.equals(lirState) || ZkStateReader.RECOVERY_FAILED.equals(lirState)) {
+          log.info("After " + coreName + " was elected leader, found "+ replicaCore+ " as "+ lirState+ " and needing recovery.");
+          List<ZkCoreNodeProps> replicaProps=zkController.getZkStateReader().getReplicaProps(collection,shardId,coreName,replicaCore,null,null);
+          if (replicaProps != null && replicaProps.size() > 0) {
+            ZkCoreNodeProps coreNodeProps=null;
+            for (            ZkCoreNodeProps p : replicaProps) {
+              if (p.getCoreName().equals(replicaCore)) {
+                coreNodeProps=p;
+                break;
+              }
+            }
+            LeaderInitiatedRecoveryThread lirThread=new LeaderInitiatedRecoveryThread(zkController,cc,collection,shardId,coreNodeProps,120);
+            zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaCore,coreNodeProps,false);
+            ExecutorService executor=cc.getUpdateShardHandler().getUpdateExecutor();
+            executor.execute(lirThread);
+          }
+        }
+      }
+    }
+  }
+ }

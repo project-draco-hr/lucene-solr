@@ -17,34 +17,33 @@
     if (error.req.node instanceof RetryNode) {
       continue;
     }
-    final String recoveryUrl=error.req.node.getBaseUrl();
-    Thread thread=new Thread(){
-{
-        setDaemon(true);
+    DistribPhase phase=DistribPhase.parseParam(error.req.uReq.getParams().get(DISTRIB_UPDATE_PARAM));
+    if (phase != DistribPhase.FROMLEADER)     continue;
+    final String replicaUrl=error.req.node.getUrl();
+    int maxTries=1;
+    boolean sendRecoveryCommand=true;
+    String collection=null;
+    String shardId=null;
+    if (error.req.node instanceof StdNode) {
+      StdNode stdNode=(StdNode)error.req.node;
+      collection=stdNode.getCollection();
+      shardId=stdNode.getShardId();
+      try {
+        sendRecoveryCommand=zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaUrl,stdNode.getNodeProps(),false);
+        if (sendRecoveryCommand) {
+          maxTries=120;
+        }
       }
-      @Override public void run(){
-        log.info("try and ask " + recoveryUrl + " to recover");
-        HttpSolrServer server=new HttpSolrServer(recoveryUrl);
-        try {
-          server.setSoTimeout(60000);
-          server.setConnectionTimeout(15000);
-          RequestRecovery recoverRequestCmd=new RequestRecovery();
-          recoverRequestCmd.setAction(CoreAdminAction.REQUESTRECOVERY);
-          recoverRequestCmd.setCoreName(error.req.node.getCoreName());
-          try {
-            server.request(recoverRequestCmd);
-          }
- catch (          Throwable t) {
-            SolrException.log(log,recoveryUrl + ": Could not tell a replica to recover",t);
-          }
-        }
-  finally {
-          server.shutdown();
-        }
+ catch (      Exception e) {
+        log.error("Leader failed to set replica " + error.req.node.getUrl() + " state to DOWN due to: "+ e,e);
       }
     }
-;
-    ExecutorService executor=req.getCore().getCoreDescriptor().getCoreContainer().getUpdateShardHandler().getUpdateExecutor();
-    executor.execute(thread);
+    if (!sendRecoveryCommand)     continue;
+    Throwable rootCause=SolrException.getRootCause(error.e);
+    log.error("Setting up to try to start recovery on replica " + replicaUrl + " after: "+ rootCause);
+    CoreContainer coreContainer=req.getCore().getCoreDescriptor().getCoreContainer();
+    LeaderInitiatedRecoveryThread lirThread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,collection,shardId,error.req.node.getNodeProps(),maxTries);
+    ExecutorService executor=coreContainer.getUpdateShardHandler().getUpdateExecutor();
+    executor.execute(lirThread);
   }
 }

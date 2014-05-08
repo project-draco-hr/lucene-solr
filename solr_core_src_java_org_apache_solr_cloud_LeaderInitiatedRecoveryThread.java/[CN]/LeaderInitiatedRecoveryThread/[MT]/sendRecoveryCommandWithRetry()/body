@@ -1,0 +1,101 @@
+{
+  int tries=0;
+  long waitBetweenTriesMs=5000L;
+  boolean continueTrying=true;
+  String recoveryUrl=nodeProps.getBaseUrl();
+  String replicaNodeName=nodeProps.getNodeName();
+  String coreNeedingRecovery=nodeProps.getCoreName();
+  String replicaUrl=nodeProps.getCoreUrl();
+  log.info(getName() + " started running to send REQUESTRECOVERY command to " + replicaUrl+ "; will try for a max of "+ (maxTries * (waitBetweenTriesMs / 1000))+ " secs");
+  RequestRecovery recoverRequestCmd=new RequestRecovery();
+  recoverRequestCmd.setAction(CoreAdminAction.REQUESTRECOVERY);
+  recoverRequestCmd.setCoreName(coreNeedingRecovery);
+  while (continueTrying && ++tries < maxTries) {
+    if (tries > 1) {
+      log.warn("Asking core " + coreNeedingRecovery + " on  "+ recoveryUrl+ " to recover; unsuccessful after "+ tries+ " of "+ maxTries+ " attempts so far ...");
+    }
+ else {
+      log.info("Asking core " + coreNeedingRecovery + " on  "+ recoveryUrl+ " to recover");
+    }
+    HttpSolrServer server=new HttpSolrServer(recoveryUrl);
+    try {
+      server.setSoTimeout(60000);
+      server.setConnectionTimeout(15000);
+      try {
+        server.request(recoverRequestCmd);
+        log.info("Successfully sent " + CoreAdminAction.REQUESTRECOVERY + " command to core "+ coreNeedingRecovery+ " on "+ recoveryUrl);
+        continueTrying=false;
+      }
+ catch (      Throwable t) {
+        Throwable rootCause=SolrException.getRootCause(t);
+        boolean wasCommError=(rootCause instanceof ConnectException || rootCause instanceof ConnectTimeoutException || rootCause instanceof NoHttpResponseException|| rootCause instanceof SocketException);
+        SolrException.log(log,recoveryUrl + ": Could not tell a replica to recover",t);
+        if (!wasCommError) {
+          continueTrying=false;
+        }
+      }
+    }
+  finally {
+      server.shutdown();
+    }
+    if (continueTrying) {
+      try {
+        Thread.sleep(waitBetweenTriesMs);
+      }
+ catch (      InterruptedException ignoreMe) {
+        Thread.currentThread().interrupt();
+      }
+      if (coreContainer.isShutDown()) {
+        log.warn("Stop trying to send recovery command to downed replica " + coreNeedingRecovery + " on "+ replicaNodeName+ " because my core container is shutdown.");
+        continueTrying=false;
+        break;
+      }
+      ZkStateReader zkStateReader=zkController.getZkStateReader();
+      try {
+        zkStateReader.updateClusterState(true);
+      }
+ catch (      Exception exc) {
+        log.warn("Error when updating cluster state: " + exc);
+      }
+      if (!zkStateReader.getClusterState().liveNodesContain(replicaNodeName)) {
+        log.warn("Node " + replicaNodeName + " hosting core "+ coreNeedingRecovery+ " is no longer live. No need to keep trying to tell it to recover!");
+        continueTrying=false;
+        break;
+      }
+      if (continueTrying && collection != null && shardId != null) {
+        try {
+          String lirState=zkController.getLeaderInitiatedRecoveryState(collection,shardId,coreNeedingRecovery);
+          if (lirState == null) {
+            log.warn("Stop trying to send recovery command to downed replica " + coreNeedingRecovery + " on "+ replicaNodeName+ " because the znode no longer exists.");
+            continueTrying=false;
+            break;
+          }
+          if (ZkStateReader.RECOVERING.equals(lirState)) {
+            continueTrying=false;
+            log.info("Replica " + coreNeedingRecovery + " on node "+ replicaNodeName+ " ack'd the leader initiated recovery state, "+ "no need to keep trying to send recovery command");
+          }
+ else {
+            String leaderCoreNodeName=zkStateReader.getLeaderRetry(collection,shardId,5000).getName();
+            List<ZkCoreNodeProps> replicaProps=zkStateReader.getReplicaProps(collection,shardId,leaderCoreNodeName,coreNeedingRecovery,null,null);
+            if (replicaProps != null && replicaProps.size() > 0) {
+              String replicaState=replicaProps.get(0).getState();
+              if (ZkStateReader.ACTIVE.equals(replicaState)) {
+                if (ZkStateReader.DOWN.equals(lirState)) {
+                  log.warn("Replica " + coreNeedingRecovery + " set to active but the leader thinks it should be in recovery;"+ " forcing it back to down state to re-run the leader-initiated recovery process; props: "+ replicaProps.get(0));
+                  zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaUrl,nodeProps,true);
+                }
+              }
+            }
+          }
+        }
+ catch (        Exception ignoreMe) {
+          log.warn("Failed to determine state of " + coreNeedingRecovery + " due to: "+ ignoreMe);
+        }
+      }
+    }
+  }
+  zkController.removeReplicaFromLeaderInitiatedRecoveryHandling(replicaUrl);
+  if (continueTrying) {
+    log.error("Timed out after waiting for " + (tries * (waitBetweenTriesMs / 1000)) + " secs to send the recovery request to: "+ replicaUrl+ "; not much more we can do here?");
+  }
+}
