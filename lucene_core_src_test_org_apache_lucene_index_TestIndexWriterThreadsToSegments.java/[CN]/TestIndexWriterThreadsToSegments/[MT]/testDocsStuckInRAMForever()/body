@@ -1,0 +1,64 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setRAMBufferSizeMB(.2);
+  Codec codec=Codec.forName("Lucene46");
+  iwc.setCodec(codec);
+  iwc.setMergePolicy(NoMergePolicy.INSTANCE);
+  final IndexWriter w=new IndexWriter(dir,iwc);
+  final CountDownLatch startingGun=new CountDownLatch(1);
+  Thread[] threads=new Thread[2];
+  for (int i=0; i < threads.length; i++) {
+    final int threadID=i;
+    threads[i]=new Thread(){
+      @Override public void run(){
+        try {
+          startingGun.await();
+          for (int j=0; j < 1000; j++) {
+            Document doc=new Document();
+            doc.add(newStringField("field","threadID" + threadID,Field.Store.NO));
+            w.addDocument(doc);
+          }
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    threads[i].start();
+  }
+  startingGun.countDown();
+  for (  Thread t : threads) {
+    t.join();
+  }
+  Set<String> segSeen=new HashSet<>();
+  int thread0Count=0;
+  int thread1Count=0;
+  while (thread0Count < 1000 || thread1Count < 1000) {
+    Document doc=new Document();
+    doc.add(newStringField("field","threadIDmain",Field.Store.NO));
+    w.addDocument(doc);
+    for (    String fileName : dir.listAll()) {
+      if (fileName.endsWith(".si")) {
+        String segName=IndexFileNames.parseSegmentName(fileName);
+        if (segSeen.contains(segName) == false) {
+          segSeen.add(segName);
+          SegmentInfo si=new Lucene46SegmentInfoFormat().getSegmentInfoReader().read(dir,segName,IOContext.DEFAULT);
+          si.setCodec(codec);
+          SegmentCommitInfo sci=new SegmentCommitInfo(si,0,-1,-1);
+          SegmentReader sr=new SegmentReader(sci,IOContext.DEFAULT);
+          try {
+            thread0Count+=sr.docFreq(new Term("field","threadID0"));
+            thread1Count+=sr.docFreq(new Term("field","threadID1"));
+          }
+  finally {
+            sr.close();
+          }
+        }
+      }
+    }
+  }
+  w.close();
+  dir.close();
+}
