@@ -1,0 +1,34 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  Field field=newField("field","",StringField.TYPE_STORED);
+  Collator collator=Collator.getInstance();
+  if (random().nextBoolean()) {
+    collator.setStrength(Collator.PRIMARY);
+  }
+  CollationDocValuesField collationField=new CollationDocValuesField("collated",collator);
+  doc.add(field);
+  doc.add(collationField);
+  int numDocs=atLeast(500);
+  for (int i=0; i < numDocs; i++) {
+    String value=TestUtil.randomSimpleString(random());
+    field.setStringValue(value);
+    collationField.setStringValue(value);
+    iw.addDocument(doc);
+  }
+  IndexReader ir=iw.getReader();
+  iw.shutdown();
+  IndexSearcher is=newSearcher(ir);
+  int numChecks=atLeast(100);
+  for (int i=0; i < numChecks; i++) {
+    String start=TestUtil.randomSimpleString(random());
+    String end=TestUtil.randomSimpleString(random());
+    BytesRef lowerVal=new BytesRef(collator.getCollationKey(start).toByteArray());
+    BytesRef upperVal=new BytesRef(collator.getCollationKey(end).toByteArray());
+    Query query=new ConstantScoreQuery(FieldCacheRangeFilter.newBytesRefRange("collated",lowerVal,upperVal,true,true));
+    doTestRanges(is,start,end,query,collator);
+  }
+  ir.close();
+  dir.close();
+}
