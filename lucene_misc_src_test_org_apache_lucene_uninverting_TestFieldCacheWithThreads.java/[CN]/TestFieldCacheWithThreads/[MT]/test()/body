@@ -1,0 +1,78 @@
+{
+  Directory dir=newDirectory();
+  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setMergePolicy(newLogMergePolicy()));
+  final List<Long> numbers=new ArrayList<>();
+  final List<BytesRef> binary=new ArrayList<>();
+  final List<BytesRef> sorted=new ArrayList<>();
+  final int numDocs=atLeast(100);
+  for (int i=0; i < numDocs; i++) {
+    Document d=new Document();
+    long number=random().nextLong();
+    d.add(new NumericDocValuesField("number",number));
+    BytesRef bytes=new BytesRef(TestUtil.randomRealisticUnicodeString(random()));
+    d.add(new BinaryDocValuesField("bytes",bytes));
+    binary.add(bytes);
+    bytes=new BytesRef(TestUtil.randomRealisticUnicodeString(random()));
+    d.add(new SortedDocValuesField("sorted",bytes));
+    sorted.add(bytes);
+    w.addDocument(d);
+    numbers.add(number);
+  }
+  w.forceMerge(1);
+  final IndexReader r=DirectoryReader.open(w,true);
+  w.shutdown();
+  assertEquals(1,r.leaves().size());
+  final AtomicReader ar=r.leaves().get(0).reader();
+  int numThreads=TestUtil.nextInt(random(),2,5);
+  List<Thread> threads=new ArrayList<>();
+  final CountDownLatch startingGun=new CountDownLatch(1);
+  for (int t=0; t < numThreads; t++) {
+    final Random threadRandom=new Random(random().nextLong());
+    Thread thread=new Thread(){
+      @Override public void run(){
+        try {
+          NumericDocValues ndv=FieldCache.DEFAULT.getNumerics(ar,"number",FieldCache.NUMERIC_UTILS_LONG_PARSER,false);
+          BinaryDocValues bdv=FieldCache.DEFAULT.getTerms(ar,"bytes",false);
+          SortedDocValues sdv=FieldCache.DEFAULT.getTermsIndex(ar,"sorted");
+          startingGun.await();
+          int iters=atLeast(1000);
+          BytesRef scratch=new BytesRef();
+          BytesRef scratch2=new BytesRef();
+          for (int iter=0; iter < iters; iter++) {
+            int docID=threadRandom.nextInt(numDocs);
+switch (threadRandom.nextInt(4)) {
+case 0:
+              assertEquals(numbers.get(docID).longValue(),FieldCache.DEFAULT.getNumerics(ar,"number",FieldCache.NUMERIC_UTILS_INT_PARSER,false).get(docID));
+            break;
+case 1:
+          assertEquals(numbers.get(docID).longValue(),FieldCache.DEFAULT.getNumerics(ar,"number",FieldCache.NUMERIC_UTILS_LONG_PARSER,false).get(docID));
+        break;
+case 2:
+      assertEquals(numbers.get(docID).longValue(),FieldCache.DEFAULT.getNumerics(ar,"number",FieldCache.NUMERIC_UTILS_FLOAT_PARSER,false).get(docID));
+    break;
+case 3:
+  assertEquals(numbers.get(docID).longValue(),FieldCache.DEFAULT.getNumerics(ar,"number",FieldCache.NUMERIC_UTILS_DOUBLE_PARSER,false).get(docID));
+break;
+}
+bdv.get(docID,scratch);
+assertEquals(binary.get(docID),scratch);
+sdv.get(docID,scratch2);
+assertEquals(sorted.get(docID),scratch2);
+}
+}
+ catch (Exception e) {
+throw new RuntimeException(e);
+}
+}
+}
+;
+thread.start();
+threads.add(thread);
+}
+startingGun.countDown();
+for (Thread thread : threads) {
+thread.join();
+}
+r.close();
+dir.close();
+}
