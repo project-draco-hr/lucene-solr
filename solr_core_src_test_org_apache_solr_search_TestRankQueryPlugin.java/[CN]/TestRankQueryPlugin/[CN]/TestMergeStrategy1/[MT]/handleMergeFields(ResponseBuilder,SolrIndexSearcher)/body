@@ -1,0 +1,79 @@
+{
+  SolrQueryRequest req=rb.req;
+  SolrQueryResponse rsp=rb.rsp;
+  boolean fsv=req.getParams().getBool(ResponseBuilder.FIELD_SORT_VALUES,false);
+  if (fsv) {
+    NamedList<Object[]> sortVals=new NamedList<>();
+    IndexReaderContext topReaderContext=searcher.getTopReaderContext();
+    List<AtomicReaderContext> leaves=topReaderContext.leaves();
+    AtomicReaderContext currentLeaf=null;
+    if (leaves.size() == 1) {
+      currentLeaf=leaves.get(0);
+      leaves=null;
+    }
+    DocList docList=rb.getResults().docList;
+    int nDocs=docList.size();
+    final long[] sortedIds=new long[nDocs];
+    final float[] scores=new float[nDocs];
+    DocList docs=rb.getResults().docList;
+    DocIterator it=docs.iterator();
+    for (int i=0; i < nDocs; i++) {
+      sortedIds[i]=(((long)it.nextDoc()) << 32) | i;
+      scores[i]=docs.hasScores() ? it.score() : Float.NaN;
+    }
+    new InPlaceMergeSorter(){
+      @Override protected void swap(      int i,      int j){
+        long tmpId=sortedIds[i];
+        float tmpScore=scores[i];
+        sortedIds[i]=sortedIds[j];
+        scores[i]=scores[j];
+        sortedIds[j]=tmpId;
+        scores[j]=tmpScore;
+      }
+      @Override protected int compare(      int i,      int j){
+        return Long.compare(sortedIds[i],sortedIds[j]);
+      }
+    }
+.sort(0,sortedIds.length);
+    SortSpec sortSpec=rb.getSortSpec();
+    Sort sort=searcher.weightSort(sortSpec.getSort());
+    SortField[] sortFields=sort == null ? new SortField[]{SortField.FIELD_SCORE} : sort.getSort();
+    List<SchemaField> schemaFields=sortSpec.getSchemaFields();
+    for (int fld=0; fld < schemaFields.size(); fld++) {
+      SchemaField schemaField=schemaFields.get(fld);
+      FieldType ft=null == schemaField ? null : schemaField.getType();
+      SortField sortField=sortFields[fld];
+      SortField.Type type=sortField.getType();
+      if (type == SortField.Type.SCORE || type == SortField.Type.DOC)       continue;
+      FieldComparator comparator=null;
+      Object[] vals=new Object[nDocs];
+      int lastIdx=-1;
+      int idx=0;
+      for (int i=0; i < sortedIds.length; ++i) {
+        long idAndPos=sortedIds[i];
+        float score=scores[i];
+        int doc=(int)(idAndPos >>> 32);
+        int position=(int)idAndPos;
+        if (leaves != null) {
+          idx=ReaderUtil.subIndex(doc,leaves);
+          currentLeaf=leaves.get(idx);
+          if (idx != lastIdx) {
+            comparator=null;
+          }
+        }
+        if (comparator == null) {
+          comparator=sortField.getComparator(1,0);
+          comparator=comparator.setNextReader(currentLeaf);
+        }
+        doc-=currentLeaf.docBase;
+        comparator.setScorer(new FakeScorer(doc,score));
+        comparator.copy(0,doc);
+        Object val=comparator.value(0);
+        if (null != ft)         val=ft.marshalSortValue(val);
+        vals[position]=val;
+      }
+      sortVals.add(sortField.getField(),vals);
+    }
+    rsp.add("merge_values",sortVals);
+  }
+}
