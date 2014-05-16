@@ -1,12 +1,22 @@
 {
   Command firstCommand=commands.get(0);
-  AbstractAllGroupHeadsCollector termAllGroupHeadsCollector=TermAllGroupHeadsCollector.create(firstCommand.getKey(),firstCommand.getSortWithinGroup());
-  if (collectors.isEmpty()) {
-    searchWithTimeLimiter(query,filter,termAllGroupHeadsCollector);
+  String field=firstCommand.getKey();
+  SchemaField sf=searcher.getSchema().getField(field);
+  FieldType fieldType=sf.getType();
+  final AbstractAllGroupHeadsCollector allGroupHeadsCollector;
+  if (fieldType.getNumericType() != null) {
+    ValueSource vs=fieldType.getValueSource(sf,null);
+    allGroupHeadsCollector=new FunctionAllGroupHeadsCollector(vs,new HashMap<Object,Object>(),firstCommand.getSortWithinGroup());
   }
  else {
-    collectors.add(termAllGroupHeadsCollector);
+    allGroupHeadsCollector=TermAllGroupHeadsCollector.create(firstCommand.getKey(),firstCommand.getSortWithinGroup());
+  }
+  if (collectors.isEmpty()) {
+    searchWithTimeLimiter(query,filter,allGroupHeadsCollector);
+  }
+ else {
+    collectors.add(allGroupHeadsCollector);
     searchWithTimeLimiter(query,filter,MultiCollector.wrap(collectors.toArray(new Collector[collectors.size()])));
   }
-  return new BitDocSet(termAllGroupHeadsCollector.retrieveGroupHeads(searcher.maxDoc()));
+  return new BitDocSet(allGroupHeadsCollector.retrieveGroupHeads(searcher.maxDoc()));
 }
