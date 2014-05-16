@@ -1,0 +1,66 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new IDVersionPostingsFormat()));
+  IndexWriter w=new IndexWriter(dir,iwc);
+  int numDocs=atLeast(1000);
+  Map<String,Long> idValues=new HashMap<String,Long>();
+  int docUpto=0;
+  if (VERBOSE) {
+    System.out.println("TEST: numDocs=" + numDocs);
+  }
+  long version=0;
+  while (docUpto < numDocs) {
+    String idValue=TestUtil.randomSimpleString(random());
+    if (idValues.containsKey(idValue)) {
+      continue;
+    }
+    version++;
+    idValues.put(idValue,version);
+    if (VERBOSE) {
+      System.out.println("  " + idValue + " -> "+ version);
+    }
+    Document doc=new Document();
+    doc.add(makeIDField(idValue,version));
+    w.addDocument(doc);
+    docUpto++;
+  }
+  IndexReader r=DirectoryReader.open(w,true);
+  PerThreadVersionPKLookup lookup=new PerThreadVersionPKLookup(r,"id");
+  List<Map.Entry<String,Long>> idValuesList=new ArrayList<>(idValues.entrySet());
+  int iters=numDocs * 5;
+  for (int iter=0; iter < iters; iter++) {
+    String idValue;
+    if (random().nextBoolean()) {
+      idValue=idValuesList.get(random().nextInt(numDocs)).getKey();
+    }
+ else {
+      idValue=TestUtil.randomSimpleString(random());
+    }
+    BytesRef idValueBytes=new BytesRef(idValue);
+    Long expectedVersion=idValues.get(idValue);
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter=" + iter + " id="+ idValue+ " expectedVersion="+ expectedVersion);
+    }
+    if (expectedVersion == null) {
+      assertEquals(-1,lookup.lookup(idValueBytes));
+    }
+ else {
+      if (random().nextBoolean()) {
+        if (VERBOSE) {
+          System.out.println("  lookup exact version (should be found)");
+        }
+        assertTrue(lookup.lookup(idValueBytes,expectedVersion.longValue()) != -1);
+      }
+ else {
+        if (VERBOSE) {
+          System.out.println("  lookup version+1 (should not be found)");
+        }
+        assertEquals(-1,lookup.lookup(idValueBytes,expectedVersion.longValue() + 1));
+      }
+    }
+  }
+  r.close();
+  w.close();
+  dir.close();
+}
