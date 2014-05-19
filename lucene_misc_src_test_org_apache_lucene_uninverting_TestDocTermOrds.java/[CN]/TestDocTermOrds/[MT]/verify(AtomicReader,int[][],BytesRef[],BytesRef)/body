@@ -1,0 +1,63 @@
+{
+  final DocTermOrds dto=new DocTermOrds(r,r.getLiveDocs(),"field",prefixRef,Integer.MAX_VALUE,TestUtil.nextInt(random(),2,10));
+  final NumericDocValues docIDToID=FieldCache.DEFAULT.getNumerics(r,"id",FieldCache.NUMERIC_UTILS_INT_PARSER,false);
+  if (VERBOSE) {
+    System.out.println("TEST: verify prefix=" + (prefixRef == null ? "null" : prefixRef.utf8ToString()));
+    System.out.println("TEST: all TERMS:");
+    TermsEnum allTE=MultiFields.getTerms(r,"field").iterator(null);
+    int ord=0;
+    while (allTE.next() != null) {
+      System.out.println("  ord=" + (ord++) + " term="+ allTE.term().utf8ToString());
+    }
+  }
+  final TermsEnum te=dto.getOrdTermsEnum(r);
+  if (dto.numTerms() == 0) {
+    if (prefixRef == null) {
+      assertNull(MultiFields.getTerms(r,"field"));
+    }
+ else {
+      Terms terms=MultiFields.getTerms(r,"field");
+      if (terms != null) {
+        TermsEnum termsEnum=terms.iterator(null);
+        TermsEnum.SeekStatus result=termsEnum.seekCeil(prefixRef);
+        if (result != TermsEnum.SeekStatus.END) {
+          assertFalse("term=" + termsEnum.term().utf8ToString() + " matches prefix="+ prefixRef.utf8ToString(),StringHelper.startsWith(termsEnum.term(),prefixRef));
+        }
+ else {
+        }
+      }
+ else {
+      }
+    }
+    return;
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: TERMS:");
+    te.seekExact(0);
+    while (true) {
+      System.out.println("  ord=" + te.ord() + " term="+ te.term().utf8ToString());
+      if (te.next() == null) {
+        break;
+      }
+    }
+  }
+  SortedSetDocValues iter=dto.iterator(r);
+  for (int docID=0; docID < r.maxDoc(); docID++) {
+    if (VERBOSE) {
+      System.out.println("TEST: docID=" + docID + " of "+ r.maxDoc()+ " (id="+ docIDToID.get(docID)+ ")");
+    }
+    iter.setDocument(docID);
+    final int[] answers=idToOrds[(int)docIDToID.get(docID)];
+    int upto=0;
+    long ord;
+    while ((ord=iter.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+      te.seekExact(ord);
+      final BytesRef expected=termsArray[answers[upto++]];
+      if (VERBOSE) {
+        System.out.println("  exp=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString());
+      }
+      assertEquals("expected=" + expected.utf8ToString() + " actual="+ te.term().utf8ToString()+ " ord="+ ord,expected,te.term());
+    }
+    assertEquals(answers.length,upto);
+  }
+}

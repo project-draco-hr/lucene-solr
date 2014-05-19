@@ -1,0 +1,24 @@
+{
+  try {
+    FieldCache cache=FieldCache.DEFAULT;
+    ByteArrayOutputStream bos=new ByteArrayOutputStream(1024);
+    cache.setInfoStream(new PrintStream(bos,false,IOUtils.UTF_8));
+    cache.getNumerics(reader,"theDouble",FieldCache.NUMERIC_UTILS_DOUBLE_PARSER,false);
+    cache.getNumerics(reader,"theDouble",new FieldCache.Parser(){
+      @Override public TermsEnum termsEnum(      Terms terms) throws IOException {
+        return NumericUtils.filterPrefixCodedLongs(terms.iterator(null));
+      }
+      @Override public long parseValue(      BytesRef term){
+        int val=(int)NumericUtils.prefixCodedToLong(term);
+        if (val < 0)         val^=0x7fffffff;
+        return val;
+      }
+    }
+,false);
+    assertTrue(bos.toString(IOUtils.UTF_8).indexOf("WARNING") != -1);
+  }
+  finally {
+    FieldCache.DEFAULT.setInfoStream(null);
+    FieldCache.DEFAULT.purgeAllCaches();
+  }
+}
