@@ -1,8 +1,10 @@
 {
   Directory dir=newDirectory();
   IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
-  iwc.setCodec(TestUtil.alwaysPostingsFormat(new IDVersionPostingsFormat()));
-  IndexWriter w=new IndexWriter(dir,iwc);
+  int minItemsInBlock=TestUtil.nextInt(random(),2,50);
+  int maxItemsInBlock=2 * (minItemsInBlock - 1) + random().nextInt(50);
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new IDVersionPostingsFormat(minItemsInBlock,maxItemsInBlock)));
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
   int numDocs=atLeast(1000);
   Map<String,Long> idValues=new HashMap<String,Long>();
   int docUpto=0;
@@ -104,6 +106,7 @@ boolean useMonotonicVersion=random().nextBoolean();
 if (VERBOSE) {
 System.out.println("TEST: useMonotonicVersion=" + useMonotonicVersion);
 }
+List<String> idsList=new ArrayList<>();
 long version=0;
 while (docUpto < numDocs) {
 String idValue=idPrefix + ids.next();
@@ -123,16 +126,42 @@ System.out.println("  " + idValue + " -> "+ version);
 Document doc=new Document();
 doc.add(makeIDField(idValue,version));
 w.addDocument(doc);
+idsList.add(idValue);
+if (idsList.size() > 0 && random().nextInt(7) == 5) {
+idValue=idsList.get(random().nextInt(idsList.size()));
+if (random().nextBoolean()) {
+if (useMonotonicVersion) {
+version+=TestUtil.nextInt(random(),1,10);
+}
+ else {
+version=random().nextLong() & 0x7fffffffffffffffL;
+}
+doc=new Document();
+doc.add(makeIDField(idValue,version));
+if (VERBOSE) {
+System.out.println("  update " + idValue + " -> "+ version);
+}
+w.updateDocument(new Term("id",idValue),doc);
+idValues.put(idValue,version);
+}
+ else {
+if (VERBOSE) {
+System.out.println("  delete " + idValue);
+}
+w.deleteDocuments(new Term("id",idValue));
+idValues.remove(idValue);
+}
+}
 docUpto++;
 }
-IndexReader r=DirectoryReader.open(w,true);
+IndexReader r=w.getReader();
 PerThreadVersionPKLookup lookup=new PerThreadVersionPKLookup(r,"id");
 List<Map.Entry<String,Long>> idValuesList=new ArrayList<>(idValues.entrySet());
 int iters=numDocs * 5;
 for (int iter=0; iter < iters; iter++) {
 String idValue;
 if (random().nextBoolean()) {
-idValue=idValuesList.get(random().nextInt(numDocs)).getKey();
+idValue=idValuesList.get(random().nextInt(idValuesList.size())).getKey();
 }
  else if (random().nextBoolean()) {
 idValue=ids.next();
