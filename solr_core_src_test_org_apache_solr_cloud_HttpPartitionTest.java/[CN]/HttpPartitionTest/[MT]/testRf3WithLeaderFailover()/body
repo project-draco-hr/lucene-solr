@@ -4,7 +4,7 @@
   cloudClient.setDefaultCollection(testCollectionName);
   sendDoc(1);
   List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,3,maxWaitSecsToSeeAllActive);
-  assertTrue("Expected 2 replicas for collection " + testCollectionName + " but found "+ notLeaders.size()+ "; clusterState: "+ cloudClient.getZkStateReader().getClusterState(),notLeaders.size() == 2);
+  assertTrue("Expected 2 replicas for collection " + testCollectionName + " but found "+ notLeaders.size()+ "; clusterState: "+ printClusterStateInfo(),notLeaders.size() == 2);
   sendDoc(1);
   SocketProxy proxy0=null;
   proxy0=getProxyForReplica(notLeaders.get(0));
@@ -22,7 +22,7 @@
   assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,4);
   Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
   String leaderNode=leader.getNodeName();
-  assertNotNull("Could not find leader for shard1 of " + testCollectionName,leader);
+  assertNotNull("Could not find leader for shard1 of " + testCollectionName + "; clusterState: "+ printClusterStateInfo(),leader);
   JettySolrRunner leaderJetty=getJettyOnPort(getReplicaPort(leader));
   notLeaders=ensureAllReplicasAreActive(testCollectionName,3,maxWaitSecsToSeeAllActive);
   proxy0=getProxyForReplica(notLeaders.get(0));
@@ -39,15 +39,15 @@
  else {
     log.warn("No SocketProxy found for old leader node " + leaderNode);
   }
-  Thread.sleep(sleepMsBeforeHealPartition);
+  Thread.sleep(10000);
   Replica newLeader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1",60000);
-  assertNotNull("No new leader was elected after 60 seconds",newLeader);
-  assertTrue("Expected node " + shouldNotBeNewLeaderNode + " to NOT be the new leader b/c it was out-of-sync with the old leader! ClusterState: "+ cloudClient.getZkStateReader().getClusterState(),!shouldNotBeNewLeaderNode.equals(newLeader.getNodeName()));
+  assertNotNull("No new leader was elected after 60 seconds; clusterState: " + printClusterStateInfo(),newLeader);
+  assertTrue("Expected node " + shouldNotBeNewLeaderNode + " to NOT be the new leader b/c it was out-of-sync with the old leader! ClusterState: "+ printClusterStateInfo(),!shouldNotBeNewLeaderNode.equals(newLeader.getNodeName()));
   proxy0.reopen();
   Thread.sleep(10000L);
   cloudClient.getZkStateReader().updateClusterState(true);
   List<Replica> activeReps=getActiveOrRecoveringReplicas(testCollectionName,"shard1");
-  assertTrue("Expected 2 of 3 replicas to be active but only found " + activeReps.size() + "; "+ activeReps,activeReps.size() == 2);
+  assertTrue("Expected 2 of 3 replicas to be active but only found " + activeReps.size() + "; "+ activeReps+ "; clusterState: "+ printClusterStateInfo(),activeReps.size() == 2);
   sendDoc(6);
   assertDocsExistInAllReplicas(activeReps,testCollectionName,1,6);
 }
