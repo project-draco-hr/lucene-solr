@@ -11,189 +11,109 @@
   if (VERBOSE) {
     System.out.println("TEST: numDocs=" + numDocs);
   }
-  IDSource ids;
-switch (random().nextInt(6)) {
-case 0:
+  IDSource ids=getRandomIDs();
+  String idPrefix;
+  if (random().nextBoolean()) {
+    idPrefix="";
+  }
+ else {
+    idPrefix=TestUtil.randomSimpleString(random());
     if (VERBOSE) {
-      System.out.println("  use random simple ids");
-    }
-  ids=new IDSource(){
-    @Override public String next(){
-      return TestUtil.randomSimpleString(random());
+      System.out.println("TEST: use id prefix: " + idPrefix);
     }
   }
-;
-break;
-case 1:
-if (VERBOSE) {
-System.out.println("  use random realistic unicode ids");
-}
-ids=new IDSource(){
-@Override public String next(){
-return TestUtil.randomRealisticUnicodeString(random());
-}
-}
-;
-break;
-case 2:
-if (VERBOSE) {
-System.out.println("  use seuquential ids");
-}
-ids=new IDSource(){
-int upto;
-@Override public String next(){
-return Integer.toString(upto++);
-}
-}
-;
-break;
-case 3:
-if (VERBOSE) {
-System.out.println("  use zero-pad seuquential ids");
-}
-ids=new IDSource(){
-final int radix=TestUtil.nextInt(random(),Character.MIN_RADIX,Character.MAX_RADIX);
-final String zeroPad=String.format(Locale.ROOT,"%0" + TestUtil.nextInt(random(),4,20) + "d",0);
-int upto;
-@Override public String next(){
-String s=Integer.toString(upto++);
-return zeroPad.substring(zeroPad.length() - s.length()) + s;
-}
-}
-;
-break;
-case 4:
-if (VERBOSE) {
-System.out.println("  use random long ids");
-}
-ids=new IDSource(){
-final int radix=TestUtil.nextInt(random(),Character.MIN_RADIX,Character.MAX_RADIX);
-int upto;
-@Override public String next(){
-return Long.toString(random().nextLong() & 0x7ffffffffffffffL,radix);
-}
-}
-;
-break;
-case 5:
-if (VERBOSE) {
-System.out.println("  use zero-pad random long ids");
-}
-ids=new IDSource(){
-final int radix=TestUtil.nextInt(random(),Character.MIN_RADIX,Character.MAX_RADIX);
-final String zeroPad=String.format(Locale.ROOT,"%015d",0);
-int upto;
-@Override public String next(){
-return Long.toString(random().nextLong() & 0x7ffffffffffffffL,radix);
-}
-}
-;
-break;
-default :
-throw new AssertionError();
-}
-String idPrefix;
-if (random().nextBoolean()) {
-idPrefix="";
-}
+  boolean useMonotonicVersion=random().nextBoolean();
+  if (VERBOSE) {
+    System.out.println("TEST: useMonotonicVersion=" + useMonotonicVersion);
+  }
+  List<String> idsList=new ArrayList<>();
+  long version=0;
+  while (docUpto < numDocs) {
+    String idValue=idPrefix + ids.next();
+    if (idValues.containsKey(idValue)) {
+      continue;
+    }
+    if (useMonotonicVersion) {
+      version+=TestUtil.nextInt(random(),1,10);
+    }
  else {
-idPrefix=TestUtil.randomSimpleString(random());
-if (VERBOSE) {
-System.out.println("TEST: use id prefix: " + idPrefix);
-}
-}
-boolean useMonotonicVersion=random().nextBoolean();
-if (VERBOSE) {
-System.out.println("TEST: useMonotonicVersion=" + useMonotonicVersion);
-}
-List<String> idsList=new ArrayList<>();
-long version=0;
-while (docUpto < numDocs) {
-String idValue=idPrefix + ids.next();
-if (idValues.containsKey(idValue)) {
-continue;
-}
-if (useMonotonicVersion) {
-version+=TestUtil.nextInt(random(),1,10);
-}
+      version=random().nextLong() & 0x7fffffffffffffffL;
+    }
+    idValues.put(idValue,version);
+    if (VERBOSE) {
+      System.out.println("  " + idValue + " -> "+ version);
+    }
+    Document doc=new Document();
+    doc.add(makeIDField(idValue,version));
+    w.addDocument(doc);
+    idsList.add(idValue);
+    if (idsList.size() > 0 && random().nextInt(7) == 5) {
+      idValue=idsList.get(random().nextInt(idsList.size()));
+      if (random().nextBoolean()) {
+        if (useMonotonicVersion) {
+          version+=TestUtil.nextInt(random(),1,10);
+        }
  else {
-version=random().nextLong() & 0x7fffffffffffffffL;
-}
-idValues.put(idValue,version);
-if (VERBOSE) {
-System.out.println("  " + idValue + " -> "+ version);
-}
-Document doc=new Document();
-doc.add(makeIDField(idValue,version));
-w.addDocument(doc);
-idsList.add(idValue);
-if (idsList.size() > 0 && random().nextInt(7) == 5) {
-idValue=idsList.get(random().nextInt(idsList.size()));
-if (random().nextBoolean()) {
-if (useMonotonicVersion) {
-version+=TestUtil.nextInt(random(),1,10);
-}
+          version=random().nextLong() & 0x7fffffffffffffffL;
+        }
+        doc=new Document();
+        doc.add(makeIDField(idValue,version));
+        if (VERBOSE) {
+          System.out.println("  update " + idValue + " -> "+ version);
+        }
+        w.updateDocument(new Term("id",idValue),doc);
+        idValues.put(idValue,version);
+      }
  else {
-version=random().nextLong() & 0x7fffffffffffffffL;
-}
-doc=new Document();
-doc.add(makeIDField(idValue,version));
-if (VERBOSE) {
-System.out.println("  update " + idValue + " -> "+ version);
-}
-w.updateDocument(new Term("id",idValue),doc);
-idValues.put(idValue,version);
-}
+        if (VERBOSE) {
+          System.out.println("  delete " + idValue);
+        }
+        w.deleteDocuments(new Term("id",idValue));
+        idValues.remove(idValue);
+      }
+    }
+    docUpto++;
+  }
+  IndexReader r=w.getReader();
+  PerThreadVersionPKLookup lookup=new PerThreadVersionPKLookup(r,"id");
+  List<Map.Entry<String,Long>> idValuesList=new ArrayList<>(idValues.entrySet());
+  int iters=numDocs * 5;
+  for (int iter=0; iter < iters; iter++) {
+    String idValue;
+    if (random().nextBoolean()) {
+      idValue=idValuesList.get(random().nextInt(idValuesList.size())).getKey();
+    }
+ else     if (random().nextBoolean()) {
+      idValue=ids.next();
+    }
  else {
-if (VERBOSE) {
-System.out.println("  delete " + idValue);
-}
-w.deleteDocuments(new Term("id",idValue));
-idValues.remove(idValue);
-}
-}
-docUpto++;
-}
-IndexReader r=w.getReader();
-PerThreadVersionPKLookup lookup=new PerThreadVersionPKLookup(r,"id");
-List<Map.Entry<String,Long>> idValuesList=new ArrayList<>(idValues.entrySet());
-int iters=numDocs * 5;
-for (int iter=0; iter < iters; iter++) {
-String idValue;
-if (random().nextBoolean()) {
-idValue=idValuesList.get(random().nextInt(idValuesList.size())).getKey();
-}
- else if (random().nextBoolean()) {
-idValue=ids.next();
-}
+      idValue=idPrefix + TestUtil.randomSimpleString(random());
+    }
+    BytesRef idValueBytes=new BytesRef(idValue);
+    Long expectedVersion=idValues.get(idValue);
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter=" + iter + " id="+ idValue+ " expectedVersion="+ expectedVersion);
+    }
+    if (expectedVersion == null) {
+      assertEquals("term should not have been found (doesn't exist)",-1,lookup.lookup(idValueBytes));
+    }
  else {
-idValue=idPrefix + TestUtil.randomSimpleString(random());
-}
-BytesRef idValueBytes=new BytesRef(idValue);
-Long expectedVersion=idValues.get(idValue);
-if (VERBOSE) {
-System.out.println("\nTEST: iter=" + iter + " id="+ idValue+ " expectedVersion="+ expectedVersion);
-}
-if (expectedVersion == null) {
-assertEquals("term should not have been found (doesn't exist)",-1,lookup.lookup(idValueBytes));
-}
+      if (random().nextBoolean()) {
+        if (VERBOSE) {
+          System.out.println("  lookup exact version (should be found)");
+        }
+        assertTrue("term should have been found (version too old)",lookup.lookup(idValueBytes,expectedVersion.longValue()) != -1);
+        assertEquals(expectedVersion.longValue(),lookup.getVersion());
+      }
  else {
-if (random().nextBoolean()) {
-if (VERBOSE) {
-System.out.println("  lookup exact version (should be found)");
-}
-assertTrue("term should have been found (version too old)",lookup.lookup(idValueBytes,expectedVersion.longValue()) != -1);
-assertEquals(expectedVersion.longValue(),lookup.getVersion());
-}
- else {
-if (VERBOSE) {
-System.out.println("  lookup version+1 (should not be found)");
-}
-assertEquals("term should not have been found (version newer)",-1,lookup.lookup(idValueBytes,expectedVersion.longValue() + 1));
-}
-}
-}
-r.close();
-w.close();
-dir.close();
+        if (VERBOSE) {
+          System.out.println("  lookup version+1 (should not be found)");
+        }
+        assertEquals("term should not have been found (version newer)",-1,lookup.lookup(idValueBytes,expectedVersion.longValue() + 1));
+      }
+    }
+  }
+  r.close();
+  w.close();
+  dir.close();
 }
