@@ -1,0 +1,35 @@
+{
+  Directory dir=newDirectory();
+  Set<BytesRef> terms=new HashSet<BytesRef>();
+  int MAX_TERMS=atLeast(1000);
+  while (terms.size() < MAX_TERMS) {
+    terms.add(new BytesRef(TestUtil.randomSimpleString(random(),1,40)));
+  }
+  List<BytesRef> termsList=new ArrayList<>(terms);
+  StringBuilder sb=new StringBuilder();
+  for (int termCount=0; termCount < MAX_TERMS; termCount++) {
+    if (VERBOSE) {
+      System.out.println("\nTEST: termCount=" + termCount + " add term="+ termsList.get(termCount).utf8ToString());
+    }
+    sb.append(' ');
+    sb.append(termsList.get(termCount).utf8ToString());
+    IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+    iwc.setOpenMode(IndexWriterConfig.OpenMode.CREATE);
+    RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+    Document doc=new Document();
+    doc.add(newTextField("field",sb.toString(),Field.Store.NO));
+    w.addDocument(doc);
+    IndexReader r=w.getReader();
+    assertEquals(1,r.leaves().size());
+    TermsEnum te=r.leaves().get(0).reader().fields().terms("field").iterator(null);
+    for (int i=0; i <= termCount; i++) {
+      assertTrue("term '" + termsList.get(i).utf8ToString() + "' should exist but doesn't",te.seekExact(termsList.get(i)));
+    }
+    for (int i=termCount + 1; i < termsList.size(); i++) {
+      assertFalse("term '" + termsList.get(i) + "' shouldn't exist but does",te.seekExact(termsList.get(i)));
+    }
+    r.close();
+    w.shutdown();
+  }
+  dir.close();
+}

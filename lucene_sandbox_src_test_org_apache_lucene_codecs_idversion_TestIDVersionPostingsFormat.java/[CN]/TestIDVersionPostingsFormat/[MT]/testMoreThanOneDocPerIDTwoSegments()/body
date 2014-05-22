@@ -1,0 +1,35 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new IDVersionPostingsFormat()));
+  iwc.setMergePolicy(new TieredMergePolicy());
+  MergeScheduler ms=iwc.getMergeScheduler();
+  if (ms instanceof ConcurrentMergeScheduler) {
+    iwc.setMergeScheduler(new ConcurrentMergeScheduler(){
+      @Override protected void handleMergeException(      Throwable exc){
+        assertTrue(exc instanceof IllegalArgumentException);
+      }
+    }
+);
+  }
+  IndexWriter w=new IndexWriter(dir,iwc);
+  Document doc=new Document();
+  doc.add(makeIDField("id",17));
+  w.addDocument(doc);
+  w.commit();
+  doc=new Document();
+  doc.add(makeIDField("id",17));
+  try {
+    w.addDocument(doc);
+    w.commit();
+    w.forceMerge(1);
+    fail("didn't hit exception");
+  }
+ catch (  IllegalArgumentException iae) {
+  }
+catch (  IOException ioe) {
+    assertTrue(ioe.getCause() instanceof IllegalArgumentException);
+  }
+  w.close();
+  dir.close();
+}

@@ -1,0 +1,119 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  int minItemsInBlock=TestUtil.nextInt(random(),2,50);
+  int maxItemsInBlock=2 * (minItemsInBlock - 1) + random().nextInt(50);
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new IDVersionPostingsFormat(minItemsInBlock,maxItemsInBlock)));
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+  int numDocs=atLeast(1000);
+  Map<String,Long> idValues=new HashMap<String,Long>();
+  int docUpto=0;
+  if (VERBOSE) {
+    System.out.println("TEST: numDocs=" + numDocs);
+  }
+  IDSource ids=getRandomIDs();
+  String idPrefix;
+  if (random().nextBoolean()) {
+    idPrefix="";
+  }
+ else {
+    idPrefix=TestUtil.randomSimpleString(random());
+    if (VERBOSE) {
+      System.out.println("TEST: use id prefix: " + idPrefix);
+    }
+  }
+  boolean useMonotonicVersion=random().nextBoolean();
+  if (VERBOSE) {
+    System.out.println("TEST: useMonotonicVersion=" + useMonotonicVersion);
+  }
+  List<String> idsList=new ArrayList<>();
+  long version=0;
+  while (docUpto < numDocs) {
+    String idValue=idPrefix + ids.next();
+    if (idValues.containsKey(idValue)) {
+      continue;
+    }
+    if (useMonotonicVersion) {
+      version+=TestUtil.nextInt(random(),1,10);
+    }
+ else {
+      version=random().nextLong() & 0x3fffffffffffffffL;
+    }
+    idValues.put(idValue,version);
+    if (VERBOSE) {
+      System.out.println("  " + idValue + " -> "+ version);
+    }
+    Document doc=new Document();
+    doc.add(makeIDField(idValue,version));
+    w.addDocument(doc);
+    idsList.add(idValue);
+    if (idsList.size() > 0 && random().nextInt(7) == 5) {
+      idValue=idsList.get(random().nextInt(idsList.size()));
+      if (random().nextBoolean()) {
+        if (useMonotonicVersion) {
+          version+=TestUtil.nextInt(random(),1,10);
+        }
+ else {
+          version=random().nextLong() & 0x3fffffffffffffffL;
+        }
+        doc=new Document();
+        doc.add(makeIDField(idValue,version));
+        if (VERBOSE) {
+          System.out.println("  update " + idValue + " -> "+ version);
+        }
+        w.updateDocument(new Term("id",idValue),doc);
+        idValues.put(idValue,version);
+      }
+ else {
+        if (VERBOSE) {
+          System.out.println("  delete " + idValue);
+        }
+        w.deleteDocuments(new Term("id",idValue));
+        idValues.remove(idValue);
+      }
+    }
+    docUpto++;
+  }
+  IndexReader r=w.getReader();
+  PerThreadVersionPKLookup lookup=new PerThreadVersionPKLookup(r,"id");
+  List<Map.Entry<String,Long>> idValuesList=new ArrayList<>(idValues.entrySet());
+  int iters=numDocs * 5;
+  for (int iter=0; iter < iters; iter++) {
+    String idValue;
+    if (random().nextBoolean()) {
+      idValue=idValuesList.get(random().nextInt(idValuesList.size())).getKey();
+    }
+ else     if (random().nextBoolean()) {
+      idValue=ids.next();
+    }
+ else {
+      idValue=idPrefix + TestUtil.randomSimpleString(random());
+    }
+    BytesRef idValueBytes=new BytesRef(idValue);
+    Long expectedVersion=idValues.get(idValue);
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter=" + iter + " id="+ idValue+ " expectedVersion="+ expectedVersion);
+    }
+    if (expectedVersion == null) {
+      assertEquals("term should not have been found (doesn't exist)",-1,lookup.lookup(idValueBytes));
+    }
+ else {
+      if (random().nextBoolean()) {
+        if (VERBOSE) {
+          System.out.println("  lookup exact version (should be found)");
+        }
+        assertTrue("term should have been found (version too old)",lookup.lookup(idValueBytes,expectedVersion.longValue()) != -1);
+        assertEquals(expectedVersion.longValue(),lookup.getVersion());
+      }
+ else {
+        if (VERBOSE) {
+          System.out.println("  lookup version+1 (should not be found)");
+        }
+        assertEquals("term should not have been found (version newer)",-1,lookup.lookup(idValueBytes,expectedVersion.longValue() + 1));
+      }
+    }
+  }
+  r.close();
+  w.close();
+  dir.close();
+}

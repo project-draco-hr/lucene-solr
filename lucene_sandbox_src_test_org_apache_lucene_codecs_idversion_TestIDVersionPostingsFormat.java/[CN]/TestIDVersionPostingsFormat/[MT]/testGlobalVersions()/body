@@ -1,0 +1,175 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new IDVersionPostingsFormat()));
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+  IDSource idsSource=getRandomIDs();
+  int numIDs=atLeast(100);
+  if (VERBOSE) {
+    System.out.println("TEST: " + numIDs + " ids");
+  }
+  Set<String> idsSeen=new HashSet<String>();
+  while (idsSeen.size() < numIDs) {
+    idsSeen.add(idsSource.next());
+  }
+  final String[] ids=idsSeen.toArray(new String[numIDs]);
+  final Object[] locks=new Object[ids.length];
+  for (int i=0; i < locks.length; i++) {
+    locks[i]=new Object();
+  }
+  final AtomicLong nextVersion=new AtomicLong();
+  final SearcherManager mgr=new SearcherManager(w.w,true,new SearcherFactory());
+  final Long missingValue=-1L;
+  final LiveFieldValues<IndexSearcher,Long> versionValues=new LiveFieldValues<IndexSearcher,Long>(mgr,missingValue){
+    @Override protected Long lookupFromSearcher(    IndexSearcher s,    String id){
+      return missingValue;
+    }
+  }
+;
+  final Map<String,Long> truth=new ConcurrentHashMap<>();
+  final CountDownLatch startingGun=new CountDownLatch(1);
+  Thread[] threads=new Thread[TestUtil.nextInt(random(),2,7)];
+  final int versionType=random().nextInt(3);
+  if (VERBOSE) {
+    if (versionType == 0) {
+      System.out.println("TEST: use random versions");
+    }
+ else     if (versionType == 1) {
+      System.out.println("TEST: use monotonic versions");
+    }
+ else {
+      System.out.println("TEST: use nanotime versions");
+    }
+  }
+  final long stopTime=System.currentTimeMillis() + (TEST_NIGHTLY ? 60000 : 3000);
+  for (int i=0; i < threads.length; i++) {
+    threads[i]=new Thread(){
+      @Override public void run(){
+        try {
+          runForReal();
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+      private void runForReal() throws IOException, InterruptedException {
+        startingGun.await();
+        PerThreadVersionPKLookup lookup=null;
+        IndexReader lookupReader=null;
+        while (System.currentTimeMillis() < stopTime) {
+          long newVersion;
+          if (versionType == 0) {
+            newVersion=random().nextLong() & 0x3fffffffffffffffL;
+          }
+ else           if (versionType == 1) {
+            newVersion=nextVersion.getAndIncrement();
+          }
+ else {
+            newVersion=System.nanoTime();
+          }
+          if (versionType != 0) {
+            if (random().nextBoolean()) {
+              Thread.yield();
+            }
+ else {
+              Thread.sleep(TestUtil.nextInt(random(),1,4));
+            }
+          }
+          int x=random().nextInt(ids.length);
+synchronized (locks[x]) {
+            String id=ids[x];
+            Long currentVersion=versionValues.get(id);
+            IndexSearcher s=mgr.acquire();
+            try {
+              if (VERBOSE)               System.out.println("\n" + Thread.currentThread().getName() + ": update id="+ id+ " newVersion="+ newVersion);
+              if (lookup == null || lookupReader != s.getIndexReader()) {
+                lookupReader=s.getIndexReader();
+                if (VERBOSE)                 System.out.println(Thread.currentThread().getName() + ": open new PK lookup reader=" + lookupReader);
+                lookup=new PerThreadVersionPKLookup(lookupReader,"id");
+              }
+              Long truthVersion=truth.get(id);
+              if (VERBOSE)               System.out.println(Thread.currentThread().getName() + ":   truthVersion=" + truthVersion);
+              boolean doIndex;
+              if (currentVersion == missingValue) {
+                if (VERBOSE)                 System.out.println(Thread.currentThread().getName() + ":   id not in RT cache");
+                int otherDocID=lookup.lookup(new BytesRef(id),newVersion + 1);
+                if (otherDocID == -1) {
+                  if (VERBOSE)                   System.out.println(Thread.currentThread().getName() + ":   id not in index, or version is <= newVersion; will index");
+                  doIndex=true;
+                }
+ else {
+                  if (VERBOSE)                   System.out.println(Thread.currentThread().getName() + ":   id is in index with version=" + lookup.getVersion()+ "; will not index");
+                  doIndex=false;
+                  if (truthVersion.longValue() != lookup.getVersion()) {
+                    System.out.println(Thread.currentThread() + ": now fail0!");
+                  }
+                  assertEquals(truthVersion.longValue(),lookup.getVersion());
+                }
+              }
+ else {
+                if (VERBOSE)                 System.out.println(Thread.currentThread().getName() + ":   id is in RT cache: currentVersion=" + currentVersion);
+                doIndex=newVersion > currentVersion;
+              }
+              if (doIndex) {
+                if (VERBOSE)                 System.out.println(Thread.currentThread().getName() + ":   now index");
+                boolean passes=truthVersion == null || truthVersion.longValue() <= newVersion;
+                if (passes == false) {
+                  System.out.println(Thread.currentThread() + ": now fail!");
+                }
+                assertTrue(passes);
+                Document doc=new Document();
+                doc.add(makeIDField(id,newVersion));
+                w.updateDocument(new Term("id",id),doc);
+                truth.put(id,newVersion);
+                versionValues.add(id,newVersion);
+              }
+ else {
+                if (VERBOSE)                 System.out.println(Thread.currentThread().getName() + ":   skip index");
+                assertNotNull(truthVersion);
+                assertTrue(truthVersion.longValue() >= newVersion);
+              }
+            }
+  finally {
+              mgr.release(s);
+            }
+          }
+        }
+      }
+    }
+;
+    threads[i].start();
+  }
+  startingGun.countDown();
+  refreshLoop:   while (true) {
+    Thread.sleep(TestUtil.nextInt(random(),1,10));
+    mgr.maybeRefresh();
+    for (    Thread thread : threads) {
+      if (thread.isAlive()) {
+        continue refreshLoop;
+      }
+    }
+    break;
+  }
+  for (int i=0; i < 2; i++) {
+    mgr.maybeRefresh();
+    IndexSearcher s=mgr.acquire();
+    try {
+      IndexReader r=s.getIndexReader();
+      PerThreadVersionPKLookup lookup=new PerThreadVersionPKLookup(r,"id");
+      for (      Map.Entry<String,Long> ent : truth.entrySet()) {
+        assertTrue(lookup.lookup(new BytesRef(ent.getKey()),-1L) != -1);
+        assertEquals(ent.getValue().longValue(),lookup.getVersion());
+      }
+    }
+  finally {
+      mgr.release(s);
+    }
+    if (i == 1) {
+      break;
+    }
+    w.forceMerge(1);
+  }
+  mgr.close();
+  w.close();
+  dir.close();
+}
