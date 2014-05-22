@@ -1,0 +1,30 @@
+{
+  SolrServer server=createNewSolrServer("",getBaseUrl((HttpSolrServer)clients.get(0)));
+  CollectionAdminRequest.createCollection("ocptest_shardsplit",4,"conf1",server,"1000");
+  CollectionAdminRequest.splitShard("ocptest_shardsplit",SHARD1,server,"1001");
+  CollectionAdminRequest.splitShard("ocptest_shardsplit",SHARD2,server,"1002");
+  int iterations=0;
+  while (true) {
+    int runningTasks=0;
+    int completedTasks=0;
+    for (int i=1001; i <= 1002; i++) {
+      String state=getRequestState(i,server);
+      if (state.equals("running"))       runningTasks++;
+      if (state.equals("completed"))       completedTasks++;
+      assertTrue("We have a failed SPLITSHARD task",!state.equals("failed"));
+    }
+    assertTrue("Mutual exclusion failed. Found more than one task running for the same collection",runningTasks < 2);
+    if (completedTasks == 2 || iterations++ > 90)     break;
+    try {
+      Thread.sleep(1000);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return;
+    }
+  }
+  for (int i=1001; i <= 1002; i++) {
+    String state=getRequestStateAfterCompletion(i + "",30,server);
+    assertTrue("Task " + i + " did not complete, final state: "+ state,state.equals("completed"));
+  }
+}

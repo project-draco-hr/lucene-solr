@@ -1,0 +1,65 @@
+{
+  int numShards=1;
+  int replicationFactor=3;
+  int maxShardsPerNode=1;
+  String testCollectionName="c8n_1x3";
+  String shardId="shard1";
+  int minRf=2;
+  createCollection(testCollectionName,numShards,replicationFactor,maxShardsPerNode);
+  cloudClient.setDefaultCollection(testCollectionName);
+  List<Replica> replicas=ensureAllReplicasAreActive(testCollectionName,shardId,numShards,replicationFactor,10);
+  assertTrue("Expected 2 active replicas for " + testCollectionName,replicas.size() == 2);
+  int rf=sendDoc(1,minRf);
+  assertRf(3,"all replicas should be active",rf);
+  getProxyForReplica(replicas.get(0)).close();
+  rf=sendDoc(2,minRf);
+  assertRf(2,"one replica should be down",rf);
+  getProxyForReplica(replicas.get(1)).close();
+  rf=sendDoc(3,minRf);
+  assertRf(1,"both replicas should be down",rf);
+  getProxyForReplica(replicas.get(0)).reopen();
+  getProxyForReplica(replicas.get(1)).reopen();
+  ensureAllReplicasAreActive(testCollectionName,shardId,numShards,replicationFactor,30);
+  rf=sendDoc(4,minRf);
+  assertRf(3,"partitions to replicas have been healed",rf);
+  List<SolrInputDocument> batch=new ArrayList<SolrInputDocument>(10);
+  for (int i=5; i < 15; i++) {
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField(id,String.valueOf(i));
+    doc.addField("a_t","hello" + i);
+    batch.add(doc);
+  }
+  UpdateRequest up=new UpdateRequest();
+  up.setParam(UpdateRequest.MIN_REPFACT,String.valueOf(minRf));
+  up.add(batch);
+  int batchRf=cloudClient.getMinAchievedReplicationFactor(cloudClient.getDefaultCollection(),cloudClient.request(up));
+  assertRf(3,"batch should have succeeded on all replicas",batchRf);
+  getProxyForReplica(replicas.get(0)).close();
+  batch=new ArrayList<SolrInputDocument>(10);
+  for (int i=15; i < 30; i++) {
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField(id,String.valueOf(i));
+    doc.addField("a_t","hello" + i);
+    batch.add(doc);
+  }
+  up=new UpdateRequest();
+  up.setParam(UpdateRequest.MIN_REPFACT,String.valueOf(minRf));
+  up.add(batch);
+  batchRf=cloudClient.getMinAchievedReplicationFactor(cloudClient.getDefaultCollection(),cloudClient.request(up));
+  assertRf(2,"batch should have succeeded on 2 replicas (only one replica should be down)",batchRf);
+  getProxyForReplica(replicas.get(1)).close();
+  batch=new ArrayList<SolrInputDocument>(10);
+  for (int i=30; i < 45; i++) {
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField(id,String.valueOf(i));
+    doc.addField("a_t","hello" + i);
+    batch.add(doc);
+  }
+  up=new UpdateRequest();
+  up.setParam(UpdateRequest.MIN_REPFACT,String.valueOf(minRf));
+  up.add(batch);
+  batchRf=cloudClient.getMinAchievedReplicationFactor(cloudClient.getDefaultCollection(),cloudClient.request(up));
+  assertRf(1,"batch should have succeeded on the leader only (both replicas should be down)",batchRf);
+  getProxyForReplica(replicas.get(0)).reopen();
+  getProxyForReplica(replicas.get(1)).reopen();
+}

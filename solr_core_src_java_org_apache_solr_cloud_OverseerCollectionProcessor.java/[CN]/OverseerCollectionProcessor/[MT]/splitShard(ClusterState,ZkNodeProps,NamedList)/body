@@ -3,6 +3,7 @@
   String collectionName=message.getStr("collection");
   String slice=message.getStr(ZkStateReader.SHARD_ID_PROP);
   String splitKey=message.getStr("split.key");
+  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
   DocCollection collection=clusterState.getCollection(collectionName);
   DocRouter router=collection.getRouter() != null ? collection.getRouter() : DocRouter.DEFAULT;
   Slice parentSlice=null;
@@ -134,7 +135,7 @@
         }
       }
     }
-    collectShardResponses(results,false,null);
+    collectShardResponses(results,false,null,shardHandler);
     String asyncId=message.getStr(ASYNC);
     HashMap<String,String> requestMap=new HashMap<String,String>();
     for (int i=0; i < subRanges.size(); i++) {
@@ -159,9 +160,9 @@
       params.set(CoreAdminParams.SHARD,subSlice);
       setupAsyncRequest(asyncId,requestMap,params,nodeName);
       addPropertyParams(message,params);
-      sendShardRequest(nodeName,params);
+      sendShardRequest(nodeName,params,shardHandler);
     }
-    collectShardResponses(results,true,"SPLITSHARD failed to create subshard leaders");
+    collectShardResponses(results,true,"SPLITSHARD failed to create subshard leaders",shardHandler);
     completeAsyncRequest(asyncId,requestMap,results);
     for (    String subShardName : subShardNames) {
       log.info("Asking parent leader to wait for: " + subShardName + " to be alive on: "+ nodeName);
@@ -175,9 +176,9 @@
       cmd.setOnlyIfLeader(true);
       ModifiableSolrParams p=new ModifiableSolrParams(cmd.getParams());
       setupAsyncRequest(asyncId,requestMap,p,nodeName);
-      sendShardRequest(nodeName,p);
+      sendShardRequest(nodeName,p,shardHandler);
     }
-    collectShardResponses(results,true,"SPLITSHARD timed out waiting for subshard leaders to come up");
+    collectShardResponses(results,true,"SPLITSHARD timed out waiting for subshard leaders to come up",shardHandler);
     completeAsyncRequest(asyncId,requestMap,results);
     log.info("Successfully created all sub-shards for collection " + collectionName + " parent shard: "+ slice+ " on: "+ parentShardLeader);
     log.info("Splitting shard " + parentShardLeader.getName() + " as part of slice "+ slice+ " of collection "+ collectionName+ " on "+ parentShardLeader);
@@ -190,8 +191,8 @@
     }
     params.set(CoreAdminParams.RANGES,rangesStr);
     setupAsyncRequest(asyncId,requestMap,params,parentShardLeader.getNodeName());
-    sendShardRequest(parentShardLeader.getNodeName(),params);
-    collectShardResponses(results,true,"SPLITSHARD failed to invoke SPLIT core admin command");
+    sendShardRequest(parentShardLeader.getNodeName(),params,shardHandler);
+    collectShardResponses(results,true,"SPLITSHARD failed to invoke SPLIT core admin command",shardHandler);
     completeAsyncRequest(asyncId,requestMap,results);
     log.info("Index on shard: " + nodeName + " split into two successfully");
     for (int i=0; i < subShardNames.size(); i++) {
@@ -201,9 +202,9 @@
       params.set(CoreAdminParams.ACTION,CoreAdminAction.REQUESTAPPLYUPDATES.toString());
       params.set(CoreAdminParams.NAME,subShardName);
       setupAsyncRequest(asyncId,requestMap,params,nodeName);
-      sendShardRequest(nodeName,params);
+      sendShardRequest(nodeName,params,shardHandler);
     }
-    collectShardResponses(results,true,"SPLITSHARD failed while asking sub shard leaders to apply buffered updates");
+    collectShardResponses(results,true,"SPLITSHARD failed while asking sub shard leaders to apply buffered updates",shardHandler);
     completeAsyncRequest(asyncId,requestMap,results);
     log.info("Successfully applied buffered updates on : " + subShardNames);
     int repFactor=clusterState.getSlice(collectionName,slice).getReplicas().size();
@@ -230,7 +231,7 @@
           requestMap.put(subShardNodeName,requestId);
         }
         addPropertyParams(message,params);
-        sendShardRequest(subShardNodeName,params);
+        sendShardRequest(subShardNodeName,params,shardHandler);
         String coreNodeName=waitForCoreNodeName(collection,subShardNodeName,shardName);
         log.info("Asking sub shard leader to wait for: " + shardName + " to be alive on: "+ subShardNodeName);
         CoreAdminRequest.WaitForState cmd=new CoreAdminRequest.WaitForState();
@@ -242,10 +243,10 @@
         cmd.setOnlyIfLeader(true);
         ModifiableSolrParams p=new ModifiableSolrParams(cmd.getParams());
         setupAsyncRequest(asyncId,requestMap,p,nodeName);
-        sendShardRequest(nodeName,p);
+        sendShardRequest(nodeName,p,shardHandler);
       }
     }
-    collectShardResponses(results,true,"SPLITSHARD failed to create subshard replicas or timed out waiting for them to come up");
+    collectShardResponses(results,true,"SPLITSHARD failed to create subshard replicas or timed out waiting for them to come up",shardHandler);
     completeAsyncRequest(asyncId,requestMap,results);
     log.info("Successfully created all replica shards for all sub-slices " + subSlices);
     commit(results,slice,parentShardLeader);

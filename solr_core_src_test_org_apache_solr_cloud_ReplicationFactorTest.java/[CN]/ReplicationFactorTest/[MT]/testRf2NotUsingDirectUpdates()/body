@@ -1,0 +1,31 @@
+{
+  int numShards=2;
+  int replicationFactor=2;
+  int maxShardsPerNode=1;
+  String testCollectionName="c8n_2x2";
+  String shardId="shard1";
+  int minRf=2;
+  createCollection(testCollectionName,numShards,replicationFactor,maxShardsPerNode);
+  cloudClient.setDefaultCollection(testCollectionName);
+  List<Replica> replicas=ensureAllReplicasAreActive(testCollectionName,shardId,numShards,replicationFactor,10);
+  assertTrue("Expected active 1 replicas for " + testCollectionName,replicas.size() == 1);
+  List<SolrInputDocument> batch=new ArrayList<SolrInputDocument>(10);
+  for (int i=0; i < 15; i++) {
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField(id,String.valueOf(i));
+    doc.addField("a_t","hello" + i);
+    batch.add(doc);
+  }
+  UpdateRequest up=new UpdateRequest();
+  up.setParam(UpdateRequest.MIN_REPFACT,String.valueOf(minRf));
+  up.add(batch);
+  Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,shardId);
+  sendNonDirectUpdateRequestReplica(leader,up,2,testCollectionName);
+  sendNonDirectUpdateRequestReplica(replicas.get(0),up,2,testCollectionName);
+  List<Replica> shard2Replicas=ensureAllReplicasAreActive(testCollectionName,"shard2",numShards,replicationFactor,10);
+  assertTrue("Expected active 1 replicas for " + testCollectionName,replicas.size() == 1);
+  getProxyForReplica(shard2Replicas.get(0)).close();
+  Thread.sleep(2000);
+  sendNonDirectUpdateRequestReplica(leader,up,1,testCollectionName);
+  sendNonDirectUpdateRequestReplica(replicas.get(0),up,1,testCollectionName);
+}
