@@ -2,7 +2,7 @@
   final Directory dir=newDirectory();
   IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
   final IndexWriter writer=new IndexWriter(dir,conf);
-  final int numThreads=TestUtil.nextInt(random(),3,6);
+  final int numFields=TestUtil.nextInt(random(),1,4);
   final int numDocs=atLeast(2000);
   for (int i=0; i < numDocs; i++) {
     Document doc=new Document();
@@ -14,19 +14,18 @@
  else     if (group < 0.8)     g="g2";
  else     g="g3";
     doc.add(new StringField("updKey",g,Store.NO));
-    for (int j=0; j < numThreads; j++) {
+    for (int j=0; j < numFields; j++) {
       long value=random().nextInt();
       doc.add(new BinaryDocValuesField("f" + j,toBytes(value)));
       doc.add(new BinaryDocValuesField("cf" + j,toBytes(value * 2)));
     }
     writer.addDocument(doc);
   }
+  final int numThreads=TestUtil.nextInt(random(),3,6);
   final CountDownLatch done=new CountDownLatch(numThreads);
   final AtomicInteger numUpdates=new AtomicInteger(atLeast(100));
   Thread[] threads=new Thread[numThreads];
   for (int i=0; i < threads.length; i++) {
-    final String f="f" + i;
-    final String cf="cf" + i;
     threads[i]=new Thread("UpdateThread-" + i){
       @Override public void run(){
         DirectoryReader reader=null;
@@ -40,9 +39,11 @@
  else             if (group < 0.5)             t=new Term("updKey","g1");
  else             if (group < 0.8)             t=new Term("updKey","g2");
  else             t=new Term("updKey","g3");
+            final int field=random().nextInt(numFields);
+            final String f="f" + field;
+            final String cf="cf" + field;
             long updValue=random.nextInt();
-            writer.updateBinaryDocValue(t,f,toBytes(updValue));
-            writer.updateBinaryDocValue(t,cf,toBytes(updValue * 2));
+            writer.updateDocValues(t,new BinaryDocValuesField(f,toBytes(updValue)),new BinaryDocValuesField(cf,toBytes(updValue * 2)));
             if (random.nextDouble() < 0.2) {
               int doc=random.nextInt(numDocs);
               writer.deleteDocuments(new Term("id","doc" + doc));
@@ -92,7 +93,7 @@
   BytesRef scratch=new BytesRef();
   for (  AtomicReaderContext context : reader.leaves()) {
     AtomicReader r=context.reader();
-    for (int i=0; i < numThreads; i++) {
+    for (int i=0; i < numFields; i++) {
       BinaryDocValues bdv=r.getBinaryDocValues("f" + i);
       BinaryDocValues control=r.getBinaryDocValues("cf" + i);
       Bits docsWithBdv=r.getDocsWithField("f" + i);
