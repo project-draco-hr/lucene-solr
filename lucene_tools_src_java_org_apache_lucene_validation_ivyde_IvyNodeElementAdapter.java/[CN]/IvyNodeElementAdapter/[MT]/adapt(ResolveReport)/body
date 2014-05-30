@@ -1,0 +1,49 @@
+{
+  Map<ModuleRevisionId,IvyNodeElement> resolvedNodes=new HashMap<>();
+  IvyNodeElement root=new IvyNodeElement();
+  root.setModuleRevisionId(report.getModuleDescriptor().getModuleRevisionId());
+  resolvedNodes.put(report.getModuleDescriptor().getModuleRevisionId(),root);
+  @SuppressWarnings("unchecked") List<IvyNode> dependencies=report.getDependencies();
+  for (Iterator iter=dependencies.iterator(); iter.hasNext(); ) {
+    IvyNode node=(IvyNode)iter.next();
+    if (node.getAllEvictingNodes() != null) {
+      continue;
+    }
+    IvyNodeElement nodeElement=new IvyNodeElement();
+    nodeElement.setModuleRevisionId(node.getResolvedId());
+    resolvedNodes.put(node.getResolvedId(),nodeElement);
+  }
+  for (Iterator iter=dependencies.iterator(); iter.hasNext(); ) {
+    IvyNode node=(IvyNode)iter.next();
+    if (node.getAllEvictingNodes() != null) {
+      continue;
+    }
+    IvyNodeElement nodeElement=resolvedNodes.get(node.getResolvedId());
+    IvyNodeCallers.Caller[] callers=node.getAllRealCallers();
+    for (int i=0; i < callers.length; i++) {
+      IvyNodeElement caller=resolvedNodes.get(callers[i].getModuleRevisionId());
+      if (caller != null) {
+        nodeElement.addCaller(caller);
+        nodeElement.setCallerConfigurations(caller,callers[i].getCallerConfigurations());
+      }
+    }
+  }
+  IvyNode[] evictions=report.getEvictedNodes();
+  for (int i=0; i < evictions.length; i++) {
+    IvyNode eviction=evictions[i];
+    IvyNodeElement evictionElement=new IvyNodeElement();
+    evictionElement.setModuleRevisionId(eviction.getResolvedId());
+    evictionElement.setEvicted(true);
+    IvyNodeCallers.Caller[] callers=eviction.getAllCallers();
+    for (int j=0; j < callers.length; j++) {
+      IvyNodeElement caller=resolvedNodes.get(callers[j].getModuleRevisionId());
+      if (caller != null) {
+        evictionElement.addCaller(caller);
+        evictionElement.setCallerConfigurations(caller,callers[j].getCallerConfigurations());
+      }
+    }
+  }
+  root.setDepth(0);
+  findConflictsBeneathNode(root);
+  return root;
+}

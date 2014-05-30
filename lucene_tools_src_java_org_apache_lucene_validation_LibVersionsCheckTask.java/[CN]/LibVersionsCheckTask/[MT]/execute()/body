@@ -1,8 +1,19 @@
 {
   log("Starting scan.",verboseLevel);
   long start=System.currentTimeMillis();
-  int errors=verifySortedCentralizedVersionsFile() ? 0 : 1;
-  int checked=0;
+  setupIvy();
+  int numErrors=0;
+  if (!verifySortedCoordinatesPropertiesFile(centralizedVersionsFile)) {
+    ++numErrors;
+  }
+  if (!verifySortedCoordinatesPropertiesFile(ignoreConflictsFile)) {
+    ++numErrors;
+  }
+  collectDirectDependencies();
+  if (!collectVersionConflictsToIgnore()) {
+    ++numErrors;
+  }
+  int numChecked=0;
   @SuppressWarnings("unchecked") Iterator<Resource> iter=(Iterator<Resource>)ivyXmlResources.iterator();
   while (iter.hasNext()) {
     final Resource resource=iter.next();
@@ -15,27 +26,32 @@
     File ivyXmlFile=((FileResource)resource).getFile();
     try {
       if (!checkIvyXmlFile(ivyXmlFile)) {
-        failures=true;
-        errors++;
+        ++numErrors;
+      }
+      if (!resolveTransitively(ivyXmlFile)) {
+        ++numErrors;
       }
     }
  catch (    Exception e) {
-      throw new BuildException("Exception reading file " + ivyXmlFile.getPath(),e);
+      throw new BuildException("Exception reading file " + ivyXmlFile.getPath() + " - "+ e.toString(),e);
     }
-    checked++;
+    ++numChecked;
   }
   log("Checking for orphans in " + centralizedVersionsFile.getName(),verboseLevel);
-  for (  Map.Entry<String,Boolean> entry : referencedCoordinateKeys.entrySet()) {
+  for (  Map.Entry<String,Versions> entry : directDependencies.entrySet()) {
     String coordinateKey=entry.getKey();
-    boolean isReferenced=entry.getValue();
-    if (!isReferenced) {
+    if (!entry.getValue().directlyReferenced) {
       log("ORPHAN coordinate key '" + coordinateKey + "' in "+ centralizedVersionsFile.getName()+ " is not found in any "+ IVY_XML_FILENAME+ " file.",Project.MSG_ERR);
-      failures=true;
-      errors++;
+      ++numErrors;
     }
   }
-  log(String.format(Locale.ROOT,"Checked that %s has lexically sorted " + "'/org/name' keys and no duplicates or orphans, and scanned %d %s " + "file(s) for rev=\"${/org/name}\" format (in %.2fs.), %d error(s).",centralizedVersionsFile.getName(),checked,IVY_XML_FILENAME,(System.currentTimeMillis() - start) / 1000.0,errors),errors > 0 ? Project.MSG_ERR : Project.MSG_INFO);
-  if (failures) {
+  int numConflicts=emitConflicts();
+  int messageLevel=numErrors > 0 ? Project.MSG_ERR : Project.MSG_INFO;
+  log("Checked that " + centralizedVersionsFile.getName() + " and "+ ignoreConflictsFile.getName()+ " have lexically sorted '/org/name' keys and no duplicates or orphans.",messageLevel);
+  log("Scanned " + numChecked + " "+ IVY_XML_FILENAME+ " files for rev=\"${/org/name}\" format.",messageLevel);
+  log("Found " + numConflicts + " indirect dependency version conflicts.");
+  log(String.format(Locale.ROOT,"Completed in %.2fs., %d error(s).",(System.currentTimeMillis() - start) / 1000.0,numErrors),messageLevel);
+  if (numConflicts > 0 || numErrors > 0) {
     throw new BuildException("Lib versions check failed. Check the logs.");
   }
 }

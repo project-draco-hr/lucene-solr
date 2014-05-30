@@ -1,0 +1,56 @@
+{
+  boolean success=true;
+  ResolveOptions options=new ResolveOptions();
+  options.setDownload(false);
+  options.setTransitive(true);
+  options.setUseCacheOnly(false);
+  options.setOutputReport(false);
+  options.setLog(LogOptions.LOG_QUIET);
+  options.setConfs(new String[]{"*"});
+  String moduleName="unknown";
+  String ivyXmlContent=xmlToString(ivyXmlFile);
+  Matcher matcher=MODULE_NAME_PATTERN.matcher(ivyXmlContent);
+  if (matcher.find()) {
+    moduleName=matcher.group(1);
+  }
+  ivyXmlContent=ivyXmlContent.replaceAll("\\btransitive\\s*=\\s*[\"']false[\"']","transitive=\"true\"");
+  File transitiveIvyXmlFile=null;
+  try {
+    File buildDir=new File(commonBuildDir,"ivy-transitive-resolve");
+    if (!buildDir.exists() && !buildDir.mkdirs()) {
+      throw new BuildException("Could not create temp directory " + buildDir.getPath());
+    }
+    matcher=MODULE_DIRECTORY_PATTERN.matcher(ivyXmlFile.getCanonicalPath());
+    if (!matcher.matches()) {
+      throw new BuildException("Unknown ivy.xml module directory: " + ivyXmlFile.getCanonicalPath());
+    }
+    String moduleDirPrefix=matcher.group(1).replaceAll("[/\\\\]",".");
+    transitiveIvyXmlFile=new File(buildDir,"transitive." + moduleDirPrefix + ".ivy.xml");
+    try (Writer writer=new OutputStreamWriter(new FileOutputStream(transitiveIvyXmlFile),StandardCharsets.UTF_8)){
+      writer.write(ivyXmlContent);
+    }
+     ResolveReport resolveReport=ivy.resolve(transitiveIvyXmlFile.toURI().toURL(),options);
+    IvyNodeElement root=IvyNodeElementAdapter.adapt(resolveReport);
+    for (    IvyNodeElement directDependency : root.getDependencies()) {
+      String coordinate="/" + directDependency.getOrganization() + "/"+ directDependency.getName();
+      Versions versions=directDependencies.get(coordinate);
+      if (null == versions) {
+        log("ERROR: the following coordinate key does not appear in " + centralizedVersionsFile.getName() + ": "+ coordinate);
+        success=false;
+      }
+ else {
+        versions.directlyReferenced=true;
+        if (collectConflicts(directDependency,directDependency,moduleName)) {
+          success=false;
+        }
+      }
+    }
+  }
+ catch (  ParseException|IOException e) {
+    if (null != transitiveIvyXmlFile) {
+      log("Exception reading " + transitiveIvyXmlFile.getPath() + ": "+ e.toString());
+    }
+    success=false;
+  }
+  return success;
+}
