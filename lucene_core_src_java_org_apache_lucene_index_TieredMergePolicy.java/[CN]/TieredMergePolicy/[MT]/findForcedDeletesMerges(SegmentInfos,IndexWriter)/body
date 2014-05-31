@@ -1,0 +1,35 @@
+{
+  if (verbose(writer)) {
+    message("findForcedDeletesMerges infos=" + writer.segString(infos) + " forceMergeDeletesPctAllowed="+ forceMergeDeletesPctAllowed,writer);
+  }
+  final List<SegmentCommitInfo> eligible=new ArrayList<>();
+  final Collection<SegmentCommitInfo> merging=writer.getMergingSegments();
+  for (  SegmentCommitInfo info : infos) {
+    double pctDeletes=100. * ((double)writer.numDeletedDocs(info)) / info.info.getDocCount();
+    if (pctDeletes > forceMergeDeletesPctAllowed && !merging.contains(info)) {
+      eligible.add(info);
+    }
+  }
+  if (eligible.size() == 0) {
+    return null;
+  }
+  Collections.sort(eligible,new SegmentByteSizeDescending(writer));
+  if (verbose(writer)) {
+    message("eligible=" + eligible,writer);
+  }
+  int start=0;
+  MergeSpecification spec=null;
+  while (start < eligible.size()) {
+    final int end=Math.min(start + maxMergeAtOnceExplicit,eligible.size());
+    if (spec == null) {
+      spec=new MergeSpecification();
+    }
+    final OneMerge merge=new OneMerge(eligible.subList(start,end));
+    if (verbose(writer)) {
+      message("add merge=" + writer.segString(merge.segments),writer);
+    }
+    spec.add(merge);
+    start=end;
+  }
+  return spec;
+}
