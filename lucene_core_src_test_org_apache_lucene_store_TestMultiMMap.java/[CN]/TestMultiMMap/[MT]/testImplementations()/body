@@ -1,0 +1,36 @@
+{
+  for (int i=2; i < 12; i++) {
+    final int chunkSize=1 << i;
+    MMapDirectory mmapDir=new MMapDirectory(createTempDir("testImplementations"),null,chunkSize);
+    IndexOutput io=mmapDir.createOutput("bytes",newIOContext(random()));
+    int size=random().nextInt(chunkSize * 2) + 3;
+    byte bytes[]=new byte[size];
+    random().nextBytes(bytes);
+    io.writeBytes(bytes,bytes.length);
+    io.close();
+    IndexInput ii=mmapDir.openInput("bytes",newIOContext(random()));
+    byte actual[]=new byte[size];
+    ii.readBytes(actual,0,actual.length);
+    assertEquals(new BytesRef(bytes),new BytesRef(actual));
+    ii.seek(0L);
+    assertTrue((size < chunkSize) ? (ii instanceof ByteBufferIndexInput.SingleBufferImpl) : (ii instanceof ByteBufferIndexInput.DefaultImpl));
+    assertSame(ii.getClass(),ii.clone().getClass());
+    int sliceSize=random().nextInt(size);
+    IndexInput slice=ii.slice("slice",0,sliceSize);
+    assertTrue((sliceSize < chunkSize) ? (slice instanceof ByteBufferIndexInput.SingleBufferImpl) : (slice instanceof ByteBufferIndexInput.DefaultImpl));
+    int offset=random().nextInt(size - 1) + 1;
+    sliceSize=random().nextInt(size - offset + 1);
+    slice=ii.slice("slice",offset,sliceSize);
+    if (offset % chunkSize + sliceSize < chunkSize) {
+      assertTrue(slice instanceof ByteBufferIndexInput.SingleBufferImpl);
+    }
+ else     if (offset % chunkSize == 0) {
+      assertTrue(slice instanceof ByteBufferIndexInput.DefaultImpl);
+    }
+ else {
+      assertTrue(slice instanceof ByteBufferIndexInput.WithOffsetImpl);
+    }
+    ii.close();
+    mmapDir.close();
+  }
+}

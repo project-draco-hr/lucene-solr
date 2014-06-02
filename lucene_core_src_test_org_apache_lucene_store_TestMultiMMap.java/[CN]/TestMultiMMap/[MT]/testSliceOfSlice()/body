@@ -1,0 +1,27 @@
+{
+  for (int i=0; i < 10; i++) {
+    MMapDirectory mmapDir=new MMapDirectory(createTempDir("testSliceOfSlice"),null,1 << i);
+    IndexOutput io=mmapDir.createOutput("bytes",newIOContext(random()));
+    byte bytes[]=new byte[1 << (i + 1)];
+    random().nextBytes(bytes);
+    io.writeBytes(bytes,bytes.length);
+    io.close();
+    IndexInput ii=mmapDir.openInput("bytes",newIOContext(random()));
+    byte actual[]=new byte[1 << (i + 1)];
+    ii.readBytes(actual,0,actual.length);
+    ii.close();
+    assertEquals(new BytesRef(bytes),new BytesRef(actual));
+    IndexInput outerSlicer=mmapDir.openInput("bytes",newIOContext(random()));
+    final int outerSliceStart=random().nextInt(bytes.length / 2);
+    final int outerSliceLength=random().nextInt(bytes.length - outerSliceStart);
+    IndexInput innerSlicer=outerSlicer.slice("parentBytesSlice",outerSliceStart,outerSliceLength);
+    for (int sliceStart=0; sliceStart < outerSliceLength; sliceStart++) {
+      for (int sliceLength=0; sliceLength < outerSliceLength - sliceStart; sliceLength++) {
+        assertSlice(bytes,innerSlicer,outerSliceStart,sliceStart,sliceLength);
+      }
+    }
+    innerSlicer.close();
+    outerSlicer.close();
+    mmapDir.close();
+  }
+}
