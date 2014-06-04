@@ -1,0 +1,99 @@
+{
+  int nDocs=TestUtil.nextInt(random(),1,100);
+  masterClient.deleteByQuery("*:*");
+  for (int i=0; i < nDocs; i++) {
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField("id",i);
+    doc.addField("name","name = " + i);
+    masterClient.add(doc);
+  }
+  masterClient.commit();
+  File[] snapDir=new File[2];
+  boolean namedBackup=random().nextBoolean();
+  try {
+    String firstBackupTimestamp=null;
+    String[] backupNames=null;
+    if (namedBackup) {
+      backupNames=new String[2];
+    }
+    for (int i=0; i < 2; i++) {
+      BackupThread backupThread;
+      final String backupName=TestUtil.randomSimpleString(random(),1,20);
+      if (!namedBackup) {
+        backupThread=new BackupThread(addNumberToKeepInRequest,backupKeepParamName,ReplicationHandler.CMD_BACKUP);
+      }
+ else {
+        backupThread=new BackupThread(backupName,ReplicationHandler.CMD_BACKUP);
+        backupNames[i]=backupName;
+      }
+      backupThread.start();
+      File dataDir=new File(master.getDataDir());
+      int waitCnt=0;
+      CheckBackupStatus checkBackupStatus=new CheckBackupStatus(firstBackupTimestamp);
+      while (true) {
+        checkBackupStatus.fetchStatus();
+        if (checkBackupStatus.fail != null) {
+          fail(checkBackupStatus.fail);
+        }
+        if (checkBackupStatus.success) {
+          if (i == 0) {
+            firstBackupTimestamp=checkBackupStatus.backupTimestamp;
+            Thread.sleep(1000);
+          }
+          break;
+        }
+        Thread.sleep(200);
+        if (waitCnt == 20) {
+          fail("Backup success not detected:" + checkBackupStatus.response);
+        }
+        waitCnt++;
+      }
+      if (backupThread.fail != null) {
+        fail(backupThread.fail);
+      }
+      File[] files=null;
+      if (!namedBackup) {
+        files=dataDir.listFiles(new FilenameFilter(){
+          @Override public boolean accept(          File dir,          String name){
+            if (name.startsWith("snapshot")) {
+              return true;
+            }
+            return false;
+          }
+        }
+);
+      }
+ else {
+        files=dataDir.listFiles(new FilenameFilter(){
+          @Override public boolean accept(          File dir,          String name){
+            if (name.equals("snapshot." + backupName)) {
+              return true;
+            }
+            return false;
+          }
+        }
+);
+      }
+      assertEquals(1,files.length);
+      snapDir[i]=files[0];
+      Directory dir=new SimpleFSDirectory(snapDir[i].getAbsoluteFile());
+      IndexReader reader=DirectoryReader.open(dir);
+      IndexSearcher searcher=new IndexSearcher(reader);
+      TopDocs hits=searcher.search(new MatchAllDocsQuery(),1);
+      assertEquals(nDocs,hits.totalHits);
+      reader.close();
+      dir.close();
+    }
+    if (!namedBackup && snapDir[0].exists()) {
+      fail("The first backup should have been cleaned up because " + backupKeepParamName + " was set to 1.");
+    }
+    if (namedBackup) {
+      testDeleteNamedBackup(backupNames);
+    }
+  }
+  finally {
+    if (!namedBackup) {
+      TestUtil.rm(snapDir);
+    }
+  }
+}
