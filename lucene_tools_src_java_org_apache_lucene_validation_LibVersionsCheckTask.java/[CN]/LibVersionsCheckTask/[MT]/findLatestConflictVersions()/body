@@ -1,0 +1,62 @@
+{
+  boolean success=true;
+  StringBuilder latestIvyXml=new StringBuilder();
+  latestIvyXml.append("<ivy-module version=\"2.0\">\n");
+  latestIvyXml.append("  <info organisation=\"org.apache.lucene\" module=\"core-tools-find-latest-revision\"/>\n");
+  latestIvyXml.append("  <configurations>\n");
+  latestIvyXml.append("    <conf name=\"default\" transitive=\"false\"/>\n");
+  latestIvyXml.append("  </configurations>\n");
+  latestIvyXml.append("  <dependencies>\n");
+  for (  Map.Entry<String,Dependency> directDependency : directDependencies.entrySet()) {
+    Dependency dependency=directDependency.getValue();
+    if (dependency.conflictLocations.entrySet().isEmpty()) {
+      continue;
+    }
+    latestIvyXml.append("    <dependency org=\"");
+    latestIvyXml.append(dependency.org);
+    latestIvyXml.append("\" name=\"");
+    latestIvyXml.append(dependency.name);
+    latestIvyXml.append("\" rev=\"latest.release\" conf=\"default->*\"/>\n");
+  }
+  latestIvyXml.append("  </dependencies>\n");
+  latestIvyXml.append("</ivy-module>\n");
+  File buildDir=new File(commonBuildDir,"ivy-transitive-resolve");
+  if (!buildDir.exists() && !buildDir.mkdirs()) {
+    throw new BuildException("Could not create temp directory " + buildDir.getPath());
+  }
+  File findLatestIvyXmlFile=new File(buildDir,"find.latest.conflicts.ivy.xml");
+  try {
+    try (Writer writer=new OutputStreamWriter(new FileOutputStream(findLatestIvyXmlFile),StandardCharsets.UTF_8)){
+      writer.write(latestIvyXml.toString());
+    }
+     ResolveOptions options=new ResolveOptions();
+    options.setDownload(false);
+    options.setTransitive(false);
+    options.setUseCacheOnly(false);
+    options.setOutputReport(false);
+    options.setLog(LogOptions.LOG_QUIET);
+    options.setConfs(new String[]{"*"});
+    ResolveReport resolveReport=ivy.resolve(findLatestIvyXmlFile.toURI().toURL(),options);
+    IvyNodeElement root=IvyNodeElementAdapter.adapt(resolveReport);
+    for (    IvyNodeElement element : root.getDependencies()) {
+      String coordinate="/" + element.getOrganization() + "/"+ element.getName();
+      Dependency dependency=directDependencies.get(coordinate);
+      if (null == dependency) {
+        log("ERROR: the following coordinate key does not appear in " + centralizedVersionsFile.getName() + ": "+ coordinate,Project.MSG_ERR);
+        success=false;
+      }
+ else {
+        dependency.latestVersion=element.getRevision();
+      }
+    }
+  }
+ catch (  IOException e) {
+    log("Exception writing to " + findLatestIvyXmlFile.getPath() + ": "+ e.toString(),Project.MSG_ERR);
+    success=false;
+  }
+catch (  ParseException e) {
+    log("Exception parsing filename " + findLatestIvyXmlFile.getPath() + ": "+ e.toString(),Project.MSG_ERR);
+    success=false;
+  }
+  return success;
+}
