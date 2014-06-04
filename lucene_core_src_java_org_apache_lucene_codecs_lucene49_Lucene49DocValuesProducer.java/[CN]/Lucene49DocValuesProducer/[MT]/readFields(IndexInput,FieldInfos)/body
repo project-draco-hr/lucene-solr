@@ -1,0 +1,42 @@
+{
+  int fieldNumber=meta.readVInt();
+  while (fieldNumber != -1) {
+    if (infos.fieldInfo(fieldNumber) == null) {
+      throw new CorruptIndexException("Invalid field number: " + fieldNumber + " (resource="+ meta+ ")");
+    }
+    byte type=meta.readByte();
+    if (type == Lucene49DocValuesFormat.NUMERIC) {
+      numerics.put(fieldNumber,readNumericEntry(meta));
+    }
+ else     if (type == Lucene49DocValuesFormat.BINARY) {
+      BinaryEntry b=readBinaryEntry(meta);
+      binaries.put(fieldNumber,b);
+    }
+ else     if (type == Lucene49DocValuesFormat.SORTED) {
+      readSortedField(fieldNumber,meta,infos);
+    }
+ else     if (type == Lucene49DocValuesFormat.SORTED_SET) {
+      SortedSetEntry ss=readSortedSetEntry(meta);
+      sortedSets.put(fieldNumber,ss);
+      if (ss.format == SORTED_SET_WITH_ADDRESSES) {
+        readSortedSetFieldWithAddresses(fieldNumber,meta,infos);
+      }
+ else       if (ss.format == SORTED_SET_SINGLE_VALUED_SORTED) {
+        if (meta.readVInt() != fieldNumber) {
+          throw new CorruptIndexException("sortedset entry for field: " + fieldNumber + " is corrupt (resource="+ meta+ ")");
+        }
+        if (meta.readByte() != Lucene49DocValuesFormat.SORTED) {
+          throw new CorruptIndexException("sortedset entry for field: " + fieldNumber + " is corrupt (resource="+ meta+ ")");
+        }
+        readSortedField(fieldNumber,meta,infos);
+      }
+ else {
+        throw new AssertionError();
+      }
+    }
+ else {
+      throw new CorruptIndexException("invalid type: " + type + ", resource="+ meta);
+    }
+    fieldNumber=meta.readVInt();
+  }
+}

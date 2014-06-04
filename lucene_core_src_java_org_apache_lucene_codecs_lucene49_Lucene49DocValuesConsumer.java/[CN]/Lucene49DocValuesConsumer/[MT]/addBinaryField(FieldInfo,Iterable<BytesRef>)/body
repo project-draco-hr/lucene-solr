@@ -1,0 +1,51 @@
+{
+  meta.writeVInt(field.number);
+  meta.writeByte(Lucene49DocValuesFormat.BINARY);
+  int minLength=Integer.MAX_VALUE;
+  int maxLength=Integer.MIN_VALUE;
+  final long startFP=data.getFilePointer();
+  long count=0;
+  boolean missing=false;
+  for (  BytesRef v : values) {
+    final int length;
+    if (v == null) {
+      length=0;
+      missing=true;
+    }
+ else {
+      length=v.length;
+    }
+    minLength=Math.min(minLength,length);
+    maxLength=Math.max(maxLength,length);
+    if (v != null) {
+      data.writeBytes(v.bytes,v.offset,v.length);
+    }
+    count++;
+  }
+  meta.writeVInt(minLength == maxLength ? BINARY_FIXED_UNCOMPRESSED : BINARY_VARIABLE_UNCOMPRESSED);
+  if (missing) {
+    meta.writeLong(data.getFilePointer());
+    writeMissingBitset(values);
+  }
+ else {
+    meta.writeLong(-1L);
+  }
+  meta.writeVInt(minLength);
+  meta.writeVInt(maxLength);
+  meta.writeVLong(count);
+  meta.writeLong(startFP);
+  if (minLength != maxLength) {
+    meta.writeLong(data.getFilePointer());
+    meta.writeVInt(PackedInts.VERSION_CURRENT);
+    meta.writeVInt(BLOCK_SIZE);
+    final MonotonicBlockPackedWriter writer=new MonotonicBlockPackedWriter(data,BLOCK_SIZE);
+    long addr=0;
+    for (    BytesRef v : values) {
+      if (v != null) {
+        addr+=v.length;
+      }
+      writer.add(addr);
+    }
+    writer.finish();
+  }
+}

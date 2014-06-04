@@ -1,0 +1,41 @@
+{
+  Directory dir=getDirectory(createTempDir("testBytes"));
+  IndexOutput output=dir.createOutput("bytes",newIOContext(random()));
+  int num=TestUtil.nextInt(random(),50,3000);
+  byte bytes[]=new byte[num];
+  random().nextBytes(bytes);
+  for (int i=0; i < bytes.length; i++) {
+    output.writeByte(bytes[i]);
+  }
+  output.close();
+  IndexInput input=dir.openInput("bytes",newIOContext(random()));
+  RandomAccessInput slice=input.randomAccessSlice(0,input.length());
+  for (int i=0; i < bytes.length; i++) {
+    assertEquals(bytes[i],slice.readByte(i));
+  }
+  for (int i=1; i < bytes.length; i++) {
+    long offset=i;
+    RandomAccessInput subslice=input.randomAccessSlice(offset,input.length() - offset);
+    for (int j=i; j < bytes.length; j++) {
+      assertEquals(bytes[j],subslice.readByte(j - i));
+    }
+  }
+  for (int i=0; i < 7; i++) {
+    String name="bytes-" + i;
+    IndexOutput o=dir.createOutput(name,newIOContext(random()));
+    byte junk[]=new byte[i];
+    random().nextBytes(junk);
+    o.writeBytes(junk,junk.length);
+    input.seek(0);
+    o.copyBytes(input,input.length());
+    o.close();
+    IndexInput padded=dir.openInput(name,newIOContext(random()));
+    RandomAccessInput whole=padded.randomAccessSlice(i,padded.length() - i);
+    for (int j=0; j < bytes.length; j++) {
+      assertEquals(bytes[j],whole.readByte(j));
+    }
+    padded.close();
+  }
+  input.close();
+  dir.close();
+}

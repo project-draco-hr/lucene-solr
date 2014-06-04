@@ -1,0 +1,63 @@
+{
+  SortedSetEntry ss=sortedSets.get(field.number);
+  if (ss.format == SORTED_SET_SINGLE_VALUED_SORTED) {
+    final SortedDocValues values=getSorted(field);
+    return DocValues.singleton(values);
+  }
+ else   if (ss.format != SORTED_SET_WITH_ADDRESSES) {
+    throw new AssertionError();
+  }
+  final IndexInput data=this.data.clone();
+  final long valueCount=binaries.get(field.number).count;
+  final LongBinaryDocValues binary=(LongBinaryDocValues)getBinary(field);
+  final LongValues ordinals=getNumeric(ords.get(field.number));
+  final MonotonicBlockPackedReader ordIndex=getOrdIndexInstance(data,field,ordIndexes.get(field.number));
+  return new RandomAccessOrds(){
+    long startOffset;
+    long offset;
+    long endOffset;
+    @Override public long nextOrd(){
+      if (offset == endOffset) {
+        return NO_MORE_ORDS;
+      }
+ else {
+        long ord=ordinals.get(offset);
+        offset++;
+        return ord;
+      }
+    }
+    @Override public void setDocument(    int docID){
+      startOffset=offset=(docID == 0 ? 0 : ordIndex.get(docID - 1));
+      endOffset=ordIndex.get(docID);
+    }
+    @Override public void lookupOrd(    long ord,    BytesRef result){
+      binary.get(ord,result);
+    }
+    @Override public long getValueCount(){
+      return valueCount;
+    }
+    @Override public long lookupTerm(    BytesRef key){
+      if (binary instanceof CompressedBinaryDocValues) {
+        return ((CompressedBinaryDocValues)binary).lookupTerm(key);
+      }
+ else {
+        return super.lookupTerm(key);
+      }
+    }
+    @Override public TermsEnum termsEnum(){
+      if (binary instanceof CompressedBinaryDocValues) {
+        return ((CompressedBinaryDocValues)binary).getTermsEnum();
+      }
+ else {
+        return super.termsEnum();
+      }
+    }
+    @Override public long ordAt(    int index){
+      return ordinals.get(startOffset + index);
+    }
+    @Override public int cardinality(){
+      return (int)(endOffset - startOffset);
+    }
+  }
+;
+}
