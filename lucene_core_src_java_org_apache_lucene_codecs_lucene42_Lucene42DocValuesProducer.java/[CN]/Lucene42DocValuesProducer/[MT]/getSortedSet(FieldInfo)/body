@@ -1,7 +1,7 @@
 {
   final FSTEntry entry=fsts.get(field.number);
   if (entry.numOrds == 0) {
-    return DocValues.EMPTY_SORTED_SET;
+    return DocValues.emptySortedSet();
   }
   FST<Long> instance;
 synchronized (this) {
@@ -20,9 +20,10 @@ synchronized (this) {
   final Arc<Long> scratchArc=new Arc<>();
   final IntsRef scratchInts=new IntsRef();
   final BytesRefFSTEnum<Long> fstEnum=new BytesRefFSTEnum<>(fst);
-  final BytesRef ref=new BytesRef();
   final ByteArrayDataInput input=new ByteArrayDataInput();
   return new SortedSetDocValues(){
+    final BytesRef term=new BytesRef();
+    BytesRef ordsRef;
     long currentOrd;
     @Override public long nextOrd(){
       if (input.eof()) {
@@ -34,19 +35,19 @@ synchronized (this) {
       }
     }
     @Override public void setDocument(    int docID){
-      docToOrds.get(docID,ref);
-      input.reset(ref.bytes,ref.offset,ref.length);
+      ordsRef=docToOrds.get(docID);
+      input.reset(ordsRef.bytes,ordsRef.offset,ordsRef.length);
       currentOrd=0;
     }
-    @Override public void lookupOrd(    long ord,    BytesRef result){
+    @Override public BytesRef lookupOrd(    long ord){
       try {
         in.setPosition(0);
         fst.getFirstArc(firstArc);
         IntsRef output=Util.getByOutput(fst,ord,in,firstArc,scratchArc,scratchInts);
-        result.bytes=new byte[output.length];
-        result.offset=0;
-        result.length=0;
-        Util.toBytesRef(output,result);
+        term.bytes=ArrayUtil.grow(term.bytes,output.length);
+        term.offset=0;
+        term.length=0;
+        return Util.toBytesRef(output,term);
       }
  catch (      IOException bogus) {
         throw new RuntimeException(bogus);

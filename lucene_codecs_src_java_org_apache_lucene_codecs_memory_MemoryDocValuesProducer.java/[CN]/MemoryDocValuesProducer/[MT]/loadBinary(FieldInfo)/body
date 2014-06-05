@@ -1,30 +1,15 @@
 {
+  BytesAndAddresses bytesAndAddresses=new BytesAndAddresses();
   BinaryEntry entry=binaries.get(field.number);
   data.seek(entry.offset);
   PagedBytes bytes=new PagedBytes(16);
   bytes.copy(data,entry.numBytes);
-  final PagedBytes.Reader bytesReader=bytes.freeze(true);
-  if (entry.minLength == entry.maxLength) {
-    final int fixedLength=entry.minLength;
-    ramBytesUsed.addAndGet(bytes.ramBytesUsed());
-    return new BinaryDocValues(){
-      @Override public void get(      int docID,      BytesRef result){
-        bytesReader.fillSlice(result,fixedLength * (long)docID,fixedLength);
-      }
-    }
-;
-  }
- else {
+  bytesAndAddresses.reader=bytes.freeze(true);
+  ramBytesUsed.addAndGet(bytesAndAddresses.reader.ramBytesUsed());
+  if (entry.minLength != entry.maxLength) {
     data.seek(data.getFilePointer() + entry.missingBytes);
-    final MonotonicBlockPackedReader addresses=new MonotonicBlockPackedReader(data,entry.packedIntsVersion,entry.blockSize,maxDoc,false);
-    ramBytesUsed.addAndGet(bytes.ramBytesUsed() + addresses.ramBytesUsed());
-    return new BinaryDocValues(){
-      @Override public void get(      int docID,      BytesRef result){
-        long startAddress=docID == 0 ? 0 : addresses.get(docID - 1);
-        long endAddress=addresses.get(docID);
-        bytesReader.fillSlice(result,startAddress,(int)(endAddress - startAddress));
-      }
-    }
-;
+    bytesAndAddresses.addresses=new MonotonicBlockPackedReader(data,entry.packedIntsVersion,entry.blockSize,maxDoc,false);
+    ramBytesUsed.addAndGet(bytesAndAddresses.addresses.ramBytesUsed());
   }
+  return bytesAndAddresses;
 }
