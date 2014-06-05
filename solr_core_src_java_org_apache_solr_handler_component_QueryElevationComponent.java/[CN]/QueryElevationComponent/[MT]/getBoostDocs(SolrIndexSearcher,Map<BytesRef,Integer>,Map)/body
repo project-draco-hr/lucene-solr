@@ -1,0 +1,46 @@
+{
+  IntIntOpenHashMap boostDocs=null;
+  if (boosted != null) {
+    if (context != null) {
+      boostDocs=(IntIntOpenHashMap)context.get(BOOSTED_DOCIDS);
+    }
+    if (boostDocs != null) {
+      return boostDocs;
+    }
+    SchemaField idField=indexSearcher.getSchema().getUniqueKeyField();
+    String fieldName=idField.getName();
+    HashSet<BytesRef> localBoosts=new HashSet(boosted.size() * 2);
+    Iterator<BytesRef> boostedIt=boosted.keySet().iterator();
+    while (boostedIt.hasNext()) {
+      localBoosts.add(boostedIt.next());
+    }
+    boostDocs=new IntIntOpenHashMap(boosted.size() * 2);
+    List<AtomicReaderContext> leaves=indexSearcher.getTopReaderContext().leaves();
+    TermsEnum termsEnum=null;
+    DocsEnum docsEnum=null;
+    for (    AtomicReaderContext leaf : leaves) {
+      AtomicReader reader=leaf.reader();
+      int docBase=leaf.docBase;
+      Bits liveDocs=reader.getLiveDocs();
+      Terms terms=reader.terms(fieldName);
+      termsEnum=terms.iterator(termsEnum);
+      Iterator<BytesRef> it=localBoosts.iterator();
+      while (it.hasNext()) {
+        BytesRef ref=it.next();
+        if (termsEnum.seekExact(ref)) {
+          docsEnum=termsEnum.docs(liveDocs,docsEnum);
+          int doc=docsEnum.nextDoc();
+          if (doc != DocsEnum.NO_MORE_DOCS) {
+            int p=boosted.get(ref);
+            boostDocs.put(doc + docBase,p);
+            it.remove();
+          }
+        }
+      }
+    }
+  }
+  if (context != null) {
+    context.put(BOOSTED_DOCIDS,boostDocs);
+  }
+  return boostDocs;
+}

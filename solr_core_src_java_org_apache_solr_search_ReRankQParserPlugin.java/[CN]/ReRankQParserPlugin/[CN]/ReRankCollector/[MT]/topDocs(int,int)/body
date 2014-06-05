@@ -1,0 +1,46 @@
+{
+  try {
+    TopDocs mainDocs=mainCollector.topDocs(0,reRankDocs);
+    if (boostedPriority != null) {
+      SolrRequestInfo info=SolrRequestInfo.getRequestInfo();
+      Map requestContext=null;
+      if (info != null) {
+        requestContext=info.getReq().getContext();
+      }
+      IntIntOpenHashMap boostedDocs=QueryElevationComponent.getBoostDocs((SolrIndexSearcher)searcher,boostedPriority,requestContext);
+      TopDocs rescoredDocs=new QueryRescorer(reRankQuery){
+        @Override protected float combine(        float firstPassScore,        boolean secondPassMatches,        float secondPassScore){
+          float score=firstPassScore;
+          if (secondPassMatches) {
+            score+=reRankWeight * secondPassScore;
+          }
+          return score;
+        }
+      }
+.rescore(searcher,mainDocs,reRankDocs);
+      Arrays.sort(rescoredDocs.scoreDocs,new BoostedComp(boostedDocs,mainDocs.scoreDocs,rescoredDocs.getMaxScore()));
+      if (howMany > rescoredDocs.scoreDocs.length) {
+        howMany=rescoredDocs.scoreDocs.length;
+      }
+      ScoreDoc[] scoreDocs=new ScoreDoc[howMany];
+      System.arraycopy(rescoredDocs.scoreDocs,0,scoreDocs,0,howMany);
+      rescoredDocs.scoreDocs=scoreDocs;
+      return rescoredDocs;
+    }
+ else {
+      return new QueryRescorer(reRankQuery){
+        @Override protected float combine(        float firstPassScore,        boolean secondPassMatches,        float secondPassScore){
+          float score=firstPassScore;
+          if (secondPassMatches) {
+            score+=reRankWeight * secondPassScore;
+          }
+          return score;
+        }
+      }
+.rescore(searcher,mainDocs,howMany);
+    }
+  }
+ catch (  Exception e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,e);
+  }
+}
