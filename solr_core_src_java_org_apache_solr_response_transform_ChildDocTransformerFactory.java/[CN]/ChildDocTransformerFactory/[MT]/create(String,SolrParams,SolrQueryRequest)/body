@@ -1,0 +1,31 @@
+{
+  SchemaField uniqueKeyField=req.getSchema().getUniqueKeyField();
+  if (uniqueKeyField == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST," ChildDocTransformer requires the schema to have a uniqueKeyField.");
+  }
+  String idField=uniqueKeyField.getName();
+  String parentFilter=params.get("parentFilter");
+  if (parentFilter == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Parent filter should be sent as parentFilter=filterCondition");
+  }
+  String childFilter=params.get("childFilter");
+  int limit=params.getInt("limit",10);
+  Filter parentsFilter=null;
+  try {
+    Query parentFilterQuery=QParser.getParser(parentFilter,null,req).getQuery();
+    parentsFilter=new FixedBitSetCachingWrapperFilter(new QueryWrapperFilter(parentFilterQuery));
+  }
+ catch (  SyntaxError syntaxError) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Failed to create correct parent filter query");
+  }
+  Query childFilterQuery=null;
+  if (childFilter != null) {
+    try {
+      childFilterQuery=QParser.getParser(childFilter,null,req).getQuery();
+    }
+ catch (    SyntaxError syntaxError) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Failed to create correct child filter query");
+    }
+  }
+  return new ChildDocTransformer(field,parentsFilter,idField,req.getSchema(),childFilterQuery,limit);
+}

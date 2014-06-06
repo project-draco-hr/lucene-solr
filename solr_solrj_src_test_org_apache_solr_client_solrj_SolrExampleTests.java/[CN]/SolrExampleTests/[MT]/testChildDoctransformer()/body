@@ -1,0 +1,92 @@
+{
+  SolrServer server=getSolrServer();
+  server.deleteByQuery("*:*");
+  server.commit();
+  int numRootDocs=TestUtil.nextInt(random(),10,100);
+  int maxDepth=TestUtil.nextInt(random(),2,5);
+  Map<String,SolrInputDocument> allDocs=new HashMap<>();
+  for (int i=0; i < numRootDocs; i++) {
+    server.add(genNestedDocuments(allDocs,0,maxDepth));
+  }
+  server.commit();
+  SolrQuery q=new SolrQuery("*:*");
+  QueryResponse resp=server.query(q);
+  assertEquals("Doc count does not match",allDocs.size(),resp.getResults().getNumFound());
+  q=new SolrQuery("level_i:0");
+  q.setFields("*","[child parentFilter=\"level_i:0\"]");
+  resp=server.query(q);
+  assertEquals("topLevel count does not match",numRootDocs,resp.getResults().getNumFound());
+  for (  SolrDocument outDoc : resp.getResults()) {
+    String docId=(String)outDoc.getFieldValue("id");
+    SolrInputDocument origDoc=allDocs.get(docId);
+    assertNotNull("docId not found: " + docId,origDoc);
+    assertEquals("kids mismatch",origDoc.hasChildDocuments(),outDoc.hasChildDocuments());
+    if (outDoc.hasChildDocuments()) {
+      for (      SolrDocument kid : outDoc.getChildDocuments()) {
+        String kidId=(String)kid.getFieldValue("id");
+        SolrInputDocument origChild=findDecendent(origDoc,kidId);
+        assertNotNull(docId + " doesn't have decendent " + kidId,origChild);
+      }
+    }
+  }
+{
+    int parentLevel=TestUtil.nextInt(random(),0,maxDepth);
+    int kidLevel=parentLevel + 1;
+    String parentFilter="level_i:" + parentLevel;
+    String childFilter="level_i:" + kidLevel;
+    int maxKidCount=TestUtil.nextInt(random(),1,37);
+    q=new SolrQuery("*:*");
+    q.setFilterQueries(parentFilter);
+    q.setFields("id,[child parentFilter=\"" + parentFilter + "\" childFilter=\""+ childFilter+ "\" limit=\""+ maxKidCount+ "\"]");
+    resp=server.query(q);
+    for (    SolrDocument outDoc : resp.getResults()) {
+      String docId=(String)outDoc.getFieldValue("id");
+      SolrInputDocument origDoc=allDocs.get(docId);
+      assertNotNull("docId not found: " + docId,origDoc);
+      assertEquals("kids mismatch",origDoc.hasChildDocuments(),outDoc.hasChildDocuments());
+      if (outDoc.hasChildDocuments()) {
+        int numOrigKids=origDoc.getChildDocuments().size();
+        int numOutKids=outDoc.getChildDocuments().size();
+        assertEquals("Num kids mismatch: " + numOrigKids + "/"+ maxKidCount,(maxKidCount < numOrigKids ? maxKidCount : numOrigKids),numOutKids);
+        for (        SolrDocument kid : outDoc.getChildDocuments()) {
+          String kidId=(String)kid.getFieldValue("id");
+          assertEquals("kid is the wrong level",kidLevel,(int)kid.getFieldValue("level_i"));
+          SolrInputDocument origChild=findDecendent(origDoc,kidId);
+          assertNotNull(docId + " doesn't have decendent " + kidId,origChild);
+        }
+      }
+    }
+  }
+{
+    int parentLevel=TestUtil.nextInt(random(),0,maxDepth - 1);
+    int kidLevelMin=TestUtil.nextInt(random(),parentLevel,maxDepth);
+    int kidLevelMax=TestUtil.nextInt(random(),kidLevelMin,maxDepth);
+    String parentFilter="level_i:" + parentLevel;
+    String childFilter="level_i:[" + kidLevelMin + " TO "+ kidLevelMax+ "]";
+    int maxKidCount=TestUtil.nextInt(random(),1,7);
+    q=new SolrQuery("*:*");
+    if (random().nextBoolean()) {
+      String name=names[TestUtil.nextInt(random(),0,names.length - 1)];
+      q=new SolrQuery("name:" + name);
+    }
+    q.setFilterQueries(parentFilter);
+    q.setFields("id,[child parentFilter=\"" + parentFilter + "\" childFilter=\""+ childFilter+ "\" limit=\""+ maxKidCount+ "\"]");
+    resp=server.query(q);
+    for (    SolrDocument outDoc : resp.getResults()) {
+      String docId=(String)outDoc.getFieldValue("id");
+      SolrInputDocument origDoc=allDocs.get(docId);
+      assertNotNull("docId not found: " + docId,origDoc);
+      if (outDoc.hasChildDocuments()) {
+        assertTrue("orig doc had no kids at all",origDoc.hasChildDocuments());
+        for (        SolrDocument kid : outDoc.getChildDocuments()) {
+          String kidId=(String)kid.getFieldValue("id");
+          int kidLevel=(int)kid.getFieldValue("level_i");
+          assertTrue("kid level to high: " + kidLevelMax + "<"+ kidLevel,kidLevel <= kidLevelMax);
+          assertTrue("kid level to low: " + kidLevelMin + ">"+ kidLevel,kidLevelMin <= kidLevel);
+          SolrInputDocument origChild=findDecendent(origDoc,kidId);
+          assertNotNull(docId + " doesn't have decendent " + kidId,origChild);
+        }
+      }
+    }
+  }
+}
