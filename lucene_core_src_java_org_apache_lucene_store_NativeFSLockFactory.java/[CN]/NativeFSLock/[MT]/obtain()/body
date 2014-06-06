@@ -8,24 +8,27 @@
  else   if (!lockDir.isDirectory()) {
     throw new IOException("Found regular file where directory expected: " + lockDir.getAbsolutePath());
   }
-  channel=FileChannel.open(path.toPath(),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
-  boolean success=false;
-  try {
-    lock=channel.tryLock();
-    success=lock != null;
-  }
- catch (  IOException|OverlappingFileLockException e) {
-    failureReason=e;
-  }
- finally {
-    if (!success) {
+  final String canonicalPath=path.getCanonicalPath();
+  boolean obtained=false;
+  if (LOCK_HELD.add(canonicalPath)) {
+    try {
+      channel=FileChannel.open(path.toPath(),StandardOpenOption.CREATE,StandardOpenOption.WRITE);
       try {
-        IOUtils.closeWhileHandlingException(channel);
+        lock=channel.tryLock();
+        obtained=lock != null;
       }
+ catch (      IOException|OverlappingFileLockException e) {
+        failureReason=e;
+      }
+    }
   finally {
+      if (obtained == false) {
+        clearLockHeld(path);
+        final FileChannel toClose=channel;
         channel=null;
+        IOUtils.closeWhileHandlingException(toClose);
       }
     }
   }
-  return lock != null;
+  return obtained;
 }
