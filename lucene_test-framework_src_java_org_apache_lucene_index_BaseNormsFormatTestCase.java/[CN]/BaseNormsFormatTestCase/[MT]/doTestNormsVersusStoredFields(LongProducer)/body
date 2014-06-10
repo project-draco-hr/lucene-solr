@@ -1,0 +1,43 @@
+{
+  int numDocs=atLeast(500);
+  long norms[]=new long[numDocs];
+  for (int i=0; i < numDocs; i++) {
+    norms[i]=longs.next();
+  }
+  Directory dir=newDirectory();
+  Analyzer analyzer=new MockAnalyzer(random(),MockTokenizer.KEYWORD,false);
+  IndexWriterConfig conf=newIndexWriterConfig(TEST_VERSION_CURRENT,analyzer);
+  conf.setSimilarity(new CannedNormSimilarity(norms));
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,conf);
+  Document doc=new Document();
+  Field idField=new StringField("id","",Field.Store.NO);
+  Field storedField=newTextField("stored","",Field.Store.YES);
+  doc.add(idField);
+  doc.add(storedField);
+  for (int i=0; i < numDocs; i++) {
+    idField.setStringValue(Integer.toString(i));
+    long value=norms[i];
+    storedField.setStringValue(Long.toString(value));
+    writer.addDocument(doc);
+    if (random().nextInt(31) == 0) {
+      writer.commit();
+    }
+  }
+  int numDeletions=random().nextInt(numDocs / 10);
+  for (int i=0; i < numDeletions; i++) {
+    int id=random().nextInt(numDocs);
+    writer.deleteDocuments(new Term("id",Integer.toString(id)));
+  }
+  writer.shutdown();
+  DirectoryReader ir=DirectoryReader.open(dir);
+  for (  AtomicReaderContext context : ir.leaves()) {
+    AtomicReader r=context.reader();
+    NumericDocValues docValues=r.getNormValues("stored");
+    for (int i=0; i < r.maxDoc(); i++) {
+      long storedValue=Long.parseLong(r.document(i).get("stored"));
+      assertEquals(storedValue,docValues.get(i));
+    }
+  }
+  ir.close();
+  dir.close();
+}

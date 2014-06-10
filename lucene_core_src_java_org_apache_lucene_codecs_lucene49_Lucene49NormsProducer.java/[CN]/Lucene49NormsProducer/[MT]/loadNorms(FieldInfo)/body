@@ -1,0 +1,54 @@
+{
+  NormsEntry entry=norms.get(field.number);
+switch (entry.format) {
+case CONST_COMPRESSED:
+    final long v=entry.offset;
+  return new NumericDocValues(){
+    @Override public long get(    int docID){
+      return v;
+    }
+  }
+;
+case UNCOMPRESSED:
+data.seek(entry.offset);
+final byte bytes[]=new byte[maxDoc];
+data.readBytes(bytes,0,bytes.length);
+ramBytesUsed.addAndGet(RamUsageEstimator.sizeOf(bytes));
+return new NumericDocValues(){
+@Override public long get(int docID){
+return bytes[docID];
+}
+}
+;
+case DELTA_COMPRESSED:
+data.seek(entry.offset);
+int packedIntsVersion=data.readVInt();
+int blockSize=data.readVInt();
+final BlockPackedReader reader=new BlockPackedReader(data,packedIntsVersion,blockSize,maxDoc,false);
+ramBytesUsed.addAndGet(reader.ramBytesUsed());
+return reader;
+case TABLE_COMPRESSED:
+data.seek(entry.offset);
+int packedVersion=data.readVInt();
+int size=data.readVInt();
+if (size > 256) {
+throw new CorruptIndexException("TABLE_COMPRESSED cannot have more than 256 distinct values, input=" + data);
+}
+final long decode[]=new long[size];
+for (int i=0; i < decode.length; i++) {
+decode[i]=data.readLong();
+}
+final int formatID=data.readVInt();
+final int bitsPerValue=data.readVInt();
+final PackedInts.Reader ordsReader=PackedInts.getReaderNoHeader(data,PackedInts.Format.byId(formatID),packedVersion,maxDoc,bitsPerValue);
+ramBytesUsed.addAndGet(RamUsageEstimator.sizeOf(decode) + ordsReader.ramBytesUsed());
+return new NumericDocValues(){
+@Override public long get(int docID){
+return decode[(int)ordsReader.get(docID)];
+}
+}
+;
+default :
+throw new AssertionError();
+}
+}
