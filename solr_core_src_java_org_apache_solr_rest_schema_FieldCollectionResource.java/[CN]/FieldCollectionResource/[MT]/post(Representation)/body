@@ -23,9 +23,9 @@
  else {
           List<Map<String,Object>> list=(List<Map<String,Object>>)object;
           List<SchemaField> newFields=new ArrayList<>();
+          List<NewFieldArguments> newFieldArguments=new ArrayList<>();
           IndexSchema oldSchema=getSchema();
           Map<String,Collection<String>> copyFields=new HashMap<>();
-          Set<String> malformed=new HashSet<>();
           for (          Map<String,Object> map : list) {
             String fieldName=(String)map.remove(IndexSchema.NAME);
             if (null == fieldName) {
@@ -59,9 +59,33 @@
               copyFields.put(fieldName,copyTo);
             }
             newFields.add(oldSchema.newField(fieldName,fieldType,map));
+            newFieldArguments.add(new NewFieldArguments(fieldName,fieldType,map));
           }
-          IndexSchema newSchema=oldSchema.addFields(newFields,copyFields);
-          getSolrCore().setLatestSchema(newSchema);
+          boolean firstAttempt=true;
+          boolean success=false;
+          while (!success) {
+            try {
+              if (!firstAttempt) {
+                newFields.clear();
+                for (                NewFieldArguments args : newFieldArguments) {
+                  newFields.add(oldSchema.newField(args.getName(),args.getType(),args.getMap()));
+                }
+              }
+              firstAttempt=false;
+              IndexSchema newSchema=oldSchema.addFields(newFields,copyFields);
+              if (null != newSchema) {
+                getSolrCore().setLatestSchema(newSchema);
+                success=true;
+              }
+ else {
+                throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to add fields.");
+              }
+            }
+ catch (            ManagedIndexSchema.SchemaChangedInZkException e) {
+              log.debug("Schema changed while processing request, retrying");
+              oldSchema=getSolrCore().getLatestSchema();
+            }
+          }
         }
       }
     }
