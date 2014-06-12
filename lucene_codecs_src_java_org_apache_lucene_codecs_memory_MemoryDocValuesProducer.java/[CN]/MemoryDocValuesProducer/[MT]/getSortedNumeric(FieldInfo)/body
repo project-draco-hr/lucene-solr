@@ -1,0 +1,57 @@
+{
+  SortedNumericEntry entry=sortedNumerics.get(field.number);
+  if (entry.singleton) {
+    NumericDocValues values=getNumeric(field);
+    NumericEntry ne=numerics.get(field.number);
+    Bits docsWithField=getMissingBits(field.number,ne.missingOffset,ne.missingBytes);
+    return DocValues.singleton(values,docsWithField);
+  }
+ else {
+    final NumericDocValues values=getNumeric(field);
+    final MonotonicBlockPackedReader addr;
+synchronized (this) {
+      MonotonicBlockPackedReader res=addresses.get(field.number);
+      if (res == null) {
+        data.seek(entry.addressOffset);
+        res=MonotonicBlockPackedReader.of(data,entry.packedIntsVersion,entry.blockSize,entry.valueCount,false);
+        addresses.put(field.number,res);
+      }
+      addr=res;
+    }
+    if (values instanceof LongValues) {
+      final LongValues longValues=(LongValues)values;
+      return new SortedNumericDocValues(){
+        long startOffset;
+        long endOffset;
+        @Override public void setDocument(        int doc){
+          startOffset=(int)addr.get(doc);
+          endOffset=(int)addr.get(doc + 1L);
+        }
+        @Override public long valueAt(        int index){
+          return longValues.get(startOffset + index);
+        }
+        @Override public int count(){
+          return (int)(endOffset - startOffset);
+        }
+      }
+;
+    }
+ else {
+      return new SortedNumericDocValues(){
+        int startOffset;
+        int endOffset;
+        @Override public void setDocument(        int doc){
+          startOffset=(int)addr.get(doc);
+          endOffset=(int)addr.get(doc + 1);
+        }
+        @Override public long valueAt(        int index){
+          return values.get(startOffset + index);
+        }
+        @Override public int count(){
+          return (endOffset - startOffset);
+        }
+      }
+;
+    }
+  }
+}
