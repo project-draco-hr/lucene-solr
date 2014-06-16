@@ -1,0 +1,53 @@
+{
+  try {
+    assertTrue(SpecialOperations.isFinite(a));
+    assertFalse(BasicOperations.isTotal(a));
+    LightAutomaton detA=BasicOperations.determinize(a);
+    IntsRef scratch=new IntsRef();
+    for (    BytesRef term : terms) {
+      Util.toIntsRef(term,scratch);
+      assertTrue("failed to accept term=" + term.utf8ToString(),BasicOperations.run(detA,term.utf8ToString()));
+    }
+    Set<IntsRef> expected=new HashSet<>();
+    for (    BytesRef term : terms) {
+      IntsRef intsRef=new IntsRef();
+      Util.toUTF32(term.utf8ToString(),intsRef);
+      expected.add(intsRef);
+    }
+    Set<IntsRef> actual=SpecialOperations.getFiniteStrings(a,-1);
+    if (expected.equals(actual) == false) {
+      System.out.println("FAILED:");
+      for (      IntsRef term : expected) {
+        if (actual.contains(term) == false) {
+          System.out.println("  term=" + term + " should be accepted but isn't");
+        }
+      }
+      for (      IntsRef term : actual) {
+        if (expected.contains(term) == false) {
+          System.out.println("  term=" + term + " is accepted but should not be");
+        }
+      }
+      throw new AssertionError("mismatch");
+    }
+    LightAutomaton a2=BasicOperations.removeDeadStates(BasicOperations.determinize(unionTerms(terms)));
+    assertTrue(BasicOperations.sameLanguage(a2,BasicOperations.removeDeadStates(BasicOperations.determinize(a))));
+    LightAutomaton utf8=randomNoOp(new UTF32ToUTF8Light().convert(a));
+    Set<IntsRef> expected2=new HashSet<>();
+    for (    BytesRef term : terms) {
+      IntsRef intsRef=new IntsRef();
+      Util.toIntsRef(term,intsRef);
+      expected2.add(intsRef);
+    }
+    assertEquals(expected2,SpecialOperations.getFiniteStrings(utf8,-1));
+  }
+ catch (  AssertionError ae) {
+    System.out.println("TEST: FAILED: not same");
+    System.out.println("  terms (count=" + terms.size() + "):");
+    for (    BytesRef term : terms) {
+      System.out.println("    " + term);
+    }
+    System.out.println("  automaton:");
+    System.out.println(a.toDot());
+    throw ae;
+  }
+}
