@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig cfg=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random())).setCodec(TestUtil.alwaysDocValuesFormat(new Lucene49DocValuesFormat()));
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,cfg);
+  final int maxDoc=TestUtil.nextInt(random(),10,1000);
+  final int maxTermLength=TestUtil.nextInt(random(),1,4);
+  for (int i=0; i < maxDoc; ++i) {
+    Document d=new Document();
+    if (random().nextBoolean()) {
+      d.add(new SortedDocValuesField("sdv",new BytesRef(TestUtil.randomSimpleString(random(),maxTermLength))));
+    }
+    final int numSortedSet=random().nextInt(3);
+    for (int j=0; j < numSortedSet; ++j) {
+      d.add(new SortedSetDocValuesField("ssdv",new BytesRef(TestUtil.randomSimpleString(random(),maxTermLength))));
+    }
+    iw.addDocument(d);
+    if (rarely()) {
+      iw.getReader().close();
+    }
+  }
+  iw.commit();
+  DirectoryReader r=iw.getReader();
+  AtomicReader ar=SlowCompositeReaderWrapper.wrap(r);
+  SortedDocValues sdv=ar.getSortedDocValues("sdv");
+  if (sdv instanceof MultiSortedDocValues) {
+    OrdinalMap map=((MultiSortedDocValues)sdv).mapping;
+    assertEquals(RamUsageTester.sizeOf(map,ORDINAL_MAP_FILTER),map.ramBytesUsed());
+  }
+  SortedSetDocValues ssdv=ar.getSortedSetDocValues("ssdv");
+  if (ssdv instanceof MultiSortedSetDocValues) {
+    OrdinalMap map=((MultiSortedSetDocValues)ssdv).mapping;
+    assertEquals(RamUsageTester.sizeOf(map,ORDINAL_MAP_FILTER),map.ramBytesUsed());
+  }
+  iw.close();
+  r.close();
+  dir.close();
+}

@@ -1,0 +1,46 @@
+{
+  assumeTrue("codec does not support SORTED_NUMERIC",defaultCodecSupportsSortedNumeric());
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(random(),TEST_VERSION_CURRENT,null);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  int numDocs=atLeast(500);
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    int numValues=random().nextInt(5);
+    for (int j=0; j < numValues; j++) {
+      doc.add(new SortedNumericDocValuesField("nums",TestUtil.nextLong(random(),Long.MIN_VALUE,Long.MAX_VALUE)));
+    }
+    iw.addDocument(doc);
+    if (random().nextInt(17) == 0) {
+      iw.commit();
+    }
+  }
+  DirectoryReader ir=iw.getReader();
+  iw.forceMerge(1);
+  DirectoryReader ir2=iw.getReader();
+  AtomicReader merged=getOnlySegmentReader(ir2);
+  iw.shutdown();
+  SortedNumericDocValues multi=MultiDocValues.getSortedNumericValues(ir,"nums");
+  SortedNumericDocValues single=merged.getSortedNumericDocValues("nums");
+  if (multi == null) {
+    assertNull(single);
+  }
+ else {
+    for (int i=0; i < numDocs; i++) {
+      single.setDocument(i);
+      ArrayList<Long> expectedList=new ArrayList<>();
+      for (int j=0; j < single.count(); j++) {
+        expectedList.add(single.valueAt(j));
+      }
+      multi.setDocument(i);
+      assertEquals(expectedList.size(),multi.count());
+      for (int j=0; j < single.count(); j++) {
+        assertEquals(expectedList.get(j).longValue(),multi.valueAt(j));
+      }
+    }
+  }
+  ir.close();
+  ir2.close();
+  dir.close();
+}

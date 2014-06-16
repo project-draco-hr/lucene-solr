@@ -1,2 +1,166 @@
 {
+  meta.writeVInt(field.number);
+  meta.writeByte(NUMBER);
+  meta.writeLong(data.getFilePointer());
+  long minValue=Long.MAX_VALUE;
+  long maxValue=Long.MIN_VALUE;
+  long blockSum=0;
+  long gcd=0;
+  boolean missing=false;
+  HashSet<Long> uniqueValues=null;
+  long count=0;
+  if (optimizeStorage) {
+    uniqueValues=new HashSet<>();
+    long currentBlockMin=Long.MAX_VALUE;
+    long currentBlockMax=Long.MIN_VALUE;
+    for (    Number nv : values) {
+      final long v;
+      if (nv == null) {
+        v=0;
+        missing=true;
+      }
+ else {
+        v=nv.longValue();
+      }
+      if (gcd != 1) {
+        if (v < Long.MIN_VALUE / 2 || v > Long.MAX_VALUE / 2) {
+          gcd=1;
+        }
+ else         if (count != 0) {
+          gcd=MathUtil.gcd(gcd,v - minValue);
+        }
+      }
+      currentBlockMin=Math.min(minValue,v);
+      currentBlockMax=Math.max(maxValue,v);
+      minValue=Math.min(minValue,v);
+      maxValue=Math.max(maxValue,v);
+      if (uniqueValues != null) {
+        if (uniqueValues.add(v)) {
+          if (uniqueValues.size() > 256) {
+            uniqueValues=null;
+          }
+        }
+      }
+      ++count;
+      if (count % BLOCK_SIZE == 0) {
+        final long blockDelta=currentBlockMax - currentBlockMin;
+        final int blockDeltaRequired=PackedInts.unsignedBitsRequired(blockDelta);
+        final int blockBPV=PackedInts.fastestFormatAndBits(BLOCK_SIZE,blockDeltaRequired,acceptableOverheadRatio).bitsPerValue;
+        blockSum+=blockBPV;
+        currentBlockMax=Long.MIN_VALUE;
+        currentBlockMin=Long.MAX_VALUE;
+      }
+    }
+  }
+ else {
+    for (    Number nv : values) {
+      long v=nv.longValue();
+      maxValue=Math.max(v,maxValue);
+      minValue=Math.min(v,minValue);
+      count++;
+    }
+  }
+  if (missing) {
+    long start=data.getFilePointer();
+    writeMissingBitset(values);
+    meta.writeLong(start);
+    meta.writeLong(data.getFilePointer() - start);
+  }
+ else {
+    meta.writeLong(-1L);
+  }
+  final long delta=maxValue - minValue;
+  final int deltaRequired=delta < 0 ? 64 : PackedInts.bitsRequired(delta);
+  final FormatAndBits deltaBPV=PackedInts.fastestFormatAndBits(maxDoc,deltaRequired,acceptableOverheadRatio);
+  final FormatAndBits tableBPV;
+  if (count < Integer.MAX_VALUE && uniqueValues != null) {
+    tableBPV=PackedInts.fastestFormatAndBits(maxDoc,PackedInts.bitsRequired(uniqueValues.size() - 1),acceptableOverheadRatio);
+  }
+ else {
+    tableBPV=null;
+  }
+  final FormatAndBits gcdBPV;
+  if (count < Integer.MAX_VALUE && gcd != 0 && gcd != 1) {
+    final long gcdDelta=(maxValue - minValue) / gcd;
+    final int gcdRequired=gcdDelta < 0 ? 64 : PackedInts.bitsRequired(gcdDelta);
+    gcdBPV=PackedInts.fastestFormatAndBits(maxDoc,gcdRequired,acceptableOverheadRatio);
+  }
+ else {
+    gcdBPV=null;
+  }
+  boolean doBlock=false;
+  if (blockSum != 0) {
+    int numBlocks=maxDoc / BLOCK_SIZE;
+    float avgBPV=blockSum / (float)numBlocks;
+    if (numBlocks >= 4 && (avgBPV + avgBPV * acceptableOverheadRatio) < deltaBPV.bitsPerValue) {
+      doBlock=true;
+    }
+  }
+  if (count >= Integer.MAX_VALUE) {
+    doBlock=true;
+  }
+  if (tableBPV != null && (tableBPV.bitsPerValue + tableBPV.bitsPerValue * acceptableOverheadRatio) < deltaBPV.bitsPerValue) {
+    meta.writeByte(TABLE_COMPRESSED);
+    Long[] decode=uniqueValues.toArray(new Long[uniqueValues.size()]);
+    final HashMap<Long,Integer> encode=new HashMap<>();
+    int length=1 << tableBPV.bitsPerValue;
+    data.writeVInt(length);
+    for (int i=0; i < decode.length; i++) {
+      data.writeLong(decode[i]);
+      encode.put(decode[i],i);
+    }
+    for (int i=decode.length; i < length; i++) {
+      data.writeLong(0);
+    }
+    meta.writeVInt(PackedInts.VERSION_CURRENT);
+    meta.writeLong(count);
+    data.writeVInt(tableBPV.format.getId());
+    data.writeVInt(tableBPV.bitsPerValue);
+    final PackedInts.Writer writer=PackedInts.getWriterNoHeader(data,tableBPV.format,(int)count,tableBPV.bitsPerValue,PackedInts.DEFAULT_BUFFER_SIZE);
+    for (    Number nv : values) {
+      writer.add(encode.get(nv == null ? 0 : nv.longValue()));
+    }
+    writer.finish();
+  }
+ else   if (gcdBPV != null && (gcdBPV.bitsPerValue + gcdBPV.bitsPerValue * acceptableOverheadRatio) < deltaBPV.bitsPerValue) {
+    meta.writeByte(GCD_COMPRESSED);
+    meta.writeVInt(PackedInts.VERSION_CURRENT);
+    meta.writeLong(count);
+    data.writeLong(minValue);
+    data.writeLong(gcd);
+    data.writeVInt(gcdBPV.format.getId());
+    data.writeVInt(gcdBPV.bitsPerValue);
+    final PackedInts.Writer writer=PackedInts.getWriterNoHeader(data,gcdBPV.format,(int)count,gcdBPV.bitsPerValue,PackedInts.DEFAULT_BUFFER_SIZE);
+    for (    Number nv : values) {
+      long value=nv == null ? 0 : nv.longValue();
+      writer.add((value - minValue) / gcd);
+    }
+    writer.finish();
+  }
+ else   if (doBlock) {
+    meta.writeByte(BLOCK_COMPRESSED);
+    meta.writeVInt(PackedInts.VERSION_CURRENT);
+    meta.writeLong(count);
+    data.writeVInt(BLOCK_SIZE);
+    final BlockPackedWriter writer=new BlockPackedWriter(data,BLOCK_SIZE);
+    for (    Number nv : values) {
+      writer.add(nv == null ? 0 : nv.longValue());
+    }
+    writer.finish();
+  }
+ else {
+    meta.writeByte(DELTA_COMPRESSED);
+    meta.writeVInt(PackedInts.VERSION_CURRENT);
+    meta.writeLong(count);
+    final long minDelta=deltaBPV.bitsPerValue == 64 ? 0 : minValue;
+    data.writeLong(minDelta);
+    data.writeVInt(deltaBPV.format.getId());
+    data.writeVInt(deltaBPV.bitsPerValue);
+    final PackedInts.Writer writer=PackedInts.getWriterNoHeader(data,deltaBPV.format,(int)count,deltaBPV.bitsPerValue,PackedInts.DEFAULT_BUFFER_SIZE);
+    for (    Number nv : values) {
+      long v=nv == null ? 0 : nv.longValue();
+      writer.add(v - minDelta);
+    }
+    writer.finish();
+  }
 }
