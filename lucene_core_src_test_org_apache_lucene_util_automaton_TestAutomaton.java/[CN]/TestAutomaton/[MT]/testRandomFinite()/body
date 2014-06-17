@@ -1,13 +1,12 @@
 {
   int numTerms=atLeast(10);
   int iters=atLeast(100);
-  boolean isAscii=random().nextBoolean();
   if (VERBOSE) {
-    System.out.println("TEST: isAscii=" + isAscii + " numTerms"+ numTerms+ " iters="+ iters);
+    System.out.println("TEST: numTerms" + numTerms + " iters="+ iters);
   }
   Set<BytesRef> terms=new HashSet<>();
   while (terms.size() < numTerms) {
-    terms.add(new BytesRef(getRandomString(isAscii)));
+    terms.add(new BytesRef(getRandomString()));
   }
   Automaton a=unionTerms(terms);
   assertSame(terms,a);
@@ -19,14 +18,14 @@
         System.out.println("    " + term);
       }
     }
-switch (random().nextInt(14)) {
+switch (random().nextInt(15)) {
 case 0:
 {
         if (VERBOSE) {
           System.out.println("  op=concat prefix");
         }
         Set<BytesRef> newTerms=new HashSet<>();
-        BytesRef prefix=new BytesRef(getRandomString(isAscii));
+        BytesRef prefix=new BytesRef(getRandomString());
         for (        BytesRef term : terms) {
           BytesRef newTerm=BytesRef.deepCopyOf(prefix);
           newTerm.append(term);
@@ -40,7 +39,7 @@ case 0:
     break;
 case 1:
 {
-    BytesRef suffix=new BytesRef(getRandomString(isAscii));
+    BytesRef suffix=new BytesRef(getRandomString());
     if (VERBOSE) {
       System.out.println("  op=concat suffix " + suffix);
     }
@@ -75,7 +74,7 @@ System.out.println("  op=union");
 Set<BytesRef> newTerms=new HashSet<>();
 int numNewTerms=random().nextInt(5);
 while (newTerms.size() < numNewTerms) {
-newTerms.add(new BytesRef(getRandomString(isAscii)));
+newTerms.add(new BytesRef(getRandomString()));
 }
 terms.addAll(newTerms);
 Automaton newA=unionTerms(newTerms);
@@ -201,6 +200,7 @@ System.out.println("  keep term=" + term);
 }
 break;
 case 9:
+{
 if (VERBOSE) {
 System.out.println("  op=reverse");
 }
@@ -210,6 +210,7 @@ for (BytesRef term : terms) {
 newTerms.add(new BytesRef(new StringBuilder(term.utf8ToString()).reverse().toString()));
 }
 terms=newTerms;
+}
 break;
 case 10:
 if (VERBOSE) {
@@ -218,6 +219,7 @@ System.out.println("  op=randomNoOp");
 a=randomNoOp(a);
 break;
 case 11:
+{
 int min=random().nextInt(1000);
 int max=min + random().nextInt(50);
 int digits=Integer.toString(max).length();
@@ -237,6 +239,7 @@ s=prefix.substring(s.length()) + s;
 }
 terms.add(new BytesRef(s));
 }
+}
 break;
 case 12:
 if (VERBOSE) {
@@ -252,8 +255,54 @@ System.out.println("  op=add the empty string");
 a=Operations.union(a,Automata.makeEmptyString());
 terms.add(new BytesRef());
 break;
+case 14:
+if (terms.size() <= numTerms * 10) {
+if (VERBOSE) {
+System.out.println("  op=concat finite automaton");
 }
-assertSame(terms,a);
+int count=random().nextBoolean() ? 2 : 3;
+Set<BytesRef> addTerms=new HashSet<>();
+while (addTerms.size() < count) {
+addTerms.add(new BytesRef(getRandomString()));
+}
+if (VERBOSE) {
+for (BytesRef term : addTerms) {
+System.out.println("    term=" + term);
+}
+}
+Automaton a2=unionTerms(addTerms);
+Set<BytesRef> newTerms=new HashSet<>();
+if (random().nextBoolean()) {
+if (VERBOSE) {
+System.out.println("  do suffix");
+}
+a=Operations.concatenate(a,randomNoOp(a2));
+for (BytesRef term : terms) {
+for (BytesRef suffix : addTerms) {
+BytesRef newTerm=BytesRef.deepCopyOf(term);
+newTerm.append(suffix);
+newTerms.add(newTerm);
+}
+}
+}
+ else {
+if (VERBOSE) {
+System.out.println("  do prefix");
+}
+a=Operations.concatenate(randomNoOp(a2),a);
+for (BytesRef term : terms) {
+for (BytesRef prefix : addTerms) {
+BytesRef newTerm=BytesRef.deepCopyOf(prefix);
+newTerm.append(term);
+newTerms.add(newTerm);
+}
+}
+}
+terms=newTerms;
+}
+break;
+}
+assertEquals(AutomatonTestUtil.isDeterministicSlow(a),a.isDeterministic());
 }
 assertSame(terms,a);
 }
