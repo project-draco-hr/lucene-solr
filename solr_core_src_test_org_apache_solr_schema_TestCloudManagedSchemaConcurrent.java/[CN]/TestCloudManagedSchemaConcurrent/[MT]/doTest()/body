@@ -1,0 +1,76 @@
+{
+  setupHarnesses();
+  int numFields=100;
+  int numAddFieldPuts=0;
+  int numAddFieldPosts=0;
+  List<CopyFieldInfo> copyFields=new ArrayList<>();
+  for (int i=0; i <= numFields; ++i) {
+    RestTestHarness publisher=restTestHarnesses.get(r.nextInt(restTestHarnesses.size()));
+    int type=random().nextInt(3);
+    if (type == 0) {
+      addFieldPut(publisher,"newfieldPut" + numAddFieldPuts++);
+    }
+ else     if (type == 1) {
+      addFieldPost(publisher,"newfieldPost" + numAddFieldPosts++);
+    }
+ else     if (type == 2) {
+      String sourceField=null;
+      String destField=null;
+      int sourceType=random().nextInt(3);
+      if (sourceType == 0) {
+        sourceField="name";
+      }
+ else       if (sourceType == 1) {
+        sourceField="copySource" + i;
+        addFieldPut(publisher,sourceField);
+      }
+ else {
+        sourceField="*_dynamicSource" + i + "_t";
+        destField="*_dynamicDest" + i + "_t";
+      }
+      if (destField == null) {
+        int destType=random().nextInt(2);
+        if (destType == 0) {
+          destField="title";
+        }
+ else {
+          destField="copyDest" + i;
+          addFieldPut(publisher,destField);
+        }
+      }
+      copyField(publisher,sourceField,destField);
+      copyFields.add(new CopyFieldInfo(sourceField,destField));
+    }
+  }
+  String[] expectedAddFields=getExpectedFieldResponses(numAddFieldPuts,numAddFieldPosts);
+  String[] expectedCopyFields=getExpectedCopyFieldResponses(copyFields);
+  boolean success=false;
+  long maxTimeoutMillis=100000;
+  long startTime=System.nanoTime();
+  String request=null;
+  String response=null;
+  String result=null;
+  while (!success && TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime,TimeUnit.NANOSECONDS) < maxTimeoutMillis) {
+    Thread.sleep(100);
+    for (    RestTestHarness client : restTestHarnesses) {
+      request="/schema/fields?wt=xml";
+      response=client.query(request);
+      result=BaseTestHarness.validateXPath(response,expectedAddFields);
+      if (result != null) {
+        break;
+      }
+      request="/schema/copyfields?wt=xml";
+      response=client.query(request);
+      result=BaseTestHarness.validateXPath(response,expectedCopyFields);
+      if (result != null) {
+        break;
+      }
+    }
+    success=(result == null);
+  }
+  if (!success) {
+    String msg="QUERY FAILED: xpath=" + result + "  request="+ request+ "  response="+ response;
+    log.error(msg);
+    fail(msg);
+  }
+}
