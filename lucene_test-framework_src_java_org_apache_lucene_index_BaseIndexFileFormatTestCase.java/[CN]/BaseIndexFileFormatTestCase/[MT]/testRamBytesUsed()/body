@@ -1,0 +1,27 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig cfg=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  IndexWriter w=new IndexWriter(dir,cfg);
+  final int numDocs=atLeast(10000);
+  for (int i=0; i < numDocs; ++i) {
+    Document d=new Document();
+    addRandomFields(d);
+    w.addDocument(d);
+  }
+  w.forceMerge(1);
+  w.commit();
+  w.close();
+  IndexReader reader=DirectoryReader.open(dir);
+  for (  AtomicReaderContext context : reader.leaves()) {
+    final AtomicReader r=context.reader();
+    new SimpleMergedSegmentWarmer(InfoStream.NO_OUTPUT).warm(r);
+    final long actualBytes=RamUsageTester.sizeOf(r,new Accumulator(r));
+    final long expectedBytes=((SegmentReader)r).ramBytesUsed();
+    final long absoluteError=actualBytes - expectedBytes;
+    final double relativeError=(double)absoluteError / actualBytes;
+    final String message="Actual RAM usage " + actualBytes + ", but got "+ expectedBytes+ ", "+ relativeError+ "% error";
+    assertTrue(message,Math.abs(relativeError) < 0.20d || Math.abs(absoluteError) < 1000);
+  }
+  reader.close();
+  dir.close();
+}
