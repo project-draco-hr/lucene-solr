@@ -1,27 +1,38 @@
 {
+  if (Codec.getDefault() instanceof RandomCodec) {
+    final Set<String> avoidCodecs=new HashSet<>(((RandomCodec)Codec.getDefault()).avoidCodecs);
+    avoidCodecs.add(new MockRandomPostingsFormat().getName());
+    Codec.setDefault(new RandomCodec(random(),avoidCodecs));
+  }
   Directory dir=newDirectory();
   IndexWriterConfig cfg=newIndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
   IndexWriter w=new IndexWriter(dir,cfg);
   final int numDocs=atLeast(10000);
+  AtomicReader reader1=null;
   for (int i=0; i < numDocs; ++i) {
     Document d=new Document();
     addRandomFields(d);
     w.addDocument(d);
+    if (i == 100) {
+      w.forceMerge(1);
+      w.commit();
+      reader1=getOnlySegmentReader(DirectoryReader.open(dir));
+    }
   }
   w.forceMerge(1);
   w.commit();
   w.close();
-  IndexReader reader=DirectoryReader.open(dir);
-  for (  AtomicReaderContext context : reader.leaves()) {
-    final AtomicReader r=context.reader();
-    new SimpleMergedSegmentWarmer(InfoStream.NO_OUTPUT).warm(r);
-    final long actualBytes=RamUsageTester.sizeOf(r,new Accumulator(r));
-    final long expectedBytes=((SegmentReader)r).ramBytesUsed();
-    final long absoluteError=actualBytes - expectedBytes;
-    final double relativeError=(double)absoluteError / actualBytes;
-    final String message="Actual RAM usage " + actualBytes + ", but got "+ expectedBytes+ ", "+ 100 * relativeError + "% error";
-    assertTrue(message,Math.abs(relativeError) < 0.20d || Math.abs(absoluteError) < 1000);
+  AtomicReader reader2=getOnlySegmentReader(DirectoryReader.open(dir));
+  for (  AtomicReader reader : Arrays.asList(reader1,reader2)) {
+    new SimpleMergedSegmentWarmer(InfoStream.NO_OUTPUT).warm(reader);
   }
-  reader.close();
+  final long actualBytes=RamUsageTester.sizeOf(reader2,new Accumulator(reader2)) - RamUsageTester.sizeOf(reader1,new Accumulator(reader1));
+  final long expectedBytes=((SegmentReader)reader2).ramBytesUsed() - ((SegmentReader)reader1).ramBytesUsed();
+  final long absoluteError=actualBytes - expectedBytes;
+  final double relativeError=(double)absoluteError / actualBytes;
+  final String message="Actual RAM usage " + actualBytes + ", but got "+ expectedBytes+ ", "+ 100 * relativeError + "% error";
+  assertTrue(message,Math.abs(relativeError) < 0.20d || Math.abs(absoluteError) < 1000);
+  reader1.close();
+  reader2.close();
   dir.close();
 }
