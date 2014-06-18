@@ -9,12 +9,32 @@
     return;
   }
   if (seq <= intSeqs.get(0)) {
+    if (seq == intSeqs.get(0) && !context.leaderSeqPath.equals(holdElectionPath + "/" + seqs.get(0))) {
+      log.info("was going be leader {} , seq(0) {}",context.leaderSeqPath,holdElectionPath + "/" + seqs.get(0));
+      retryElection(context,false);
+      return;
+    }
     try {
       zkClient.delete(context.leaderPath,-1,true);
     }
- catch (    Exception e) {
+ catch (    KeeperException.NoNodeException nne) {
     }
-    runIamLeaderProcess(context,replacement);
+catch (    InterruptedException e) {
+      throw e;
+    }
+catch (    Exception e) {
+      log.error("leader elect delete error",e);
+      retryElection(context,false);
+      return;
+    }
+    try {
+      runIamLeaderProcess(context,replacement);
+    }
+ catch (    KeeperException.NodeExistsException e) {
+      log.error("node exists",e);
+      retryElection(context,false);
+      return;
+    }
   }
  else {
     int i=1;
@@ -30,7 +50,8 @@
       return;
     }
     try {
-      zkClient.getData(holdElectionPath + "/" + seqs.get(index),watcher=new ElectionWatcher(context.leaderSeqPath,seq,context),null,true);
+      String watchedNode=holdElectionPath + "/" + seqs.get(index);
+      zkClient.getData(watchedNode,watcher=new ElectionWatcher(context.leaderSeqPath,watchedNode,seq,context),null,true);
     }
  catch (    KeeperException.SessionExpiredException e) {
       throw e;

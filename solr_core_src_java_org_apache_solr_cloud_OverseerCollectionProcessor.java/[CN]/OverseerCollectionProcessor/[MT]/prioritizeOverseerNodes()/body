@@ -4,68 +4,28 @@
   Map m=(Map)ZkStateReader.fromJSON(zk.getData(ZkStateReader.ROLES,null,new Stat(),true));
   List overseerDesignates=(List)m.get("overseer");
   if (overseerDesignates == null || overseerDesignates.isEmpty())   return;
-  if (overseerDesignates.size() == 1 && overseerDesignates.contains(getLeaderNode(zk)))   return;
-  log.info("prioritizing overseer nodes at {}",LeaderElector.getNodeName(myId));
-  log.info("overseer designates {}",overseerDesignates);
-  List<String> nodeNames=getSortedOverseerNodeNames(zk);
-  if (nodeNames.size() < 2)   return;
-  boolean designateIsInFront=overseerDesignates.contains(nodeNames.get(0));
-  ArrayList<String> nodesTobePushedBack=new ArrayList<>();
-  List<String> availableDesignates=new ArrayList<>();
-  log.info("sorted nodes {}",nodeNames);
-  for (int i=1; i < nodeNames.size(); i++) {
-    String s=nodeNames.get(i);
-    if (overseerDesignates.contains(s)) {
-      availableDesignates.add(s);
-      for (int j=1; j < i; j++) {
-        String n=nodeNames.get(j);
-        if (!overseerDesignates.contains(n)) {
-          if (!nodesTobePushedBack.contains(n))           nodesTobePushedBack.add(n);
-        }
-      }
-    }
-    if (availableDesignates.size() > 1)     break;
-  }
-  if (!availableDesignates.isEmpty()) {
-    for (    String s : nodesTobePushedBack) {
-      log.info("pushing back {} ",s);
-      invokeOverseerOp(s,"rejoin");
-    }
-    boolean prioritizationComplete=false;
-    long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(2500,TimeUnit.MILLISECONDS);
-    while (System.nanoTime() < timeout) {
-      List<String> currentNodeNames=getSortedOverseerNodeNames(zk);
-      int totalLeaders=0;
-      for (int i=0; i < availableDesignates.size(); i++) {
-        if (overseerDesignates.contains(currentNodeNames.get(i)))         totalLeaders++;
-      }
-      if (totalLeaders == availableDesignates.size()) {
-        prioritizationComplete=true;
-        break;
-      }
-      try {
-        Thread.sleep(50);
-      }
- catch (      InterruptedException e) {
-        log.warn("Thread interrupted",e);
-        break;
-      }
-    }
-    if (!prioritizationComplete) {
-      log.warn("available designates and current state {} {} ",availableDesignates,getSortedOverseerNodeNames(zk));
+  String ldr=getLeaderNode(zk);
+  if (overseerDesignates.contains(ldr))   return;
+  log.info("prioritizing overseer nodes at {} overseer designates are {}",myId,overseerDesignates);
+  List<String> electionNodes=getSortedElectionNodes(zk);
+  if (electionNodes.size() < 2)   return;
+  log.info("sorted nodes {}",electionNodes);
+  String designateNodeId=null;
+  for (  String electionNode : electionNodes) {
+    if (overseerDesignates.contains(LeaderElector.getNodeName(electionNode))) {
+      designateNodeId=electionNode;
+      break;
     }
   }
- else   if (!designateIsInFront) {
-    log.warn("No overseer designates are available, overseerDesignates: {}, live nodes : {}",overseerDesignates,nodeNames);
+  if (designateNodeId == null) {
+    log.warn("No live overseer designate ");
     return;
   }
-  String leaderNode=getLeaderNode(zkStateReader.getZkClient());
-  if (leaderNode == null)   return;
-  if (!overseerDesignates.contains(leaderNode)) {
-    List<String> sortedNodes=getSortedOverseerNodeNames(zk);
-    if (leaderNode.equals(sortedNodes.get(0)) || overseerDesignates.contains(sortedNodes.get(0))) {
-      log.info("I am not an overseer designate , forcing myself out {} ",leaderNode);
-      Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(new ZkNodeProps(Overseer.QUEUE_OPERATION,Overseer.QUIT)));
-    }
+  if (!designateNodeId.equals(electionNodes.get(1))) {
+    log.info("asking node {} to come join election at head",designateNodeId);
+    invokeOverseerOp(designateNodeId,"rejoinAtHead");
+    log.info("asking the old first in line {} to rejoin election  ",electionNodes.get(1));
+    invokeOverseerOp(electionNodes.get(1),"rejoin");
   }
+  Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(new ZkNodeProps(Overseer.QUEUE_OPERATION,Overseer.QUIT,"id",getLeaderId(zkStateReader.getZkClient()))));
 }
