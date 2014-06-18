@@ -1,0 +1,74 @@
+{
+  context.joinedElectionFired();
+  final String shardsElectZkPath=context.electionPath + LeaderElector.ELECTION_NODE;
+  long sessionId=zkClient.getSolrZooKeeper().getSessionId();
+  String id=sessionId + "-" + context.id;
+  String leaderSeqPath=null;
+  boolean cont=true;
+  int tries=0;
+  while (cont) {
+    try {
+      if (joinAtHead) {
+        log.info("node {} Trying to join election at the head ",id);
+        List<String> nodes=OverseerCollectionProcessor.getSortedElectionNodes(zkClient);
+        if (nodes.size() < 2) {
+          leaderSeqPath=zkClient.create(shardsElectZkPath + "/" + id+ "-n_",null,CreateMode.EPHEMERAL_SEQUENTIAL,false);
+        }
+ else {
+          String firstInLine=nodes.get(1);
+          log.info("The current head: {}",firstInLine);
+          Matcher m=LEADER_SEQ.matcher(firstInLine);
+          if (!m.matches()) {
+            throw new IllegalStateException("Could not find regex match in:" + firstInLine);
+          }
+          leaderSeqPath=shardsElectZkPath + "/" + id+ "-n_"+ m.group(1);
+          zkClient.create(leaderSeqPath,null,CreateMode.EPHEMERAL,false);
+          log.info("Joined at the head  {}",leaderSeqPath);
+        }
+      }
+ else {
+        leaderSeqPath=zkClient.create(shardsElectZkPath + "/" + id+ "-n_",null,CreateMode.EPHEMERAL_SEQUENTIAL,false);
+      }
+      context.leaderSeqPath=leaderSeqPath;
+      cont=false;
+    }
+ catch (    ConnectionLossException e) {
+      List<String> entries=zkClient.getChildren(shardsElectZkPath,null,true);
+      boolean foundId=false;
+      for (      String entry : entries) {
+        String nodeId=getNodeId(entry);
+        if (id.equals(nodeId)) {
+          foundId=true;
+          break;
+        }
+      }
+      if (!foundId) {
+        cont=true;
+        if (tries++ > 20) {
+          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+        }
+        try {
+          Thread.sleep(50);
+        }
+ catch (        InterruptedException e2) {
+          Thread.currentThread().interrupt();
+        }
+      }
+    }
+catch (    KeeperException.NoNodeException e) {
+      if (tries++ > 20) {
+        throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+      }
+      cont=true;
+      try {
+        Thread.sleep(50);
+      }
+ catch (      InterruptedException e2) {
+        Thread.currentThread().interrupt();
+      }
+    }
+  }
+  int seq=getSeq(leaderSeqPath);
+  checkIfIamLeader(seq,context,replacement);
+  return seq;
+}
