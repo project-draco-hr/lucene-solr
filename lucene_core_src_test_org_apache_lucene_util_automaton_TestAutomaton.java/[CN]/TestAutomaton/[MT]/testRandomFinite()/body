@@ -1,0 +1,308 @@
+{
+  int numTerms=atLeast(10);
+  int iters=atLeast(100);
+  if (VERBOSE) {
+    System.out.println("TEST: numTerms" + numTerms + " iters="+ iters);
+  }
+  Set<BytesRef> terms=new HashSet<>();
+  while (terms.size() < numTerms) {
+    terms.add(new BytesRef(getRandomString()));
+  }
+  Automaton a=unionTerms(terms);
+  assertSame(terms,a);
+  for (int iter=0; iter < iters; iter++) {
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + iter + " numTerms="+ terms.size());
+      System.out.println("  terms:");
+      for (      BytesRef term : terms) {
+        System.out.println("    " + term);
+      }
+    }
+switch (random().nextInt(15)) {
+case 0:
+{
+        if (VERBOSE) {
+          System.out.println("  op=concat prefix");
+        }
+        Set<BytesRef> newTerms=new HashSet<>();
+        BytesRef prefix=new BytesRef(getRandomString());
+        for (        BytesRef term : terms) {
+          BytesRef newTerm=BytesRef.deepCopyOf(prefix);
+          newTerm.append(term);
+          newTerms.add(newTerm);
+        }
+        terms=newTerms;
+        boolean wasDeterministic1=a.isDeterministic();
+        a=Operations.concatenate(Automata.makeString(prefix.utf8ToString()),a);
+        assertEquals(wasDeterministic1,a.isDeterministic());
+      }
+    break;
+case 1:
+{
+    BytesRef suffix=new BytesRef(getRandomString());
+    if (VERBOSE) {
+      System.out.println("  op=concat suffix " + suffix);
+    }
+    Set<BytesRef> newTerms=new HashSet<>();
+    for (    BytesRef term : terms) {
+      BytesRef newTerm=BytesRef.deepCopyOf(term);
+      newTerm.append(suffix);
+      newTerms.add(newTerm);
+    }
+    terms=newTerms;
+    a=Operations.concatenate(a,Automata.makeString(suffix.utf8ToString()));
+  }
+break;
+case 2:
+if (VERBOSE) {
+System.out.println("  op=determinize");
+}
+a=Operations.determinize(a);
+assertTrue(a.isDeterministic());
+break;
+case 3:
+if (VERBOSE) {
+System.out.println("  op=minimize");
+}
+a=MinimizationOperations.minimize(a);
+break;
+case 4:
+{
+if (VERBOSE) {
+System.out.println("  op=union");
+}
+Set<BytesRef> newTerms=new HashSet<>();
+int numNewTerms=random().nextInt(5);
+while (newTerms.size() < numNewTerms) {
+newTerms.add(new BytesRef(getRandomString()));
+}
+terms.addAll(newTerms);
+Automaton newA=unionTerms(newTerms);
+a=Operations.union(a,newA);
+}
+break;
+case 5:
+{
+if (VERBOSE) {
+System.out.println("  op=optional");
+}
+a=Operations.optional(a);
+terms.add(new BytesRef());
+}
+break;
+case 6:
+{
+if (VERBOSE) {
+System.out.println("  op=minus finite");
+}
+if (terms.size() > 0) {
+RandomAcceptedStrings rasl=new RandomAcceptedStrings(Operations.removeDeadStates(a));
+Set<BytesRef> toRemove=new HashSet<>();
+int numToRemove=TestUtil.nextInt(random(),1,(terms.size() + 1) / 2);
+while (toRemove.size() < numToRemove) {
+int[] ints=rasl.getRandomAcceptedString(random());
+BytesRef term=new BytesRef(UnicodeUtil.newString(ints,0,ints.length));
+if (toRemove.contains(term) == false) {
+toRemove.add(term);
+}
+}
+for (BytesRef term : toRemove) {
+boolean removed=terms.remove(term);
+assertTrue(removed);
+}
+Automaton a2=unionTerms(toRemove);
+a=Operations.minus(a,a2);
+}
+}
+break;
+case 7:
+{
+List<Automaton> as=new ArrayList<>();
+int count=TestUtil.nextInt(random(),1,5);
+Set<Integer> prefixes=new HashSet<>();
+while (prefixes.size() < count) {
+int prefix=random().nextInt(128);
+prefixes.add(prefix);
+}
+if (VERBOSE) {
+System.out.println("  op=minus infinite prefixes=" + prefixes);
+}
+for (int prefix : prefixes) {
+Automaton a2=new Automaton();
+int init=a2.createState();
+int state=a2.createState();
+a2.addTransition(init,state,prefix);
+a2.setAccept(state,true);
+a2.addTransition(state,state,Character.MIN_CODE_POINT,Character.MAX_CODE_POINT);
+a2.finishState();
+as.add(a2);
+Iterator<BytesRef> it=terms.iterator();
+while (it.hasNext()) {
+BytesRef term=it.next();
+if (term.length > 0 && (term.bytes[term.offset] & 0xFF) == prefix) {
+it.remove();
+}
+}
+}
+Automaton a2=randomNoOp(Operations.union(as));
+a=Operations.minus(a,a2);
+}
+break;
+case 8:
+{
+int count=TestUtil.nextInt(random(),10,20);
+if (VERBOSE) {
+System.out.println("  op=intersect infinite count=" + count);
+}
+List<Automaton> as=new ArrayList<>();
+Set<Integer> prefixes=new HashSet<>();
+while (prefixes.size() < count) {
+int prefix=random().nextInt(128);
+prefixes.add(prefix);
+}
+if (VERBOSE) {
+System.out.println("  prefixes=" + prefixes);
+}
+for (int prefix : prefixes) {
+Automaton a2=new Automaton();
+int init=a2.createState();
+int state=a2.createState();
+a2.addTransition(init,state,prefix);
+a2.setAccept(state,true);
+a2.addTransition(state,state,Character.MIN_CODE_POINT,Character.MAX_CODE_POINT);
+a2.finishState();
+as.add(a2);
+prefixes.add(prefix);
+}
+Automaton a2=Operations.union(as);
+if (random().nextBoolean()) {
+a2=Operations.determinize(a2);
+}
+ else if (random().nextBoolean()) {
+a2=MinimizationOperations.minimize(a2);
+}
+a=Operations.intersection(a,a2);
+Iterator<BytesRef> it=terms.iterator();
+while (it.hasNext()) {
+BytesRef term=it.next();
+if (term.length == 0 || prefixes.contains(term.bytes[term.offset] & 0xff) == false) {
+if (VERBOSE) {
+System.out.println("  drop term=" + term);
+}
+it.remove();
+}
+ else {
+if (VERBOSE) {
+System.out.println("  keep term=" + term);
+}
+}
+}
+}
+break;
+case 9:
+{
+if (VERBOSE) {
+System.out.println("  op=reverse");
+}
+a=Operations.reverse(a);
+Set<BytesRef> newTerms=new HashSet<>();
+for (BytesRef term : terms) {
+newTerms.add(new BytesRef(new StringBuilder(term.utf8ToString()).reverse().toString()));
+}
+terms=newTerms;
+}
+break;
+case 10:
+if (VERBOSE) {
+System.out.println("  op=randomNoOp");
+}
+a=randomNoOp(a);
+break;
+case 11:
+{
+int min=random().nextInt(1000);
+int max=min + random().nextInt(50);
+int digits=Integer.toString(max).length();
+if (VERBOSE) {
+System.out.println("  op=union interval min=" + min + " max="+ max+ " digits="+ digits);
+}
+a=Operations.union(a,Automata.makeInterval(min,max,digits));
+StringBuilder b=new StringBuilder();
+for (int i=0; i < digits; i++) {
+b.append('0');
+}
+String prefix=b.toString();
+for (int i=min; i <= max; i++) {
+String s=Integer.toString(i);
+if (s.length() < digits) {
+s=prefix.substring(s.length()) + s;
+}
+terms.add(new BytesRef(s));
+}
+}
+break;
+case 12:
+if (VERBOSE) {
+System.out.println("  op=remove the empty string");
+}
+a=Operations.minus(a,Automata.makeEmptyString());
+terms.remove(new BytesRef());
+break;
+case 13:
+if (VERBOSE) {
+System.out.println("  op=add the empty string");
+}
+a=Operations.union(a,Automata.makeEmptyString());
+terms.add(new BytesRef());
+break;
+case 14:
+if (terms.size() <= numTerms * 10) {
+if (VERBOSE) {
+System.out.println("  op=concat finite automaton");
+}
+int count=random().nextBoolean() ? 2 : 3;
+Set<BytesRef> addTerms=new HashSet<>();
+while (addTerms.size() < count) {
+addTerms.add(new BytesRef(getRandomString()));
+}
+if (VERBOSE) {
+for (BytesRef term : addTerms) {
+System.out.println("    term=" + term);
+}
+}
+Automaton a2=unionTerms(addTerms);
+Set<BytesRef> newTerms=new HashSet<>();
+if (random().nextBoolean()) {
+if (VERBOSE) {
+System.out.println("  do suffix");
+}
+a=Operations.concatenate(a,randomNoOp(a2));
+for (BytesRef term : terms) {
+for (BytesRef suffix : addTerms) {
+BytesRef newTerm=BytesRef.deepCopyOf(term);
+newTerm.append(suffix);
+newTerms.add(newTerm);
+}
+}
+}
+ else {
+if (VERBOSE) {
+System.out.println("  do prefix");
+}
+a=Operations.concatenate(randomNoOp(a2),a);
+for (BytesRef term : terms) {
+for (BytesRef prefix : addTerms) {
+BytesRef newTerm=BytesRef.deepCopyOf(prefix);
+newTerm.append(term);
+newTerms.add(newTerm);
+}
+}
+}
+terms=newTerms;
+}
+break;
+}
+assertEquals(AutomatonTestUtil.isDeterministicSlow(a),a.isDeterministic());
+}
+assertSame(terms,a);
+}

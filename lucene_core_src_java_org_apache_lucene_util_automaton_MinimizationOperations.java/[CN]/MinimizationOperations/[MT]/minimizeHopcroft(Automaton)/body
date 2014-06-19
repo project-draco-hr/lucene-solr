@@ -1,16 +1,21 @@
 {
-  a.determinize();
-  if (a.initial.numTransitions == 1) {
-    Transition t=a.initial.transitionsArray[0];
-    if (t.to == a.initial && t.min == Character.MIN_CODE_POINT && t.max == Character.MAX_CODE_POINT)     return;
+  if (a.getNumStates() == 0 || (a.isAccept(0) == false && a.getNumTransitions(0) == 0)) {
+    return new Automaton();
   }
-  a.totalize();
+  a=Operations.determinize(a);
+  if (a.getNumTransitions(0) == 1) {
+    Transition t=new Transition();
+    a.getTransition(0,0,t);
+    if (t.dest == 0 && t.min == Character.MIN_CODE_POINT && t.max == Character.MAX_CODE_POINT) {
+      return a;
+    }
+  }
+  a=Operations.totalize(a);
   final int[] sigma=a.getStartPoints();
-  final State[] states=a.getNumberedStates();
-  final int sigmaLen=sigma.length, statesLen=states.length;
-  @SuppressWarnings({"rawtypes","unchecked"}) final ArrayList<State>[][] reverse=(ArrayList<State>[][])new ArrayList[statesLen][sigmaLen];
-  @SuppressWarnings({"rawtypes","unchecked"}) final HashSet<State>[] partition=(HashSet<State>[])new HashSet[statesLen];
-  @SuppressWarnings({"rawtypes","unchecked"}) final ArrayList<State>[] splitblock=(ArrayList<State>[])new ArrayList[statesLen];
+  final int sigmaLen=sigma.length, statesLen=a.getNumStates();
+  @SuppressWarnings({"rawtypes","unchecked"}) final ArrayList<Integer>[][] reverse=(ArrayList<Integer>[][])new ArrayList[statesLen][sigmaLen];
+  @SuppressWarnings({"rawtypes","unchecked"}) final HashSet<Integer>[] partition=(HashSet<Integer>[])new HashSet[statesLen];
+  @SuppressWarnings({"rawtypes","unchecked"}) final ArrayList<Integer>[] splitblock=(ArrayList<Integer>[])new ArrayList[statesLen];
   final int[] block=new int[statesLen];
   final StateList[][] active=new StateList[statesLen][sigmaLen];
   final StateListNode[][] active2=new StateListNode[statesLen][sigmaLen];
@@ -25,20 +30,23 @@
     }
   }
   for (int q=0; q < statesLen; q++) {
-    final State qq=states[q];
-    final int j=qq.accept ? 0 : 1;
-    partition[j].add(qq);
+    final int j=a.isAccept(q) ? 0 : 1;
+    partition[j].add(q);
     block[q]=j;
     for (int x=0; x < sigmaLen; x++) {
-      final ArrayList<State>[] r=reverse[qq.step(sigma[x]).number];
-      if (r[x] == null)       r[x]=new ArrayList<>();
-      r[x].add(qq);
+      final ArrayList<Integer>[] r=reverse[a.step(q,sigma[x])];
+      if (r[x] == null) {
+        r[x]=new ArrayList<>();
+      }
+      r[x].add(q);
     }
   }
   for (int j=0; j <= 1; j++) {
     for (int x=0; x < sigmaLen; x++) {
-      for (      final State qq : partition[j]) {
-        if (reverse[qq.number][x] != null)         active2[qq.number][x]=active[j][x].add(qq);
+      for (      int q : partition[j]) {
+        if (reverse[q][x] != null) {
+          active2[q][x]=active[j][x].add(q);
+        }
       }
     }
   }
@@ -54,34 +62,35 @@
     final int x=ip.n2;
     pending2.clear(x * statesLen + p);
     for (StateListNode m=active[p][x].first; m != null; m=m.next) {
-      final ArrayList<State> r=reverse[m.q.number][x];
-      if (r != null)       for (      final State s : r) {
-        final int i=s.number;
-        if (!split.get(i)) {
-          split.set(i);
-          final int j=block[i];
-          splitblock[j].add(s);
-          if (!refine2.get(j)) {
-            refine2.set(j);
-            refine.set(j);
+      final ArrayList<Integer> r=reverse[m.q][x];
+      if (r != null) {
+        for (        int i : r) {
+          if (!split.get(i)) {
+            split.set(i);
+            final int j=block[i];
+            splitblock[j].add(i);
+            if (!refine2.get(j)) {
+              refine2.set(j);
+              refine.set(j);
+            }
           }
         }
       }
     }
     for (int j=refine.nextSetBit(0); j >= 0; j=refine.nextSetBit(j + 1)) {
-      final ArrayList<State> sb=splitblock[j];
+      final ArrayList<Integer> sb=splitblock[j];
       if (sb.size() < partition[j].size()) {
-        final HashSet<State> b1=partition[j];
-        final HashSet<State> b2=partition[k];
-        for (        final State s : sb) {
+        final HashSet<Integer> b1=partition[j];
+        final HashSet<Integer> b2=partition[k];
+        for (        int s : sb) {
           b1.remove(s);
           b2.add(s);
-          block[s.number]=k;
+          block[s]=k;
           for (int c=0; c < sigmaLen; c++) {
-            final StateListNode sn=active2[s.number][c];
+            final StateListNode sn=active2[s][c];
             if (sn != null && sn.sl == active[j][c]) {
               sn.remove();
-              active2[s.number][c]=active[k][c].add(s);
+              active2[s][c]=active[k][c].add(s);
             }
           }
         }
@@ -99,27 +108,46 @@
         k++;
       }
       refine2.clear(j);
-      for (      final State s : sb)       split.clear(s.number);
+      for (      int s : sb) {
+        split.clear(s);
+      }
       sb.clear();
     }
     refine.clear();
   }
-  State[] newstates=new State[k];
-  for (int n=0; n < newstates.length; n++) {
-    final State s=new State();
-    newstates[n]=s;
-    for (    State q : partition[n]) {
-      if (q == a.initial)       a.initial=s;
-      s.accept=q.accept;
-      s.number=q.number;
-      q.number=n;
+  Automaton result=new Automaton();
+  Transition t=new Transition();
+  int[] stateMap=new int[statesLen];
+  int[] stateRep=new int[k];
+  result.createState();
+  for (int n=0; n < k; n++) {
+    boolean isInitial=false;
+    for (    int q : partition[n]) {
+      if (q == 0) {
+        isInitial=true;
+        break;
+      }
+    }
+    int newState;
+    if (isInitial) {
+      newState=0;
+    }
+ else {
+      newState=result.createState();
+    }
+    for (    int q : partition[n]) {
+      stateMap[q]=newState;
+      result.setAccept(newState,a.isAccept(q));
+      stateRep[newState]=q;
     }
   }
-  for (int n=0; n < newstates.length; n++) {
-    final State s=newstates[n];
-    s.accept=states[s.number].accept;
-    for (    Transition t : states[s.number].getTransitions())     s.addTransition(new Transition(t.min,t.max,newstates[t.to.number]));
+  for (int n=0; n < k; n++) {
+    int numTransitions=a.initTransition(stateRep[n],t);
+    for (int i=0; i < numTransitions; i++) {
+      a.getNextTransition(t);
+      result.addTransition(n,stateMap[t.dest],t.min,t.max);
+    }
   }
-  a.clearNumberedStates();
-  a.removeDeadTransitions();
+  result.finishState();
+  return Operations.removeDeadStates(result);
 }
