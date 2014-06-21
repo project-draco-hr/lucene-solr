@@ -8,9 +8,21 @@
       BufferedReader lines=new BufferedReader(new InputStreamReader(dictionary,decoder));
       String line=lines.readLine();
       while ((line=lines.readLine()) != null) {
+        if (line.isEmpty() || line.charAt(0) == '/' || line.charAt(0) == '#' || line.charAt(0) == '\t') {
+          continue;
+        }
         line=unescapeEntry(line);
+        if (hasStemExceptions == false) {
+          int morphStart=line.indexOf(MORPH_SEPARATOR);
+          if (morphStart >= 0 && morphStart < line.length()) {
+            hasStemExceptions=parseStemException(line.substring(morphStart + 1)) != null;
+          }
+        }
         if (needsInputCleaning) {
-          int flagSep=line.lastIndexOf(FLAG_SEPARATOR);
+          int flagSep=line.indexOf(FLAG_SEPARATOR);
+          if (flagSep == -1) {
+            flagSep=line.indexOf(MORPH_SEPARATOR);
+          }
           if (flagSep == -1) {
             CharSequence cleansed=cleanInput(line,sb);
             writer.write(cleansed.toString().getBytes(StandardCharsets.UTF_8));
@@ -41,7 +53,7 @@
       scratch1.offset=o1.offset;
       scratch1.length=o1.length;
       for (int i=scratch1.length - 1; i >= 0; i--) {
-        if (scratch1.bytes[scratch1.offset + i] == FLAG_SEPARATOR) {
+        if (scratch1.bytes[scratch1.offset + i] == FLAG_SEPARATOR || scratch1.bytes[scratch1.offset + i] == MORPH_SEPARATOR) {
           scratch1.length=i;
           break;
         }
@@ -50,7 +62,7 @@
       scratch2.offset=o2.offset;
       scratch2.length=o2.length;
       for (int i=scratch2.length - 1; i >= 0; i--) {
-        if (scratch2.bytes[scratch2.offset + i] == FLAG_SEPARATOR) {
+        if (scratch2.bytes[scratch2.offset + i] == FLAG_SEPARATOR || scratch2.bytes[scratch2.offset + i] == MORPH_SEPARATOR) {
           scratch2.length=i;
           break;
         }
@@ -76,17 +88,15 @@
     line=scratchLine.utf8ToString();
     String entry;
     char wordForm[];
-    int flagSep=line.lastIndexOf(FLAG_SEPARATOR);
+    int end;
+    int flagSep=line.indexOf(FLAG_SEPARATOR);
     if (flagSep == -1) {
       wordForm=NOFLAGS;
-      entry=line;
+      end=line.indexOf(MORPH_SEPARATOR);
+      entry=line.substring(0,end);
     }
  else {
-      int end=line.indexOf('\t',flagSep);
-      if (end == -1)       end=line.length();
-      int end2=line.indexOf(' ',flagSep);
-      if (end2 == -1)       end2=line.length();
-      end=Math.min(end,end2);
+      end=line.indexOf(MORPH_SEPARATOR);
       String flagPart=line.substring(flagSep + 1,end);
       if (aliasCount > 0) {
         flagPart=getAliasValue(Integer.parseInt(flagPart));
@@ -94,6 +104,18 @@
       wordForm=flagParsingStrategy.parseFlags(flagPart);
       Arrays.sort(wordForm);
       entry=line.substring(0,flagSep);
+    }
+    int stemExceptionID=0;
+    if (hasStemExceptions && end + 1 < line.length()) {
+      String stemException=parseStemException(line.substring(end + 1));
+      if (stemException != null) {
+        if (stemExceptionCount == stemExceptions.length) {
+          int newSize=ArrayUtil.oversize(stemExceptionCount + 1,RamUsageEstimator.NUM_BYTES_OBJECT_REF);
+          stemExceptions=Arrays.copyOf(stemExceptions,newSize);
+        }
+        stemExceptionID=stemExceptionCount + 1;
+        stemExceptions[stemExceptionCount++]=stemException;
+      }
     }
     int cmp=currentEntry == null ? 1 : entry.compareTo(currentEntry);
     if (cmp < 0) {
@@ -113,8 +135,15 @@
         currentEntry=entry;
         currentOrds=new IntsRef();
       }
-      currentOrds.grow(currentOrds.length + 1);
-      currentOrds.ints[currentOrds.length++]=ord;
+      if (hasStemExceptions) {
+        currentOrds.grow(currentOrds.length + 2);
+        currentOrds.ints[currentOrds.length++]=ord;
+        currentOrds.ints[currentOrds.length++]=stemExceptionID;
+      }
+ else {
+        currentOrds.grow(currentOrds.length + 1);
+        currentOrds.ints[currentOrds.length++]=ord;
+      }
     }
   }
   Util.toUTF32(currentEntry,scratchInts);
