@@ -2,12 +2,14 @@
   final AtomicReader readers[]=mergeState.readers.toArray(new AtomicReader[toMerge.size()]);
   final SortedDocValues dvs[]=toMerge.toArray(new SortedDocValues[toMerge.size()]);
   TermsEnum liveTerms[]=new TermsEnum[dvs.length];
+  long[] weights=new long[liveTerms.length];
   for (int sub=0; sub < liveTerms.length; sub++) {
     AtomicReader reader=readers[sub];
     SortedDocValues dv=dvs[sub];
     Bits liveDocs=reader.getLiveDocs();
     if (liveDocs == null) {
       liveTerms[sub]=dv.termsEnum();
+      weights[sub]=dv.getValueCount();
     }
  else {
       LongBitSet bitset=new LongBitSet(dv.getValueCount());
@@ -20,9 +22,10 @@
         }
       }
       liveTerms[sub]=new BitsFilteredTermsEnum(dv.termsEnum(),bitset);
+      weights[sub]=bitset.cardinality();
     }
   }
-  final OrdinalMap map=new OrdinalMap(this,liveTerms);
+  final OrdinalMap map=OrdinalMap.build(this,liveTerms,weights,PackedInts.COMPACT);
   addSortedField(fieldInfo,new Iterable<BytesRef>(){
     @Override public Iterator<BytesRef> iterator(){
       return new Iterator<BytesRef>(){
