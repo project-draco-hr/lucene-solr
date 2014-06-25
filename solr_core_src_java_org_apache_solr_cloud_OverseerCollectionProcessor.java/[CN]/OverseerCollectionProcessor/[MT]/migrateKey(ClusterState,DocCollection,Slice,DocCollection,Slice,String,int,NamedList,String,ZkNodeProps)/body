@@ -89,14 +89,22 @@
   collectShardResponses(results,true,"MIGRATE failed to invoke SPLIT core admin command",shardHandler);
   completeAsyncRequest(asyncId,requestMap,results);
   log.info("Creating a replica of temporary collection: {} on the target leader node: {}",tempSourceCollectionName,targetLeader.getNodeName());
-  params=new ModifiableSolrParams();
-  params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
   String tempCollectionReplica2=tempSourceCollectionName + "_" + tempSourceSlice.getName()+ "_replica2";
-  params.set(CoreAdminParams.NAME,tempCollectionReplica2);
-  params.set(CoreAdminParams.COLLECTION,tempSourceCollectionName);
-  params.set(CoreAdminParams.SHARD,tempSourceSlice.getName());
-  setupAsyncRequest(asyncId,requestMap,params,targetLeader.getNodeName());
-  sendShardRequest(targetLeader.getNodeName(),params,shardHandler);
+  props=new HashMap<>();
+  props.put(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower());
+  props.put(COLLECTION_PROP,tempSourceCollectionName);
+  props.put(SHARD_ID_PROP,tempSourceSlice.getName());
+  props.put("node",targetLeader.getNodeName());
+  props.put(CoreAdminParams.NAME,tempCollectionReplica2);
+  for (  String key : message.keySet()) {
+    if (key.startsWith(COLL_PROP_PREFIX)) {
+      props.put(key,message.getStr(key));
+    }
+  }
+  if (asyncId != null) {
+    props.put(ASYNC,asyncId);
+  }
+  addReplica(clusterState,new ZkNodeProps(props),results);
   collectShardResponses(results,true,"MIGRATE failed to create replica of temporary collection in target leader node.",shardHandler);
   completeAsyncRequest(asyncId,requestMap,results);
   coreNodeName=waitForCoreNodeName(tempSourceCollectionName,targetLeader.getNodeName(),tempCollectionReplica2);
