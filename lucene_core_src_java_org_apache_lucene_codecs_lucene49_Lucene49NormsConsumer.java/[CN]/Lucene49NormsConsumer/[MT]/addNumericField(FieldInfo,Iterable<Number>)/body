@@ -2,8 +2,7 @@
   meta.writeVInt(field.number);
   long minValue=Long.MAX_VALUE;
   long maxValue=Long.MIN_VALUE;
-  HashSet<Long> uniqueValues=null;
-  uniqueValues=new HashSet<>();
+  NormMap uniqueValues=new NormMap();
   long count=0;
   for (  Number nv : values) {
     if (nv == null) {
@@ -14,7 +13,7 @@
     maxValue=Math.max(maxValue,v);
     if (uniqueValues != null) {
       if (uniqueValues.add(v)) {
-        if (uniqueValues.size() > 256) {
+        if (uniqueValues.size > 256) {
           uniqueValues=null;
         }
       }
@@ -24,13 +23,13 @@
   if (count != maxDoc) {
     throw new IllegalStateException("illegal norms data for field " + field.name + ", expected "+ maxDoc+ " values, got "+ count);
   }
-  if (uniqueValues != null && uniqueValues.size() == 1) {
+  if (uniqueValues != null && uniqueValues.size == 1) {
     meta.writeByte(CONST_COMPRESSED);
     meta.writeLong(minValue);
   }
  else   if (uniqueValues != null) {
     PackedInts.Format format=PackedInts.Format.PACKED_SINGLE_BLOCK;
-    int bitsPerValue=PackedInts.bitsRequired(uniqueValues.size() - 1);
+    int bitsPerValue=PackedInts.bitsRequired(uniqueValues.size - 1);
     if (bitsPerValue == 3) {
       bitsPerValue=4;
     }
@@ -48,14 +47,11 @@
       meta.writeByte(TABLE_COMPRESSED);
       meta.writeLong(data.getFilePointer());
       data.writeVInt(PackedInts.VERSION_CURRENT);
-      Long[] decode=uniqueValues.toArray(new Long[uniqueValues.size()]);
-      Arrays.sort(decode);
-      final HashMap<Long,Integer> encode=new HashMap<>();
+      long[] decode=uniqueValues.getDecodeTable();
       int size=1 << bitsPerValue;
       data.writeVInt(size);
       for (int i=0; i < decode.length; i++) {
         data.writeLong(decode[i]);
-        encode.put(decode[i],i);
       }
       for (int i=decode.length; i < size; i++) {
         data.writeLong(0);
@@ -64,7 +60,7 @@
       data.writeVInt(bitsPerValue);
       final PackedInts.Writer writer=PackedInts.getWriterNoHeader(data,format,maxDoc,bitsPerValue,PackedInts.DEFAULT_BUFFER_SIZE);
       for (      Number nv : values) {
-        writer.add(encode.get(nv.longValue()));
+        writer.add(uniqueValues.getOrd(nv.longValue()));
       }
       writer.finish();
     }
