@@ -1,0 +1,63 @@
+{
+  String zkDir=createTempDir("zkData").getAbsolutePath();
+  String ccDir=createTempDir("testLeaderElectionWithZkExpiry-solr").getAbsolutePath();
+  CoreContainer cc=createCoreContainer(ccDir,SOLRXML);
+  final ZkTestServer server=new ZkTestServer(zkDir);
+  server.setTheTickTime(1000);
+  SolrZkClient zc=null;
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    cc.load();
+    final ZkController zkController=new ZkController(cc,server.getZkAddress(),15000,30000,"dummy.host.com","8984","/solr",180000,180000,true,new CurrentCoreDescriptorProvider(){
+      @Override public List<CoreDescriptor> getCurrentDescriptors(){
+        return Collections.EMPTY_LIST;
+      }
+    }
+);
+    try {
+      Thread killer=new Thread(){
+        @Override public void run(){
+          long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(10,TimeUnit.SECONDS);
+          while (System.nanoTime() < timeout) {
+            long sessionId=zkController.getZkClient().getSolrZooKeeper().getSessionId();
+            server.expire(sessionId);
+            try {
+              Thread.sleep(10);
+            }
+ catch (            InterruptedException e) {
+            }
+          }
+        }
+      }
+;
+      killer.start();
+      killer.join();
+      long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(60,TimeUnit.SECONDS);
+      zc=new SolrZkClient(server.getZkAddress(),LeaderElectionTest.TIMEOUT);
+      boolean found=false;
+      while (System.nanoTime() < timeout) {
+        try {
+          String leaderNode=OverseerCollectionProcessor.getLeaderNode(zc);
+          if (leaderNode != null && !leaderNode.trim().isEmpty()) {
+            log.info("Time={} Overseer leader is = {}",System.nanoTime(),leaderNode);
+            found=true;
+            break;
+          }
+        }
+ catch (        KeeperException.NoNodeException nne) {
+        }
+      }
+      assertTrue(found);
+    }
+  finally {
+      zkController.close();
+    }
+  }
+  finally {
+    if (zc != null)     zc.close();
+    cc.shutdown();
+    server.shutdown();
+  }
+}
