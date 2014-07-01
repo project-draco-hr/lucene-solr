@@ -7,27 +7,55 @@
   folderNames=getStringFromContext("folders",null);
   if (host == null || protocol == null || user == null || password == null || folderNames == null)   throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"'user|password|protocol|host|folders' are required attributes");
   recurse=getBoolFromContext("recurse",true);
+  exclude.clear();
   String excludes=getStringFromContext("exclude","");
   if (excludes != null && !excludes.trim().equals("")) {
     exclude=Arrays.asList(excludes.split(","));
   }
+  include.clear();
   String includes=getStringFromContext("include","");
   if (includes != null && !includes.trim().equals("")) {
     include=Arrays.asList(includes.split(","));
   }
   batchSize=getIntFromContext("batchSize",20);
   customFilter=getStringFromContext("customFilter","");
-  String s=getStringFromContext("fetchMailsSince",null);
-  if (s != null)   try {
-    fetchMailsSince=new SimpleDateFormat("yyyy-MM-dd HH:mm:ss",Locale.ROOT).parse(s);
+  if (filters != null)   filters.clear();
+  folderIter=null;
+  msgIter=null;
+  String lastIndexTime=null;
+  String command=String.valueOf(context.getRequestParameters().get("command"));
+  if (!DataImporter.FULL_IMPORT_CMD.equals(command))   throw new IllegalArgumentException(this.getClass().getSimpleName() + " only supports " + DataImporter.FULL_IMPORT_CMD);
+  String cname=getStringFromContext("name","mailimporter");
+  String varName=ConfigNameConstants.IMPORTER_NS_SHORT + "." + cname+ "."+ DocBuilder.LAST_INDEX_TIME;
+  Object varValue=context.getVariableResolver().resolve(varName);
+  if (varValue == null || "".equals(varValue)) {
+    varName=ConfigNameConstants.IMPORTER_NS_SHORT + "." + DocBuilder.LAST_INDEX_TIME;
+    varValue=context.getVariableResolver().resolve(varName);
   }
- catch (  ParseException e) {
-    throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"Invalid value for fetchMailSince: " + s,e);
+  if (varValue != null && varValue instanceof String) {
+    lastIndexTime=(String)varValue;
+    if (lastIndexTime != null && lastIndexTime.length() == 0)     lastIndexTime=null;
+  }
+  if (lastIndexTime == null)   lastIndexTime=getStringFromContext("fetchMailsSince","");
+  LOG.info("Using lastIndexTime " + lastIndexTime + " for mail import");
+  this.fetchMailsSince=null;
+  if (lastIndexTime != null && lastIndexTime.length() > 0) {
+    try {
+      fetchMailsSince=sinceDateParser.parse(lastIndexTime);
+      LOG.info("Parsed fetchMailsSince=" + lastIndexTime);
+    }
+ catch (    ParseException e) {
+      throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"Invalid value for fetchMailSince: " + lastIndexTime,e);
+    }
   }
   fetchSize=getIntFromContext("fetchSize",32 * 1024);
   cTimeout=getIntFromContext("connectTimeout",30 * 1000);
   rTimeout=getIntFromContext("readTimeout",60 * 1000);
-  processAttachment=getBoolFromContext(getStringFromContext("processAttachment",null) == null ? "processAttachement" : "processAttachment",true);
-  tika=new Tika();
+  String tmp=context.getEntityAttribute("includeOtherUserFolders");
+  includeOtherUserFolders=(tmp != null && Boolean.valueOf(tmp.trim()));
+  tmp=context.getEntityAttribute("includeSharedFolders");
+  includeSharedFolders=(tmp != null && Boolean.valueOf(tmp.trim()));
+  setProcessAttachmentConfig();
+  includeContent=getBoolFromContext("includeContent",true);
   logConfig();
 }

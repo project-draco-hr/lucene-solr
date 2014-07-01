@@ -1,3 +1,32 @@
 {
-  return new ReceivedDateTerm(ComparisonTerm.GE,since);
+  LOG.info("Building mail filter for messages in " + folder.getName() + " that occur after "+ sinceDateParser.format(since));
+  return new DateTerm(ComparisonTerm.GE,since){
+    private int matched=0;
+    private int seen=0;
+    @Override public boolean match(    Message msg){
+      boolean isMatch=false;
+      ++seen;
+      try {
+        Date msgDate=msg.getReceivedDate();
+        if (msgDate == null)         msgDate=msg.getSentDate();
+        if (msgDate != null && msgDate.getTime() >= since.getTime()) {
+          ++matched;
+          isMatch=true;
+        }
+ else {
+          String msgDateStr=(msgDate != null) ? sinceDateParser.format(msgDate) : "null";
+          String sinceDateStr=(since != null) ? sinceDateParser.format(since) : "null";
+          LOG.debug("Message " + msg.getSubject() + " was received at ["+ msgDateStr+ "], since filter is ["+ sinceDateStr+ "]");
+        }
+      }
+ catch (      MessagingException e) {
+        LOG.warn("Failed to process message due to: " + e,e);
+      }
+      if (seen % 100 == 0) {
+        LOG.info("Matched " + matched + " of "+ seen+ " messages since: "+ sinceDateParser.format(since));
+      }
+      return isMatch;
+    }
+  }
+;
 }

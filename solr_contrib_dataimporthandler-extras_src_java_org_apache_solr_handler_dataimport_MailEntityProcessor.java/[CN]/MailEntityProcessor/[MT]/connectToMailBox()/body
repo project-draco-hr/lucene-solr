@@ -1,17 +1,36 @@
 {
+  Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
   try {
     Properties props=new Properties();
+    if (System.getProperty("mail.debug") != null)     props.setProperty("mail.debug",System.getProperty("mail.debug"));
+    if (("imap".equals(protocol) || "imaps".equals(protocol)) && "imap.gmail.com".equals(host)) {
+      LOG.info("Consider using 'gimaps' protocol instead of '" + protocol + "' for enabling GMail specific extensions for "+ host);
+    }
     props.setProperty("mail.store.protocol",protocol);
-    props.setProperty("mail.imap.fetchsize","" + fetchSize);
-    props.setProperty("mail.imap.timeout","" + rTimeout);
-    props.setProperty("mail.imap.connectiontimeout","" + cTimeout);
+    String imapPropPrefix=protocol.startsWith("gimap") ? "gimap" : "imap";
+    props.setProperty("mail." + imapPropPrefix + ".fetchsize","" + fetchSize);
+    props.setProperty("mail." + imapPropPrefix + ".timeout","" + rTimeout);
+    props.setProperty("mail." + imapPropPrefix + ".connectiontimeout","" + cTimeout);
+    int port=-1;
+    int colonAt=host.indexOf(":");
+    if (colonAt != -1) {
+      port=Integer.parseInt(host.substring(colonAt + 1));
+      host=host.substring(0,colonAt);
+    }
     Session session=Session.getDefaultInstance(props,null);
     mailbox=session.getStore(protocol);
-    mailbox.connect(host,user,password);
-    LOG.info("Connected to mailbox");
+    if (port != -1) {
+      mailbox.connect(host,port,user,password);
+    }
+ else {
+      mailbox.connect(host,user,password);
+    }
+    LOG.info("Connected to " + user + "'s mailbox on "+ host);
     return true;
   }
  catch (  MessagingException e) {
-    throw new DataImportHandlerException(DataImportHandlerException.SEVERE,"Connection failed",e);
+    String errMsg=String.format(Locale.ENGLISH,"Failed to connect to %s server %s as user %s due to: %s",protocol,host,user,e.toString());
+    LOG.error(errMsg,e);
+    throw new DataImportHandlerException(DataImportHandlerException.SEVERE,errMsg,e);
   }
 }
