@@ -1,50 +1,42 @@
 {
   if (part instanceof Message) {
-    addEnvelopeToDocument(part,row);
+    addEnvelopToDocument(part,row);
   }
-  String ct=part.getContentType().toLowerCase();
+  String ct=part.getContentType();
   ContentType ctype=new ContentType(ct);
   if (part.isMimeType("multipart/*")) {
-    Object content=part.getContent();
-    if (content != null && content instanceof Multipart) {
-      Multipart mp=(Multipart)part.getContent();
-      int count=mp.getCount();
-      if (part.isMimeType("multipart/alternative"))       count=1;
-      for (int i=0; i < count; i++)       addPartToDocument(mp.getBodyPart(i),row,false);
-    }
- else {
-      LOG.warn("Multipart content is a not an instance of Multipart! Content is: " + (content != null ? content.getClass().getName() : "null") + ". Typically, this is due to the Java Activation JAR being loaded by the wrong classloader.");
-    }
+    Multipart mp=(Multipart)part.getContent();
+    int count=mp.getCount();
+    if (part.isMimeType("multipart/alternative"))     count=1;
+    for (int i=0; i < count; i++)     addPartToDocument(mp.getBodyPart(i),row,false);
   }
  else   if (part.isMimeType("message/rfc822")) {
     addPartToDocument((Part)part.getContent(),row,false);
   }
  else {
     String disp=part.getDisposition();
-    if (includeContent && !(disp != null && disp.equalsIgnoreCase(Part.ATTACHMENT))) {
-      InputStream is=part.getInputStream();
-      Metadata contentTypeHint=new Metadata();
-      contentTypeHint.set(Metadata.CONTENT_TYPE,ctype.getBaseType().toLowerCase(Locale.ENGLISH));
-      String content=(new Tika()).parseToString(is,contentTypeHint);
-      if (row.get(CONTENT) == null)       row.put(CONTENT,new ArrayList<String>());
-      List<String> contents=(List<String>)row.get(CONTENT);
-      contents.add(content.trim());
-      row.put(CONTENT,contents);
-    }
-    if (!processAttachment || disp == null || !disp.equalsIgnoreCase(Part.ATTACHMENT))     return;
+    if (!processAttachment || (disp != null && disp.equalsIgnoreCase(Part.ATTACHMENT)))     return;
     InputStream is=part.getInputStream();
     String fileName=part.getFileName();
-    Metadata contentTypeHint=new Metadata();
-    contentTypeHint.set(Metadata.CONTENT_TYPE,ctype.getBaseType().toLowerCase(Locale.ENGLISH));
-    String content=(new Tika()).parseToString(is,contentTypeHint);
-    if (content == null || content.trim().length() == 0)     return;
-    if (row.get(ATTACHMENT) == null)     row.put(ATTACHMENT,new ArrayList<String>());
-    List<String> contents=(List<String>)row.get(ATTACHMENT);
-    contents.add(content.trim());
-    row.put(ATTACHMENT,contents);
-    if (row.get(ATTACHMENT_NAMES) == null)     row.put(ATTACHMENT_NAMES,new ArrayList<String>());
-    List<String> names=(List<String>)row.get(ATTACHMENT_NAMES);
-    names.add(fileName);
-    row.put(ATTACHMENT_NAMES,names);
+    Metadata md=new Metadata();
+    md.set(HttpHeaders.CONTENT_TYPE,ctype.getBaseType().toLowerCase(Locale.ROOT));
+    md.set(TikaMetadataKeys.RESOURCE_NAME_KEY,fileName);
+    String content=tika.parseToString(is,md);
+    if (disp != null && disp.equalsIgnoreCase(Part.ATTACHMENT)) {
+      if (row.get(ATTACHMENT) == null)       row.put(ATTACHMENT,new ArrayList<String>());
+      List<String> contents=(List<String>)row.get(ATTACHMENT);
+      contents.add(content);
+      row.put(ATTACHMENT,contents);
+      if (row.get(ATTACHMENT_NAMES) == null)       row.put(ATTACHMENT_NAMES,new ArrayList<String>());
+      List<String> names=(List<String>)row.get(ATTACHMENT_NAMES);
+      names.add(fileName);
+      row.put(ATTACHMENT_NAMES,names);
+    }
+ else {
+      if (row.get(CONTENT) == null)       row.put(CONTENT,new ArrayList<String>());
+      List<String> contents=(List<String>)row.get(CONTENT);
+      contents.add(content);
+      row.put(CONTENT,contents);
+    }
   }
 }
