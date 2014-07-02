@@ -3,7 +3,8 @@
   sreq.purpose=ShardRequest.PURPOSE_GET_TOP_IDS;
   String keyFieldName=rb.req.getSchema().getUniqueKeyField().getName();
   ReturnFields fields=rb.rsp.getReturnFields();
-  if (fields != null && fields.wantsField(keyFieldName) && fields.getRequestedFieldNames() != null && Arrays.asList(keyFieldName,"score").containsAll(fields.getRequestedFieldNames())) {
+  boolean distribSinglePass=rb.req.getParams().getBool(ShardParams.DISTRIB_SINGLE_PASS,false);
+  if (distribSinglePass || (fields != null && fields.wantsField(keyFieldName) && fields.getRequestedFieldNames() != null && Arrays.asList(keyFieldName,"score").containsAll(fields.getRequestedFieldNames()))) {
     sreq.purpose|=ShardRequest.PURPOSE_GET_FIELDS;
     rb.onePassDistributedQuery=true;
   }
@@ -22,11 +23,37 @@
     sreq.params.set(CommonParams.ROWS,rb.getSortSpec().getOffset() + rb.getSortSpec().getCount());
   }
   sreq.params.set(ResponseBuilder.FIELD_SORT_VALUES,"true");
-  if ((rb.getFieldFlags() & SolrIndexSearcher.GET_SCORES) != 0 || rb.getSortSpec().includesScore()) {
-    sreq.params.set(CommonParams.FL,keyFieldName + ",score");
+  boolean shardQueryIncludeScore=(rb.getFieldFlags() & SolrIndexSearcher.GET_SCORES) != 0 || rb.getSortSpec().includesScore();
+  if (distribSinglePass) {
+    String fl=rb.req.getParams().get(CommonParams.FL);
+    if (fl == null) {
+      if (fields.getRequestedFieldNames() == null && fields.wantsAllFields()) {
+        fl="*";
+      }
+ else {
+        fl="";
+        for (        String s : fields.getRequestedFieldNames()) {
+          fl+=s + ",";
+        }
+      }
+    }
+    if (!fields.wantsField(keyFieldName)) {
+      if (fl.endsWith(",")) {
+        fl+=keyFieldName;
+      }
+ else {
+        fl+="," + keyFieldName;
+      }
+    }
+    sreq.params.set(CommonParams.FL,updateFl(fl,shardQueryIncludeScore));
   }
  else {
-    sreq.params.set(CommonParams.FL,keyFieldName);
+    if (shardQueryIncludeScore) {
+      sreq.params.set(CommonParams.FL,keyFieldName + ",score");
+    }
+ else {
+      sreq.params.set(CommonParams.FL,keyFieldName);
+    }
   }
   rb.addRequest(this,sreq);
 }
