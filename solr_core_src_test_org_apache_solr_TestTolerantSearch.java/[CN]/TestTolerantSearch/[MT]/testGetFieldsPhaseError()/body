@@ -1,0 +1,45 @@
+{
+  BadResponseWriter.failOnGetFields=true;
+  BadResponseWriter.failOnGetTopIds=false;
+  SolrQuery query=new SolrQuery();
+  query.setQuery("subject:batman OR subject:superman");
+  query.addField("id");
+  query.addField("subject");
+  query.set("distrib","true");
+  query.set("shards",shard1 + "," + shard2);
+  query.set(ShardParams.SHARDS_INFO,"true");
+  query.set("debug","true");
+  query.set("stats","true");
+  query.set("stats.field","id");
+  query.set("mlt","true");
+  query.set("mlt.fl","title");
+  query.set("mlt.count","1");
+  query.set("mlt.mintf","0");
+  query.set("mlt.mindf","0");
+  query.setHighlight(true);
+  query.addFacetField("id");
+  query.setFacet(true);
+  ignoreException("Dummy exception in BadResponseWriter");
+  try {
+    collection1.query(query);
+    fail("Should get an exception");
+  }
+ catch (  Exception e) {
+  }
+  query.set(ShardParams.SHARDS_TOLERANT,"true");
+  QueryResponse response=collection1.query(query);
+  assertTrue(response.getResponseHeader().getBooleanArg("partialResults"));
+  NamedList<Object> shardsInfo=((NamedList<Object>)response.getResponse().get("shards.info"));
+  boolean foundError=false;
+  for (int i=0; i < shardsInfo.size(); i++) {
+    if (shardsInfo.getName(i).contains("collection2")) {
+      assertNotNull(((NamedList<Object>)shardsInfo.getVal(i)).get("error"));
+      foundError=true;
+      break;
+    }
+  }
+  assertTrue(foundError);
+  assertEquals(1,response.getResults().get(0).getFieldValue("id"));
+  assertEquals("batman",response.getResults().get(0).getFirstValue("subject"));
+  unIgnoreException("Dummy exception in BadResponseWriter");
+}

@@ -4,6 +4,23 @@
     String keyFieldName=rb.req.getSchema().getUniqueKeyField().getName();
     boolean removeKeyField=!rb.rsp.getReturnFields().wantsField(keyFieldName);
     for (    ShardResponse srsp : sreq.responses) {
+      if (srsp.getException() != null) {
+        if (rb.req.getParams().getBool(ShardParams.SHARDS_INFO,false)) {
+          @SuppressWarnings("unchecked") NamedList<Object> shardInfo=(NamedList<Object>)rb.rsp.getValues().get(ShardParams.SHARDS_INFO);
+          @SuppressWarnings("unchecked") SimpleOrderedMap<Object> nl=(SimpleOrderedMap<Object>)shardInfo.get(srsp.getShard());
+          if (nl.get("error") == null) {
+            Throwable t=srsp.getException();
+            if (t instanceof SolrServerException) {
+              t=((SolrServerException)t).getCause();
+            }
+            nl.add("error",t.toString());
+            StringWriter trace=new StringWriter();
+            t.printStackTrace(new PrintWriter(trace));
+            nl.add("trace",trace.toString());
+          }
+        }
+        continue;
+      }
       SolrDocumentList docs=(SolrDocumentList)srsp.getSolrResponse().getResponse().get("response");
       for (      SolrDocument doc : docs) {
         Object id=doc.getFieldValue(keyFieldName);
