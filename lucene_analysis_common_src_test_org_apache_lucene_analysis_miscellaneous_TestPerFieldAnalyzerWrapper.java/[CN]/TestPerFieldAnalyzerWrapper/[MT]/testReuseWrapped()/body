@@ -1,0 +1,42 @@
+{
+  final String text="Qwerty";
+  final Analyzer specialAnalyzer=new SimpleAnalyzer(TEST_VERSION_CURRENT);
+  final Analyzer defaultAnalyzer=new WhitespaceAnalyzer(TEST_VERSION_CURRENT);
+  TokenStream ts1, ts2, ts3, ts4;
+  final PerFieldAnalyzerWrapper wrapper1=new PerFieldAnalyzerWrapper(defaultAnalyzer,Collections.<String,Analyzer>singletonMap("special",specialAnalyzer));
+  ts1=defaultAnalyzer.tokenStream("something",text);
+  ts2=wrapper1.tokenStream("something",text);
+  assertSame(ts1,ts2);
+  ts1=specialAnalyzer.tokenStream("special",text);
+  ts2=wrapper1.tokenStream("special",text);
+  assertSame(ts1,ts2);
+  final AnalyzerWrapper wrapper2=new AnalyzerWrapper(wrapper1.getReuseStrategy()){
+    @Override protected Analyzer getWrappedAnalyzer(    String fieldName){
+      return wrapper1;
+    }
+    @Override protected TokenStreamComponents wrapComponents(    String fieldName,    TokenStreamComponents components){
+      try {
+        assertNotSame(specialAnalyzer.tokenStream("special",text),components.getTokenStream());
+      }
+ catch (      IOException e) {
+        Rethrow.rethrow(e);
+      }
+      TokenFilter filter=new ASCIIFoldingFilter(components.getTokenStream());
+      return new TokenStreamComponents(components.getTokenizer(),filter);
+    }
+  }
+;
+  ts3=wrapper2.tokenStream("special",text);
+  assertNotSame(ts1,ts3);
+  assertTrue(ts3 instanceof ASCIIFoldingFilter);
+  ts2=wrapper1.tokenStream("special",text);
+  assertSame(ts1,ts2);
+  final PerFieldAnalyzerWrapper wrapper3=new PerFieldAnalyzerWrapper(wrapper1,Collections.<String,Analyzer>singletonMap("moreSpecial",specialAnalyzer));
+  ts1=specialAnalyzer.tokenStream("special",text);
+  ts2=wrapper3.tokenStream("special",text);
+  assertSame(ts1,ts2);
+  ts3=specialAnalyzer.tokenStream("moreSpecial",text);
+  ts4=wrapper3.tokenStream("moreSpecial",text);
+  assertSame(ts3,ts4);
+  assertSame(ts2,ts3);
+}
