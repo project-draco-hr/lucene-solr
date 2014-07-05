@@ -1,30 +1,38 @@
 {
   if (zzStartRead > 0) {
+    zzEndRead+=zzFinalHighSurrogate;
+    zzFinalHighSurrogate=0;
     System.arraycopy(zzBuffer,zzStartRead,zzBuffer,0,zzEndRead - zzStartRead);
     zzEndRead-=zzStartRead;
     zzCurrentPos-=zzStartRead;
     zzMarkedPos-=zzStartRead;
     zzStartRead=0;
   }
-  if (zzCurrentPos >= zzBuffer.length) {
-    char newBuffer[]=new char[zzCurrentPos * 2];
+  if (zzCurrentPos >= zzBuffer.length - zzFinalHighSurrogate) {
+    char newBuffer[]=new char[zzBuffer.length * 2];
     System.arraycopy(zzBuffer,0,newBuffer,0,zzBuffer.length);
     zzBuffer=newBuffer;
+    zzEndRead+=zzFinalHighSurrogate;
+    zzFinalHighSurrogate=0;
   }
-  int numRead=zzReader.read(zzBuffer,zzEndRead,zzBuffer.length - zzEndRead);
-  if (numRead > 0) {
-    zzEndRead+=numRead;
+  int requested=zzBuffer.length - zzEndRead;
+  int totalRead=0;
+  while (totalRead < requested) {
+    int numRead=zzReader.read(zzBuffer,zzEndRead + totalRead,requested - totalRead);
+    if (numRead == -1) {
+      break;
+    }
+    totalRead+=numRead;
+  }
+  if (totalRead > 0) {
+    zzEndRead+=totalRead;
+    if (totalRead == requested) {
+      if (Character.isHighSurrogate(zzBuffer[zzEndRead - 1])) {
+        --zzEndRead;
+        zzFinalHighSurrogate=1;
+      }
+    }
     return false;
-  }
-  if (numRead == 0) {
-    int c=zzReader.read();
-    if (c == -1) {
-      return true;
-    }
- else {
-      zzBuffer[zzEndRead++]=(char)c;
-      return false;
-    }
   }
   return true;
 }
