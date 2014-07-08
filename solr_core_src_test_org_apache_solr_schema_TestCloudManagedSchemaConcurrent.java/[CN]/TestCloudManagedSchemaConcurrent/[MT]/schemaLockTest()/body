@@ -1,0 +1,43 @@
+{
+  int numFields=25;
+  int numAddFieldPuts=0;
+  int numAddFieldPosts=0;
+  final String putFieldName="newfieldPutThread";
+  final String postFieldName="newfieldPostThread";
+  for (int i=0; i <= numFields; ++i) {
+    int postHarness=r.nextInt(restTestHarnesses.size());
+    RestTestHarness publisher=restTestHarnesses.get(postHarness);
+    PutPostThread postThread=new PutPostThread(publisher,postFieldName + numAddFieldPosts++,false);
+    postThread.start();
+    int putHarness=r.nextInt(restTestHarnesses.size());
+    publisher=restTestHarnesses.get(putHarness);
+    PutPostThread putThread=new PutPostThread(publisher,putFieldName + numAddFieldPuts++,true);
+    putThread.start();
+    postThread.join();
+    putThread.join();
+    String[] expectedAddFields=getExpectedFieldResponses(numAddFieldPuts,putFieldName,numAddFieldPosts,postFieldName);
+    boolean success=false;
+    long maxTimeoutMillis=100000;
+    long startTime=System.nanoTime();
+    String request=null;
+    String response=null;
+    String result=null;
+    while (!success && TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime,TimeUnit.NANOSECONDS) < maxTimeoutMillis) {
+      Thread.sleep(10);
+      for (      RestTestHarness client : restTestHarnesses) {
+        request="/schema/fields?wt=xml";
+        response=client.query(request);
+        result=BaseTestHarness.validateXPath(response,expectedAddFields);
+        if (result != null) {
+          break;
+        }
+      }
+      success=(result == null);
+    }
+    if (!success) {
+      String msg="QUERY FAILED: xpath=" + result + "  request="+ request+ "  response="+ response;
+      log.error(msg);
+      fail(msg);
+    }
+  }
+}
