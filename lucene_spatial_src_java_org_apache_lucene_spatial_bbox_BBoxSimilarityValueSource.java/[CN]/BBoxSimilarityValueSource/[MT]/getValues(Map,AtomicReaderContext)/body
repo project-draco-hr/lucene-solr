@@ -1,35 +1,19 @@
 {
-  AtomicReader reader=readerContext.reader();
-  final NumericDocValues minX=DocValues.getNumeric(reader,strategy.field_minX);
-  final NumericDocValues minY=DocValues.getNumeric(reader,strategy.field_minY);
-  final NumericDocValues maxX=DocValues.getNumeric(reader,strategy.field_maxX);
-  final NumericDocValues maxY=DocValues.getNumeric(reader,strategy.field_maxY);
-  final Bits validMinX=DocValues.getDocsWithField(reader,strategy.field_minX);
-  final Bits validMaxX=DocValues.getDocsWithField(reader,strategy.field_maxX);
-  return new FunctionValues(){
-    Rectangle rect=strategy.getSpatialContext().makeRectangle(0,0,0,0);
-    @Override public float floatVal(    int doc){
-      double minXVal=Double.longBitsToDouble(minX.get(doc));
-      double maxXVal=Double.longBitsToDouble(maxX.get(doc));
-      if ((minXVal != 0 || validMinX.get(doc)) && (maxXVal != 0 || validMaxX.get(doc))) {
-        rect.reset(minXVal,maxXVal,Double.longBitsToDouble(minY.get(doc)),Double.longBitsToDouble(maxY.get(doc)));
-        return (float)similarity.score(rect,null);
-      }
- else {
-        return (float)similarity.score(null,null);
-      }
+  final FunctionValues shapeValues=bboxValueSource.getValues(context,readerContext);
+  return new DoubleDocValues(this){
+    @Override public double doubleVal(    int doc){
+      final Rectangle rect=(Rectangle)shapeValues.objectVal(doc);
+      return rect == null ? 0 : score(rect,null);
+    }
+    @Override public boolean exists(    int doc){
+      return shapeValues.exists(doc);
     }
     @Override public Explanation explain(    int doc){
-      if (validMinX.get(doc) && validMaxX.get(doc)) {
-        rect.reset(Double.longBitsToDouble(minX.get(doc)),Double.longBitsToDouble(maxX.get(doc)),Double.longBitsToDouble(minY.get(doc)),Double.longBitsToDouble(maxY.get(doc)));
-        Explanation exp=new Explanation();
-        similarity.score(rect,exp);
-        return exp;
-      }
-      return new Explanation(0,"No BBox");
-    }
-    @Override public String toString(    int doc){
-      return description() + "=" + floatVal(doc);
+      final Rectangle rect=(Rectangle)shapeValues.objectVal(doc);
+      if (rect == null)       return new Explanation(0,"no rect");
+      Explanation exp=new Explanation();
+      score(rect,exp);
+      return exp;
     }
   }
 ;

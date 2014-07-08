@@ -1,33 +1,37 @@
 {
-  Query qMinY=NumericRangeQuery.newDoubleRange(field_minY,precisionStep,bbox.getMinY(),null,true,false);
-  Query qMaxY=NumericRangeQuery.newDoubleRange(field_maxY,precisionStep,null,bbox.getMaxY(),false,true);
+  Query qMinY=NumericRangeQuery.newDoubleRange(field_minY,getPrecisionStep(),bbox.getMinY(),null,true,false);
+  Query qMaxY=NumericRangeQuery.newDoubleRange(field_maxY,getPrecisionStep(),null,bbox.getMaxY(),false,true);
   Query yConditions=this.makeQuery(BooleanClause.Occur.MUST,qMinY,qMaxY);
   Query xConditions;
-  Query qXDLLeft=NumericRangeQuery.newDoubleRange(field_minX,precisionStep,bbox.getMinX(),null,true,false);
-  Query qXDLRight=NumericRangeQuery.newDoubleRange(field_maxX,precisionStep,null,bbox.getMaxX(),false,true);
-  Query qXDLLeftRight=this.makeQuery(BooleanClause.Occur.MUST,qXDLLeft,qXDLRight);
-  Query qXDL=this.makeXDL(true,qXDLLeftRight);
-  if (!bbox.getCrossesDateLine()) {
-    Query qMinX=NumericRangeQuery.newDoubleRange(field_minX,precisionStep,bbox.getMinX(),null,true,false);
-    Query qMaxX=NumericRangeQuery.newDoubleRange(field_maxX,precisionStep,null,bbox.getMaxX(),false,true);
+  if (ctx.isGeo() && bbox.getMinX() == -180.0 && bbox.getMaxX() == 180.0) {
+    return yConditions;
+  }
+ else   if (!bbox.getCrossesDateLine()) {
+    Query qMinX=NumericRangeQuery.newDoubleRange(field_minX,getPrecisionStep(),bbox.getMinX(),null,true,false);
+    Query qMaxX=NumericRangeQuery.newDoubleRange(field_maxX,getPrecisionStep(),null,bbox.getMaxX(),false,true);
     Query qMinMax=this.makeQuery(BooleanClause.Occur.MUST,qMinX,qMaxX);
-    Query qNonXDL=this.makeXDL(false,qMinMax);
-    if ((bbox.getMinX() <= -180.0) && bbox.getMaxX() >= 180.0) {
-      xConditions=this.makeQuery(BooleanClause.Occur.SHOULD,qNonXDL,qXDL);
+    double edge=0;
+    if (bbox.getMinX() == -180.0)     edge=180;
+ else     if (bbox.getMaxX() == 180.0)     edge=-180;
+    if (edge != 0 && ctx.isGeo()) {
+      Query edgeQ=makeQuery(BooleanClause.Occur.MUST,makeNumberTermQuery(field_minX,edge),makeNumberTermQuery(field_maxX,edge));
+      qMinMax=makeQuery(BooleanClause.Occur.SHOULD,qMinMax,edgeQ);
     }
- else {
-      xConditions=qNonXDL;
-    }
+    xConditions=this.makeXDL(false,qMinMax);
   }
  else {
-    Query qMinXLeft=NumericRangeQuery.newDoubleRange(field_minX,precisionStep,bbox.getMinX(),null,true,false);
-    Query qMaxXLeft=NumericRangeQuery.newDoubleRange(field_maxX,precisionStep,null,180.0,false,true);
+    Query qMinXLeft=NumericRangeQuery.newDoubleRange(field_minX,getPrecisionStep(),bbox.getMinX(),null,true,false);
+    Query qMaxXLeft=NumericRangeQuery.newDoubleRange(field_maxX,getPrecisionStep(),null,180.0,false,true);
     Query qLeft=this.makeQuery(BooleanClause.Occur.MUST,qMinXLeft,qMaxXLeft);
-    Query qMinXRight=NumericRangeQuery.newDoubleRange(field_minX,precisionStep,-180.0,null,true,false);
-    Query qMaxXRight=NumericRangeQuery.newDoubleRange(field_maxX,precisionStep,null,bbox.getMaxX(),false,true);
+    Query qMinXRight=NumericRangeQuery.newDoubleRange(field_minX,getPrecisionStep(),-180.0,null,true,false);
+    Query qMaxXRight=NumericRangeQuery.newDoubleRange(field_maxX,getPrecisionStep(),null,bbox.getMaxX(),false,true);
     Query qRight=this.makeQuery(BooleanClause.Occur.MUST,qMinXRight,qMaxXRight);
     Query qLeftRight=this.makeQuery(BooleanClause.Occur.SHOULD,qLeft,qRight);
     Query qNonXDL=this.makeXDL(false,qLeftRight);
+    Query qXDLLeft=NumericRangeQuery.newDoubleRange(field_minX,getPrecisionStep(),bbox.getMinX(),null,true,false);
+    Query qXDLRight=NumericRangeQuery.newDoubleRange(field_maxX,getPrecisionStep(),null,bbox.getMaxX(),false,true);
+    Query qXDLLeftRight=this.makeQuery(BooleanClause.Occur.MUST,qXDLLeft,qXDLRight);
+    Query qXDL=this.makeXDL(true,qXDLLeftRight);
     xConditions=this.makeQuery(BooleanClause.Occur.SHOULD,qNonXDL,qXDL);
   }
   return this.makeQuery(BooleanClause.Occur.MUST,xConditions,yConditions);
