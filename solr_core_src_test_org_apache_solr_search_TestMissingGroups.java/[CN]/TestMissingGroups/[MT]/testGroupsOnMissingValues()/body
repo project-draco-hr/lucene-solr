@@ -1,0 +1,45 @@
+{
+  final int numDocs=atLeast(500);
+  final List<SpecialField> specials=new ArrayList<SpecialField>(7);
+  specials.add(new SpecialField(numDocs,"group_s1","xxx","yyy"));
+  specials.add(new SpecialField(numDocs,"group_ti","42","24"));
+  specials.add(new SpecialField(numDocs,"group_td","34.56","12.78"));
+  specials.add(new SpecialField(numDocs,"group_tl","66666666","999999999"));
+  specials.add(new SpecialField(numDocs,"group_tf","56.78","78.45"));
+  specials.add(new SpecialField(numDocs,"group_b","true","false"));
+  specials.add(new SpecialField(numDocs,"group_tdt","2009-05-10T03:30:00Z","1976-03-06T15:06:00Z"));
+  for (int i=1; i < numDocs; i++) {
+    SolrInputDocument d=sdoc("id",i);
+    if (SpecialField.special_docids.contains(i)) {
+      d.addField("special_s","special");
+      for (      SpecialField f : specials) {
+        if (f.docX == i) {
+          d.addField(f.field,f.valueX);
+        }
+ else         if (f.docY == i) {
+          d.addField(f.field,f.valueY);
+        }
+      }
+    }
+ else {
+      d.addField("filter_b",random().nextBoolean());
+    }
+    assertU(adoc(d));
+    if (rarely()) {
+      assertU(commit());
+    }
+  }
+  assertU(adoc(sdoc("id","0")));
+  assertU(commit());
+  assertQ(req("q","*:*"),"//result[@numFound=" + numDocs + "]");
+  for (  SpecialField special : specials) {
+    assertQ(req("q","{!term f=" + special.field + "}"+ special.valueX),"//result[@numFound=1]");
+    assertQ(req("q","{!term f=" + special.field + "}"+ special.valueY),"//result[@numFound=1]");
+    final String xpre="//lst[@name='grouped']/lst[@name='" + special.field + "']";
+    assertQ(req("q",(random().nextBoolean() ? "*:*" : "special_s:special id:[0 TO 400]"),"fq",(random().nextBoolean() ? "*:*" : "-filter_b:" + random().nextBoolean()),"group","true","group.field",special.field,"group.ngroups","true"),xpre + "/int[@name='ngroups'][.='3']",xpre + "/arr[@name='groups'][count(lst)=3]",xpre + "/arr[@name='groups']/lst/null[@name='groupValue']",xpre + "/arr[@name='groups']/lst/*[@name='groupValue'][.='" + special.valueX+ "']/following-sibling::result[@name='doclist'][@numFound=1]/doc/str[@name='id'][.="+ special.docX+ "]",xpre + "/arr[@name='groups']/lst/*[@name='groupValue'][.='" + special.valueY+ "']/following-sibling::result[@name='doclist'][@numFound=1]/doc/str[@name='id'][.="+ special.docY+ "]");
+    final int doc=random().nextBoolean() ? special.docX : special.docY;
+    final Object val=(doc == special.docX) ? special.valueX : special.valueY;
+    assertQ(req("q",(random().nextBoolean() ? "*:*" : "special_s:special id:[0 TO 400]"),"fq",(random().nextBoolean() ? "*:*" : "-filter_b:" + random().nextBoolean()),"fq","-id:" + ((doc == special.docX) ? special.docY : special.docX),"group","true","group.field",special.field,"group.ngroups","true"),xpre + "/int[@name='ngroups'][.='2']",xpre + "/arr[@name='groups'][count(lst)=2]",xpre + "/arr[@name='groups']/lst/null[@name='groupValue']",xpre + "/arr[@name='groups']/lst/*[@name='groupValue'][.='" + val+ "']/following-sibling::result[@name='doclist'][@numFound=1]/doc/str[@name='id'][.="+ doc+ "]");
+    assertQ(req("q",(random().nextBoolean() ? "*:*" : "special_s:special id:[0 TO 400]"),"fq",(random().nextBoolean() ? "*:*" : "-filter_b:" + random().nextBoolean()),"fq","-id:" + special.docX,"fq","-id:" + special.docY,"group","true","group.field",special.field,"group.ngroups","true"),xpre + "/int[@name='ngroups'][.='1']",xpre + "/arr[@name='groups'][count(lst)=1]",xpre + "/arr[@name='groups']/lst/null[@name='groupValue']");
+  }
+}
