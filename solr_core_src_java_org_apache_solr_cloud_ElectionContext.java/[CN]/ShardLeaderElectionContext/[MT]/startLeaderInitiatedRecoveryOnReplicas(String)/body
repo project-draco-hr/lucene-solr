@@ -3,8 +3,9 @@
     CloudDescriptor cloudDesc=core.getCoreDescriptor().getCloudDescriptor();
     String coll=cloudDesc.getCollectionName();
     String shardId=cloudDesc.getShardId();
+    String coreNodeName=cloudDesc.getCoreNodeName();
     if (coll == null || shardId == null) {
-      log.error("Cannot start leader-initiated recovery on new leader (core=" + coreName + ") because collection and/or shard is null!");
+      log.error("Cannot start leader-initiated recovery on new leader (core=" + coreName + ",coreNodeName="+ coreNodeName+ ") because collection and/or shard is null!");
       return;
     }
     String znodePath=zkController.getLeaderInitiatedRecoveryZnodePath(coll,shardId);
@@ -15,22 +16,22 @@
  catch (    NoNodeException nne) {
     }
     if (replicas != null && replicas.size() > 0) {
-      for (      String replicaCore : replicas) {
-        if (coreName.equals(replicaCore))         continue;
-        String lirState=zkController.getLeaderInitiatedRecoveryState(coll,shardId,replicaCore);
+      for (      String replicaCoreNodeName : replicas) {
+        if (coreNodeName.equals(replicaCoreNodeName))         continue;
+        String lirState=zkController.getLeaderInitiatedRecoveryState(coll,shardId,replicaCoreNodeName);
         if (ZkStateReader.DOWN.equals(lirState) || ZkStateReader.RECOVERY_FAILED.equals(lirState)) {
-          log.info("After " + coreName + " was elected leader, found "+ replicaCore+ " as "+ lirState+ " and needing recovery.");
-          List<ZkCoreNodeProps> replicaProps=zkController.getZkStateReader().getReplicaProps(collection,shardId,coreName,replicaCore,null,null);
+          log.info("After core={} coreNodeName={} was elected leader, it was found in state: " + lirState + " and needing recovery.",coreName,coreNodeName);
+          List<ZkCoreNodeProps> replicaProps=zkController.getZkStateReader().getReplicaProps(collection,shardId,coreNodeName,null);
           if (replicaProps != null && replicaProps.size() > 0) {
             ZkCoreNodeProps coreNodeProps=null;
             for (            ZkCoreNodeProps p : replicaProps) {
-              if (p.getCoreName().equals(replicaCore)) {
+              if (p.getCoreName().equals(replicaCoreNodeName)) {
                 coreNodeProps=p;
                 break;
               }
             }
             LeaderInitiatedRecoveryThread lirThread=new LeaderInitiatedRecoveryThread(zkController,cc,collection,shardId,coreNodeProps,120);
-            zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaCore,coreNodeProps,false);
+            zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,coreNodeProps.getCoreUrl(),coreNodeProps,false);
             ExecutorService executor=cc.getUpdateShardHandler().getUpdateExecutor();
             executor.execute(lirThread);
           }
