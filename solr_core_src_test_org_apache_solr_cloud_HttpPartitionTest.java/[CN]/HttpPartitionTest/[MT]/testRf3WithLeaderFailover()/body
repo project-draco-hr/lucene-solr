@@ -44,8 +44,13 @@
   assertNotNull("No new leader was elected after 60 seconds; clusterState: " + printClusterStateInfo(),newLeader);
   assertTrue("Expected node " + shouldNotBeNewLeaderNode + " to NOT be the new leader b/c it was out-of-sync with the old leader! ClusterState: "+ printClusterStateInfo(),!shouldNotBeNewLeaderNode.equals(newLeader.getNodeName()));
   proxy0.reopen();
-  Thread.sleep(10000L);
-  cloudClient.getZkStateReader().updateClusterState(true);
+  long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(60,TimeUnit.SECONDS);
+  while (System.nanoTime() < timeout) {
+    cloudClient.getZkStateReader().updateClusterState(true);
+    List<Replica> activeReps=getActiveOrRecoveringReplicas(testCollectionName,"shard1");
+    if (activeReps.size() == 2)     break;
+    Thread.sleep(1000);
+  }
   List<Replica> activeReps=getActiveOrRecoveringReplicas(testCollectionName,"shard1");
   assertTrue("Expected 2 of 3 replicas to be active but only found " + activeReps.size() + "; "+ activeReps+ "; clusterState: "+ printClusterStateInfo(),activeReps.size() == 2);
   sendDoc(6);
