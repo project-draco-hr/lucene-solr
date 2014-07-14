@@ -14,51 +14,39 @@
     final SslContextFactory sslcontext=new SslContextFactory(false);
     sslInit(useSsl,sslcontext);
     final Connector connector;
-    final QueuedThreadPool threadPool;
     if ("SelectChannel".equals(connectorName)) {
       final SelectChannelConnector c=useSsl ? new SslSelectChannelConnector(sslcontext) : new SelectChannelConnector();
       c.setReuseAddress(true);
       c.setLowResourcesMaxIdleTime(1500);
       c.setSoLingerTime(0);
       connector=c;
-      threadPool=(QueuedThreadPool)c.getThreadPool();
     }
  else     if ("Socket".equals(connectorName)) {
       final SocketConnector c=useSsl ? new SslSocketConnector(sslcontext) : new SocketConnector();
       c.setReuseAddress(true);
       c.setSoLingerTime(0);
       connector=c;
-      threadPool=(QueuedThreadPool)c.getThreadPool();
     }
  else {
       throw new IllegalArgumentException("Illegal value for system property 'tests.jettyConnector': " + connectorName);
     }
     connector.setPort(port);
     connector.setHost("127.0.0.1");
-    if (threadPool != null) {
-      threadPool.setMaxThreads(10000);
-      threadPool.setMaxIdleTimeMs(5000);
-      threadPool.setMaxStopTimeMs(30000);
-    }
+    QueuedThreadPool qtp=new QueuedThreadPool();
+    qtp.setMaxThreads(10000);
+    qtp.setMaxIdleTimeMs((int)TimeUnit.SECONDS.toMillis(5));
+    qtp.setMaxStopTimeMs((int)TimeUnit.MINUTES.toMillis(1));
+    server.setThreadPool(qtp);
     server.setConnectors(new Connector[]{connector});
     server.setSessionIdManager(new HashSessionIdManager(new Random()));
   }
  else {
-    for (    Connector connector : server.getConnectors()) {
-      QueuedThreadPool threadPool=null;
-      if (connector instanceof SocketConnector) {
-        threadPool=(QueuedThreadPool)((SocketConnector)connector).getThreadPool();
-      }
-      if (connector instanceof SelectChannelConnector) {
-        threadPool=(QueuedThreadPool)((SelectChannelConnector)connector).getThreadPool();
-      }
-      if (threadPool != null) {
-        threadPool.setMaxThreads(10000);
-        threadPool.setMaxIdleTimeMs(5000);
-        if (!stopAtShutdown) {
-          threadPool.setMaxStopTimeMs(100);
-        }
-      }
+    if (server.getThreadPool() == null) {
+      QueuedThreadPool qtp=new QueuedThreadPool();
+      qtp.setMaxThreads(10000);
+      qtp.setMaxIdleTimeMs((int)TimeUnit.SECONDS.toMillis(5));
+      qtp.setMaxStopTimeMs((int)TimeUnit.SECONDS.toMillis(1));
+      server.setThreadPool(qtp);
     }
   }
   final ServletContextHandler root=new ServletContextHandler(server,context,ServletContextHandler.SESSIONS);
