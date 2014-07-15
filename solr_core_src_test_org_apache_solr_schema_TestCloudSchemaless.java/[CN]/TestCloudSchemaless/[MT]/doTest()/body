@@ -1,0 +1,55 @@
+{
+  setupHarnesses();
+  int slices=getCommonCloudSolrServer().getZkStateReader().getClusterState().getActiveSlices("collection1").size();
+  int trials=50;
+  int numDocsPerTrial=(int)(slices * (Math.log(slices) + 1));
+  SolrServer ss=clients.get(random().nextInt(clients.size() + 1));
+  int docNumber=0;
+  for (int i=0; i < trials; ++i) {
+    List<SolrInputDocument> docs=new ArrayList<>();
+    for (int j=0; j < numDocsPerTrial; ++j) {
+      SolrInputDocument doc=new SolrInputDocument();
+      doc.addField("id",Long.toHexString(Double.doubleToLongBits(random().nextDouble())));
+      doc.addField("newTestFieldInt" + docNumber++,"123");
+      doc.addField("constantField","3.14159");
+      docs.add(doc);
+    }
+    ss.add(docs);
+  }
+  ss.commit();
+  String[] expectedFields=getExpectedFieldResponses(docNumber);
+  for (  RestTestHarness client : restTestHarnesses) {
+    String request="/schema/fields?wt=xml";
+    String response=client.query(request);
+    String result=BaseTestHarness.validateXPath(response,expectedFields);
+    if (result != null) {
+      String msg="QUERY FAILED: xpath=" + result + "  request="+ request+ "  response="+ response;
+      log.error(msg);
+      fail(msg);
+    }
+  }
+  int failTrials=50;
+  for (int i=0; i < failTrials; ++i) {
+    List<SolrInputDocument> docs=null;
+    SolrInputDocument intDoc=new SolrInputDocument();
+    intDoc.addField("id",Long.toHexString(Double.doubleToLongBits(random().nextDouble())));
+    intDoc.addField("longOrDateField" + i,"123");
+    SolrInputDocument dateDoc=new SolrInputDocument();
+    dateDoc.addField("id",Long.toHexString(Double.doubleToLongBits(random().nextDouble())));
+    dateDoc.addField("longOrDateField" + i,"1995-12-31T23:59:59Z");
+    if (random().nextBoolean()) {
+      docs=Arrays.asList(intDoc,dateDoc);
+    }
+ else {
+      docs=Arrays.asList(dateDoc,intDoc);
+    }
+    try {
+      ss.add(docs);
+      ss.commit();
+      fail("Expected Bad Request Exception");
+    }
+ catch (    SolrException se) {
+      assertEquals(ErrorCode.BAD_REQUEST,ErrorCode.getErrorCode(se.code()));
+    }
+  }
+}

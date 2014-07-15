@@ -1,13 +1,14 @@
 {
-  if (!cmd.getReq().getCore().getLatestSchema().isMutable()) {
+  if (!cmd.getReq().getSchema().isMutable()) {
     final String message="This IndexSchema is not mutable.";
     throw new SolrException(BAD_REQUEST,message);
   }
   final SolrInputDocument doc=cmd.getSolrInputDocument();
   final SolrCore core=cmd.getReq().getCore();
+  IndexSchema oldSchema=cmd.getReq().getSchema();
   for (; ; ) {
-    final IndexSchema oldSchema=core.getLatestSchema();
     List<SchemaField> newFields=new ArrayList<>();
+    FieldNameSelector selector=buildSelector(oldSchema);
     for (    final String fieldName : doc.getFieldNames()) {
       if (selector.shouldMutate(fieldName)) {
         String fieldTypeName=mapValueClassesToFieldType(doc.getField(fieldName));
@@ -31,11 +32,11 @@
       builder.append("]");
       log.debug(builder.toString());
     }
-    try {
 synchronized (oldSchema.getSchemaUpdateLock()) {
+      try {
         IndexSchema newSchema=oldSchema.addFields(newFields);
         if (null != newSchema) {
-          cmd.getReq().getCore().setLatestSchema(newSchema);
+          core.setLatestSchema(newSchema);
           cmd.getReq().updateSchemaToLatest();
           log.debug("Successfully added field(s) to the schema.");
           break;
@@ -44,12 +45,16 @@ synchronized (oldSchema.getSchemaUpdateLock()) {
           throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Failed to add fields.");
         }
       }
-    }
- catch (    ManagedIndexSchema.FieldExistsException e) {
-      log.debug("At least one field to be added already exists in the schema - retrying.");
-    }
-catch (    ManagedIndexSchema.SchemaChangedInZkException e) {
-      log.debug("Schema changed while processing request - retrying.");
+ catch (      ManagedIndexSchema.FieldExistsException e) {
+        log.error("At least one field to be added already exists in the schema - retrying.");
+        oldSchema=core.getLatestSchema();
+        cmd.getReq().updateSchemaToLatest();
+      }
+catch (      ManagedIndexSchema.SchemaChangedInZkException e) {
+        log.debug("Schema changed while processing request - retrying.");
+        oldSchema=core.getLatestSchema();
+        cmd.getReq().updateSchemaToLatest();
+      }
     }
   }
   super.processAdd(cmd);
