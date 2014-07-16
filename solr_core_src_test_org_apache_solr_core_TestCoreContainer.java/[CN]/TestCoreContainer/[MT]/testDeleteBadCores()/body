@@ -1,0 +1,22 @@
+{
+  MockCoresLocator cl=new MockCoresLocator();
+  solrHomeDirectory=createTempDir("_deleteBadCores");
+  SolrResourceLoader resourceLoader=new SolrResourceLoader(solrHomeDirectory.getAbsolutePath());
+  File instanceDir=new File(solrHomeDirectory,"_deleteBadCores");
+  System.setProperty("configsets",getFile("solr/configsets").getAbsolutePath());
+  final CoreContainer cc=new CoreContainer(resourceLoader,ConfigSolr.fromString(resourceLoader,EMPTY_SOLR_XML2),cl);
+  CoreDescriptor badcore=new CoreDescriptor(cc,"badcore",instanceDir.getAbsolutePath(),"configSet","nosuchconfigset");
+  cl.add(badcore);
+  try {
+    cc.load();
+    assertThat(cc.getCoreInitFailures().size(),is(1));
+    assertThat(cc.getCoreInitFailures().get("badcore").exception.getMessage(),containsString("nosuchconfigset"));
+    cc.unload("badcore",true,true,true);
+    assertThat(cc.getCoreInitFailures().size(),is(0));
+    SolrCore core=cc.create(new CoreDescriptor(cc,"badcore",instanceDir.getAbsolutePath(),"configSet","minimal"));
+    assertThat(core,not(nullValue()));
+  }
+  finally {
+    cc.shutdown();
+  }
+}

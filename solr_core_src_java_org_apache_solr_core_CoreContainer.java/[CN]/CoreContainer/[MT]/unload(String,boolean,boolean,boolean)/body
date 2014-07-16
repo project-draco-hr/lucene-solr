@@ -1,0 +1,34 @@
+{
+  name=checkDefault(name);
+  CoreLoadFailure loadFailure=coreInitFailures.remove(name);
+  if (loadFailure != null) {
+    SolrCore.deleteUnloadedCore(loadFailure.cd,deleteDataDir,deleteInstanceDir);
+    return;
+  }
+  CoreDescriptor cd=solrCores.getCoreDescriptor(name);
+  if (cd == null)   throw new SolrException(ErrorCode.BAD_REQUEST,"Cannot unload non-existent core [" + name + "]");
+  boolean close=solrCores.isLoadedNotPendingClose(name);
+  SolrCore core=solrCores.remove(name);
+  coresLocator.delete(this,cd);
+  if (core == null) {
+    SolrCore.deleteUnloadedCore(cd,deleteDataDir,deleteInstanceDir);
+    return;
+  }
+  if (zkSys.getZkController() != null) {
+    core.getSolrCoreState().cancelRecovery();
+  }
+  core.unloadOnClose(deleteIndexDir,deleteDataDir,deleteInstanceDir);
+  if (close)   core.close();
+  if (zkSys.getZkController() != null) {
+    try {
+      zkSys.getZkController().unregister(name,cd);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Interrupted while unregistering core [" + name + "] from cloud state");
+    }
+catch (    KeeperException e) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Error unregistering core [" + name + "] from cloud state",e);
+    }
+  }
+}

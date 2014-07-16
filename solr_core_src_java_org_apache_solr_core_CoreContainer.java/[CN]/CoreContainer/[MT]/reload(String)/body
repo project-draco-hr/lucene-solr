@@ -1,21 +1,20 @@
 {
+  name=checkDefault(name);
+  SolrCore core=solrCores.getCoreFromAnyList(name,false);
+  if (core == null)   throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core: " + name);
+  CoreDescriptor cd=core.getCoreDescriptor();
   try {
-    name=checkDefault(name);
-    SolrCore core=solrCores.getCoreFromAnyList(name,false);
-    if (core == null)     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core: " + name);
-    try {
-      solrCores.waitAddPendingCoreOps(name);
-      CoreDescriptor cd=core.getCoreDescriptor();
-      ConfigSet coreConfig=coreConfigService.getConfig(cd);
-      log.info("Reloading SolrCore '{}' using configuration from {}",cd.getName(),coreConfig.getName());
-      SolrCore newCore=core.reload(coreConfig,core);
-      registerCore(name,newCore,false);
-    }
-  finally {
-      solrCores.removeFromPendingOps(name);
-    }
+    solrCores.waitAddPendingCoreOps(name);
+    ConfigSet coreConfig=coreConfigService.getConfig(cd);
+    log.info("Reloading SolrCore '{}' using configuration from {}",cd.getName(),coreConfig.getName());
+    SolrCore newCore=core.reload(coreConfig,core);
+    registerCore(name,newCore,false);
   }
- catch (  Exception ex) {
-    throw recordAndThrow(name,"Unable to reload core: " + name,ex);
+ catch (  Exception e) {
+    coreInitFailures.put(cd.getName(),new CoreLoadFailure(cd,e));
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Unable to reload core [" + cd.getName() + "]",e);
+  }
+ finally {
+    solrCores.removeFromPendingOps(name);
   }
 }

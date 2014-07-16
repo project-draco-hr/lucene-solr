@@ -1,81 +1,8 @@
 {
   SolrParams params=req.getParams();
   String cname=params.get(CoreAdminParams.CORE);
-  Boolean closeCore=true;
-  if (!coreContainer.isLoadedNotPendingClose(cname)) {
-    closeCore=false;
-  }
-  SolrCore core=coreContainer.remove(cname);
-  try {
-    if (core == null) {
-      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No such core exists '" + cname + "'");
-    }
- else {
-      if (coreContainer.getZkController() != null) {
-        if (core != null) {
-          if (coreContainer.getZkController() != null) {
-            core.getSolrCoreState().cancelRecovery();
-          }
-        }
-      }
-      if (params.getBool(CoreAdminParams.DELETE_INDEX,false)) {
-        try {
-          core.getDirectoryFactory().remove(core.getIndexDir());
-        }
- catch (        Exception e) {
-          SolrException.log(log,"Failed to flag index dir for removal for core:" + core.getName() + " dir:"+ core.getIndexDir());
-        }
-      }
-    }
-    if (params.getBool(CoreAdminParams.DELETE_DATA_DIR,false)) {
-      try {
-        core.getDirectoryFactory().remove(core.getDataDir(),true);
-      }
- catch (      Exception e) {
-        SolrException.log(log,"Failed to flag data dir for removal for core:" + core.getName() + " dir:"+ core.getDataDir());
-      }
-    }
-    if (params.getBool(CoreAdminParams.DELETE_INSTANCE_DIR,false)) {
-      core.addCloseHook(new CloseHook(){
-        @Override public void preClose(        SolrCore core){
-        }
-        @Override public void postClose(        SolrCore core){
-          CoreDescriptor cd=core.getCoreDescriptor();
-          if (cd != null) {
-            File instanceDir=new File(cd.getInstanceDir());
-            try {
-              FileUtils.deleteDirectory(instanceDir);
-            }
- catch (            IOException e) {
-              SolrException.log(log,"Failed to delete instance dir for core:" + core.getName() + " dir:"+ instanceDir.getAbsolutePath());
-            }
-          }
-        }
-      }
-);
-    }
-  }
-  finally {
-    if (core != null) {
-      if (coreContainer.getZkController() != null) {
-        core.getSolrCoreState().cancelRecovery();
-      }
-      if (closeCore) {
-        core.close();
-      }
-      if (coreContainer.getZkController() != null) {
-        log.info("Unregistering core " + core.getName() + " from cloudstate.");
-        try {
-          coreContainer.getZkController().unregister(cname,core.getCoreDescriptor());
-        }
- catch (        InterruptedException e) {
-          Thread.currentThread().interrupt();
-          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not unregister core " + cname + " from cloudstate: "+ e.getMessage(),e);
-        }
-catch (        KeeperException e) {
-          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not unregister core " + cname + " from cloudstate: "+ e.getMessage(),e);
-        }
-      }
-    }
-  }
+  boolean deleteIndexDir=params.getBool(CoreAdminParams.DELETE_INDEX,false);
+  boolean deleteDataDir=params.getBool(CoreAdminParams.DELETE_DATA_DIR,false);
+  boolean deleteInstanceDir=params.getBool(CoreAdminParams.DELETE_INSTANCE_DIR,false);
+  coreContainer.unload(cname,deleteIndexDir,deleteDataDir,deleteInstanceDir);
 }
