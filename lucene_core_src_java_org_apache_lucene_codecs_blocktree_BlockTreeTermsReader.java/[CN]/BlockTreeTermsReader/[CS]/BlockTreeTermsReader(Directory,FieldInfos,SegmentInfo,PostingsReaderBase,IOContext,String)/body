@@ -1,2 +1,79 @@
 {
+  this.postingsReader=postingsReader;
+  this.segment=info.name;
+  in=dir.openInput(IndexFileNames.segmentFileName(segment,segmentSuffix,BlockTreeTermsWriter.TERMS_EXTENSION),ioContext);
+  boolean success=false;
+  IndexInput indexIn=null;
+  try {
+    version=readHeader(in);
+    indexIn=dir.openInput(IndexFileNames.segmentFileName(segment,segmentSuffix,BlockTreeTermsWriter.TERMS_INDEX_EXTENSION),ioContext);
+    int indexVersion=readIndexHeader(indexIn);
+    if (indexVersion != version) {
+      throw new CorruptIndexException("mixmatched version files: " + in + "="+ version+ ","+ indexIn+ "="+ indexVersion);
+    }
+    if (version >= BlockTreeTermsWriter.VERSION_CHECKSUM) {
+      CodecUtil.checksumEntireFile(indexIn);
+    }
+    postingsReader.init(in);
+    seekDir(in,dirOffset);
+    seekDir(indexIn,indexDirOffset);
+    final int numFields=in.readVInt();
+    if (numFields < 0) {
+      throw new CorruptIndexException("invalid numFields: " + numFields + " (resource="+ in+ ")");
+    }
+    for (int i=0; i < numFields; i++) {
+      final int field=in.readVInt();
+      final long numTerms=in.readVLong();
+      if (numTerms <= 0) {
+        throw new CorruptIndexException("Illegal numTerms for field number: " + field + " (resource="+ in+ ")");
+      }
+      final int numBytes=in.readVInt();
+      if (numBytes < 0) {
+        throw new CorruptIndexException("invalid rootCode for field number: " + field + ", numBytes="+ numBytes+ " (resource="+ in+ ")");
+      }
+      final BytesRef rootCode=new BytesRef(new byte[numBytes]);
+      in.readBytes(rootCode.bytes,0,numBytes);
+      rootCode.length=numBytes;
+      final FieldInfo fieldInfo=fieldInfos.fieldInfo(field);
+      if (fieldInfo == null) {
+        throw new CorruptIndexException("invalid field number: " + field + ", resource="+ in+ ")");
+      }
+      final long sumTotalTermFreq=fieldInfo.getIndexOptions() == IndexOptions.DOCS_ONLY ? -1 : in.readVLong();
+      final long sumDocFreq=in.readVLong();
+      final int docCount=in.readVInt();
+      final int longsSize=version >= BlockTreeTermsWriter.VERSION_META_ARRAY ? in.readVInt() : 0;
+      if (longsSize < 0) {
+        throw new CorruptIndexException("invalid longsSize for field: " + fieldInfo.name + ", longsSize="+ longsSize+ " (resource="+ in+ ")");
+      }
+      BytesRef minTerm, maxTerm;
+      if (version >= BlockTreeTermsWriter.VERSION_MIN_MAX_TERMS) {
+        minTerm=readBytesRef(in);
+        maxTerm=readBytesRef(in);
+      }
+ else {
+        minTerm=maxTerm=null;
+      }
+      if (docCount < 0 || docCount > info.getDocCount()) {
+        throw new CorruptIndexException("invalid docCount: " + docCount + " maxDoc: "+ info.getDocCount()+ " (resource="+ in+ ")");
+      }
+      if (sumDocFreq < docCount) {
+        throw new CorruptIndexException("invalid sumDocFreq: " + sumDocFreq + " docCount: "+ docCount+ " (resource="+ in+ ")");
+      }
+      if (sumTotalTermFreq != -1 && sumTotalTermFreq < sumDocFreq) {
+        throw new CorruptIndexException("invalid sumTotalTermFreq: " + sumTotalTermFreq + " sumDocFreq: "+ sumDocFreq+ " (resource="+ in+ ")");
+      }
+      final long indexStartFP=indexIn.readVLong();
+      FieldReader previous=fields.put(fieldInfo.name,new FieldReader(this,fieldInfo,numTerms,rootCode,sumTotalTermFreq,sumDocFreq,docCount,indexStartFP,longsSize,indexIn,minTerm,maxTerm));
+      if (previous != null) {
+        throw new CorruptIndexException("duplicate field: " + fieldInfo.name + " (resource="+ in+ ")");
+      }
+    }
+    indexIn.close();
+    success=true;
+  }
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(indexIn,this);
+    }
+  }
 }
