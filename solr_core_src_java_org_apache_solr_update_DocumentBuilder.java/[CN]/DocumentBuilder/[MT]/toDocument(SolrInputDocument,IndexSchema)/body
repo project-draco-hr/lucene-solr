@@ -1,6 +1,7 @@
 {
   Document out=new Document();
   final float docBoost=doc.getDocumentBoost();
+  Set<String> usedFields=Sets.newHashSet();
   for (  SolrInputField field : doc) {
     String name=field.getName();
     SchemaField sfield=schema.getFieldOrNull(name);
@@ -14,6 +15,8 @@
       throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: " + getID(doc,schema) + "cannot set an index-time boost, unindexed or norms are omitted for field "+ sfield.getName()+ ": "+ field.getValue());
     }
     float compoundBoost=fieldBoost * docBoost;
+    List<CopyField> copyFields=schema.getCopyFieldsList(name);
+    if (copyFields.size() == 0)     copyFields=null;
     boolean hasField=false;
     try {
       for (      Object v : field) {
@@ -24,23 +27,26 @@
         if (sfield != null) {
           used=true;
           addField(out,sfield,v,applyBoost ? compoundBoost : 1f);
+          usedFields.add(sfield.getName());
         }
-        List<CopyField> copyFields=schema.getCopyFieldsList(name);
-        for (        CopyField cf : copyFields) {
-          SchemaField destinationField=cf.getDestination();
-          final boolean destHasValues=(null != out.getField(destinationField.getName()));
-          if (!destinationField.multiValued() && destHasValues) {
-            throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: " + getID(doc,schema) + "multiple values encountered for non multiValued copy field "+ destinationField.getName()+ ": "+ v);
+        if (copyFields != null) {
+          for (          CopyField cf : copyFields) {
+            SchemaField destinationField=cf.getDestination();
+            final boolean destHasValues=usedFields.contains(destinationField.getName());
+            if (!destinationField.multiValued() && destHasValues) {
+              throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"ERROR: " + getID(doc,schema) + "multiple values encountered for non multiValued copy field "+ destinationField.getName()+ ": "+ v);
+            }
+            used=true;
+            Object val=v;
+            if (val instanceof String && cf.getMaxChars() > 0) {
+              val=cf.getLimitedValue((String)val);
+            }
+            final float destBoost=(destinationField.indexed() && !destinationField.omitNorms()) ? (destHasValues ? fieldBoost : compoundBoost) : 1.0F;
+            addField(out,destinationField,val,destBoost);
+            usedFields.add(destinationField.getName());
           }
-          used=true;
-          Object val=v;
-          if (val instanceof String && cf.getMaxChars() > 0) {
-            val=cf.getLimitedValue((String)val);
-          }
-          final float destBoost=(destinationField.indexed() && !destinationField.omitNorms()) ? (destHasValues ? fieldBoost : compoundBoost) : 1.0F;
-          addField(out,destinationField,val,destBoost);
+          fieldBoost=compoundBoost=1.0f;
         }
-        fieldBoost=compoundBoost=1.0f;
       }
     }
  catch (    SolrException ex) {
