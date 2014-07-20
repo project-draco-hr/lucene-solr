@@ -2,17 +2,24 @@
   ThreadState threadState=new ThreadState();
   List<TermState> termStates=new ArrayList<>();
   List<FieldAndTerm> termStateTerms=new ArrayList<>();
+  boolean supportsOrds=true;
   Collections.shuffle(allTerms,random());
   int upto=0;
   while (upto < allTerms.size()) {
     boolean useTermState=termStates.size() != 0 && random().nextInt(5) == 1;
+    boolean useTermOrd=supportsOrds && useTermState == false && random().nextInt(5) == 1;
     FieldAndTerm fieldAndTerm;
     TermsEnum termsEnum;
     TermState termState=null;
     if (!useTermState) {
       fieldAndTerm=allTerms.get(upto++);
       if (VERBOSE) {
-        System.out.println("\nTEST: seek to term=" + fieldAndTerm.field + ":"+ fieldAndTerm.term.utf8ToString());
+        if (useTermOrd) {
+          System.out.println("\nTEST: seek to term=" + fieldAndTerm.field + ":"+ fieldAndTerm.term.utf8ToString()+ " using ord="+ fieldAndTerm.ord);
+        }
+ else {
+          System.out.println("\nTEST: seek to term=" + fieldAndTerm.field + ":"+ fieldAndTerm.term.utf8ToString());
+        }
       }
     }
  else {
@@ -27,10 +34,37 @@
     assertNotNull(terms);
     termsEnum=terms.iterator(null);
     if (!useTermState) {
-      assertTrue(termsEnum.seekExact(fieldAndTerm.term));
+      if (useTermOrd) {
+        try {
+          termsEnum.seekExact(fieldAndTerm.ord);
+        }
+ catch (        UnsupportedOperationException uoe) {
+          supportsOrds=false;
+          assertTrue(termsEnum.seekExact(fieldAndTerm.term));
+        }
+      }
+ else {
+        assertTrue(termsEnum.seekExact(fieldAndTerm.term));
+      }
     }
  else {
       termsEnum.seekExact(fieldAndTerm.term,termState);
+    }
+    long termOrd;
+    if (supportsOrds) {
+      try {
+        termOrd=termsEnum.ord();
+      }
+ catch (      UnsupportedOperationException uoe) {
+        supportsOrds=false;
+        termOrd=-1;
+      }
+    }
+ else {
+      termOrd=-1;
+    }
+    if (termOrd != -1) {
+      assertEquals(fieldAndTerm.ord,termsEnum.ord());
     }
     boolean savedTermState=false;
     if (options.contains(Option.TERM_STATE) && !useTermState && random().nextInt(5) == 1) {
@@ -49,6 +83,56 @@
         System.out.println("TEST: try enum again on same term");
       }
       verifyEnum(threadState,fieldAndTerm.field,fieldAndTerm.term,termsEnum,maxTestOptions,maxIndexOptions,options,alwaysTestMax);
+    }
+  }
+  for (  String field : fields.keySet()) {
+    while (true) {
+      Automaton a=AutomatonTestUtil.randomAutomaton(random());
+      CompiledAutomaton ca=new CompiledAutomaton(a);
+      if (ca.type != CompiledAutomaton.AUTOMATON_TYPE.NORMAL) {
+        continue;
+      }
+      BytesRef startTerm=null;
+      if (random().nextBoolean()) {
+        RandomAcceptedStrings ras=new RandomAcceptedStrings(a);
+        for (int iter=0; iter < 100; iter++) {
+          int[] codePoints=ras.getRandomAcceptedString(random());
+          if (codePoints.length == 0) {
+            continue;
+          }
+          startTerm=new BytesRef(UnicodeUtil.newString(codePoints,0,codePoints.length));
+          break;
+        }
+        if (startTerm == null) {
+          continue;
+        }
+      }
+      TermsEnum intersected=fieldsSource.terms(field).intersect(ca,startTerm);
+      Set<BytesRef> intersectedTerms=new HashSet<BytesRef>();
+      BytesRef term;
+      while ((term=intersected.next()) != null) {
+        if (startTerm != null) {
+          assertTrue(startTerm.compareTo(term) < 0);
+        }
+        intersectedTerms.add(BytesRef.deepCopyOf(term));
+        verifyEnum(threadState,field,term,intersected,maxTestOptions,maxIndexOptions,options,alwaysTestMax);
+      }
+      if (ca.runAutomaton == null) {
+        assertTrue(intersectedTerms.isEmpty());
+      }
+ else {
+        for (        BytesRef term2 : fields.get(field).keySet()) {
+          boolean expected;
+          if (startTerm != null && startTerm.compareTo(term2) >= 0) {
+            expected=false;
+          }
+ else {
+            expected=ca.runAutomaton.run(term2.bytes,term2.offset,term2.length);
+          }
+          assertEquals("term=" + term2,expected,intersectedTerms.contains(term2));
+        }
+      }
+      break;
     }
   }
 }

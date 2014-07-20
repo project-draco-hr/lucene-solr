@@ -1,0 +1,42 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(TEST_VERSION_CURRENT,new MockAnalyzer(random()));
+  IndexWriter w=new IndexWriter(dir,iwc);
+  List<String> terms=new ArrayList<>();
+  for (int i=0; i < 36; i++) {
+    Document doc=new Document();
+    String term="" + (char)(97 + i);
+    terms.add(term);
+    if (VERBOSE) {
+      System.out.println("i=" + i + " term="+ term);
+    }
+    doc.add(newTextField("field",term,Field.Store.NO));
+    w.addDocument(doc);
+  }
+  for (int i=0; i < 128; i++) {
+    Document doc=new Document();
+    String term="m" + (char)i;
+    terms.add(term);
+    if (VERBOSE) {
+      System.out.println("i=" + i + " term="+ term+ " bytes="+ new BytesRef(term));
+    }
+    doc.add(newStringField("field",term,Field.Store.NO));
+    w.addDocument(doc);
+  }
+  w.forceMerge(1);
+  IndexReader r=DirectoryReader.open(w,true);
+  TermsEnum te=MultiFields.getTerms(r,"field").iterator(null);
+  BytesRef term;
+  int ord=0;
+  while ((term=te.next()) != null) {
+    if (VERBOSE) {
+      System.out.println("TEST: " + te.ord() + ": "+ term.utf8ToString());
+    }
+    assertEquals(ord,te.ord());
+    ord++;
+  }
+  testEnum(te,terms);
+  r.close();
+  w.close();
+  dir.close();
+}

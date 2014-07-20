@@ -16,7 +16,7 @@
     }
     fieldInfoArray[fieldUpto]=new FieldInfo(field,true,fieldUpto,false,false,true,IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS,null,DocValuesType.NUMERIC,-1,null);
     fieldUpto++;
-    SortedMap<BytesRef,Long> postings=new TreeMap<>();
+    SortedMap<BytesRef,SeedAndOrd> postings=new TreeMap<>();
     fields.put(field,postings);
     Set<String> seenTerms=new HashSet<>();
     int numTerms;
@@ -26,7 +26,8 @@
  else {
       numTerms=TestUtil.nextInt(random(),2,20);
     }
-    for (int termUpto=0; termUpto < numTerms; termUpto++) {
+    while (postings.size() < numTerms) {
+      int termUpto=postings.size();
       String term=TestUtil.randomSimpleString(random());
       if (seenTerms.contains(term)) {
         continue;
@@ -45,7 +46,7 @@
         term="verylow_" + term;
       }
       long termSeed=random().nextLong();
-      postings.put(new BytesRef(term),termSeed);
+      postings.put(new BytesRef(term),new SeedAndOrd(termSeed));
       DocsEnum docsEnum=getSeedPostings(term,termSeed,false,IndexOptions.DOCS_ONLY,true);
       int doc;
       int lastDoc=0;
@@ -53,6 +54,10 @@
         lastDoc=doc;
       }
       maxDoc=Math.max(lastDoc,maxDoc);
+    }
+    long ord=0;
+    for (    SeedAndOrd ent : postings.values()) {
+      ent.ord=ord++;
     }
   }
   fieldInfos=new FieldInfos(fieldInfoArray);
@@ -65,10 +70,11 @@
     }
   }
   allTerms=new ArrayList<>();
-  for (  Map.Entry<String,SortedMap<BytesRef,Long>> fieldEnt : fields.entrySet()) {
+  for (  Map.Entry<String,SortedMap<BytesRef,SeedAndOrd>> fieldEnt : fields.entrySet()) {
     String field=fieldEnt.getKey();
-    for (    Map.Entry<BytesRef,Long> termEnt : fieldEnt.getValue().entrySet()) {
-      allTerms.add(new FieldAndTerm(field,termEnt.getKey()));
+    long ord=0;
+    for (    Map.Entry<BytesRef,SeedAndOrd> termEnt : fieldEnt.getValue().entrySet()) {
+      allTerms.add(new FieldAndTerm(field,termEnt.getKey(),ord++));
     }
   }
   if (VERBOSE) {

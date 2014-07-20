@@ -1,0 +1,60 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  List<String> terms=new ArrayList<>();
+  for (int i=0; i < 36; i++) {
+    Document doc=new Document();
+    String term="" + (char)(97 + i);
+    terms.add(term);
+    if (VERBOSE) {
+      System.out.println("i=" + i + " term="+ term);
+    }
+    doc.add(newTextField("field",term,Field.Store.NO));
+    w.addDocument(doc);
+  }
+  for (int i=0; i < 36; i++) {
+    Document doc=new Document();
+    String term="m" + (char)(97 + i);
+    terms.add(term);
+    if (VERBOSE) {
+      System.out.println("i=" + i + " term="+ term);
+    }
+    doc.add(newTextField("field",term,Field.Store.NO));
+    w.addDocument(doc);
+  }
+  w.forceMerge(1);
+  IndexReader r=w.getReader();
+  TermsEnum te=MultiFields.getTerms(r,"field").iterator(null);
+  assertTrue(te.seekExact(new BytesRef("mo")));
+  assertEquals(27,te.ord());
+  te.seekExact(54);
+  assertEquals(new BytesRef("s"),te.term());
+  Collections.sort(terms);
+  for (int i=terms.size() - 1; i >= 0; i--) {
+    te.seekExact(i);
+    assertEquals(i,te.ord());
+    assertEquals(terms.get(i),te.term().utf8ToString());
+  }
+  int iters=atLeast(1000);
+  for (int iter=0; iter < iters; iter++) {
+    int ord=random().nextInt(terms.size());
+    BytesRef term=new BytesRef(terms.get(ord));
+    if (random().nextBoolean()) {
+      if (VERBOSE) {
+        System.out.println("TEST: iter=" + iter + " seek to ord="+ ord+ " of "+ terms.size());
+      }
+      te.seekExact(ord);
+    }
+ else {
+      if (VERBOSE) {
+        System.out.println("TEST: iter=" + iter + " seek to term="+ terms.get(ord)+ " ord="+ ord+ " of "+ terms.size());
+      }
+      te.seekExact(term);
+    }
+    assertEquals(ord,te.ord());
+    assertEquals(term,te.term());
+  }
+  r.close();
+  w.close();
+  dir.close();
+}
