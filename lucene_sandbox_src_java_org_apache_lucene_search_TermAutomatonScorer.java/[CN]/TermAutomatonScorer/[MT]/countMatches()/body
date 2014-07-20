@@ -1,0 +1,78 @@
+{
+  freq=0;
+  for (int i=0; i < numSubsOnDoc; i++) {
+    posQueue.add(subsOnDoc[i]);
+  }
+  int lastPos=-1;
+  posShift=-1;
+  while (posQueue.size() != 0) {
+    EnumAndScorer sub=posQueue.pop();
+    final int pos=sub.pos;
+    if (posShift == -1) {
+      posShift=pos;
+    }
+    if (pos + 1 - posShift >= positions.length) {
+      PosState[] newPositions=new PosState[ArrayUtil.oversize(pos + 1 - posShift,RamUsageEstimator.NUM_BYTES_OBJECT_REF)];
+      System.arraycopy(positions,0,newPositions,0,positions.length);
+      for (int i=positions.length; i < newPositions.length; i++) {
+        newPositions[i]=new PosState();
+      }
+      positions=newPositions;
+    }
+    PosState posState;
+    PosState nextPosState;
+    if (lastPos != -1) {
+      if (anyTermID != -1) {
+        int startLastPos=lastPos;
+        while (lastPos < pos) {
+          posState=getPosition(lastPos);
+          if (posState.count == 0 && lastPos > startLastPos) {
+            lastPos=pos;
+            break;
+          }
+          nextPosState=getPosition(lastPos + 1);
+          for (int i=0; i < posState.count; i++) {
+            int state=runAutomaton.step(posState.states[i],anyTermID);
+            if (state != -1) {
+              nextPosState.add(state);
+            }
+          }
+          lastPos++;
+        }
+      }
+    }
+    posState=getPosition(pos);
+    nextPosState=getPosition(pos + 1);
+    if (posState.count == 0 && nextPosState.count == 0) {
+      shift(pos);
+      posState=getPosition(pos);
+      nextPosState=getPosition(pos + 1);
+    }
+    for (int i=0; i < posState.count; i++) {
+      int state=runAutomaton.step(posState.states[i],sub.termID);
+      if (state != -1) {
+        nextPosState.add(state);
+        if (runAutomaton.isAccept(state)) {
+          freq++;
+        }
+      }
+    }
+    int state=runAutomaton.step(0,sub.termID);
+    if (state != -1) {
+      nextPosState.add(state);
+      if (runAutomaton.isAccept(state)) {
+        freq++;
+      }
+    }
+    if (sub.posLeft > 0) {
+      sub.pos=sub.posEnum.nextPosition();
+      sub.posLeft--;
+      posQueue.add(sub);
+    }
+    lastPos=pos;
+  }
+  int limit=lastPos + 1 - posShift;
+  for (int i=0; i <= limit; i++) {
+    positions[i].count=0;
+  }
+}

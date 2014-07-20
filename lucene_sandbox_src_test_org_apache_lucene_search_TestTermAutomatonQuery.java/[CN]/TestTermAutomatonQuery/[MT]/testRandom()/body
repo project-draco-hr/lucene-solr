@@ -1,0 +1,129 @@
+{
+  int numDocs=atLeast(100);
+  Directory dir=newDirectory();
+  Analyzer analyzer=new Analyzer(){
+    @Override public TokenStreamComponents createComponents(    String fieldName){
+      MockTokenizer tokenizer=new MockTokenizer(MockTokenizer.WHITESPACE,true,100);
+      tokenizer.setEnableChecks(true);
+      TokenFilter filt=new MockTokenFilter(tokenizer,MockTokenFilter.EMPTY_STOPSET);
+      filt=new RandomSynonymFilter(filt);
+      return new TokenStreamComponents(tokenizer,filt);
+    }
+  }
+;
+  IndexWriterConfig iwc=newIndexWriterConfig(TEST_VERSION_CURRENT,analyzer);
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    int numTokens=atLeast(10);
+    StringBuilder sb=new StringBuilder();
+    for (int j=0; j < numTokens; j++) {
+      sb.append(' ');
+      sb.append((char)(97 + random().nextInt(3)));
+    }
+    String contents=sb.toString();
+    doc.add(newTextField("field",contents,Field.Store.NO));
+    doc.add(new StoredField("id","" + i));
+    if (VERBOSE) {
+      System.out.println("  doc " + i + " -> "+ contents);
+    }
+    w.addDocument(doc);
+  }
+  IndexReader r=w.getReader();
+  IndexSearcher s=newSearcher(r);
+  Term[] allTerms=new Term[]{new Term("field","a"),new Term("field","b"),new Term("field","c")};
+  int numIters=atLeast(1000);
+  for (int iter=0; iter < numIters; iter++) {
+    BooleanQuery bq=new BooleanQuery();
+    int count=TestUtil.nextInt(random(),1,5);
+    Set<BytesRef> strings=new HashSet<>();
+    for (int i=0; i < count; i++) {
+      StringBuilder sb=new StringBuilder();
+      int numTokens=TestUtil.nextInt(random(),1,5);
+      for (int j=0; j < numTokens; j++) {
+        if (j > 0 && j < numTokens - 1 && random().nextInt(5) == 3) {
+          sb.append('*');
+        }
+ else {
+          sb.append((char)(97 + random().nextInt(3)));
+        }
+      }
+      String string=sb.toString();
+      MultiPhraseQuery mpq=new MultiPhraseQuery();
+      for (int j=0; j < string.length(); j++) {
+        if (string.charAt(j) == '*') {
+          mpq.add(allTerms);
+        }
+ else {
+          mpq.add(new Term("field","" + string.charAt(j)));
+        }
+      }
+      bq.add(mpq,BooleanClause.Occur.SHOULD);
+      strings.add(new BytesRef(string));
+    }
+    List<BytesRef> stringsList=new ArrayList<>(strings);
+    Collections.sort(stringsList);
+    Automaton a=Automata.makeStringUnion(stringsList);
+    TermAutomatonQuery q=new TermAutomatonQuery("field");
+    int numStates=a.getNumStates();
+    for (int i=0; i < numStates; i++) {
+      q.createState();
+      q.setAccept(i,a.isAccept(i));
+    }
+    Transition t=new Transition();
+    for (int i=0; i < numStates; i++) {
+      int transCount=a.initTransition(i,t);
+      for (int j=0; j < transCount; j++) {
+        a.getNextTransition(t);
+        for (int label=t.min; label <= t.max; label++) {
+          if ((char)label == '*') {
+            q.addAnyTransition(t.source,t.dest);
+          }
+ else {
+            q.addTransition(t.source,t.dest,"" + (char)label);
+          }
+        }
+      }
+    }
+    q.finish();
+    if (VERBOSE) {
+      System.out.println("TEST: iter=" + iter);
+      for (      BytesRef string : stringsList) {
+        System.out.println("  string: " + string.utf8ToString());
+      }
+      System.out.println(q.toDot());
+    }
+    Filter filter;
+    if (random().nextInt(5) == 1) {
+      filter=new RandomFilter(random().nextLong(),random().nextFloat());
+    }
+ else {
+      filter=null;
+    }
+    TopDocs hits1=s.search(q,filter,numDocs);
+    TopDocs hits2=s.search(bq,filter,numDocs);
+    Set<String> hits1Docs=toDocIDs(s,hits1);
+    Set<String> hits2Docs=toDocIDs(s,hits2);
+    try {
+      assertEquals(hits2.totalHits,hits1.totalHits);
+      assertEquals(hits2Docs,hits1Docs);
+    }
+ catch (    AssertionError ae) {
+      System.out.println("FAILED:");
+      for (      String id : hits1Docs) {
+        if (hits2Docs.contains(id) == false) {
+          System.out.println(String.format(Locale.ROOT,"  id=%3s matched but should not have",id));
+        }
+      }
+      for (      String id : hits2Docs) {
+        if (hits1Docs.contains(id) == false) {
+          System.out.println(String.format(Locale.ROOT,"  id=%3s did not match but should have",id));
+        }
+      }
+      throw ae;
+    }
+  }
+  w.close();
+  r.close();
+  dir.close();
+}
