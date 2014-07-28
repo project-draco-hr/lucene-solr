@@ -1,7 +1,6 @@
 {
   if (req.synchronous) {
-    servers.blockUntilFinished();
-    doRetriesIfNeeded();
+    blockAndDoRetries();
     HttpSolrServer server=new HttpSolrServer(req.node.getUrl(),servers.getHttpClient());
     try {
       server.request(req.uReq);
@@ -17,18 +16,16 @@
   if (log.isDebugEnabled()) {
     log.debug("sending update to " + req.node.getUrl() + " retry:"+ req.retries+ " "+ req.cmdString+ " params:"+ req.uReq.getParams());
   }
-  try {
-    SolrServer solrServer=servers.getSolrServer(req);
-    solrServer.request(req.uReq);
-  }
- catch (  Exception e) {
-    SolrException.log(log,e);
-    Error error=new Error();
-    error.e=e;
-    error.req=req;
-    if (e instanceof SolrException) {
-      error.statusCode=((SolrException)e).code();
+  if (isCommit) {
+    pending.add(completionService.submit(new Callable<Object>(){
+      @Override public Object call() throws Exception {
+        doRequest(req);
+        return null;
+      }
     }
-    errors.add(error);
+));
+  }
+ else {
+    doRequest(req);
   }
 }
