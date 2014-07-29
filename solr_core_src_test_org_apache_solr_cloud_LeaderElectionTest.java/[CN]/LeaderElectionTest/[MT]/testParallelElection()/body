@@ -1,0 +1,38 @@
+{
+  final int numShards=2 + random().nextInt(18);
+  log.info("Testing parallel election across " + numShards + " shards");
+  List<ClientThread> threads=new ArrayList<>();
+  try {
+    List<ClientThread> replica1s=new ArrayList<>();
+    ElectorSetup es1=new ElectorSetup(null);
+    for (int i=1; i <= numShards; i++) {
+      ClientThread thread=new ClientThread(es1,"parshard" + i,1,0);
+      threads.add(thread);
+      replica1s.add(thread);
+    }
+    startAndJoinElection(replica1s);
+    log.info("First replicas brought up and registered");
+    List<ClientThread> replica2s=new ArrayList<>();
+    ElectorSetup es2=new ElectorSetup(null);
+    for (int i=1; i <= numShards; i++) {
+      ClientThread thread=new ClientThread(es2,"parshard" + i,2,40000 / (numShards - 1));
+      threads.add(thread);
+      replica2s.add(thread);
+    }
+    startAndJoinElection(replica2s);
+    log.info("Second replicas brought up and registered");
+    es1.close();
+    for (int i=1; i <= numShards; i++) {
+      assertEquals("2/",getLeaderUrl("collection1","parshard" + i));
+    }
+  }
+  finally {
+    for (    ClientThread thread : threads) {
+      thread.close();
+      thread.interrupt();
+    }
+    for (    Thread thread : threads) {
+      thread.join();
+    }
+  }
+}
