@@ -1,68 +1,15 @@
 {
   final SolrParams params=req.getParams();
-  if (isHighlightingEnabled(params)) {
-    SolrIndexSearcher searcher=req.getSearcher();
-    int[] docIDs=toDocIDs(docs);
-    String[] keys=getUniqueKeys(searcher,docIDs);
-    int maxLength=params.getInt(HighlightParams.MAX_CHARS,PostingsHighlighter.DEFAULT_MAX_LENGTH);
-    String[] fieldNames=getHighlightFields(query,req,defaultFields);
-    int maxPassages[]=new int[fieldNames.length];
-    for (int i=0; i < fieldNames.length; i++) {
-      maxPassages[i]=params.getFieldInt(fieldNames[i],HighlightParams.SNIPPETS,1);
-    }
-    final IndexSchema schema=req.getSchema();
-    PostingsHighlighter highlighter=new PostingsHighlighter(maxLength){
-      @Override protected Passage[] getEmptyHighlight(      String fieldName,      BreakIterator bi,      int maxPassages){
-        boolean defaultSummary=params.getFieldBool(fieldName,HighlightParams.DEFAULT_SUMMARY,true);
-        if (defaultSummary) {
-          return super.getEmptyHighlight(fieldName,bi,maxPassages);
-        }
- else {
-          return new Passage[0];
-        }
-      }
-      @Override protected PassageFormatter getFormatter(      String fieldName){
-        String preTag=params.getFieldParam(fieldName,HighlightParams.TAG_PRE,"<em>");
-        String postTag=params.getFieldParam(fieldName,HighlightParams.TAG_POST,"</em>");
-        String ellipsis=params.getFieldParam(fieldName,HighlightParams.TAG_ELLIPSIS,"... ");
-        String encoder=params.getFieldParam(fieldName,HighlightParams.ENCODER,"simple");
-        return new DefaultPassageFormatter(preTag,postTag,ellipsis,"html".equals(encoder));
-      }
-      @Override protected PassageScorer getScorer(      String fieldName){
-        float k1=params.getFieldFloat(fieldName,HighlightParams.SCORE_K1,1.2f);
-        float b=params.getFieldFloat(fieldName,HighlightParams.SCORE_B,0.75f);
-        float pivot=params.getFieldFloat(fieldName,HighlightParams.SCORE_PIVOT,87f);
-        return new PassageScorer(k1,b,pivot);
-      }
-      @Override protected BreakIterator getBreakIterator(      String field){
-        String language=params.getFieldParam(field,HighlightParams.BS_LANGUAGE);
-        String country=params.getFieldParam(field,HighlightParams.BS_COUNTRY);
-        String variant=params.getFieldParam(field,HighlightParams.BS_VARIANT);
-        Locale locale=parseLocale(language,country,variant);
-        String type=params.getFieldParam(field,HighlightParams.BS_TYPE);
-        return parseBreakIterator(type,locale);
-      }
-      @Override protected char getMultiValuedSeparator(      String field){
-        String sep=params.getFieldParam(field,HighlightParams.MULTI_VALUED_SEPARATOR," ");
-        if (sep.length() != 1) {
-          throw new IllegalArgumentException(HighlightParams.MULTI_VALUED_SEPARATOR + " must be exactly one character.");
-        }
-        return sep.charAt(0);
-      }
-      @Override protected Analyzer getIndexAnalyzer(      String field){
-        if (params.getFieldBool(field,HighlightParams.HIGHLIGHT_MULTI_TERM,false)) {
-          return schema.getIndexAnalyzer();
-        }
- else {
-          return null;
-        }
-      }
-    }
-;
-    Map<String,String[]> snippets=highlighter.highlightFields(fieldNames,query,searcher,docIDs,maxPassages);
-    return encodeSnippets(keys,fieldNames,snippets);
+  if (!isHighlightingEnabled(params))   return null;
+  SolrIndexSearcher searcher=req.getSearcher();
+  int[] docIDs=toDocIDs(docs);
+  String[] keys=getUniqueKeys(searcher,docIDs);
+  String[] fieldNames=getHighlightFields(query,req,defaultFields);
+  int maxPassages[]=new int[fieldNames.length];
+  for (int i=0; i < fieldNames.length; i++) {
+    maxPassages[i]=params.getFieldInt(fieldNames[i],HighlightParams.SNIPPETS,1);
   }
- else {
-    return null;
-  }
+  PostingsHighlighter highlighter=getHighlighter(req);
+  Map<String,String[]> snippets=highlighter.highlightFields(fieldNames,query,searcher,docIDs,maxPassages);
+  return encodeSnippets(keys,fieldNames,snippets);
 }
