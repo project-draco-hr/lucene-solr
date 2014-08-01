@@ -33,8 +33,7 @@
     int id=random().nextInt(numDocs);
     writer.deleteDocuments(new Term("id",Integer.toString(id)));
   }
-  writer.shutdown();
-  DirectoryReader ir=DirectoryReader.open(dir);
+  DirectoryReader ir=writer.getReader();
   for (  AtomicReaderContext context : ir.leaves()) {
     AtomicReader r=context.reader();
     BinaryDocValues docValues=r.getBinaryDocValues("dv");
@@ -45,5 +44,18 @@
     }
   }
   ir.close();
+  writer.forceMerge(1);
+  ir=writer.getReader();
+  for (  AtomicReaderContext context : ir.leaves()) {
+    AtomicReader r=context.reader();
+    BinaryDocValues docValues=r.getBinaryDocValues("dv");
+    for (int i=0; i < r.maxDoc(); i++) {
+      BytesRef binaryValue=r.document(i).getBinaryValue("stored");
+      BytesRef scratch=docValues.get(i);
+      assertEquals(binaryValue,scratch);
+    }
+  }
+  ir.close();
+  writer.shutdown();
   dir.close();
 }
