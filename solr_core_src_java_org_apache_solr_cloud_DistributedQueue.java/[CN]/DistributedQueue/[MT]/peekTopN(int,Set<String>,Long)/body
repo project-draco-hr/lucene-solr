@@ -1,56 +1,34 @@
 {
   ArrayList<QueueEvent> topN=new ArrayList<>();
   LOG.debug("Peeking for top {} elements. ExcludeSet: " + excludeSet.toString());
-  boolean waitedEnough=false;
   TimerContext time=null;
   if (wait == Long.MAX_VALUE)   time=stats.time(dir + "_peekTopN_wait_forever");
  else   time=stats.time(dir + "_peekTopN_wait" + wait);
   try {
-    TreeMap<Long,String> orderedChildren;
-    while (true) {
-      LatchChildWatcher childWatcher=new LatchChildWatcher();
-      try {
-        orderedChildren=orderedChildren(childWatcher);
-      }
- catch (      KeeperException.NoNodeException e) {
-        zookeeper.create(dir,new byte[0],acl,CreateMode.PERSISTENT,true);
-        continue;
-      }
-      if (orderedChildren.size() == 0) {
-        if (waitedEnough)         return null;
-        childWatcher.await(wait == Long.MAX_VALUE ? DEFAULT_TIMEOUT : wait);
-        waitedEnough=wait != Long.MAX_VALUE;
-        continue;
-      }
-      for (      String headNode : orderedChildren.values()) {
-        if (headNode != null && topN.size() < n) {
-          try {
-            String id=dir + "/" + headNode;
-            if (excludeSet != null && excludeSet.contains(id))             continue;
-            QueueEvent queueEvent=new QueueEvent(id,zookeeper.getData(dir + "/" + headNode,null,null,true),null);
-            topN.add(queueEvent);
-          }
- catch (          KeeperException.NoNodeException e) {
-          }
+    TreeMap<Long,String> orderedChildren=getChildren(wait);
+    for (    String headNode : orderedChildren.values()) {
+      if (headNode != null && topN.size() < n) {
+        try {
+          String id=dir + "/" + headNode;
+          if (excludeSet != null && excludeSet.contains(id))           continue;
+          QueueEvent queueEvent=new QueueEvent(id,zookeeper.getData(dir + "/" + headNode,null,null,true),null);
+          topN.add(queueEvent);
         }
+ catch (        KeeperException.NoNodeException e) {
+        }
+      }
  else {
-          if (topN.size() >= 1) {
-            printQueueEventsListElementIds(topN);
-            return topN;
-          }
+        if (topN.size() >= 1) {
+          printQueueEventsListElementIds(topN);
+          return topN;
         }
       }
-      if (topN.size() > 0) {
-        printQueueEventsListElementIds(topN);
-        return topN;
-      }
-      if (waitedEnough) {
-        LOG.debug("Waited enough, returning null after peekTopN");
-        return null;
-      }
-      childWatcher.await(wait == Long.MAX_VALUE ? DEFAULT_TIMEOUT : wait);
-      waitedEnough=wait != Long.MAX_VALUE;
     }
+    if (topN.size() > 0) {
+      printQueueEventsListElementIds(topN);
+      return topN;
+    }
+    return null;
   }
   finally {
     time.stop();

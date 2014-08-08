@@ -10,35 +10,17 @@
     if (wait == 0) {
       return element();
     }
-    TreeMap<Long,String> orderedChildren;
-    boolean waitedEnough=false;
-    while (true) {
-      LatchChildWatcher childWatcher=new LatchChildWatcher();
+    TreeMap<Long,String> orderedChildren=getChildren(wait);
+    for (    String headNode : orderedChildren.values()) {
+      String path=dir + "/" + headNode;
       try {
-        orderedChildren=orderedChildren(childWatcher);
+        byte[] data=zookeeper.getData(path,null,null,true);
+        return new QueueEvent(path,data,null);
       }
  catch (      KeeperException.NoNodeException e) {
-        zookeeper.create(dir,new byte[0],acl,CreateMode.PERSISTENT,true);
-        continue;
-      }
-      if (waitedEnough) {
-        if (orderedChildren.isEmpty())         return null;
-      }
-      if (orderedChildren.size() == 0) {
-        childWatcher.await(wait == Long.MAX_VALUE ? DEFAULT_TIMEOUT : wait);
-        waitedEnough=wait != Long.MAX_VALUE;
-        continue;
-      }
-      for (      String headNode : orderedChildren.values()) {
-        String path=dir + "/" + headNode;
-        try {
-          byte[] data=zookeeper.getData(path,null,null,true);
-          return new QueueEvent(path,data,childWatcher.getWatchedEvent());
-        }
- catch (        KeeperException.NoNodeException e) {
-        }
       }
     }
+    return null;
   }
   finally {
     time.stop();
