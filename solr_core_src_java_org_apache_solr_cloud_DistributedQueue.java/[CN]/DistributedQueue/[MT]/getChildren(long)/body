@@ -1,6 +1,10 @@
 {
-  LatchChildWatcher watcher=childrenWatcher;
-  TreeMap<Long,String> children=new TreeMap<>();
+  LatchChildWatcher watcher;
+  TreeMap<Long,String> children;
+synchronized (childrenWatcherLock) {
+    watcher=childrenWatcher;
+    children=fetchedChildren;
+  }
   if (watcher == null || watcher.getWatchedEvent() != null) {
     watcher=new LatchChildWatcher();
     while (true) {
@@ -12,7 +16,10 @@
         zookeeper.create(dir,new byte[0],acl,CreateMode.PERSISTENT,true);
       }
     }
-    childrenWatcher=watcher;
+synchronized (childrenWatcherLock) {
+      childrenWatcher=watcher;
+      fetchedChildren=children;
+    }
   }
   while (true) {
     if (!children.isEmpty())     break;
@@ -22,5 +29,5 @@
     }
     if (wait != Long.MAX_VALUE)     break;
   }
-  return children;
+  return Collections.unmodifiableMap(children);
 }
