@@ -3,7 +3,7 @@
   Document doc=new Document();
   Field idField=newStringField("id","",Field.Store.YES);
   doc.add(idField);
-  IndexWriter writer=new IndexWriter(directory,newIndexWriterConfig(new MockAnalyzer(random())).setMaxBufferedDocs(2).setMergePolicy(newLogMergePolicy(100)));
+  IndexWriter writer=new IndexWriter(directory,newIndexWriterConfig(new MockAnalyzer(random())).setMaxBufferedDocs(2).setMergePolicy(newLogMergePolicy(100)).setCommitOnClose(false));
   for (int iter=0; iter < 10; iter++) {
     for (int j=0; j < 201; j++) {
       idField.setStringValue(Integer.toString(iter * 201 + j));
@@ -17,12 +17,17 @@
     ((LogMergePolicy)writer.getConfig().getMergePolicy()).setMergeFactor(3);
     writer.addDocument(doc);
     writer.commit();
-    writer.shutdown(false);
+    try {
+      writer.commit();
+    }
+  finally {
+      writer.close();
+    }
     IndexReader reader=DirectoryReader.open(directory);
     assertEquals((1 + iter) * 182,reader.numDocs());
     reader.close();
     writer=new IndexWriter(directory,newIndexWriterConfig(new MockAnalyzer(random())).setOpenMode(OpenMode.APPEND).setMergePolicy(newLogMergePolicy(100)).setMaxBufferedDocs(2));
   }
-  writer.shutdown();
+  writer.close();
   directory.close();
 }
