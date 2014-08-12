@@ -1,6 +1,6 @@
 {
-  BytesRef flagsScratch=new BytesRef();
-  IntsRef scratchInts=new IntsRef();
+  BytesRefBuilder flagsScratch=new BytesRefBuilder();
+  IntsRefBuilder scratchInts=new IntsRefBuilder();
   StringBuilder sb=new StringBuilder();
   File unsorted=File.createTempFile("unsorted","dat",tempDir);
   try (ByteSequencesWriter writer=new ByteSequencesWriter(unsorted)){
@@ -80,12 +80,12 @@
   sorter.sort(unsorted,sorted);
   unsorted.delete();
   ByteSequencesReader reader=new ByteSequencesReader(sorted);
-  BytesRef scratchLine=new BytesRef();
+  BytesRefBuilder scratchLine=new BytesRefBuilder();
   String currentEntry=null;
-  IntsRef currentOrds=new IntsRef();
+  IntsRefBuilder currentOrds=new IntsRefBuilder();
   String line;
   while (reader.read(scratchLine)) {
-    line=scratchLine.utf8ToString();
+    line=scratchLine.get().utf8ToString();
     String entry;
     char wordForm[];
     int end;
@@ -123,31 +123,29 @@
     }
  else {
       encodeFlags(flagsScratch,wordForm);
-      int ord=flagLookup.add(flagsScratch);
+      int ord=flagLookup.add(flagsScratch.get());
       if (ord < 0) {
         ord=(-ord) - 1;
       }
       if (cmp > 0 && currentEntry != null) {
         Util.toUTF32(currentEntry,scratchInts);
-        words.add(scratchInts,currentOrds);
+        words.add(scratchInts.get(),currentOrds.get());
       }
       if (cmp > 0 || currentEntry == null) {
         currentEntry=entry;
-        currentOrds=new IntsRef();
+        currentOrds=new IntsRefBuilder();
       }
       if (hasStemExceptions) {
-        currentOrds.grow(currentOrds.length + 2);
-        currentOrds.ints[currentOrds.length++]=ord;
-        currentOrds.ints[currentOrds.length++]=stemExceptionID;
+        currentOrds.append(ord);
+        currentOrds.append(stemExceptionID);
       }
  else {
-        currentOrds.grow(currentOrds.length + 1);
-        currentOrds.ints[currentOrds.length++]=ord;
+        currentOrds.append(ord);
       }
     }
   }
   Util.toUTF32(currentEntry,scratchInts);
-  words.add(scratchInts,currentOrds);
+  words.add(scratchInts.get(),currentOrds.get());
   reader.close();
   sorted.delete();
 }

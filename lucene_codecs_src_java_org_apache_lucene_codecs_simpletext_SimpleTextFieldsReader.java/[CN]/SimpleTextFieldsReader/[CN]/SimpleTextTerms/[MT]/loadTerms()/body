@@ -6,43 +6,41 @@
   b=new Builder<>(FST.INPUT_TYPE.BYTE1,outputs);
   IndexInput in=SimpleTextFieldsReader.this.in.clone();
   in.seek(termsStart);
-  final BytesRef lastTerm=new BytesRef(10);
+  final BytesRefBuilder lastTerm=new BytesRefBuilder();
   long lastDocsStart=-1;
   int docFreq=0;
   long totalTermFreq=0;
   FixedBitSet visitedDocs=new FixedBitSet(maxDoc);
-  final IntsRef scratchIntsRef=new IntsRef();
+  final IntsRefBuilder scratchIntsRef=new IntsRefBuilder();
   while (true) {
     SimpleTextUtil.readLine(in,scratch);
-    if (scratch.equals(END) || StringHelper.startsWith(scratch,FIELD)) {
+    if (scratch.get().equals(END) || StringHelper.startsWith(scratch.get(),FIELD)) {
       if (lastDocsStart != -1) {
-        b.add(Util.toIntsRef(lastTerm,scratchIntsRef),outputs.newPair(lastDocsStart,outputsInner.newPair((long)docFreq,totalTermFreq)));
+        b.add(Util.toIntsRef(lastTerm.get(),scratchIntsRef),outputs.newPair(lastDocsStart,outputsInner.newPair((long)docFreq,totalTermFreq)));
         sumTotalTermFreq+=totalTermFreq;
       }
       break;
     }
- else     if (StringHelper.startsWith(scratch,DOC)) {
+ else     if (StringHelper.startsWith(scratch.get(),DOC)) {
       docFreq++;
       sumDocFreq++;
-      UnicodeUtil.UTF8toUTF16(scratch.bytes,scratch.offset + DOC.length,scratch.length - DOC.length,scratchUTF16);
-      int docID=ArrayUtil.parseInt(scratchUTF16.chars,0,scratchUTF16.length);
+      scratchUTF16.copyUTF8Bytes(scratch.bytes(),DOC.length,scratch.length() - DOC.length);
+      int docID=ArrayUtil.parseInt(scratchUTF16.chars(),0,scratchUTF16.length());
       visitedDocs.set(docID);
     }
- else     if (StringHelper.startsWith(scratch,FREQ)) {
-      UnicodeUtil.UTF8toUTF16(scratch.bytes,scratch.offset + FREQ.length,scratch.length - FREQ.length,scratchUTF16);
-      totalTermFreq+=ArrayUtil.parseInt(scratchUTF16.chars,0,scratchUTF16.length);
+ else     if (StringHelper.startsWith(scratch.get(),FREQ)) {
+      scratchUTF16.copyUTF8Bytes(scratch.bytes(),FREQ.length,scratch.length() - FREQ.length);
+      totalTermFreq+=ArrayUtil.parseInt(scratchUTF16.chars(),0,scratchUTF16.length());
     }
- else     if (StringHelper.startsWith(scratch,TERM)) {
+ else     if (StringHelper.startsWith(scratch.get(),TERM)) {
       if (lastDocsStart != -1) {
-        b.add(Util.toIntsRef(lastTerm,scratchIntsRef),outputs.newPair(lastDocsStart,outputsInner.newPair((long)docFreq,totalTermFreq)));
+        b.add(Util.toIntsRef(lastTerm.get(),scratchIntsRef),outputs.newPair(lastDocsStart,outputsInner.newPair((long)docFreq,totalTermFreq)));
       }
       lastDocsStart=in.getFilePointer();
-      final int len=scratch.length - TERM.length;
-      if (len > lastTerm.length) {
-        lastTerm.grow(len);
-      }
-      System.arraycopy(scratch.bytes,TERM.length,lastTerm.bytes,0,len);
-      lastTerm.length=len;
+      final int len=scratch.length() - TERM.length;
+      lastTerm.grow(len);
+      System.arraycopy(scratch.bytes(),TERM.length,lastTerm.bytes(),0,len);
+      lastTerm.setLength(len);
       docFreq=0;
       sumTotalTermFreq+=totalTermFreq;
       totalTermFreq=0;
