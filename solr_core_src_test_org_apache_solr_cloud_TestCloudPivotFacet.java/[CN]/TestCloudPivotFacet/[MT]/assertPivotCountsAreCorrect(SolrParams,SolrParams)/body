@@ -1,0 +1,32 @@
+{
+  SolrParams initParams=SolrParams.wrapAppended(pivotParams,baseParams);
+  log.info("Doing full run: {}",initParams);
+  countNumFoundChecks=0;
+  NamedList<List<PivotField>> pivots=null;
+  try {
+    QueryResponse initResponse=cloudClient.query(initParams);
+    pivots=initResponse.getFacetPivot();
+    assertNotNull(initParams + " has null pivots?",pivots);
+    assertEquals(initParams + " num pivots",initParams.getParams("facet.pivot").length,pivots.size());
+  }
+ catch (  Exception e) {
+    throw new RuntimeException("init query failed: " + initParams + ": "+ e.getMessage(),e);
+  }
+  try {
+    for (    Map.Entry<String,List<PivotField>> pivot : pivots) {
+      final String pivotKey=pivot.getKey();
+      final int maxDepth=1 + pivotKey.length() - pivotKey.replace(",","").length();
+      assertTraceOk(pivotKey,baseParams,pivot.getValue());
+      for (      PivotField constraint : pivot.getValue()) {
+        int depth=assertPivotCountsAreCorrect(pivotKey,baseParams,constraint);
+        assertTrue("went too deep: " + depth + ": "+ pivotKey+ " ==> "+ pivot,depth <= maxDepth);
+      }
+    }
+  }
+ catch (  AssertionError e) {
+    throw new AssertionError(initParams + " ==> " + e.getMessage(),e);
+  }
+ finally {
+    log.info("Ending full run (countNumFoundChecks={}): {}",countNumFoundChecks,initParams);
+  }
+}

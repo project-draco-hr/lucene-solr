@@ -1,0 +1,279 @@
+{
+  this.stress=0;
+  handle.clear();
+  handle.put("QTime",SKIPVAL);
+  handle.put("timestamp",SKIPVAL);
+  handle.put("maxScore",SKIPVAL);
+  setupDistributedPivotFacetDocuments();
+  QueryResponse rsp=null;
+  List<PivotField> pivots=null;
+  PivotField firstInt=null;
+  PivotField firstBool=null;
+  PivotField firstDate=null;
+  PivotField firstPlace=null;
+  PivotField firstCompany=null;
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","place_s,company_t",FacetParams.FACET_LIMIT,"12");
+  pivots=rsp.getFacetPivot().get("place_s,company_t");
+  assertEquals(12,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","cardiff",257,firstPlace);
+  assertPivot("company_t","bbc",101,firstPlace.getPivot().get(0));
+  assertPivot("company_t","microsoft",56,firstPlace.getPivot().get(1));
+  rsp=query("q","does_not_exist_s:foo","rows","0","facet","true","facet.pivot","company_t",FacetParams.FACET_LIMIT,"10",FacetParams.FACET_PIVOT_MINCOUNT,"0");
+  pivots=rsp.getFacetPivot().get("company_t");
+  assertEquals(10,pivots.size());
+  for (  PivotField p : pivots) {
+    assertEquals(0,p.getCount());
+  }
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","place_s,company_t",FacetParams.FACET_LIMIT,"50",FacetParams.FACET_PIVOT_MINCOUNT,"0");
+  pivots=rsp.getFacetPivot().get("place_s,company_t");
+  assertEquals(50,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","cardiff",257,firstPlace);
+  assertPivot("company_t","bbc",101,firstPlace.getPivot().get(0));
+  assertPivot("company_t","microsoft",56,firstPlace.getPivot().get(1));
+  for (  SolrParams variableParams : new SolrParams[]{params(),params(FacetParams.FACET_OVERREQUEST_RATIO,"1",FacetParams.FACET_OVERREQUEST_COUNT,"0")}) {
+    SolrParams p=SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true","facet.sort","index","f.place_s.facet.limit","20","f.place_s.facet.offset","40","facet.pivot","place_s,company_t"),variableParams);
+    try {
+      rsp=query(p);
+      pivots=rsp.getFacetPivot().get("place_s,company_t");
+      assertEquals(20,pivots.size());
+      for (int i=0; i < 10; i++) {
+        PivotField place=pivots.get(i);
+        assertTrue(place.toString(),place.getValue().toString().endsWith("placeholder"));
+        assertEquals(3,place.getPivot().size());
+        assertPivot("company_t","bbc",6,place.getPivot().get(0));
+        assertPivot("company_t","microsoft",6,place.getPivot().get(1));
+        assertPivot("company_t","polecat",6,place.getPivot().get(2));
+      }
+      assertPivot("place_s","cardiff",257,pivots.get(10));
+      assertPivot("place_s","krakaw",1,pivots.get(11));
+      assertPivot("place_s","medical staffing network holdings, inc.",51,pivots.get(12));
+      for (int i=13; i < 20; i++) {
+        PivotField place=pivots.get(i);
+        assertTrue(place.toString(),place.getValue().toString().startsWith("placeholder"));
+        assertEquals(1,place.getPivot().size());
+        PivotField company=place.getPivot().get(0);
+        assertTrue(company.toString(),company.getValue().toString().startsWith("compholder"));
+        assertEquals(company.toString(),1,company.getCount());
+      }
+    }
+ catch (    AssertionFailedError ae) {
+      throw new AssertionError(ae.getMessage() + " <== " + p.toString(),ae);
+    }
+  }
+  for (  SolrParams facetParams : new SolrParams[]{params("facet.pivot","place_s,company_t",FacetParams.FACET_LIMIT,"4","facet.sort","index")}) {
+    SolrParams p=SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true"),facetParams);
+    try {
+      rsp=query(p);
+      pivots=rsp.getFacetPivot().get("place_s,company_t");
+      assertEquals(4,pivots.size());
+      firstPlace=pivots.get(0);
+      assertPivot("place_s","0placeholder",6,firstPlace);
+      firstCompany=firstPlace.getPivot().get(0);
+      assertPivot("company_t","bbc",6,firstCompany);
+    }
+ catch (    AssertionFailedError ae) {
+      throw new AssertionError(ae.getMessage() + " <== " + p.toString(),ae);
+    }
+  }
+  for (  SolrParams facetParams : new SolrParams[]{params("facet.pivot","place_s,company_t","facet.field","place_s"),params("facet.pivot","{!ex=ok}place_s,company_t","facet.field","{!ex=ok}place_s","fq","{!tag=ok}place_s:cardiff"),params("facet.pivot","{!ex=pl,co}place_s,company_t","fq","{!tag=pl}place_s:cardiff","fq","{!tag=co}company_t:bbc")}) {
+    rsp=query(SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true",FacetParams.FACET_LIMIT,"4"),facetParams));
+    pivots=rsp.getFacetPivot().get("place_s,company_t");
+    assertEquals(4,pivots.size());
+    firstPlace=pivots.get(0);
+    assertPivot("place_s","cardiff",257,firstPlace);
+    assertEquals(4,firstPlace.getPivot().size());
+    firstCompany=firstPlace.getPivot().get(0);
+    assertPivot("company_t","bbc",101,firstCompany);
+    rsp=query(SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true",FacetParams.FACET_LIMIT,"4","facet.sort","index"),facetParams));
+    pivots=rsp.getFacetPivot().get("place_s,company_t");
+    assertEquals(4,pivots.size());
+    firstPlace=pivots.get(0);
+    assertPivot("place_s","0placeholder",6,firstPlace);
+    assertEquals(3,firstPlace.getPivot().size());
+    firstCompany=firstPlace.getPivot().get(0);
+    assertPivot("company_t","bbc",6,firstCompany);
+    rsp=query(SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true","f.place_s.facet.limit","2","f.company_t.facet.limit","4"),facetParams));
+    pivots=rsp.getFacetPivot().get("place_s,company_t");
+    assertEquals(2,pivots.size());
+    firstPlace=pivots.get(0);
+    assertPivot("place_s","cardiff",257,firstPlace);
+    assertEquals(4,firstPlace.getPivot().size());
+    firstCompany=firstPlace.getPivot().get(0);
+    assertPivot("company_t","bbc",101,firstCompany);
+  }
+  rsp=query("q","*:*","rows","0","fq","place_s:cardiff","facet","true","facet.pivot","place_s,company_t",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("place_s,company_t");
+  assertEquals(1,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","cardiff",257,firstPlace);
+  assertEquals(4,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","bbc",101,firstCompany);
+  rsp=query("q","*:*","rows","0","fq","{!tag=ff}pay_i:[2000 TO *]","facet","true","facet.pivot","{!key=filt}place_s,company_t","facet.pivot","{!key=nofilt ex=ff}place_s,company_t",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("filt");
+  assertEquals(4,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","cardiff",105,firstPlace);
+  assertEquals(4,firstPlace.getPivot().size());
+  assertPivot("company_t","bbc",101,firstPlace.getPivot().get(0));
+  assertPivot("company_t","microsoft",54,firstPlace.getPivot().get(1));
+  pivots=rsp.getFacetPivot().get("nofilt");
+  assertEquals(4,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","cardiff",257,firstPlace);
+  assertEquals(4,firstPlace.getPivot().size());
+  assertPivot("company_t","bbc",101,firstPlace.getPivot().get(0));
+  assertPivot("company_t","microsoft",56,firstPlace.getPivot().get(1));
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","place_s,company_t","f.place_s.facet.limit","2","f.company_t.facet.limit","4","facet.offset","1");
+  pivots=rsp.getFacetPivot().get("place_s,company_t");
+  assertEquals(2,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","medical staffing network holdings, inc.",51,firstPlace);
+  assertEquals(2,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","bbc",50,firstCompany);
+  rsp=query("q","*:*","rows","0","fq","{!tag=pl}place_s:cardiff","facet","true","facet.pivot","{!ex=pl}place_s,company_t","f.place_s.facet.offset","1","f.company_t.facet.offset","2",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("place_s,company_t");
+  assertEquals(4,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","medical staffing network holdings, inc.",51,firstPlace);
+  assertEquals(1,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","polecat",50,firstCompany);
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","hiredate_dt,place_s,company_t","f.hiredate_dt.facet.limit","2","f.hiredate_dt.facet.offset","1",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("hiredate_dt,place_s,company_t");
+  assertEquals(2,pivots.size());
+  firstDate=pivots.get(0);
+  assertPivot("hiredate_dt",new Date(1346502600000L),200,firstDate);
+  assertEquals(1,firstDate.getPivot().size());
+  firstPlace=firstDate.getPivot().get(0);
+  assertPivot("place_s","cardiff",200,firstPlace);
+  assertEquals(4,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","bbc",50,firstCompany);
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","pay_i,place_s,company_t","f.pay_i.facet.limit","2","f.pay_i.facet.offset","1",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("pay_i,place_s,company_t");
+  assertEquals(2,pivots.size());
+  firstInt=pivots.get(0);
+  assertPivot("pay_i",2000,50,firstInt);
+  assertEquals(4,firstInt.getPivot().size());
+  firstPlace=firstInt.getPivot().get(0);
+  assertPivot("place_s","0placeholder",1,firstPlace);
+  assertEquals(3,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","bbc",1,firstCompany);
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","real_b,place_s,company_t","f.real_b.facet.missing","true","f.real_b.facet.limit","2",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("real_b,place_s,company_t");
+  assertEquals(3,pivots.size());
+  firstBool=pivots.get(0);
+  assertPivot("real_b",false,300,firstBool);
+  assertEquals(4,firstBool.getPivot().size());
+  firstPlace=firstBool.getPivot().get(0);
+  assertPivot("place_s","0placeholder",6,firstPlace);
+  assertEquals(3,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","bbc",6,firstCompany);
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","doesntexist_t,neitherdoi_i",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("doesntexist_t,neitherdoi_i");
+  assertEquals(0,pivots.size());
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","doesntexist_t,neitherdoi_i","facet.missing","true",FacetParams.FACET_LIMIT,"4");
+  pivots=rsp.getFacetPivot().get("doesntexist_t,neitherdoi_i");
+  assertEquals(1,pivots.size());
+  assertPivot("doesntexist_t",null,docNumber,pivots.get(0));
+  assertEquals(1,pivots.get(0).getPivot().size());
+  assertPivot("neitherdoi_i",null,docNumber,pivots.get(0).getPivot().get(0));
+  for (  SolrParams facetParams : new SolrParams[]{params(FacetParams.FACET_LIMIT,"-1","facet.pivot","place_s,company_t"),params("f.place_s.facet.limit","-1","f.company_t.facet.limit","-1","facet.pivot","place_s,company_t")}) {
+    SolrParams p=SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true","facet.sort","count"),facetParams);
+    try {
+      rsp=query(p);
+      pivots=rsp.getFacetPivot().get("place_s,company_t");
+      assertEquals(103,pivots.size());
+      firstPlace=pivots.get(0);
+      assertPivot("place_s","cardiff",257,firstPlace);
+      assertEquals(54,firstPlace.getPivot().size());
+      firstCompany=firstPlace.getPivot().get(0);
+      assertPivot("company_t","bbc",101,firstCompany);
+    }
+ catch (    AssertionFailedError ae) {
+      throw new AssertionError(ae.getMessage() + " <== " + p.toString(),ae);
+    }
+  }
+  for (  SolrParams facetParams : new SolrParams[]{params("facet.pivot","place_s,id","f.id.facet.limit","-1")}) {
+    SolrParams p=SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true","facet.sort","count"),facetParams);
+    try {
+      rsp=query(p);
+      pivots=rsp.getFacetPivot().get("place_s,id");
+      assertEquals(100,pivots.size());
+      firstPlace=pivots.get(0);
+      assertPivot("place_s","cardiff",257,firstPlace);
+      assertEquals(257,firstPlace.getPivot().size());
+    }
+ catch (    AssertionFailedError ae) {
+      throw new AssertionError(ae.getMessage() + " <== " + p.toString(),ae);
+    }
+  }
+  for (  SolrParams facetParams : new SolrParams[]{params("facet.pivot","place_s,id","f.place_s.facet.limit","-1")}) {
+    SolrParams p=SolrParams.wrapDefaults(params("q","*:*","rows","0","facet","true","facet.sort","count"),facetParams);
+    try {
+      rsp=query(p);
+      pivots=rsp.getFacetPivot().get("place_s,id");
+      assertEquals(103,pivots.size());
+      firstPlace=pivots.get(0);
+      assertPivot("place_s","cardiff",257,firstPlace);
+      assertEquals(100,firstPlace.getPivot().size());
+    }
+ catch (    AssertionFailedError ae) {
+      throw new AssertionError(ae.getMessage() + " <== " + p.toString(),ae);
+    }
+  }
+  rsp=query("q","*:*","rows","0","facet","true","facet.pivot","place_s,company_t","facet.pivot","company_t,place_s",FacetParams.FACET_PIVOT_MINCOUNT,"6");
+  pivots=rsp.getFacetPivot().get("place_s,company_t");
+  assertEquals(52,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","cardiff",257,firstPlace);
+  assertEquals(4,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","bbc",101,firstCompany);
+  pivots=rsp.getFacetPivot().get("company_t,place_s");
+  assertEquals(4,pivots.size());
+  firstCompany=pivots.get(0);
+  assertPivot("company_t","bbc",451,firstCompany);
+  assertEquals(52,firstCompany.getPivot().size());
+  firstPlace=firstCompany.getPivot().get(0);
+  assertPivot("place_s","cardiff",101,firstPlace);
+  rsp=query("q","*:*","fq","-place_s:0placeholder","rows","0","facet","true","facet.limit","1",FacetParams.FACET_OVERREQUEST_RATIO,"0",FacetParams.FACET_OVERREQUEST_COUNT,"1","facet.pivot","special_s,company_t");
+  assertEquals(docNumber - 6,rsp.getResults().getNumFound());
+  pivots=rsp.getFacetPivot().get("special_s,company_t");
+  assertEquals(1,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("special_s",SPECIAL,3,firstPlace);
+  assertEquals(1,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","microsoft",2,firstCompany);
+  rsp=query("q","*:*","fq","-place_s:0placeholder","rows","0","facet","true","facet.limit","1","facet.missing","true",FacetParams.FACET_OVERREQUEST_RATIO,"0",FacetParams.FACET_OVERREQUEST_COUNT,"2","facet.pivot","special_s,company_t");
+  assertEquals(docNumber - 6,rsp.getResults().getNumFound());
+  pivots=rsp.getFacetPivot().get("special_s,company_t");
+  assertEquals(2,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("special_s",SPECIAL,3,firstPlace);
+  assertEquals(1,firstPlace.getPivot().size());
+  firstCompany=firstPlace.getPivot().get(0);
+  assertPivot("company_t","microsoft",2,firstCompany);
+  assertPivot("special_s",null,docNumber - 6 - 3- 2,pivots.get(1));
+  rsp=query("q","*:*","rows","0","facet","true","f.bogus_x_s.facet.missing","true","f.bogus_y_s.facet.missing","true","facet.pivot","bogus_x_s,place_s,bogus_y_s,company_t",FacetParams.FACET_LIMIT,"12");
+  pivots=rsp.getFacetPivot().get("bogus_x_s,place_s,bogus_y_s,company_t");
+  assertEquals(1,pivots.size());
+  assertPivot("bogus_x_s",null,docNumber,pivots.get(0));
+  pivots=pivots.get(0).getPivot();
+  assertEquals(12,pivots.size());
+  firstPlace=pivots.get(0);
+  assertPivot("place_s","cardiff",257,firstPlace);
+  assertEquals(1,firstPlace.getPivot().size());
+  assertPivot("bogus_y_s",null,257,firstPlace.getPivot().get(0));
+  assertPivot("company_t","bbc",101,firstPlace.getPivot().get(0).getPivot().get(0));
+  assertPivot("company_t","microsoft",56,firstPlace.getPivot().get(0).getPivot().get(1));
+  this.query("q","*:*","rows","0","facet","true","facet.pivot","place_s,company_t",FacetParams.FACET_OVERREQUEST_RATIO,"10",FacetParams.FACET_OVERREQUEST_COUNT,"100");
+  this.query("q","*:*","rows","0","facet","true","facet.pivot","place_s,company_t",FacetParams.FACET_OVERREQUEST_RATIO,"0",FacetParams.FACET_OVERREQUEST_COUNT,"0");
+}

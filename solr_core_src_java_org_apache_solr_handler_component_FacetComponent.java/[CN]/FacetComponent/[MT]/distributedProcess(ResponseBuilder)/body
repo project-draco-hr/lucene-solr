@@ -4,7 +4,7 @@
   }
   if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
     for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
-      List<String> refinements=null;
+      List<String> distribFieldFacetRefinements=null;
       for (      DistribFieldFacet dff : rb._facetInfo.facets.values()) {
         if (!dff.needRefinements)         continue;
         List<String> refList=dff._toRefine[shardNum];
@@ -20,44 +20,56 @@
  else {
           facetCommand=commandPrefix + termsKeyEncoded + '}'+ dff.field;
         }
-        if (refinements == null) {
-          refinements=new ArrayList<>();
+        if (distribFieldFacetRefinements == null) {
+          distribFieldFacetRefinements=new ArrayList<>();
         }
-        refinements.add(facetCommand);
-        refinements.add(termsKey);
-        refinements.add(termsVal);
+        distribFieldFacetRefinements.add(facetCommand);
+        distribFieldFacetRefinements.add(termsKey);
+        distribFieldFacetRefinements.add(termsVal);
       }
-      if (refinements == null)       continue;
+      boolean pivotFacetRefinementRequestsExistForShard=doAnyPivotFacetRefinementRequestsExistForShard(rb._facetInfo,shardNum);
+      if (distribFieldFacetRefinements == null && !pivotFacetRefinementRequestsExistForShard) {
+        continue;
+      }
       String shard=rb.shards[shardNum];
-      ShardRequest refine=null;
+      ShardRequest shardsRefineRequest=null;
       boolean newRequest=false;
       for (      ShardRequest sreq : rb.outgoing) {
         if ((sreq.purpose & ShardRequest.PURPOSE_GET_FIELDS) != 0 && sreq.shards != null && sreq.shards.length == 1 && sreq.shards[0].equals(shard)) {
-          refine=sreq;
+          shardsRefineRequest=sreq;
           break;
         }
       }
-      if (refine == null) {
+      if (shardsRefineRequest == null) {
         newRequest=true;
-        refine=new ShardRequest();
-        refine.shards=new String[]{rb.shards[shardNum]};
-        refine.params=new ModifiableSolrParams(rb.req.getParams());
-        refine.params.remove(CommonParams.START);
-        refine.params.set(CommonParams.ROWS,"0");
+        shardsRefineRequest=new ShardRequest();
+        shardsRefineRequest.shards=new String[]{rb.shards[shardNum]};
+        shardsRefineRequest.params=new ModifiableSolrParams(rb.req.getParams());
+        shardsRefineRequest.params.remove(CommonParams.START);
+        shardsRefineRequest.params.set(CommonParams.ROWS,"0");
       }
-      refine.purpose|=ShardRequest.PURPOSE_REFINE_FACETS;
-      refine.params.set(FacetParams.FACET,"true");
-      refine.params.remove(FacetParams.FACET_FIELD);
-      refine.params.remove(FacetParams.FACET_QUERY);
-      for (int i=0; i < refinements.size(); ) {
-        String facetCommand=refinements.get(i++);
-        String termsKey=refinements.get(i++);
-        String termsVal=refinements.get(i++);
-        refine.params.add(FacetParams.FACET_FIELD,facetCommand);
-        refine.params.set(termsKey,termsVal);
+      if (distribFieldFacetRefinements != null) {
+        shardsRefineRequest.purpose|=ShardRequest.PURPOSE_REFINE_FACETS;
+        shardsRefineRequest.params.set(FacetParams.FACET,"true");
+        shardsRefineRequest.params.remove(FacetParams.FACET_FIELD);
+        shardsRefineRequest.params.remove(FacetParams.FACET_QUERY);
+        for (int i=0; i < distribFieldFacetRefinements.size(); ) {
+          String facetCommand=distribFieldFacetRefinements.get(i++);
+          String termsKey=distribFieldFacetRefinements.get(i++);
+          String termsVal=distribFieldFacetRefinements.get(i++);
+          shardsRefineRequest.params.add(FacetParams.FACET_FIELD,facetCommand);
+          shardsRefineRequest.params.set(termsKey,termsVal);
+        }
       }
       if (newRequest) {
-        rb.addRequest(this,refine);
+        rb.addRequest(this,shardsRefineRequest);
+      }
+      if (pivotFacetRefinementRequestsExistForShard) {
+        if (newRequest) {
+          shardsRefineRequest.params.remove(FacetParams.FACET_PIVOT);
+          shardsRefineRequest.params.remove(FacetParams.FACET_PIVOT_MINCOUNT);
+        }
+        enqueuePivotFacetShardRequests(null,rb,shardNum);
       }
     }
   }

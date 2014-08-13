@@ -1,0 +1,68 @@
+{
+  handle.clear();
+  handle.put("QTime",SKIPVAL);
+  handle.put("timestamp",SKIPVAL);
+  final Set<String> fieldNameSet=new HashSet<>();
+  final int numDocs=atLeast(500);
+  log.info("numDocs: {}",numDocs);
+  for (int i=1; i <= numDocs; i++) {
+    SolrInputDocument doc=buildRandomDocument(i);
+    fieldNameSet.addAll(doc.getFieldNames());
+    cloudClient.add(doc);
+  }
+  cloudClient.commit();
+  fieldNameSet.remove("id");
+  assertTrue("WTF, bogus field exists?",fieldNameSet.add("bogus_not_in_any_doc_s"));
+  final String[] fieldNames=fieldNameSet.toArray(new String[fieldNameSet.size()]);
+  Arrays.sort(fieldNames);
+  for (int i=0; i < 5; i++) {
+    String q="*:*";
+    if (random().nextBoolean()) {
+      q="id:[* TO " + TestUtil.nextInt(random(),300,numDocs) + "]";
+    }
+    ModifiableSolrParams baseP=params("rows","0","q",q);
+    if (random().nextBoolean()) {
+      baseP.add("fq","id:[* TO " + TestUtil.nextInt(random(),200,numDocs) + "]");
+    }
+    ModifiableSolrParams pivotP=params(FACET,"true",FACET_PIVOT,buildRandomPivot(fieldNames));
+    if (random().nextBoolean()) {
+      pivotP.add(FACET_PIVOT,buildRandomPivot(fieldNames));
+    }
+    pivotP.add(FACET_LIMIT,"" + TestUtil.nextInt(random(),1,17));
+    if (random().nextBoolean()) {
+      pivotP.add(FACET_OFFSET,"" + TestUtil.nextInt(random(),0,7));
+    }
+    if (random().nextBoolean()) {
+      String min="" + TestUtil.nextInt(random(),0,numDocs + 10);
+      pivotP.add(FACET_PIVOT_MINCOUNT,min);
+      baseP.add(TRACE_MIN,min);
+    }
+    if (random().nextBoolean()) {
+      String missing="" + random().nextBoolean();
+      pivotP.add(FACET_MISSING,missing);
+      baseP.add(TRACE_MISS,missing);
+    }
+    if (random().nextBoolean()) {
+      String sort=random().nextBoolean() ? "index" : "count";
+      pivotP.add(FACET_SORT,sort);
+      baseP.add(TRACE_SORT,sort);
+    }
+    if (0 == TestUtil.nextInt(random(),0,4)) {
+      pivotP.add(FACET_OVERREQUEST_COUNT,"0");
+      pivotP.add(FACET_OVERREQUEST_RATIO,"0");
+    }
+ else {
+      if (random().nextBoolean()) {
+        pivotP.add(FACET_OVERREQUEST_COUNT,"" + TestUtil.nextInt(random(),0,5));
+      }
+      if (random().nextBoolean()) {
+        float ratio=0.5F + random().nextFloat();
+        if (random().nextBoolean()) {
+          ratio*=-1;
+        }
+        pivotP.add(FACET_OVERREQUEST_RATIO,"" + ratio);
+      }
+    }
+    assertPivotCountsAreCorrect(baseP,pivotP);
+  }
+}

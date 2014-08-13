@@ -1,0 +1,36 @@
+{
+  FacetInfo fi=rb._facetInfo;
+  ShardRequest shardsRefineRequestPivot=new ShardRequest();
+  shardsRefineRequestPivot.shards=new String[]{rb.shards[shardNum]};
+  shardsRefineRequestPivot.params=new ModifiableSolrParams(rb.req.getParams());
+  shardsRefineRequestPivot.params.remove(CommonParams.START);
+  shardsRefineRequestPivot.params.set(CommonParams.ROWS,"0");
+  shardsRefineRequestPivot.purpose|=ShardRequest.PURPOSE_REFINE_PIVOT_FACETS;
+  shardsRefineRequestPivot.params.set(FacetParams.FACET,"true");
+  shardsRefineRequestPivot.params.remove(FacetParams.FACET_PIVOT_MINCOUNT);
+  shardsRefineRequestPivot.params.set(FacetParams.FACET_PIVOT_MINCOUNT,-1);
+  shardsRefineRequestPivot.params.remove(FacetParams.FACET_PIVOT);
+  shardsRefineRequestPivot.params.remove(FacetParams.FACET_OFFSET);
+  for (int pivotIndex=0; pivotIndex < fi.pivotFacets.size(); pivotIndex++) {
+    String pivotFacetKey=fi.pivotFacets.getName(pivotIndex);
+    PivotFacet pivotFacet=fi.pivotFacets.getVal(pivotIndex);
+    List<PivotFacetValue> queuedRefinementsForShard=pivotFacet.getQueuedRefinements(shardNum);
+    if (!queuedRefinementsForShard.isEmpty()) {
+      String fieldsKey=PivotFacet.REFINE_PARAM + pivotRefinementCounter;
+      String command;
+      if (pivotFacet.localParams != null) {
+        command=PIVOT_REFINE_PREFIX + pivotRefinementCounter + " "+ pivotFacet.facetStr.substring(2);
+      }
+ else {
+        command=PIVOT_REFINE_PREFIX + pivotRefinementCounter + "}"+ pivotFacet.getKey();
+      }
+      shardsRefineRequestPivot.params.add(FacetParams.FACET_PIVOT,command);
+      for (      PivotFacetValue refinementValue : queuedRefinementsForShard) {
+        String refinementStr=PivotFacetHelper.encodeRefinementValuePath(refinementValue.getValuePath());
+        shardsRefineRequestPivot.params.add(fieldsKey,refinementStr);
+      }
+    }
+    pivotRefinementCounter++;
+  }
+  rb.addRequest(this,shardsRefineRequestPivot);
+}

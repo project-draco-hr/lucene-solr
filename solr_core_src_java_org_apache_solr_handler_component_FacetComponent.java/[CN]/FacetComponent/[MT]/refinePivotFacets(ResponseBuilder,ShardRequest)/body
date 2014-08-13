@@ -1,0 +1,22 @@
+{
+  FacetInfo fi=rb._facetInfo;
+  for (  ShardResponse srsp : sreq.responses) {
+    int shardNumber=rb.getShardNum(srsp.getShard());
+    NamedList facetCounts=(NamedList)srsp.getSolrResponse().getResponse().get("facet_counts");
+    @SuppressWarnings("unchecked") NamedList<List<NamedList<Object>>> pivotFacetResponsesFromShard=(NamedList<List<NamedList<Object>>>)facetCounts.get(PIVOT_KEY);
+    if (null == pivotFacetResponsesFromShard) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No pivot refinement response from shard: " + srsp.getShard());
+    }
+    for (    Entry<String,List<NamedList<Object>>> pivotFacetResponseFromShard : pivotFacetResponsesFromShard) {
+      PivotFacet masterPivotFacet=fi.pivotFacets.get(pivotFacetResponseFromShard.getKey());
+      masterPivotFacet.mergeResponseFromShard(shardNumber,rb,pivotFacetResponseFromShard.getValue());
+      masterPivotFacet.removeAllRefinementsForShard(shardNumber);
+    }
+  }
+  if (allPivotFacetsAreFullyRefined(fi)) {
+    for (    Entry<String,PivotFacet> pf : fi.pivotFacets) {
+      pf.getValue().queuePivotRefinementRequests();
+    }
+    reQueuePivotFacetShardRequests(rb);
+  }
+}

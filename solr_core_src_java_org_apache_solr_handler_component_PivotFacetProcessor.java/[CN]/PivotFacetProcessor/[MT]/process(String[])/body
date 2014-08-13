@@ -1,0 +1,36 @@
+{
+  if (!rb.doFacets || pivots == null)   return null;
+  SimpleOrderedMap<List<NamedList<Object>>> pivotResponse=new SimpleOrderedMap<>();
+  for (  String pivotList : pivots) {
+    try {
+      this.parseParams(FacetParams.FACET_PIVOT,pivotList);
+    }
+ catch (    SyntaxError e) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,e);
+    }
+    List<String> pivotFields=StrUtils.splitSmart(facetValue,",",true);
+    if (pivotFields.size() < 1) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Pivot Facet needs at least one field name: " + pivotList);
+    }
+ else {
+      SolrIndexSearcher searcher=rb.req.getSearcher();
+      for (      String fieldName : pivotFields) {
+        SchemaField sfield=searcher.getSchema().getField(fieldName);
+        if (sfield == null) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"\"" + fieldName + "\" is not a valid field name in pivot: "+ pivotList);
+        }
+      }
+    }
+    String fieldValueKey=localParams == null ? null : localParams.get(PivotFacet.REFINE_PARAM);
+    if (fieldValueKey != null) {
+      String[] refinementValuesByField=params.getParams(PivotFacet.REFINE_PARAM + fieldValueKey);
+      for (      String refinements : refinementValuesByField) {
+        pivotResponse.addAll(processSingle(pivotFields,refinements));
+      }
+    }
+ else {
+      pivotResponse.addAll(processSingle(pivotFields,null));
+    }
+  }
+  return pivotResponse;
+}

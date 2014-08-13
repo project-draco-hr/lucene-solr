@@ -1,0 +1,33 @@
+{
+  final SolrParams originalParams=rb.req.getParams();
+  final String paramStart="f." + fieldToOverRequest + ".";
+  final int requestedLimit=originalParams.getFieldInt(fieldToOverRequest,FacetParams.FACET_LIMIT,100);
+  sreq.params.remove(paramStart + FacetParams.FACET_LIMIT);
+  final int offset=originalParams.getFieldInt(fieldToOverRequest,FacetParams.FACET_OFFSET,0);
+  sreq.params.remove(paramStart + FacetParams.FACET_OFFSET);
+  final double overRequestRatio=originalParams.getFieldDouble(fieldToOverRequest,FacetParams.FACET_OVERREQUEST_RATIO,1.5);
+  sreq.params.remove(paramStart + FacetParams.FACET_OVERREQUEST_RATIO);
+  final int overRequestCount=originalParams.getFieldInt(fieldToOverRequest,FacetParams.FACET_OVERREQUEST_COUNT,10);
+  sreq.params.remove(paramStart + FacetParams.FACET_OVERREQUEST_COUNT);
+  final int requestedMinCount=originalParams.getFieldInt(fieldToOverRequest,FacetParams.FACET_PIVOT_MINCOUNT,1);
+  sreq.params.remove(paramStart + FacetParams.FACET_PIVOT_MINCOUNT);
+  final String defaultSort=(requestedLimit > 0) ? FacetParams.FACET_SORT_COUNT : FacetParams.FACET_SORT_INDEX;
+  final String sort=originalParams.getFieldParam(fieldToOverRequest,FacetParams.FACET_SORT,defaultSort);
+  int shardLimit=requestedLimit + offset;
+  int shardMinCount=requestedMinCount;
+  if (FacetParams.FACET_SORT_INDEX.equals(sort) && 1 < requestedMinCount && 0 < requestedLimit) {
+    shardMinCount=(int)Math.ceil((double)requestedMinCount / rb.slices.length);
+    shardLimit=doOverRequestMath(shardLimit,overRequestRatio,overRequestCount);
+  }
+ else   if (FacetParams.FACET_SORT_COUNT.equals(sort)) {
+    if (0 < requestedLimit) {
+      shardLimit=doOverRequestMath(shardLimit,overRequestRatio,overRequestCount);
+      shardMinCount=0;
+    }
+ else {
+      shardMinCount=Math.min(requestedMinCount,1);
+    }
+  }
+  sreq.params.set(paramStart + FacetParams.FACET_LIMIT,shardLimit);
+  sreq.params.set(paramStart + FacetParams.FACET_PIVOT_MINCOUNT,shardMinCount);
+}
