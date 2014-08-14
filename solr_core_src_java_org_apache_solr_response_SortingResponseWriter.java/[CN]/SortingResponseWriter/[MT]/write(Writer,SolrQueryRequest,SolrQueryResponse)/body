@@ -1,0 +1,84 @@
+{
+  Exception e1=res.getException();
+  if (e1 != null) {
+    e1.printStackTrace(new PrintWriter(writer));
+    return;
+  }
+  SolrRequestInfo info=SolrRequestInfo.getRequestInfo();
+  SortSpec sortSpec=info.getResponseBuilder().getSortSpec();
+  if (sortSpec == null) {
+    throw new IOException(new SyntaxError("No sort criteria was provided."));
+  }
+  SolrIndexSearcher searcher=req.getSearcher();
+  Sort sort=searcher.weightSort(sortSpec.getSort());
+  if (sort == null) {
+    throw new IOException(new SyntaxError("No sort criteria was provided."));
+  }
+  if (sort.needsScores()) {
+    throw new IOException(new SyntaxError("Scoring is not currently supported with xsort."));
+  }
+  FixedBitSet[] sets=(FixedBitSet[])req.getContext().get("export");
+  Integer th=(Integer)req.getContext().get("totalHits");
+  if (sets == null) {
+    throw new IOException(new SyntaxError("xport RankQuery is required for xsort: rq={!xport}"));
+  }
+  int totalHits=th.intValue();
+  SolrParams params=req.getParams();
+  String fl=params.get("fl");
+  if (fl == null) {
+    throw new IOException(new SyntaxError("export field list (fl) must be specified."));
+  }
+  String[] fields=fl.split(",");
+  for (int i=0; i < fields.length; i++) {
+    if (fl.trim().equals("score")) {
+      throw new IOException(new SyntaxError("Scoring is not currently supported with xsort."));
+    }
+  }
+  FieldWriter[] fieldWriters=getFieldWriters(fields,req.getSearcher());
+  writer.write("{\"numFound\":" + totalHits + ", \"docs\":[");
+  List<AtomicReaderContext> leaves=req.getSearcher().getTopReaderContext().leaves();
+  SortDoc sortDoc=getSortDoc(req.getSearcher(),sort.getSort());
+  int count=0;
+  int queueSize=30000;
+  SortQueue queue=new SortQueue(queueSize,sortDoc);
+  SortDoc[] outDocs=new SortDoc[queueSize];
+  long total=0;
+  while (count < totalHits) {
+    boolean commaNeeded=false;
+    queue.reset();
+    SortDoc top=queue.top();
+    for (int i=0; i < leaves.size(); i++) {
+      sortDoc.setNextReader(leaves.get(i));
+      DocIdSetIterator it=sets[i].iterator();
+      int docId=-1;
+      while ((docId=it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+        sortDoc.setValues(docId);
+        if (top.lessThan(sortDoc)) {
+          top.setValues(sortDoc);
+          top=queue.updateTop();
+        }
+      }
+    }
+    int outDocsIndex=-1;
+    for (int i=0; i < queueSize; i++) {
+      SortDoc s=queue.pop();
+      if (s.docId > -1) {
+        outDocs[++outDocsIndex]=s;
+      }
+    }
+    count+=(outDocsIndex + 1);
+    for (int i=outDocsIndex; i >= 0; --i) {
+      SortDoc s=outDocs[i];
+      if (commaNeeded) {
+        writer.write(',');
+      }
+      writer.write('{');
+      writeDoc(s,leaves,fieldWriters,sets,writer);
+      writer.write('}');
+      commaNeeded=true;
+      s.reset();
+    }
+  }
+  writer.write("]}");
+  writer.flush();
+}
