@@ -1,0 +1,50 @@
+{
+  final CountDownLatch startCommit=new CountDownLatch(1);
+  final CountDownLatch finishCommit=new CountDownLatch(1);
+  InfoStream slowCommittingInfoStream=new InfoStream(){
+    @Override public void message(    String component,    String message){
+      if (message.equals("finishStartCommit")) {
+        startCommit.countDown();
+        try {
+          Thread.sleep(10);
+        }
+ catch (        InterruptedException ie) {
+          throw new ThreadInterruptedException(ie);
+        }
+      }
+    }
+    @Override public boolean isEnabled(    String component){
+      return true;
+    }
+    @Override public void close() throws IOException {
+    }
+  }
+;
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(null);
+  iwc.setInfoStream(slowCommittingInfoStream);
+  final IndexWriter iw=new IndexWriter(dir,iwc);
+  Document doc=new Document();
+  new Thread(){
+    @Override public void run(){
+      try {
+        iw.commit();
+        finishCommit.countDown();
+      }
+ catch (      IOException ioe) {
+        throw new RuntimeException(ioe);
+      }
+    }
+  }
+.start();
+  startCommit.await();
+  try {
+    iw.close();
+    fail("didn't hit exception");
+  }
+ catch (  IllegalStateException ise) {
+  }
+  finishCommit.await();
+  iw.close();
+  dir.close();
+}
