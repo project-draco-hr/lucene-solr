@@ -1,0 +1,60 @@
+{
+  Directory dir=newFSDirectory(createTempDir("dvduel"));
+  IndexWriterConfig conf=newIndexWriterConfig(new MockAnalyzer(random()));
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,conf);
+  Document doc=new Document();
+  Field idField=new StringField("id","",Field.Store.NO);
+  Field storedField=new StoredField("stored",new byte[0]);
+  Field dvField=new SortedDocValuesField("dv",new BytesRef());
+  doc.add(idField);
+  doc.add(storedField);
+  doc.add(dvField);
+  for (int i=0; i < numDocs; i++) {
+    idField.setStringValue(Integer.toString(i));
+    final int length;
+    if (minLength == maxLength) {
+      length=minLength;
+    }
+ else {
+      length=TestUtil.nextInt(random(),minLength,maxLength);
+    }
+    byte buffer[]=new byte[length];
+    random().nextBytes(buffer);
+    storedField.setBytesValue(buffer);
+    dvField.setBytesValue(buffer);
+    writer.addDocument(doc);
+    if (random().nextInt(31) == 0) {
+      writer.commit();
+    }
+  }
+  int numDeletions=random().nextInt(numDocs / 10);
+  for (int i=0; i < numDeletions; i++) {
+    int id=random().nextInt(numDocs);
+    writer.deleteDocuments(new Term("id",Integer.toString(id)));
+  }
+  DirectoryReader ir=writer.getReader();
+  for (  AtomicReaderContext context : ir.leaves()) {
+    AtomicReader r=context.reader();
+    BinaryDocValues docValues=r.getSortedDocValues("dv");
+    for (int i=0; i < r.maxDoc(); i++) {
+      BytesRef binaryValue=r.document(i).getBinaryValue("stored");
+      BytesRef scratch=docValues.get(i);
+      assertEquals(binaryValue,scratch);
+    }
+  }
+  ir.close();
+  writer.forceMerge(1);
+  ir=writer.getReader();
+  for (  AtomicReaderContext context : ir.leaves()) {
+    AtomicReader r=context.reader();
+    BinaryDocValues docValues=r.getSortedDocValues("dv");
+    for (int i=0; i < r.maxDoc(); i++) {
+      BytesRef binaryValue=r.document(i).getBinaryValue("stored");
+      BytesRef scratch=docValues.get(i);
+      assertEquals(binaryValue,scratch);
+    }
+  }
+  ir.close();
+  writer.close();
+  dir.close();
+}

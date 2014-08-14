@@ -1,0 +1,69 @@
+{
+  Directory dir=newFSDirectory(createTempDir());
+  IndexWriterConfig conf=new IndexWriterConfig(new MockAnalyzer(random()));
+  final PostingsFormat pf=new Lucene41WithOrds();
+  final DocValuesFormat dv=new Lucene410DocValuesFormat();
+  conf.setCodec(new Lucene410Codec(){
+    @Override public PostingsFormat getPostingsFormatForField(    String field){
+      return pf;
+    }
+    @Override public DocValuesFormat getDocValuesFormatForField(    String field){
+      return dv;
+    }
+  }
+);
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,conf);
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    Field idField=new StringField("id",Integer.toString(i),Field.Store.NO);
+    doc.add(idField);
+    final int length=TestUtil.nextInt(random(),minLength,maxLength);
+    int numValues=random().nextInt(17);
+    List<String> values=new ArrayList<>();
+    for (int v=0; v < numValues; v++) {
+      values.add(TestUtil.randomSimpleString(random(),minLength,length));
+    }
+    ArrayList<String> unordered=new ArrayList<>(values);
+    Collections.shuffle(unordered,random());
+    for (    String v : values) {
+      doc.add(newStringField("indexed",v,Field.Store.NO));
+    }
+    ArrayList<String> unordered2=new ArrayList<>(values);
+    Collections.shuffle(unordered2,random());
+    for (    String v : unordered2) {
+      doc.add(new SortedSetDocValuesField("dv",new BytesRef(v)));
+    }
+    writer.addDocument(doc);
+    if (random().nextInt(31) == 0) {
+      writer.commit();
+    }
+  }
+  int numDeletions=random().nextInt(numDocs / 10);
+  for (int i=0; i < numDeletions; i++) {
+    int id=random().nextInt(numDocs);
+    writer.deleteDocuments(new Term("id",Integer.toString(id)));
+  }
+  DirectoryReader ir=writer.getReader();
+  for (  AtomicReaderContext context : ir.leaves()) {
+    AtomicReader r=context.reader();
+    Terms terms=r.terms("indexed");
+    if (terms != null) {
+      TermsEnum expected=terms.iterator(null);
+      TermsEnum actual=r.getSortedSetDocValues("dv").termsEnum();
+      assertEquals(r.maxDoc(),expected,actual);
+    }
+  }
+  ir.close();
+  writer.forceMerge(1);
+  ir=writer.getReader();
+  AtomicReader ar=getOnlySegmentReader(ir);
+  Terms terms=ar.terms("indexed");
+  if (terms != null) {
+    TermsEnum expected=terms.iterator(null);
+    TermsEnum actual=ar.getSortedSetDocValues("dv").termsEnum();
+    assertEquals(ar.maxDoc(),expected,actual);
+  }
+  ir.close();
+  writer.close();
+  dir.close();
+}

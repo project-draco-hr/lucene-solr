@@ -1,0 +1,31 @@
+{
+  SortedSetEntry ss=sortedNumerics.get(field.number);
+  NumericEntry numericEntry=numerics.get(field.number);
+  final LongValues values=getNumeric(numericEntry);
+  if (ss.format == SORTED_SINGLE_VALUED) {
+    final Bits docsWithField=getMissingBits(numericEntry.missingOffset);
+    return DocValues.singleton(values,docsWithField);
+  }
+ else   if (ss.format == SORTED_WITH_ADDRESSES) {
+    final IndexInput data=this.data.clone();
+    final MonotonicBlockPackedReader ordIndex=getOrdIndexInstance(data,field,ordIndexes.get(field.number));
+    return new SortedNumericDocValues(){
+      long startOffset;
+      long endOffset;
+      @Override public void setDocument(      int doc){
+        startOffset=ordIndex.get(doc);
+        endOffset=ordIndex.get(doc + 1L);
+      }
+      @Override public long valueAt(      int index){
+        return values.get(startOffset + index);
+      }
+      @Override public int count(){
+        return (int)(endOffset - startOffset);
+      }
+    }
+;
+  }
+ else {
+    throw new AssertionError();
+  }
+}

@@ -1,0 +1,20 @@
+{
+  final ReverseTermsIndex index;
+synchronized (reverseIndexInstances) {
+    ReverseTermsIndex instance=reverseIndexInstances.get(field.number);
+    if (instance == null) {
+      instance=new ReverseTermsIndex();
+      data.seek(bytes.reverseIndexOffset);
+      long size=(bytes.count + REVERSE_INTERVAL_MASK) >>> REVERSE_INTERVAL_SHIFT;
+      instance.termAddresses=MonotonicBlockPackedReader.of(data,bytes.packedIntsVersion,bytes.blockSize,size,false);
+      long dataSize=data.readVLong();
+      PagedBytes pagedBytes=new PagedBytes(15);
+      pagedBytes.copy(data,dataSize);
+      instance.terms=pagedBytes.freeze(true);
+      reverseIndexInstances.put(field.number,instance);
+      ramBytesUsed.addAndGet(instance.termAddresses.ramBytesUsed() + instance.terms.ramBytesUsed());
+    }
+    index=instance;
+  }
+  return index;
+}
