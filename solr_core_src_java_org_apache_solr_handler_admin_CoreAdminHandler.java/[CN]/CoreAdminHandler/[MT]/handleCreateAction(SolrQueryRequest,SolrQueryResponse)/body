@@ -6,6 +6,7 @@
     log.warn("Creating a core with existing name is not allowed");
     throw new SolrException(ErrorCode.SERVER_ERROR,"Core with name '" + dcore.getName() + "' already exists.");
   }
+  boolean preExisitingZkEntry=false;
   try {
     if (coreContainer.getZkController() != null) {
       if (!Overseer.isLegacy(coreContainer.getZkController().getZkStateReader().getClusterProps())) {
@@ -13,16 +14,17 @@
           throw new SolrException(ErrorCode.SERVER_ERROR,"non legacy mode coreNodeName missing " + params);
         }
       }
+      preExisitingZkEntry=checkIfCoreNodeNameAlreadyExists(dcore);
     }
-    coreContainer.getCoresLocator().create(coreContainer,dcore);
     SolrCore core=coreContainer.create(dcore);
+    coreContainer.getCoresLocator().create(coreContainer,dcore);
     if (coreContainer.getCoresLocator() instanceof SolrXMLCoresLocator) {
       coreContainer.getCoresLocator().create(coreContainer);
     }
     rsp.add("core",core.getName());
   }
  catch (  Exception ex) {
-    if (coreContainer.isZooKeeperAware() && dcore != null) {
+    if (coreContainer.isZooKeeperAware() && dcore != null && !preExisitingZkEntry) {
       try {
         coreContainer.getZkController().unregister(dcore.getName(),dcore);
       }

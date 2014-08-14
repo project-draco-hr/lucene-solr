@@ -1,0 +1,31 @@
+{
+  String collection1="solrj_collection";
+  CollectionAdminResponse response=CollectionAdminRequest.createCollection(collection1,2,2,2,null,"conf1","myOwnField",true,cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  waitForRecoveriesToFinish(collection1,false);
+  String collection2="solrj_collection2";
+  CollectionAdminResponse response2=CollectionAdminRequest.createCollection(collection2,2,2,2,null,"conf1","myOwnField",false,cloudClient);
+  assertEquals(0,response2.getStatus());
+  assertTrue(response2.isSuccess());
+  waitForRecoveriesToFinish(collection2,false);
+  ChaosMonkey.stop(jettys.get(1));
+  ChaosMonkey.stop(jettys.get(2));
+  Thread.sleep(3000);
+  assertTrue("Timeout waiting for all live and active",ClusterStateUtil.waitForAllActiveAndLive(cloudClient.getZkStateReader(),collection1,120000));
+  assertSliceAndReplicaCount(collection1);
+  assertEquals(4,getLiveAndActiveCount(collection1));
+  assertTrue(getLiveAndActiveCount(collection2) < 4);
+  ChaosMonkey.stop(jettys);
+  ChaosMonkey.stop(controlJetty);
+  assertTrue("Timeout waiting for all not live",ClusterStateUtil.waitForAllNotLive(cloudClient.getZkStateReader(),45000));
+  ChaosMonkey.start(jettys);
+  ChaosMonkey.start(controlJetty);
+  assertTrue("Timeout waiting for all live and active",ClusterStateUtil.waitForAllActiveAndLive(cloudClient.getZkStateReader(),collection1,120000));
+  assertSliceAndReplicaCount(collection1);
+  int jettyIndex=random().nextInt(jettys.size());
+  ChaosMonkey.stop(jettys.get(jettyIndex));
+  ChaosMonkey.start(jettys.get(jettyIndex));
+  assertTrue("Timeout waiting for all live and active",ClusterStateUtil.waitForAllActiveAndLive(cloudClient.getZkStateReader(),collection1,60000));
+  assertSliceAndReplicaCount(collection1);
+}

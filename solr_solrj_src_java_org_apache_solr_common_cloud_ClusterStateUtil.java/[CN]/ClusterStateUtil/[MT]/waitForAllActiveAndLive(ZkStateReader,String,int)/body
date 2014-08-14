@@ -1,0 +1,43 @@
+{
+  long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(timeoutInMs,TimeUnit.MILLISECONDS);
+  boolean success=false;
+  while (System.nanoTime() < timeout) {
+    success=true;
+    ClusterState clusterState=zkStateReader.getClusterState();
+    if (clusterState != null) {
+      Set<String> collections;
+      if (collection != null) {
+        collections=Collections.singleton(collection);
+      }
+ else {
+        collections=clusterState.getCollections();
+      }
+      for (      String coll : collections) {
+        DocCollection docCollection=clusterState.getCollection(coll);
+        Collection<Slice> slices=docCollection.getSlices();
+        for (        Slice slice : slices) {
+          if (slice.getState().equals(Slice.ACTIVE)) {
+            Collection<Replica> replicas=slice.getReplicas();
+            for (            Replica replica : replicas) {
+              boolean live=clusterState.liveNodesContain(replica.getNodeName());
+              String state=replica.getStr(ZkStateReader.STATE_PROP);
+              if (!live || !state.equals(ZkStateReader.ACTIVE)) {
+                success=false;
+              }
+            }
+          }
+        }
+      }
+      if (!success) {
+        try {
+          Thread.sleep(TIMEOUT_POLL_MS);
+        }
+ catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+          throw new SolrException(ErrorCode.SERVER_ERROR,"Interrupted");
+        }
+      }
+    }
+  }
+  return success;
+}

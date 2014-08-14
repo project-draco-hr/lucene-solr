@@ -1,14 +1,21 @@
 {
-  close();
+  this.id=id;
+  closed=false;
+  doClose();
   log.info("Overseer (id=" + id + ") starting");
   createOverseerNode(reader.getZkClient());
   ThreadGroup tg=new ThreadGroup("Overseer state updater.");
-  updaterThread=new OverseerThread(tg,new ClusterStateUpdater(reader,id,stats));
+  updaterThread=new OverseerThread(tg,new ClusterStateUpdater(reader,id,stats),"OverseerStateUpdate-" + id);
   updaterThread.setDaemon(true);
   ThreadGroup ccTg=new ThreadGroup("Overseer collection creation process.");
   overseerCollectionProcessor=new OverseerCollectionProcessor(reader,id,shardHandler,adminPath,stats);
-  ccThread=new OverseerThread(ccTg,overseerCollectionProcessor,"Overseer-" + id);
+  ccThread=new OverseerThread(ccTg,overseerCollectionProcessor,"OverseerCollectionProcessor-" + id);
   ccThread.setDaemon(true);
+  ThreadGroup ohcfTg=new ThreadGroup("Overseer Hdfs SolrCore Failover Thread.");
+  OverseerAutoReplicaFailoverThread autoReplicaFailoverThread=new OverseerAutoReplicaFailoverThread(config,reader,updateShardHandler);
+  arfoThread=new OverseerThread(ohcfTg,autoReplicaFailoverThread,"OverseerHdfsCoreFailoverThread-" + id);
+  arfoThread.setDaemon(true);
   updaterThread.start();
   ccThread.start();
+  arfoThread.start();
 }

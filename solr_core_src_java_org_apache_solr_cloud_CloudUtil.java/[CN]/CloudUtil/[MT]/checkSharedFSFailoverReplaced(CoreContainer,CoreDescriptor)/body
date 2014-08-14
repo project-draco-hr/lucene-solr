@@ -1,0 +1,30 @@
+{
+  ZkController zkController=cc.getZkController();
+  String thisCnn=zkController.getCoreNodeName(desc);
+  String thisBaseUrl=zkController.getBaseUrl();
+  log.debug("checkSharedFSFailoverReplaced running for coreNodeName={} baseUrl={}",thisCnn,thisBaseUrl);
+  Map<String,Slice> slicesMap=zkController.getClusterState().getSlicesMap(desc.getCloudDescriptor().getCollectionName());
+  if (slicesMap != null) {
+    for (    Slice slice : slicesMap.values()) {
+      for (      Replica replica : slice.getReplicas()) {
+        String cnn=replica.getName();
+        String baseUrl=replica.getStr(ZkStateReader.BASE_URL_PROP);
+        log.debug("compare against coreNodeName={} baseUrl={}",cnn,baseUrl);
+        if (thisCnn != null && thisCnn.equals(cnn) && !thisBaseUrl.equals(baseUrl)) {
+          if (cc.getCoreNames().contains(desc.getName())) {
+            cc.unload(desc.getName());
+          }
+          File instanceDir=new File(desc.getInstanceDir());
+          try {
+            FileUtils.deleteDirectory(instanceDir);
+          }
+ catch (          IOException e) {
+            SolrException.log(log,"Failed to delete instance dir for core:" + desc.getName() + " dir:"+ instanceDir.getAbsolutePath());
+          }
+          log.error("",new SolrException(ErrorCode.SERVER_ERROR,"Will not load SolrCore " + desc.getName() + " because it has been replaced due to failover."));
+          throw new SolrException(ErrorCode.SERVER_ERROR,"Will not load SolrCore " + desc.getName() + " because it has been replaced due to failover.");
+        }
+      }
+    }
+  }
+}

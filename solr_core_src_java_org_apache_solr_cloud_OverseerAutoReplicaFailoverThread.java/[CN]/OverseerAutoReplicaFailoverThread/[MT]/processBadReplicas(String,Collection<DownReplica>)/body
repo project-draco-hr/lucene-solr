@@ -1,0 +1,23 @@
+{
+  for (  DownReplica badReplica : badReplicas) {
+    log.debug("process down replica {}",badReplica.replica.getName());
+    String baseUrl=badReplica.replica.getStr(ZkStateReader.BASE_URL_PROP);
+    Long wentBadAtNS=baseUrlForBadNodes.getIfPresent(baseUrl);
+    if (wentBadAtNS == null) {
+      log.warn("Replica {} may need to failover.",badReplica.replica.getName());
+      baseUrlForBadNodes.put(baseUrl,System.nanoTime());
+    }
+ else {
+      long elasped=System.nanoTime() - wentBadAtNS;
+      if (elasped < TimeUnit.NANOSECONDS.convert(waitAfterExpiration,TimeUnit.MILLISECONDS)) {
+        log.debug("Looks troublesome...continue. Elapsed={}",elasped + "ns");
+      }
+ else {
+        log.debug("We need to add a replica. Elapsed={}",elasped + "ns");
+        if (addReplica(collection,badReplica)) {
+          baseUrlForBadNodes.invalidate(baseUrl);
+        }
+      }
+    }
+  }
+}

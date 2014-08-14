@@ -1,24 +1,28 @@
 {
   System.setProperty("collection","control_collection");
-  String numShards=System.getProperty(ZkStateReader.NUM_SHARDS_PROP);
+  String oldNumShards=System.getProperty(ZkStateReader.NUM_SHARDS_PROP);
   System.setProperty(ZkStateReader.NUM_SHARDS_PROP,"1");
-  File controlJettyDir=createTempDir();
-  setupJettySolrHome(controlJettyDir);
-  controlJetty=createJetty(controlJettyDir,testDir + "/control/data");
-  System.clearProperty("collection");
-  if (numShards != null) {
-    System.setProperty(ZkStateReader.NUM_SHARDS_PROP,numShards);
+  try {
+    File controlJettyDir=createTempDir();
+    setupJettySolrHome(controlJettyDir);
+    controlJetty=createJetty(controlJettyDir,useJettyDataDir ? getDataDir(testDir + "/control/data") : null);
+    controlClient=createNewSolrServer(controlJetty.getLocalPort());
+    if (sliceCount <= 0) {
+      controlClientCloud=createCloudClient("control_collection");
+      controlClientCloud.connect();
+      waitForCollection(controlClientCloud.getZkStateReader(),"control_collection",0);
+      cloudClient=controlClientCloud;
+      return;
+    }
   }
+  finally {
+    System.clearProperty("collection");
+    if (oldNumShards != null) {
+      System.setProperty(ZkStateReader.NUM_SHARDS_PROP,oldNumShards);
+    }
  else {
-    System.clearProperty(ZkStateReader.NUM_SHARDS_PROP);
-  }
-  controlClient=createNewSolrServer(controlJetty.getLocalPort());
-  if (sliceCount <= 0) {
-    controlClientCloud=createCloudClient("control_collection");
-    controlClientCloud.connect();
-    waitForCollection(controlClientCloud.getZkStateReader(),"control_collection",0);
-    cloudClient=controlClientCloud;
-    return;
+      System.clearProperty(ZkStateReader.NUM_SHARDS_PROP);
+    }
   }
   initCloud();
   createJettys(numServers,checkCreatedVsState).size();
