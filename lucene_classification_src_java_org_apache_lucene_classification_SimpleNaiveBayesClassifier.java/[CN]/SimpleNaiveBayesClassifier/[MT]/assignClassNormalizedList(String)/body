@@ -1,0 +1,30 @@
+{
+  if (atomicReader == null) {
+    throw new IOException("You must first call Classifier#train");
+  }
+  List<ClassificationResult<BytesRef>> dataList=new ArrayList<>();
+  Terms terms=MultiFields.getTerms(atomicReader,classFieldName);
+  TermsEnum termsEnum=terms.iterator(null);
+  BytesRef next;
+  String[] tokenizedDoc=tokenizeDoc(inputDocument);
+  int docsWithClassSize=countDocsWithClass();
+  while ((next=termsEnum.next()) != null) {
+    double clVal=calculateLogPrior(next,docsWithClassSize) + calculateLogLikelihood(tokenizedDoc,next,docsWithClassSize);
+    dataList.add(new ClassificationResult<>(BytesRef.deepCopyOf(next),clVal));
+  }
+  ArrayList<ClassificationResult<BytesRef>> returnList=new ArrayList<>();
+  if (!dataList.isEmpty()) {
+    Collections.sort(dataList);
+    double smax=dataList.get(0).getScore();
+    double sumLog=0;
+    for (    ClassificationResult<BytesRef> cr : dataList) {
+      sumLog+=Math.exp(cr.getScore() - smax);
+    }
+    double loga=smax;
+    loga+=Math.log(sumLog);
+    for (    ClassificationResult<BytesRef> cr : dataList) {
+      returnList.add(new ClassificationResult<>(cr.getAssignedClass(),Math.exp(cr.getScore() - loga)));
+    }
+  }
+  return returnList;
+}
