@@ -1,0 +1,39 @@
+{
+  this.justCachedTerms=justCachedTerms;
+  this.docsWithClassSize=countDocsWithClass();
+  termCClassHitCache.clear();
+  cclasses.clear();
+  classTermFreq.clear();
+  Map<String,Long> frequencyMap=new HashMap<>();
+  for (  String textFieldName : textFieldNames) {
+    TermsEnum termsEnum=atomicReader.terms(textFieldName).iterator(null);
+    while (termsEnum.next() != null) {
+      BytesRef term=termsEnum.term();
+      String termText=term.utf8ToString();
+      long frequency=termsEnum.docFreq();
+      Long lastfreq=frequencyMap.get(termText);
+      if (lastfreq != null)       frequency+=lastfreq;
+      frequencyMap.put(termText,frequency);
+    }
+  }
+  for (  Map.Entry<String,Long> entry : frequencyMap.entrySet()) {
+    if (entry.getValue() > minTermOccurrenceInCache) {
+      termCClassHitCache.put(entry.getKey(),new ConcurrentHashMap<BytesRef,Integer>());
+    }
+  }
+  Terms terms=MultiFields.getTerms(atomicReader,classFieldName);
+  TermsEnum termsEnum=terms.iterator(null);
+  while ((termsEnum.next()) != null) {
+    cclasses.add(BytesRef.deepCopyOf(termsEnum.term()));
+  }
+  for (  BytesRef cclass : cclasses) {
+    double avgNumberOfUniqueTerms=0;
+    for (    String textFieldName : textFieldNames) {
+      terms=MultiFields.getTerms(atomicReader,textFieldName);
+      long numPostings=terms.getSumDocFreq();
+      avgNumberOfUniqueTerms+=numPostings / (double)terms.getDocCount();
+    }
+    int docsWithC=atomicReader.docFreq(new Term(classFieldName,cclass));
+    classTermFreq.put(cclass,avgNumberOfUniqueTerms * docsWithC);
+  }
+}
