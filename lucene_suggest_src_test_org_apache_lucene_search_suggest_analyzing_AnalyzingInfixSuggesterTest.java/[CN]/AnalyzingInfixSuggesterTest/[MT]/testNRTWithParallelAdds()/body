@@ -1,0 +1,33 @@
+{
+  String[] keys=new String[]{"python","java","c","scala","ruby","clojure","erlang","go","swift","lisp"};
+  Analyzer a=new MockAnalyzer(random(),MockTokenizer.WHITESPACE,false);
+  File tempDir=createTempDir("AIS_NRT_PERSIST_TEST");
+  AnalyzingInfixSuggester suggester=new AnalyzingInfixSuggester(TEST_VERSION_CURRENT,newFSDirectory(tempDir),a,a,3,false);
+  Thread[] multiAddThreads=new Thread[10];
+  try {
+    suggester.refresh();
+    fail("Cannot call refresh on an suggester when no docs are added to the index");
+  }
+ catch (  IllegalStateException e) {
+  }
+  for (int i=0; i < 10; i++) {
+    multiAddThreads[i]=new Thread(new IndexDocument(suggester,keys[i]));
+  }
+  for (int i=0; i < 10; i++) {
+    multiAddThreads[i].start();
+  }
+  for (int i=0; i < 10; i++) {
+    multiAddThreads[i].join();
+  }
+  suggester.refresh();
+  List<LookupResult> results=suggester.lookup(TestUtil.stringToCharSequence("python",random()),10,true,false);
+  assertEquals(1,results.size());
+  assertEquals("python",results.get(0).key);
+  suggester.commit();
+  suggester.close();
+  suggester=new AnalyzingInfixSuggester(TEST_VERSION_CURRENT,newFSDirectory(tempDir),a,a,3,false);
+  results=suggester.lookup(TestUtil.stringToCharSequence("python",random()),10,true,false);
+  assertEquals(1,results.size());
+  assertEquals("python",results.get(0).key);
+  suggester.close();
+}
