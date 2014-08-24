@@ -1,16 +1,27 @@
 {
   try {
     loglog.warn("Starting log replay " + translog + " active="+ activeLog+ " starting pos="+ recoveryInfo.positionOfStart);
+    long lastStatusTime=System.nanoTime();
     tlogReader=translog.getReader(recoveryInfo.positionOfStart);
     UpdateRequestProcessorChain processorChain=req.getCore().getUpdateProcessingChain(null);
     UpdateRequestProcessor proc=processorChain.createProcessor(req,rsp);
     long commitVersion=0;
     int operationAndFlags=0;
+    long nextCount=0;
     for (; ; ) {
       Object o=null;
       if (cancelApplyBufferUpdate)       break;
       try {
         if (testing_logReplayHook != null)         testing_logReplayHook.run();
+        if (nextCount++ % 1000 == 0) {
+          long now=System.nanoTime();
+          if (now - lastStatusTime > STATUS_TIME) {
+            lastStatusTime=now;
+            long cpos=tlogReader.currentPos();
+            long csize=tlogReader.currentSize();
+            loglog.info("log replay status {} active={} starting pos={} current pos={} current size={} % read={}",translog,activeLog,recoveryInfo.positionOfStart,cpos,csize,new DecimalFormat("###").format(cpos / (double)csize * 100));
+          }
+        }
         o=null;
         o=tlogReader.next();
         if (o == null && activeLog) {
