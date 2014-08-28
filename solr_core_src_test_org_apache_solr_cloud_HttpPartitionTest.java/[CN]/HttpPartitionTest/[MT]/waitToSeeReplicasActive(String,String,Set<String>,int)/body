@@ -1,0 +1,37 @@
+{
+  long startMs=System.currentTimeMillis();
+  ZkStateReader zkr=cloudClient.getZkStateReader();
+  zkr.updateClusterState(true);
+  ClusterState cs=zkr.getClusterState();
+  Collection<Slice> slices=cs.getActiveSlices(testCollectionName);
+  boolean allReplicasUp=false;
+  long waitMs=0L;
+  long maxWaitMs=maxWaitSecs * 1000L;
+  while (waitMs < maxWaitMs && !allReplicasUp) {
+    if (waitMs % 2000 == 0)     cloudClient.getZkStateReader().updateClusterState(true);
+    cs=cloudClient.getZkStateReader().getClusterState();
+    assertNotNull(cs);
+    Slice shard=cs.getSlice(testCollectionName,shardId);
+    assertNotNull("No Slice for " + shardId,shard);
+    allReplicasUp=true;
+    for (    Replica replica : shard.getReplicas()) {
+      if (!replicasToCheck.contains(replica.getName()))       continue;
+      String replicaState=replica.getStr(ZkStateReader.STATE_PROP);
+      if (!ZkStateReader.ACTIVE.equals(replicaState)) {
+        log.info("Replica " + replica.getName() + " is currently "+ replicaState);
+        allReplicasUp=false;
+      }
+    }
+    if (!allReplicasUp) {
+      try {
+        Thread.sleep(1000L);
+      }
+ catch (      Exception ignoreMe) {
+      }
+      waitMs+=1000L;
+    }
+  }
+  if (!allReplicasUp)   fail("Didn't see replicas " + replicasToCheck + " come up within "+ maxWaitMs+ " ms! ClusterState: "+ printClusterStateInfo());
+  long diffMs=(System.currentTimeMillis() - startMs);
+  log.info("Took " + diffMs + " ms to see replicas ["+ replicasToCheck+ "] become active.");
+}

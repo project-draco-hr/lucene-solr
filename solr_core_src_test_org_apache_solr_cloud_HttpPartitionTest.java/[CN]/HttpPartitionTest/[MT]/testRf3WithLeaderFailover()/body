@@ -28,6 +28,8 @@
   proxy0=getProxyForReplica(notLeaders.get(0));
   proxy0.close();
   sendDoc(5);
+  assertDocExists(getHttpSolrServer(leader,testCollectionName),testCollectionName,"5");
+  assertDocExists(getHttpSolrServer(notLeaders.get(1),testCollectionName),testCollectionName,"5");
   Thread.sleep(sleepMsBeforeHealPartition);
   String shouldNotBeNewLeaderNode=notLeaders.get(0).getNodeName();
   leaderJetty.stop();
@@ -51,8 +53,11 @@
     if (activeReps.size() == 2)     break;
     Thread.sleep(1000);
   }
-  List<Replica> activeReps=getActiveOrRecoveringReplicas(testCollectionName,"shard1");
-  assertTrue("Expected 2 of 3 replicas to be active but only found " + activeReps.size() + "; "+ activeReps+ "; clusterState: "+ printClusterStateInfo(),activeReps.size() == 2);
+  List<Replica> participatingReplicas=getActiveOrRecoveringReplicas(testCollectionName,"shard1");
+  assertTrue("Expected 2 of 3 replicas to be active but only found " + participatingReplicas.size() + "; "+ participatingReplicas+ "; clusterState: "+ printClusterStateInfo(),participatingReplicas.size() == 2);
   sendDoc(6);
-  assertDocsExistInAllReplicas(activeReps,testCollectionName,1,6);
+  Set<String> replicasToCheck=new HashSet<>();
+  for (  Replica stillUp : participatingReplicas)   replicasToCheck.add(stillUp.getName());
+  waitToSeeReplicasActive(testCollectionName,"shard1",replicasToCheck,20);
+  assertDocsExistInAllReplicas(participatingReplicas,testCollectionName,1,6);
 }
