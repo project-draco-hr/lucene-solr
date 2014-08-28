@@ -1,72 +1,19 @@
 def main():
-    doPrepare = ('-prepare' in sys.argv)
-    if doPrepare:
-        sys.argv.remove('-prepare')
-    try:
-        idx = sys.argv.index('-push')
-    except ValueError:
-        doPushRemote = False
-    else:
-        doPushRemote = True
-        username = sys.argv[(idx + 1)]
-        del sys.argv[idx:(idx + 2)]
-    try:
-        idx = sys.argv.index('-smoke')
-    except ValueError:
-        smokeTmpDir = None
-    else:
-        smokeTmpDir = sys.argv[(idx + 1)]
-        del sys.argv[idx:(idx + 2)]
-        if os.path.exists(smokeTmpDir):
-            print ()
-            print ('ERROR: smoke tmpDir "%s" exists; please remove first' % smokeTmpDir)
-            print ()
-            sys.exit(1)
-    try:
-        idx = sys.argv.index('-pushLocal')
-    except ValueError:
-        doPushLocal = False
-    else:
-        doPushLocal = True
-        localStagingDir = sys.argv[(idx + 1)]
-        del sys.argv[idx:(idx + 2)]
-        if os.path.exists(localStagingDir):
-            print ()
-            print ('ERROR: pushLocal dir "%s" exists; please remove first' % localStagingDir)
-            print ()
-            sys.exit(1)
-    if (doPushRemote and doPushLocal):
-        print ()
-        print 'ERROR: specify at most one of -push or -pushLocal (got both)'
-        print ()
-        sys.exit(1)
-    try:
-        idx = sys.argv.index('-sign')
-    except ValueError:
-        gpgKeyID = None
-    else:
-        gpgKeyID = sys.argv[(idx + 1)]
-        del sys.argv[idx:(idx + 2)]
-        sys.stdout.flush()
-        import getpass
-        gpgPassword = getpass.getpass('Enter GPG keystore password: ')
-    root = os.path.abspath(sys.argv[1])
-    version = sys.argv[2]
-    rcNum = int(sys.argv[3])
-    if doPrepare:
-        rev = prepare(root, version, gpgKeyID, gpgPassword, (smokeTmpDir is None))
+    c = parse_config()
+    if c.prepare:
+        rev = prepare(c.root, c.version, c.key_id, c.key_password, (key.smoke_test is None))
     else:
         os.chdir(root)
         rev = open('rev.txt', encoding='UTF-8').read()
-    if doPushRemote:
+    if c.push_remote:
         url = push(version, root, rev, rcNum, username)
-    elif doPushLocal:
-        url = pushLocal(version, root, rev, rcNum, localStagingDir)
+    elif c.push_local:
+        url = pushLocal(version, root, rev, c.rc_num, c.push_local)
     else:
         url = None
     if (url is not None):
         print ('  URL: %s' % url)
-    if (smokeTmpDir is not None):
+    if (c.smoke_test is not None):
         import smokeTestRelease
         smokeTestRelease.DEBUG = False
-        smokeTestRelease.smokeTest(url, rev, version, smokeTmpDir, (gpgKeyID is not None), '')
+        smokeTestRelease.smokeTest(url, rev, c.version, c.smoke_test, (c.sign is not None), '')
