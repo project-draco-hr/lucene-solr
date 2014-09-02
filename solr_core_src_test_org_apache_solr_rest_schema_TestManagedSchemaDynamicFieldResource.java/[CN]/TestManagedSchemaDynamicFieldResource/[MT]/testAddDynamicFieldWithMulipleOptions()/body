@@ -1,0 +1,21 @@
+{
+  assertQ("/schema/dynamicfields/newdynamicfield_*?indent=on&wt=xml","count(/response/lst[@name='dynamicField']) = 0","/response/lst[@name='responseHeader']/int[@name='status'] = '404'","/response/lst[@name='error']/int[@name='code'] = '404'");
+  assertJPut("/schema/dynamicfields/newdynamicfield_*",json("{'type':'text_en','stored':true,'indexed':false}"),"/responseHeader/status==0");
+  File managedSchemaFile=new File(tmpConfDir,"managed-schema");
+  assertTrue(managedSchemaFile.exists());
+  String managedSchemaContents=FileUtils.readFileToString(managedSchemaFile,"UTF-8");
+  Pattern newdynamicfieldStoredTrueIndexedFalsePattern=Pattern.compile("<dynamicField name=\"newdynamicfield_\\*\" type=\"text_en\"" + "(?=.*stored=\"true\")(?=.*indexed=\"false\").*/>");
+  assertTrue(newdynamicfieldStoredTrueIndexedFalsePattern.matcher(managedSchemaContents).find());
+  assertQ("/schema/dynamicfields/newdynamicfield_*?indent=on&wt=xml","count(/response/lst[@name='dynamicField']) = 1","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/lst[@name='dynamicField']/str[@name='name'] = 'newdynamicfield_*'","/response/lst[@name='dynamicField']/str[@name='type'] = 'text_en'","/response/lst[@name='dynamicField']/bool[@name='indexed'] = 'false'","/response/lst[@name='dynamicField']/bool[@name='stored'] = 'true'");
+  assertU(adoc("newdynamicfield_A","value1 value2","id","1234"));
+  assertU(commit());
+  assertQ("/schema/dynamicfields/newdynamicfield2_*?indent=on&wt=xml","count(/response/lst[@name='dynamicField']) = 0","/response/lst[@name='responseHeader']/int[@name='status'] = '404'","/response/lst[@name='error']/int[@name='code'] = '404'");
+  assertJPut("/schema/dynamicfields/newdynamicfield2_*",json("{'type':'text_en','stored':true,'indexed':true,'multiValued':true}"),"/responseHeader/status==0");
+  managedSchemaContents=FileUtils.readFileToString(managedSchemaFile,"UTF-8");
+  Pattern newdynamicfield2StoredTrueIndexedTrueMultiValuedTruePattern=Pattern.compile("<dynamicField name=\"newdynamicfield2_\\*\" type=\"text_en\" " + "(?=.*stored=\"true\")(?=.*indexed=\"true\")(?=.*multiValued=\"true\").*/>");
+  assertTrue(newdynamicfield2StoredTrueIndexedTrueMultiValuedTruePattern.matcher(managedSchemaContents).find());
+  assertQ("/schema/dynamicfields/newdynamicfield2_*?indent=on&wt=xml","count(/response/lst[@name='dynamicField']) = 1","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/lst[@name='dynamicField']/str[@name='name'] = 'newdynamicfield2_*'","/response/lst[@name='dynamicField']/str[@name='type'] = 'text_en'","/response/lst[@name='dynamicField']/bool[@name='indexed'] = 'true'","/response/lst[@name='dynamicField']/bool[@name='stored'] = 'true'","/response/lst[@name='dynamicField']/bool[@name='multiValued'] = 'true'");
+  assertU(adoc("newdynamicfield2_A","value1 value2","newdynamicfield2_A","value3 value4","id","5678"));
+  assertU(commit());
+  assertQ("/select?q=newdynamicfield2_A:value3","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='1']","count(/response/result[@name='response']/doc) = 1","/response/result[@name='response']/doc/str[@name='id'][.='5678']");
+}

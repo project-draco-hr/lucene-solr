@@ -1,0 +1,20 @@
+{
+  assertQ("/schema/dynamicfields?indent=on&wt=xml","count(/response/arr[@name='dynamicFields']/lst/str[@name]) > 0","count(/response/arr[@name='dynamicFields']/lst/str[starts-with(@name,'newfield')]) = 0");
+  assertJPost("/schema/dynamicfields",json("[{'name':'newdynamicfield_*','type':'text_en','stored':true,'indexed':false}]"),"/responseHeader/status==0");
+  File managedSchemaFile=new File(tmpConfDir,"managed-schema");
+  assertTrue(managedSchemaFile.exists());
+  String managedSchemaContents=FileUtils.readFileToString(managedSchemaFile,"UTF-8");
+  Pattern newfieldStoredTrueIndexedFalsePattern=Pattern.compile("<dynamicField name=\"newdynamicfield_\\*\" type=\"text_en\"" + "(?=.*stored=\"true\")(?=.*indexed=\"false\").*/>");
+  assertTrue(newfieldStoredTrueIndexedFalsePattern.matcher(managedSchemaContents).find());
+  assertQ("/schema/dynamicfields?indent=on&wt=xml","/response/arr[@name='dynamicFields']/lst" + "[str[@name='name']='newdynamicfield_*' and str[@name='type']='text_en'" + " and bool[@name='stored']='true' and bool[@name='indexed']='false']");
+  assertU(adoc("newdynamicfield_A","value1 value2","id","789"));
+  assertU(commit());
+  assertJPost("/schema/dynamicfields",json("[{'name':'newdynamicfield2_*','type':'text_en','stored':true,'indexed':true,'multiValued':true}]"),"/responseHeader/status==0");
+  managedSchemaContents=FileUtils.readFileToString(managedSchemaFile,"UTF-8");
+  Pattern newdynamicfield2StoredTrueIndexedTrueMultiValuedTruePattern=Pattern.compile("<dynamicField name=\"newdynamicfield2_\\*\" type=\"text_en\" " + "(?=.*stored=\"true\")(?=.*indexed=\"true\")(?=.*multiValued=\"true\").*/>");
+  assertTrue(newdynamicfield2StoredTrueIndexedTrueMultiValuedTruePattern.matcher(managedSchemaContents).find());
+  assertQ("/schema/dynamicfields?indent=on&wt=xml","/response/arr[@name='dynamicFields']/lst" + "[str[@name='name']='newdynamicfield2_*' and str[@name='type']='text_en'" + " and bool[@name='stored']='true' and bool[@name='indexed']='true' and bool[@name='multiValued']='true']");
+  assertU(adoc("newdynamicfield2_A","value1 value2","newdynamicfield2_A","value3 value4","id","790"));
+  assertU(commit());
+  assertQ("/select?q=newdynamicfield2_A:value3","/response/lst[@name='responseHeader']/int[@name='status'] = '0'","/response/result[@name='response'][@numFound='1']","count(/response/result[@name='response']/doc) = 1","/response/result[@name='response']/doc/str[@name='id'][.='790']");
+}
