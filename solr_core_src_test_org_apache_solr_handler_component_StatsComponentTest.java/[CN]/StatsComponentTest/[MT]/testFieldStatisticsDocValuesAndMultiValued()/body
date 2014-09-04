@@ -1,0 +1,28 @@
+{
+  SolrCore core=h.getCore();
+  SchemaField catDocValues=core.getLatestSchema().getField("cat_docValues");
+  assertTrue("schema no longer satisfies test requirements: cat_docValues no longer multivalued",catDocValues.multiValued());
+  assertTrue("schema no longer satisfies test requirements: cat_docValues fieldtype no longer single valued",!catDocValues.getType().isMultiValued());
+  assertTrue("schema no longer satisfies test requirements: cat_docValues no longer has docValues",catDocValues.hasDocValues());
+  List<FldType> types=new ArrayList<>();
+  types.add(new FldType("id",ONE_ONE,new SVal('A','Z',4,4)));
+  types.add(new FldType("cat_docValues",new IRange(2,2),new SVal('a','z',1,30)));
+  Doc d1=createDoc(types);
+  d1.getValues("id").set(0,"1");
+  d1.getValues("cat_docValues").set(0,"test");
+  d1.getValues("cat_docValues").set(1,"testtw");
+  updateJ(toJSON(d1),null);
+  Doc d2=createDoc(types);
+  d2.getValues("id").set(0,"2");
+  d2.getValues("cat_docValues").set(0,"test");
+  d2.getValues("cat_docValues").set(1,"testtt");
+  updateJ(toJSON(d2),null);
+  assertU(commit());
+  Map<String,String> args=new HashMap<>();
+  args.put(CommonParams.Q,"*:*");
+  args.put(StatsParams.STATS,"true");
+  args.put(StatsParams.STATS_FIELD,"cat_docValues");
+  args.put("indent","true");
+  SolrQueryRequest req=new LocalSolrQueryRequest(core,new MapSolrParams(args));
+  assertQ("test min/max on docValues and multiValued",req,"//lst[@name='cat_docValues']/str[@name='min'][.='test']","//lst[@name='cat_docValues']/str[@name='max'][.='testtw']");
+}
