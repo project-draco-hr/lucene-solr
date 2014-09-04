@@ -77,75 +77,97 @@
     }
   }
 );
-  sorter.sort(unsorted,sorted);
-  unsorted.delete();
-  ByteSequencesReader reader=new ByteSequencesReader(sorted);
-  BytesRefBuilder scratchLine=new BytesRefBuilder();
-  String currentEntry=null;
-  IntsRefBuilder currentOrds=new IntsRefBuilder();
-  String line;
-  while (reader.read(scratchLine)) {
-    line=scratchLine.get().utf8ToString();
-    String entry;
-    char wordForm[];
-    int end;
-    int flagSep=line.indexOf(FLAG_SEPARATOR);
-    if (flagSep == -1) {
-      wordForm=NOFLAGS;
-      end=line.indexOf(MORPH_SEPARATOR);
-      entry=line.substring(0,end);
+  boolean success=false;
+  try {
+    sorter.sort(unsorted,sorted);
+    success=true;
+  }
+  finally {
+    if (success) {
+      Files.delete(unsorted.toPath());
     }
  else {
-      end=line.indexOf(MORPH_SEPARATOR);
-      String flagPart=line.substring(flagSep + 1,end);
-      if (aliasCount > 0) {
-        flagPart=getAliasValue(Integer.parseInt(flagPart));
-      }
-      wordForm=flagParsingStrategy.parseFlags(flagPart);
-      Arrays.sort(wordForm);
-      entry=line.substring(0,flagSep);
-    }
-    int stemExceptionID=0;
-    if (hasStemExceptions && end + 1 < line.length()) {
-      String stemException=parseStemException(line.substring(end + 1));
-      if (stemException != null) {
-        if (stemExceptionCount == stemExceptions.length) {
-          int newSize=ArrayUtil.oversize(stemExceptionCount + 1,RamUsageEstimator.NUM_BYTES_OBJECT_REF);
-          stemExceptions=Arrays.copyOf(stemExceptions,newSize);
-        }
-        stemExceptionID=stemExceptionCount + 1;
-        stemExceptions[stemExceptionCount++]=stemException;
-      }
-    }
-    int cmp=currentEntry == null ? 1 : entry.compareTo(currentEntry);
-    if (cmp < 0) {
-      throw new IllegalArgumentException("out of order: " + entry + " < "+ currentEntry);
-    }
- else {
-      encodeFlags(flagsScratch,wordForm);
-      int ord=flagLookup.add(flagsScratch.get());
-      if (ord < 0) {
-        ord=(-ord) - 1;
-      }
-      if (cmp > 0 && currentEntry != null) {
-        Util.toUTF32(currentEntry,scratchInts);
-        words.add(scratchInts.get(),currentOrds.get());
-      }
-      if (cmp > 0 || currentEntry == null) {
-        currentEntry=entry;
-        currentOrds=new IntsRefBuilder();
-      }
-      if (hasStemExceptions) {
-        currentOrds.append(ord);
-        currentOrds.append(stemExceptionID);
-      }
- else {
-        currentOrds.append(ord);
-      }
+      IOUtils.deleteFilesIgnoringExceptions(unsorted);
     }
   }
-  Util.toUTF32(currentEntry,scratchInts);
-  words.add(scratchInts.get(),currentOrds.get());
-  reader.close();
-  sorted.delete();
+  boolean success2=false;
+  ByteSequencesReader reader=new ByteSequencesReader(sorted);
+  try {
+    BytesRefBuilder scratchLine=new BytesRefBuilder();
+    String currentEntry=null;
+    IntsRefBuilder currentOrds=new IntsRefBuilder();
+    String line;
+    while (reader.read(scratchLine)) {
+      line=scratchLine.get().utf8ToString();
+      String entry;
+      char wordForm[];
+      int end;
+      int flagSep=line.indexOf(FLAG_SEPARATOR);
+      if (flagSep == -1) {
+        wordForm=NOFLAGS;
+        end=line.indexOf(MORPH_SEPARATOR);
+        entry=line.substring(0,end);
+      }
+ else {
+        end=line.indexOf(MORPH_SEPARATOR);
+        String flagPart=line.substring(flagSep + 1,end);
+        if (aliasCount > 0) {
+          flagPart=getAliasValue(Integer.parseInt(flagPart));
+        }
+        wordForm=flagParsingStrategy.parseFlags(flagPart);
+        Arrays.sort(wordForm);
+        entry=line.substring(0,flagSep);
+      }
+      int stemExceptionID=0;
+      if (hasStemExceptions && end + 1 < line.length()) {
+        String stemException=parseStemException(line.substring(end + 1));
+        if (stemException != null) {
+          if (stemExceptionCount == stemExceptions.length) {
+            int newSize=ArrayUtil.oversize(stemExceptionCount + 1,RamUsageEstimator.NUM_BYTES_OBJECT_REF);
+            stemExceptions=Arrays.copyOf(stemExceptions,newSize);
+          }
+          stemExceptionID=stemExceptionCount + 1;
+          stemExceptions[stemExceptionCount++]=stemException;
+        }
+      }
+      int cmp=currentEntry == null ? 1 : entry.compareTo(currentEntry);
+      if (cmp < 0) {
+        throw new IllegalArgumentException("out of order: " + entry + " < "+ currentEntry);
+      }
+ else {
+        encodeFlags(flagsScratch,wordForm);
+        int ord=flagLookup.add(flagsScratch.get());
+        if (ord < 0) {
+          ord=(-ord) - 1;
+        }
+        if (cmp > 0 && currentEntry != null) {
+          Util.toUTF32(currentEntry,scratchInts);
+          words.add(scratchInts.get(),currentOrds.get());
+        }
+        if (cmp > 0 || currentEntry == null) {
+          currentEntry=entry;
+          currentOrds=new IntsRefBuilder();
+        }
+        if (hasStemExceptions) {
+          currentOrds.append(ord);
+          currentOrds.append(stemExceptionID);
+        }
+ else {
+          currentOrds.append(ord);
+        }
+      }
+    }
+    Util.toUTF32(currentEntry,scratchInts);
+    words.add(scratchInts.get(),currentOrds.get());
+    success2=true;
+  }
+  finally {
+    IOUtils.closeWhileHandlingException(reader);
+    if (success2) {
+      Files.delete(sorted.toPath());
+    }
+ else {
+      IOUtils.deleteFilesIgnoringExceptions(sorted);
+    }
+  }
 }
