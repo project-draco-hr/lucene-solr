@@ -1,0 +1,48 @@
+{
+  if (!isMutable) {
+    String msg="This ManagedIndexSchema is not mutable.";
+    log.error(msg);
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+  }
+  ManagedIndexSchema newSchema=shallowCopy(true);
+  HashMap<String,FieldType> clone=(HashMap<String,FieldType>)((HashMap<String,FieldType>)newSchema.fieldTypes).clone();
+  newSchema.fieldTypes=clone;
+  for (  FieldType fieldType : fieldTypeList) {
+    String typeName=fieldType.getTypeName();
+    if (newSchema.getFieldTypeByName(typeName) != null) {
+      throw new FieldExistsException(ErrorCode.BAD_REQUEST,"Field type '" + typeName + "' already exists!");
+    }
+    newSchema.fieldTypes.put(typeName,fieldType);
+  }
+  for (  SchemaAware aware : newSchema.schemaAware)   aware.inform(newSchema);
+  for (  FieldType fieldType : fieldTypeList) {
+    if (fieldType.supportsAnalyzers()) {
+      Analyzer indexAnalyzer=fieldType.getIndexAnalyzer();
+      if (indexAnalyzer != null && indexAnalyzer instanceof TokenizerChain)       informResourceLoaderAwareObjectsInChain((TokenizerChain)indexAnalyzer);
+      Analyzer queryAnalyzer=fieldType.getQueryAnalyzer();
+      if (queryAnalyzer != null && queryAnalyzer != indexAnalyzer && queryAnalyzer instanceof TokenizerChain)       informResourceLoaderAwareObjectsInChain((TokenizerChain)queryAnalyzer);
+      if (fieldType instanceof TextField) {
+        TextField textFieldType=(TextField)fieldType;
+        Analyzer multiTermAnalyzer=textFieldType.getMultiTermAnalyzer();
+        if (multiTermAnalyzer != null && multiTermAnalyzer != indexAnalyzer && multiTermAnalyzer != queryAnalyzer && multiTermAnalyzer instanceof TokenizerChain)         informResourceLoaderAwareObjectsInChain((TokenizerChain)multiTermAnalyzer);
+      }
+    }
+  }
+  newSchema.refreshAnalyzers();
+  boolean success=newSchema.persistManagedSchema(false);
+  if (success) {
+    if (log.isDebugEnabled()) {
+      StringBuilder fieldTypeNames=new StringBuilder();
+      for (int i=0; i < fieldTypeList.size(); i++) {
+        if (i > 0)         fieldTypeNames.append(", ");
+        fieldTypeNames.append(fieldTypeList.get(i).typeName);
+      }
+      log.debug("Added field types: {}",fieldTypeNames.toString());
+    }
+  }
+ else {
+    log.error("Failed to add field types: {}",fieldTypeList);
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to persist updated schema due to underlying storage issue; check log for more details!");
+  }
+  return newSchema;
+}
