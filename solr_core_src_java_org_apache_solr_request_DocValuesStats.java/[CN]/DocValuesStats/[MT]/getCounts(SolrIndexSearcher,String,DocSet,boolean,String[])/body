@@ -5,6 +5,10 @@
   final FieldFacetStats[] facetStats=new FieldFacetStats[facet.length];
   int upto=0;
   for (  String facetField : facet) {
+    SchemaField fsf=searcher.getSchema().getField(facetField);
+    if (fsf.multiValued()) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Stats can only facet on single-valued fields, not: " + facetField);
+    }
     SchemaField facetSchemaField=searcher.getSchema().getField(facetField);
     facetStats[upto++]=new FieldFacetStats(searcher,facetField,schemaField,facetSchemaField,calcDistinct);
   }
@@ -30,7 +34,7 @@
   if (si.getValueCount() >= Integer.MAX_VALUE) {
     throw new UnsupportedOperationException("Currently this stats method is limited to " + Integer.MAX_VALUE + " unique terms");
   }
-  DocSet missing=docs.andNot(searcher.getDocSet(new TermRangeQuery(fieldName,null,null,false,false)));
+  int missingDocCountTotal=0;
   final int nTerms=(int)si.getValueCount();
   final int[] counts=new int[nTerms];
   Filter filter=docs.getTopFilter();
@@ -51,10 +55,10 @@
         }
         final SortedDocValues singleton=DocValues.unwrapSingleton(sub);
         if (singleton != null) {
-          accumSingle(counts,docBase,facetStats,singleton,disi,subIndex,ordinalMap);
+          missingDocCountTotal+=accumSingle(counts,docBase,facetStats,singleton,disi,subIndex,ordinalMap);
         }
  else {
-          accumMulti(counts,docBase,facetStats,sub,disi,subIndex,ordinalMap);
+          missingDocCountTotal+=accumMulti(counts,docBase,facetStats,sub,disi,subIndex,ordinalMap);
         }
       }
  else {
@@ -62,7 +66,7 @@
         if (sub == null) {
           sub=DocValues.emptySorted();
         }
-        accumSingle(counts,docBase,facetStats,sub,disi,subIndex,ordinalMap);
+        missingDocCountTotal+=accumSingle(counts,docBase,facetStats,sub,disi,subIndex,ordinalMap);
       }
     }
   }
@@ -76,16 +80,11 @@
       }
     }
   }
-  res.addMissing(missing.size());
+  res.addMissing(missingDocCountTotal);
   if (facetStats.length > 0) {
     for (    FieldFacetStats f : facetStats) {
       Map<String,StatsValues> facetStatsValues=f.facetStatsValues;
-      FieldType facetType=searcher.getSchema().getFieldType(f.name);
-      for (      Map.Entry<String,StatsValues> entry : facetStatsValues.entrySet()) {
-        String termLabel=entry.getKey();
-        int missingCount=searcher.numDocs(new TermQuery(new Term(f.name,facetType.toInternal(termLabel))),missing);
-        entry.getValue().addMissing(missingCount);
-      }
+      f.accumulateMissing();
       res.addFacet(f.name,facetStatsValues);
     }
   }
