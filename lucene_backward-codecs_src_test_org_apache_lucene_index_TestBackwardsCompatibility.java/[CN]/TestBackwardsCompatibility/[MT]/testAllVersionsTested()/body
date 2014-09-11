@@ -1,0 +1,94 @@
+{
+  Pattern constantPattern=Pattern.compile("LUCENE_(\\d+)_(\\d+)_(\\d+)(_ALPHA|_BETA)?");
+  List<String> expectedVersions=new ArrayList<>();
+  int lastPrevMinorIndex=-1;
+  Version lastPrevMajorVersion=null;
+  for (  java.lang.reflect.Field field : Version.class.getDeclaredFields()) {
+    if (Modifier.isStatic(field.getModifiers()) && field.getType() == Version.class) {
+      Version v=(Version)field.get(Version.class);
+      if (v.equals(Version.LATEST))       continue;
+      Matcher constant=constantPattern.matcher(field.getName());
+      if (constant.matches() == false)       continue;
+      if (v.major == Version.LATEST.major - 1 && (lastPrevMajorVersion == null || v.onOrAfter(lastPrevMajorVersion))) {
+        lastPrevMajorVersion=v;
+        lastPrevMinorIndex=expectedVersions.size();
+      }
+      String major=constant.group(1);
+      String minor=constant.group(2);
+      String bugfix=constant.group(3);
+      if (bugfix.equals("0")) {
+        bugfix="";
+      }
+      String prerelease=constant.group(4);
+      if (prerelease != null) {
+        if (prerelease.equals("_ALPHA")) {
+          prerelease="a";
+        }
+ else {
+          prerelease="b";
+        }
+      }
+ else {
+        prerelease="";
+      }
+      expectedVersions.add(major + minor + bugfix+ prerelease+ ".cfs");
+    }
+  }
+  if (Version.LATEST.minor == 0 && Version.LATEST.bugfix == 0 && Version.LATEST.prerelease == 0) {
+    assertNotNull(lastPrevMajorVersion);
+    expectedVersions.remove(lastPrevMinorIndex);
+  }
+  Collections.sort(expectedVersions);
+  List<String> testedVersions=new ArrayList<>();
+  for (  String testedVersion : oldNames) {
+    if (testedVersion.endsWith(".cfs") == false)     continue;
+    testedVersions.add(testedVersion);
+  }
+  Collections.sort(testedVersions);
+  int i=0;
+  int j=0;
+  List<String> missingFiles=new ArrayList<>();
+  List<String> extraFiles=new ArrayList<>();
+  while (i < expectedVersions.size() && j < testedVersions.size()) {
+    String expectedVersion=expectedVersions.get(i);
+    String testedVersion=testedVersions.get(j);
+    int compare=expectedVersion.compareTo(testedVersion);
+    if (compare == 0) {
+      ++i;
+      ++j;
+    }
+ else     if (compare < 0) {
+      missingFiles.add(expectedVersion);
+      ++i;
+    }
+ else {
+      extraFiles.add(testedVersion);
+      ++j;
+    }
+  }
+  while (i < expectedVersions.size()) {
+    missingFiles.add(expectedVersions.get(i));
+    ++i;
+  }
+  while (j < testedVersions.size()) {
+    missingFiles.add(testedVersions.get(j));
+    ++j;
+  }
+  if (missingFiles.isEmpty() && extraFiles.isEmpty()) {
+    return;
+  }
+  StringBuffer msg=new StringBuffer();
+  if (missingFiles.isEmpty() == false) {
+    msg.append("Missing backcompat test files:\n");
+    for (    String missingFile : missingFiles) {
+      msg.append("  " + missingFile + "\n");
+    }
+  }
+  if (extraFiles.isEmpty() == false) {
+    msg.append("Extra backcompat test files:\n");
+    for (    String extraFile : extraFiles) {
+      msg.append("  " + extraFile + "\n");
+    }
+  }
+  fail(msg.toString());
+}
