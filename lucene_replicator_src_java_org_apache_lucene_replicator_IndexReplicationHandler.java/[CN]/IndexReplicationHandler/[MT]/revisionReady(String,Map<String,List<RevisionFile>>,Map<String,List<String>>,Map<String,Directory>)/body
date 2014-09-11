@@ -5,17 +5,20 @@
   Directory clientDir=sourceDirectory.values().iterator().next();
   List<String> files=copiedFiles.values().iterator().next();
   String segmentsFile=getSegmentsFile(files,false);
+  String pendingSegmentsFile="pending_" + segmentsFile;
   boolean success=false;
   try {
     copyFiles(clientDir,indexDir,files);
     indexDir.sync(files);
-    clientDir.copy(indexDir,segmentsFile,segmentsFile,IOContext.READONCE);
-    indexDir.sync(Collections.singletonList(segmentsFile));
+    clientDir.copy(indexDir,segmentsFile,pendingSegmentsFile,IOContext.READONCE);
+    indexDir.sync(Collections.singletonList(pendingSegmentsFile));
+    indexDir.renameFile(pendingSegmentsFile,segmentsFile);
     success=true;
   }
   finally {
     if (!success) {
       files.add(segmentsFile);
+      files.add(pendingSegmentsFile);
       cleanupFilesOnFailure(indexDir,files);
     }
   }
@@ -24,7 +27,6 @@
   if (infoStream.isEnabled(INFO_STREAM_COMPONENT)) {
     infoStream.message(INFO_STREAM_COMPONENT,"revisionReady(): currentVersion=" + currentVersion + " currentRevisionFiles="+ currentRevisionFiles);
   }
-  writeSegmentsGen(segmentsFile,indexDir);
   cleanupOldIndexFiles(indexDir,segmentsFile,infoStream);
   if (callback != null) {
     try {

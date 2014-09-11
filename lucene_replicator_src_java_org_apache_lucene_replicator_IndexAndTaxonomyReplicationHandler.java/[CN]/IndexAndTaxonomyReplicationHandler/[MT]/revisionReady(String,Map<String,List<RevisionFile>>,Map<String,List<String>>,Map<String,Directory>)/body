@@ -5,6 +5,8 @@
   List<String> indexFiles=copiedFiles.get(IndexAndTaxonomyRevision.INDEX_SOURCE);
   String taxoSegmentsFile=IndexReplicationHandler.getSegmentsFile(taxoFiles,true);
   String indexSegmentsFile=IndexReplicationHandler.getSegmentsFile(indexFiles,false);
+  String taxoPendingFile=taxoSegmentsFile == null ? null : "pending_" + taxoSegmentsFile;
+  String indexPendingFile="pending_" + indexSegmentsFile;
   boolean success=false;
   try {
     IndexReplicationHandler.copyFiles(taxoClientDir,taxoDir,taxoFiles);
@@ -14,20 +16,28 @@
     }
     indexDir.sync(indexFiles);
     if (taxoSegmentsFile != null) {
-      taxoClientDir.copy(taxoDir,taxoSegmentsFile,taxoSegmentsFile,IOContext.READONCE);
+      taxoClientDir.copy(taxoDir,taxoSegmentsFile,taxoPendingFile,IOContext.READONCE);
     }
-    indexClientDir.copy(indexDir,indexSegmentsFile,indexSegmentsFile,IOContext.READONCE);
+    indexClientDir.copy(indexDir,indexSegmentsFile,indexPendingFile,IOContext.READONCE);
     if (taxoSegmentsFile != null) {
-      taxoDir.sync(Collections.singletonList(taxoSegmentsFile));
+      taxoDir.sync(Collections.singletonList(taxoPendingFile));
     }
-    indexDir.sync(Collections.singletonList(indexSegmentsFile));
+    indexDir.sync(Collections.singletonList(indexPendingFile));
+    if (taxoSegmentsFile != null) {
+      taxoDir.renameFile(taxoPendingFile,taxoSegmentsFile);
+    }
+    indexDir.renameFile(indexPendingFile,indexSegmentsFile);
     success=true;
   }
   finally {
     if (!success) {
-      taxoFiles.add(taxoSegmentsFile);
+      if (taxoSegmentsFile != null) {
+        taxoFiles.add(taxoSegmentsFile);
+        taxoFiles.add(taxoPendingFile);
+      }
       IndexReplicationHandler.cleanupFilesOnFailure(taxoDir,taxoFiles);
       indexFiles.add(indexSegmentsFile);
+      indexFiles.add(indexPendingFile);
       IndexReplicationHandler.cleanupFilesOnFailure(indexDir,indexFiles);
     }
   }
@@ -36,8 +46,6 @@
   if (infoStream.isEnabled(INFO_STREAM_COMPONENT)) {
     infoStream.message(INFO_STREAM_COMPONENT,"revisionReady(): currentVersion=" + currentVersion + " currentRevisionFiles="+ currentRevisionFiles);
   }
-  IndexReplicationHandler.writeSegmentsGen(taxoSegmentsFile,taxoDir);
-  IndexReplicationHandler.writeSegmentsGen(indexSegmentsFile,indexDir);
   IndexReplicationHandler.cleanupOldIndexFiles(indexDir,indexSegmentsFile,infoStream);
   IndexReplicationHandler.cleanupOldIndexFiles(taxoDir,taxoSegmentsFile,infoStream);
   if (callback != null) {
