@@ -1,0 +1,23 @@
+{
+  Stat stat=new Stat();
+  byte[] data=zkClient.getData(CLUSTER_STATE,watcher,stat,true);
+  ClusterState loadedData=ClusterState.load(stat.getVersion(),data,ln,CLUSTER_STATE);
+  Map<String,ClusterState.CollectionRef> result=new LinkedHashMap<>();
+  result.putAll(loadedData.getCollectionStates());
+  for (  String s : getIndividualColls()) {
+    DocCollection watched=watchedCollectionStates.get(s);
+    if (watched != null) {
+      result.put(s,new ClusterState.CollectionRef(watched));
+    }
+ else {
+      final String collName=s;
+      result.put(s,new ClusterState.CollectionRef(null){
+        @Override public DocCollection get(){
+          return getCollectionLive(ZkStateReader.this,collName);
+        }
+      }
+);
+    }
+  }
+  return new ClusterState(ln,result,stat.getVersion());
+}
