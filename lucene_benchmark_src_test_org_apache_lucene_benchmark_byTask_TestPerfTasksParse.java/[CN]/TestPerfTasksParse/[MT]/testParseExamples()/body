@@ -1,19 +1,14 @@
 {
   boolean foundFiles=false;
-  final File examplesDir=new File(ConfLoader.class.getResource(".").toURI());
-  for (  File algFile : examplesDir.listFiles(new FileFilter(){
-    @Override public boolean accept(    File pathname){
-      return pathname.isFile() && pathname.getName().endsWith(".alg");
-    }
-  }
-)) {
-    try {
-      Config config=new Config(new InputStreamReader(new FileInputStream(algFile),StandardCharsets.UTF_8));
+  final Path examplesDir=Paths.get(ConfLoader.class.getResource(".").toURI());
+  try (DirectoryStream<Path> stream=Files.newDirectoryStream(examplesDir,"*.alg")){
+    for (    Path path : stream) {
+      Config config=new Config(Files.newBufferedReader(path,StandardCharsets.UTF_8));
       String contentSource=config.get("content.source",null);
       if (contentSource != null) {
         Class.forName(contentSource);
       }
-      config.set("work.dir",createTempDir(LuceneTestCase.getTestClass().getSimpleName()).getAbsolutePath());
+      config.set("work.dir",createTempDir(LuceneTestCase.getTestClass().getSimpleName()).toAbsolutePath().toString());
       config.set("content.source",MockContentSource.class.getName());
       String dir=config.get("content.source",null);
       if (dir != null) {
@@ -21,7 +16,7 @@
       }
       config.set("directory",RAMDirectory.class.getName());
       if (config.get("line.file.out",null) != null) {
-        config.set("line.file.out",createTempFile("linefile",".txt").getAbsolutePath());
+        config.set("line.file.out",createTempFile("linefile",".txt").toAbsolutePath().toString());
       }
       if (config.get("query.maker",null) != null) {
         Class.forName(config.get("query.maker",null));
@@ -29,13 +24,10 @@
       }
       PerfRunData data=new PerfRunData(config);
       new Algorithm(data);
+      foundFiles=true;
     }
- catch (    Throwable t) {
-      throw new AssertionError("Could not parse sample file: " + algFile,t);
-    }
-    foundFiles=true;
   }
-  if (!foundFiles) {
+   if (!foundFiles) {
     fail("could not find any .alg files!");
   }
 }
