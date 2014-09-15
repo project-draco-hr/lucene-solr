@@ -1,0 +1,35 @@
+{
+  DocSet docs=rb.getResults().docSet;
+  Map<?,?> tagMap=(Map<?,?>)rb.req.getContext().get("tags");
+  if (excludeTagList.isEmpty() || null == tagMap) {
+    return docs;
+  }
+  IdentityHashMap<Query,Boolean> excludeSet=new IdentityHashMap<Query,Boolean>();
+  for (  String excludeTag : excludeTagList) {
+    Object olst=tagMap.get(excludeTag);
+    if (!(olst instanceof Collection))     continue;
+    for (    Object o : (Collection<?>)olst) {
+      if (!(o instanceof QParser))       continue;
+      QParser qp=(QParser)o;
+      try {
+        excludeSet.put(qp.getQuery(),Boolean.TRUE);
+      }
+ catch (      SyntaxError e) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"Excluded query can't be parsed: " + originalParam + " due to: "+ e.getMessage(),e);
+      }
+    }
+  }
+  if (excludeSet.size() == 0)   return docs;
+  List<Query> qlist=new ArrayList<Query>();
+  if (!excludeSet.containsKey(rb.getQuery())) {
+    qlist.add(rb.getQuery());
+  }
+  if (rb.getFilters() != null) {
+    for (    Query q : rb.getFilters()) {
+      if (!excludeSet.containsKey(q)) {
+        qlist.add(q);
+      }
+    }
+  }
+  return searcher.getDocSet(qlist);
+}
