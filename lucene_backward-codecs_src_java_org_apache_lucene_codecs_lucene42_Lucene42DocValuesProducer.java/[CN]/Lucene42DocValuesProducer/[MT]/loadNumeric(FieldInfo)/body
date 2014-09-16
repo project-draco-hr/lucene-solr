@@ -1,5 +1,5 @@
 {
-  NumericEntry entry=numerics.get(field.number);
+  NumericEntry entry=numerics.get(field.name);
   data.seek(entry.offset);
 switch (entry.format) {
 case TABLE_COMPRESSED:
@@ -15,6 +15,7 @@ final int formatID=data.readVInt();
 final int bitsPerValue=data.readVInt();
 final PackedInts.Reader ordsReader=PackedInts.getReaderNoHeader(data,PackedInts.Format.byId(formatID),entry.packedIntsVersion,maxDoc,bitsPerValue);
 ramBytesUsed.addAndGet(RamUsageEstimator.sizeOf(decode) + ordsReader.ramBytesUsed());
+numericInfo.put(field.name,ordsReader);
 return new NumericDocValues(){
 @Override public long get(int docID){
 return decode[(int)ordsReader.get(docID)];
@@ -25,11 +26,13 @@ case DELTA_COMPRESSED:
 final int blockSize=data.readVInt();
 final BlockPackedReader reader=new BlockPackedReader(data,entry.packedIntsVersion,blockSize,maxDoc,false);
 ramBytesUsed.addAndGet(reader.ramBytesUsed());
+numericInfo.put(field.name,reader);
 return reader;
 case UNCOMPRESSED:
 final byte bytes[]=new byte[maxDoc];
 data.readBytes(bytes,0,bytes.length);
 ramBytesUsed.addAndGet(RamUsageEstimator.sizeOf(bytes));
+numericInfo.put(field.name,Accountables.namedAccountable("byte array",maxDoc));
 return new NumericDocValues(){
 @Override public long get(int docID){
 return bytes[docID];
@@ -42,6 +45,7 @@ final long mult=data.readLong();
 final int quotientBlockSize=data.readVInt();
 final BlockPackedReader quotientReader=new BlockPackedReader(data,entry.packedIntsVersion,quotientBlockSize,maxDoc,false);
 ramBytesUsed.addAndGet(quotientReader.ramBytesUsed());
+numericInfo.put(field.name,quotientReader);
 return new NumericDocValues(){
 @Override public long get(int docID){
 return min + mult * quotientReader.get(docID);
