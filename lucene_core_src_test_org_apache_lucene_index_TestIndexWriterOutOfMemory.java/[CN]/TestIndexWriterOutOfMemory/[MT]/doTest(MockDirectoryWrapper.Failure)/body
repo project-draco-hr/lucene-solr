@@ -1,0 +1,177 @@
+{
+  ByteArrayOutputStream exceptionLog=new ByteArrayOutputStream();
+  PrintStream exceptionStream=new PrintStream(exceptionLog,true,"UTF-8");
+  final long analyzerSeed=random().nextLong();
+  final Analyzer analyzer=new Analyzer(){
+    @Override protected TokenStreamComponents createComponents(    String fieldName){
+      MockTokenizer tokenizer=new MockTokenizer(MockTokenizer.WHITESPACE,false);
+      tokenizer.setEnableChecks(false);
+      TokenStream stream=tokenizer;
+      if (fieldName.contains("payloads")) {
+        stream=new MockVariableLengthPayloadFilter(new Random(analyzerSeed),stream);
+      }
+      return new TokenStreamComponents(tokenizer,stream);
+    }
+  }
+;
+  MockDirectoryWrapper dir=null;
+  final int numIterations=TEST_NIGHTLY ? atLeast(500) : atLeast(20);
+  STARTOVER:   for (int iter=0; iter < numIterations; iter++) {
+    try {
+      if (dir != null) {
+        dir.close();
+      }
+      dir=newMockDirectory();
+      dir.setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+      dir.setUseSlowOpenClosers(false);
+      IndexWriterConfig conf=newIndexWriterConfig(analyzer);
+      conf.setMergeScheduler(new SerialMergeScheduler());
+      int numDocs=atLeast(2000);
+      IndexWriter iw=new IndexWriter(dir,conf);
+      iw.commit();
+      dir.failOn(failOn);
+      for (int i=0; i < numDocs; i++) {
+        Document doc=new Document();
+        doc.add(newStringField("id",Integer.toString(i),Field.Store.NO));
+        doc.add(new NumericDocValuesField("dv",i));
+        doc.add(new BinaryDocValuesField("dv2",new BytesRef(Integer.toString(i))));
+        doc.add(new SortedDocValuesField("dv3",new BytesRef(Integer.toString(i))));
+        doc.add(new SortedSetDocValuesField("dv4",new BytesRef(Integer.toString(i))));
+        doc.add(new SortedSetDocValuesField("dv4",new BytesRef(Integer.toString(i - 1))));
+        doc.add(new SortedNumericDocValuesField("dv5",i));
+        doc.add(new SortedNumericDocValuesField("dv5",i - 1));
+        doc.add(newTextField("text1",TestUtil.randomAnalysisString(random(),20,true),Field.Store.NO));
+        doc.add(new StoredField("stored1","foo"));
+        doc.add(new StoredField("stored1","bar"));
+        doc.add(newTextField("text_payloads",TestUtil.randomAnalysisString(random(),6,true),Field.Store.NO));
+        FieldType ft=new FieldType(TextField.TYPE_NOT_STORED);
+        ft.setStoreTermVectors(true);
+        doc.add(newField("text_vectors",TestUtil.randomAnalysisString(random(),6,true),ft));
+        if (random().nextInt(10) > 0) {
+          try {
+            iw.addDocument(doc);
+            int thingToDo=random().nextInt(4);
+            if (thingToDo == 0) {
+              iw.deleteDocuments(new Term("id",Integer.toString(i)));
+            }
+ else             if (thingToDo == 1) {
+              iw.updateNumericDocValue(new Term("id",Integer.toString(i)),"dv",i + 1L);
+            }
+ else             if (thingToDo == 2) {
+              iw.updateBinaryDocValue(new Term("id",Integer.toString(i)),"dv2",new BytesRef(Integer.toString(i + 1)));
+            }
+          }
+ catch (          OutOfMemoryError e) {
+            if (e.getMessage() != null && e.getMessage().startsWith("Fake OutOfMemoryError")) {
+              exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+              e.printStackTrace(exceptionStream);
+              try {
+                iw.rollback();
+              }
+ catch (              Throwable t) {
+              }
+              continue STARTOVER;
+            }
+ else {
+              Rethrow.rethrow(e);
+            }
+          }
+        }
+ else {
+          Document doc2=new Document();
+          doc2.add(newStringField("id",Integer.toString(-i),Field.Store.NO));
+          doc2.add(newTextField("text1",TestUtil.randomAnalysisString(random(),20,true),Field.Store.NO));
+          doc2.add(new StoredField("stored1","foo"));
+          doc2.add(new StoredField("stored1","bar"));
+          doc2.add(newField("text_vectors",TestUtil.randomAnalysisString(random(),6,true),ft));
+          try {
+            iw.addDocuments(Arrays.asList(doc,doc2));
+            if (random().nextBoolean()) {
+              iw.deleteDocuments(new Term("id",Integer.toString(i)),new Term("id",Integer.toString(-i)));
+            }
+          }
+ catch (          OutOfMemoryError e) {
+            if (e.getMessage() != null && e.getMessage().startsWith("Fake OutOfMemoryError")) {
+              exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+              e.printStackTrace(exceptionStream);
+            }
+ else {
+              Rethrow.rethrow(e);
+            }
+            try {
+              iw.rollback();
+            }
+ catch (            Throwable t) {
+            }
+            continue STARTOVER;
+          }
+        }
+        if (random().nextInt(10) == 0) {
+          try {
+            if (random().nextBoolean()) {
+              DirectoryReader ir=null;
+              try {
+                ir=DirectoryReader.open(iw,random().nextBoolean());
+                TestUtil.checkReader(ir);
+              }
+  finally {
+                IOUtils.closeWhileHandlingException(ir);
+              }
+            }
+ else {
+              iw.commit();
+            }
+            if (DirectoryReader.indexExists(dir)) {
+              TestUtil.checkIndex(dir);
+            }
+          }
+ catch (          OutOfMemoryError e) {
+            if (e.getMessage() != null && e.getMessage().startsWith("Fake OutOfMemoryError")) {
+              exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+              e.printStackTrace(exceptionStream);
+            }
+ else {
+              Rethrow.rethrow(e);
+            }
+            try {
+              iw.rollback();
+            }
+ catch (            Throwable t) {
+            }
+            continue STARTOVER;
+          }
+        }
+      }
+      try {
+        iw.close();
+      }
+ catch (      OutOfMemoryError e) {
+        if (e.getMessage() != null && e.getMessage().startsWith("Fake OutOfMemoryError")) {
+          exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+          e.printStackTrace(exceptionStream);
+          try {
+            iw.rollback();
+          }
+ catch (          Throwable t) {
+          }
+          continue STARTOVER;
+        }
+ else {
+          Rethrow.rethrow(e);
+        }
+      }
+    }
+ catch (    Throwable t) {
+      System.out.println("Unexpected exception: dumping fake-exception-log:...");
+      exceptionStream.flush();
+      System.out.println(exceptionLog.toString("UTF-8"));
+      System.out.flush();
+      Rethrow.rethrow(t);
+    }
+  }
+  dir.close();
+  if (VERBOSE) {
+    System.out.println("TEST PASSED: dumping fake-exception-log:...");
+    System.out.println(exceptionLog.toString("UTF-8"));
+  }
+}
