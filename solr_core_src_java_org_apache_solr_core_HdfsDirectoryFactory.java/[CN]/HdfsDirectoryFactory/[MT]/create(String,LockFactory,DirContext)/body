@@ -1,0 +1,40 @@
+{
+  LOG.info("creating directory factory for path {}",path);
+  Configuration conf=getConf();
+  if (metrics == null) {
+    metrics=new Metrics(conf);
+  }
+  boolean blockCacheEnabled=params.getBool(BLOCKCACHE_ENABLED,true);
+  boolean blockCacheGlobal=params.getBool(BLOCKCACHE_GLOBAL,false);
+  boolean blockCacheReadEnabled=params.getBool(BLOCKCACHE_READ_ENABLED,true);
+  boolean blockCacheWriteEnabled=params.getBool(BLOCKCACHE_WRITE_ENABLED,false);
+  if (blockCacheWriteEnabled) {
+    LOG.warn("Using " + BLOCKCACHE_WRITE_ENABLED + " is currently buggy and can result in readers seeing a corrupted view of the index.");
+  }
+  final Directory dir;
+  if (blockCacheEnabled && dirContext != DirContext.META_DATA) {
+    int numberOfBlocksPerBank=params.getInt(NUMBEROFBLOCKSPERBANK,16384);
+    int blockSize=BlockDirectory.BLOCK_SIZE;
+    int bankCount=params.getInt(BLOCKCACHE_SLAB_COUNT,1);
+    boolean directAllocation=params.getBool(BLOCKCACHE_DIRECT_MEMORY_ALLOCATION,true);
+    int slabSize=numberOfBlocksPerBank * blockSize;
+    LOG.info("Number of slabs of block cache [{}] with direct memory allocation set to [{}]",bankCount,directAllocation);
+    LOG.info("Block cache target memory usage, slab size of [{}] will allocate [{}] slabs and use ~[{}] bytes",new Object[]{slabSize,bankCount,((long)bankCount * (long)slabSize)});
+    int bufferSize=params.getInt("solr.hdfs.blockcache.bufferstore.buffersize",128);
+    int bufferCount=params.getInt("solr.hdfs.blockcache.bufferstore.buffercount",128 * 128);
+    BlockCache blockCache=getBlockDirectoryCache(numberOfBlocksPerBank,blockSize,bankCount,directAllocation,slabSize,bufferSize,bufferCount,blockCacheGlobal);
+    Cache cache=new BlockDirectoryCache(blockCache,path,metrics,blockCacheGlobal);
+    HdfsDirectory hdfsDirectory=new HdfsDirectory(new Path(path),lockFactory,conf);
+    dir=new BlockDirectory(path,hdfsDirectory,cache,null,blockCacheReadEnabled,blockCacheWriteEnabled);
+  }
+ else {
+    dir=new HdfsDirectory(new Path(path),lockFactory,conf);
+  }
+  boolean nrtCachingDirectory=params.getBool(NRTCACHINGDIRECTORY_ENABLE,true);
+  if (nrtCachingDirectory) {
+    double nrtCacheMaxMergeSizeMB=params.getInt(NRTCACHINGDIRECTORY_MAXMERGESIZEMB,16);
+    double nrtCacheMaxCacheMB=params.getInt(NRTCACHINGDIRECTORY_MAXCACHEMB,192);
+    return new NRTCachingDirectory(dir,nrtCacheMaxMergeSizeMB,nrtCacheMaxCacheMB);
+  }
+  return dir;
+}
