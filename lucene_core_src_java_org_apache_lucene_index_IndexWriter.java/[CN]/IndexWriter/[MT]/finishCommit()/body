@@ -1,21 +1,37 @@
 {
+  boolean success=false;
   if (pendingCommit != null) {
     try {
       if (infoStream.isEnabled("IW")) {
         infoStream.message("IW","commit: pendingCommit != null");
       }
       pendingCommit.finishCommit(directory);
-      if (infoStream.isEnabled("IW")) {
-        infoStream.message("IW","commit: wrote segments file \"" + pendingCommit.getSegmentsFileName() + "\"");
+      success=true;
+      try {
+        if (infoStream.isEnabled("IW")) {
+          infoStream.message("IW","commit: wrote segments file \"" + pendingCommit.getSegmentsFileName() + "\"");
+        }
+        segmentInfos.updateGeneration(pendingCommit);
+        lastCommitChangeCount=pendingCommitChangeCount;
+        rollbackSegments=pendingCommit.createBackupSegmentInfos();
+        deleter.checkpoint(pendingCommit,true);
       }
-      segmentInfos.updateGeneration(pendingCommit);
-      lastCommitChangeCount=pendingCommitChangeCount;
-      rollbackSegments=pendingCommit.createBackupSegmentInfos();
-      deleter.checkpoint(pendingCommit,true);
+ catch (      Throwable tragedy) {
+        tragicEvent(tragedy,"finishCommit");
+      }
     }
   finally {
       try {
-        deleter.decRef(filesToCommit);
+        if (success == false || tragedy == null) {
+          try {
+            deleter.decRef(filesToCommit);
+          }
+ catch (          Throwable t) {
+            if (success) {
+              tragicEvent(tragedy,"finishCommit");
+            }
+          }
+        }
       }
   finally {
         filesToCommit=null;
