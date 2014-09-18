@@ -1,64 +1,85 @@
 {
-  if (STATE.equals(operation)) {
-    if (isLegacy(clusterProps)) {
-      clusterState=updateState(clusterState,message);
-    }
+  CollectionParams.CollectionAction collectionAction=CollectionParams.CollectionAction.get(operation);
+  if (collectionAction != null) {
+switch (collectionAction) {
+case CREATE:
+      clusterState=buildCollection(clusterState,message);
+    break;
+case DELETE:
+  clusterState=removeCollection(clusterState,message);
+break;
+case CREATESHARD:
+clusterState=createShard(clusterState,message);
+break;
+case DELETESHARD:
+clusterState=removeShard(clusterState,message);
+break;
+case ADDREPLICA:
+clusterState=createReplica(clusterState,message);
+break;
+case CLUSTERPROP:
+handleProp(message);
+break;
+default :
+throw new RuntimeException("unknown operation:" + operation + " contents:"+ message.getProperties());
+}
+}
  else {
-      clusterState=updateStateNew(clusterState,message);
-    }
-  }
- else   if (DELETECORE.equals(operation)) {
-    clusterState=removeCore(clusterState,message);
-  }
- else   if (REMOVECOLLECTION.equals(operation)) {
-    clusterState=removeCollection(clusterState,message);
-  }
- else   if (REMOVESHARD.equals(operation)) {
-    clusterState=removeShard(clusterState,message);
-  }
- else   if (ZkStateReader.LEADER_PROP.equals(operation)) {
-    StringBuilder sb=new StringBuilder();
-    String baseUrl=message.getStr(ZkStateReader.BASE_URL_PROP);
-    String coreName=message.getStr(ZkStateReader.CORE_NAME_PROP);
-    sb.append(baseUrl);
-    if (baseUrl != null && !baseUrl.endsWith("/"))     sb.append("/");
-    sb.append(coreName == null ? "" : coreName);
-    if (!(sb.substring(sb.length() - 1).equals("/")))     sb.append("/");
-    clusterState=setShardLeader(clusterState,message.getStr(ZkStateReader.COLLECTION_PROP),message.getStr(ZkStateReader.SHARD_ID_PROP),sb.length() > 0 ? sb.toString() : null);
-  }
- else   if (CREATESHARD.equals(operation)) {
-    clusterState=createShard(clusterState,message);
-  }
- else   if (UPDATESHARDSTATE.equals(operation)) {
-    clusterState=updateShardState(clusterState,message);
-  }
- else   if (OverseerCollectionProcessor.CREATECOLLECTION.equals(operation)) {
-    clusterState=buildCollection(clusterState,message);
-  }
- else   if (ADDREPLICA.isEqual(operation)) {
-    clusterState=createReplica(clusterState,message);
-  }
- else   if (Overseer.ADD_ROUTING_RULE.equals(operation)) {
-    clusterState=addRoutingRule(clusterState,message);
-  }
- else   if (Overseer.REMOVE_ROUTING_RULE.equals(operation)) {
-    clusterState=removeRoutingRule(clusterState,message);
-  }
- else   if (CLUSTERPROP.isEqual(operation)) {
-    handleProp(message);
-  }
- else   if (QUIT.equals(operation)) {
-    if (myId.equals(message.get("id"))) {
-      log.info("Quit command received {}",LeaderElector.getNodeName(myId));
-      overseerCollectionProcessor.close();
-      close();
-    }
+OverseerAction overseerAction=OverseerAction.get(operation);
+if (overseerAction != null) {
+switch (overseerAction) {
+case STATE:
+if (isLegacy(clusterProps)) {
+clusterState=updateState(clusterState,message);
+}
  else {
-      log.warn("Overseer received wrong QUIT message {}",message);
-    }
-  }
+clusterState=updateStateNew(clusterState,message);
+}
+break;
+case LEADER:
+clusterState=setShardLeader(clusterState,message);
+break;
+case DELETECORE:
+clusterState=removeCore(clusterState,message);
+break;
+case ADDROUTINGRULE:
+clusterState=addRoutingRule(clusterState,message);
+break;
+case REMOVEROUTINGRULE:
+clusterState=removeRoutingRule(clusterState,message);
+break;
+case UPDATESHARDSTATE:
+clusterState=updateShardState(clusterState,message);
+break;
+case QUIT:
+if (myId.equals(message.get("id"))) {
+log.info("Quit command received {}",LeaderElector.getNodeName(myId));
+overseerCollectionProcessor.close();
+close();
+}
  else {
-    throw new RuntimeException("unknown operation:" + operation + " contents:"+ message.getProperties());
-  }
-  return clusterState;
+log.warn("Overseer received wrong QUIT message {}",message);
+}
+break;
+default :
+throw new RuntimeException("unknown operation:" + operation + " contents:"+ message.getProperties());
+}
+}
+ else {
+switch (operation) {
+case OverseerCollectionProcessor.CREATECOLLECTION:
+clusterState=buildCollection(clusterState,message);
+break;
+case REMOVECOLLECTION:
+clusterState=removeCollection(clusterState,message);
+break;
+case REMOVESHARD:
+clusterState=removeShard(clusterState,message);
+break;
+default :
+throw new RuntimeException("unknown operation:" + operation + " contents:"+ message.getProperties());
+}
+}
+}
+return clusterState;
 }
