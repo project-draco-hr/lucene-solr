@@ -1,17 +1,22 @@
 {
   log.info("Starting server");
   try {
-    zooKeeperServer=new ZooKeeperServer();
     FileTxnSnapLog ftxn=new FileTxnSnapLog(new File(config.getDataLogDir()),new File(config.getDataDir()));
-    zooKeeperServer.setTxnLogFactory(ftxn);
-    zooKeeperServer.setTickTime(config.getTickTime());
-    zooKeeperServer.setMinSessionTimeout(config.getMinSessionTimeout());
-    zooKeeperServer.setMaxSessionTimeout(config.getMaxSessionTimeout());
-    cnxnFactory=ServerCnxnFactory.createFactory();
+    zooKeeperServer=new ZooKeeperServer(ftxn,config.getTickTime(),config.getMinSessionTimeout(),config.getMaxSessionTimeout(),null,new TestZKDatabase(ftxn,limiter));
+    cnxnFactory=new TestServerCnxnFactory(limiter);
     cnxnFactory.configure(config.getClientPortAddress(),config.getMaxClientCnxns());
     cnxnFactory.startup(zooKeeperServer);
     cnxnFactory.join();
     zkServer.shutdown();
+    if (violationReportAction != LimitViolationAction.IGNORE) {
+      String limitViolations=limiter.reportLimitViolations();
+      if (!limitViolations.isEmpty()) {
+        log.warn("Watch limit violations: {}",limitViolations);
+        if (violationReportAction == LimitViolationAction.FAIL) {
+          throw new AssertionError("Parallel watch limits violated");
+        }
+      }
+    }
   }
  catch (  InterruptedException e) {
     log.warn("Server interrupted",e);
