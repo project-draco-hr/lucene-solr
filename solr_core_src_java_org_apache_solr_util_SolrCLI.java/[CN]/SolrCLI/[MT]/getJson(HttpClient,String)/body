@@ -1,71 +1,21 @@
 {
   Map<String,Object> json=null;
-  URL url=new URL(getUrl);
-  String queryString=url.getQuery();
-  if (queryString != null) {
-    if (queryString.indexOf("wt=json") == -1) {
-      getUrl+="&wt=json";
-    }
+  HttpGet httpGet=new HttpGet(new URIBuilder(getUrl).setParameter("wt","json").build());
+  String content=httpClient.execute(httpGet,new BasicResponseHandler());
+  Object resp=ObjectBuilder.getVal(new JSONParser(content));
+  if (resp != null && resp instanceof Map) {
+    json=(Map<String,Object>)resp;
   }
  else {
-    getUrl+="?wt=json";
+    throw new SolrServerException("Expected JSON object in response from " + getUrl + " but received "+ resp);
   }
-  HttpGet httpget=new HttpGet(getUrl);
-  HttpResponse response=httpClient.execute(httpget);
-  HttpEntity entity=response.getEntity();
-  if (response.getStatusLine().getStatusCode() != 200) {
-    StringBuilder body=new StringBuilder();
-    if (entity != null) {
-      InputStream instream=entity.getContent();
-      String line;
-      try {
-        BufferedReader reader=new BufferedReader(new InputStreamReader(instream,"UTF-8"));
-        while ((line=reader.readLine()) != null) {
-          body.append(line);
-        }
-      }
- catch (      Exception ignore) {
-      }
- finally {
-        instream.close();
-      }
-    }
-    throw new Exception("GET request [" + getUrl + "] failed due to: "+ response.getStatusLine()+ ": "+ body);
+  Long statusCode=asLong("/responseHeader/status",json);
+  if (statusCode == -1) {
+    throw new SolrServerException("Unable to determine outcome of GET request to: " + getUrl + "! Response: "+ json);
   }
-  if (entity != null) {
-    InputStreamReader isr=null;
-    try {
-      isr=new InputStreamReader(entity.getContent(),"UTF-8");
-      Object resp=ObjectBuilder.getVal(new JSONParser(isr));
-      if (resp != null && resp instanceof Map) {
-        json=(Map<String,Object>)resp;
-      }
- else {
-        throw new SolrServerException("Expected JSON object in response from " + getUrl + " but received "+ resp);
-      }
-    }
- catch (    RuntimeException ex) {
-      httpget.abort();
-      throw ex;
-    }
- finally {
-      isr.close();
-    }
-  }
-  int statusCode=-1;
-  Map responseHeader=(Map)json.get("responseHeader");
-  if (responseHeader != null) {
-    Long status=(Long)responseHeader.get("status");
-    if (status != null)     statusCode=status.intValue();
-  }
-  if (statusCode == -1)   throw new SolrServerException("Unable to determine outcome of GET request to: " + getUrl + "! Response: "+ json);
-  if (statusCode != 0) {
-    String errMsg=null;
-    Map error=(Map)json.get("error");
-    if (error != null) {
-      errMsg=(String)error.get("msg");
-    }
-    if (errMsg == null)     errMsg=String.valueOf(json);
+ else   if (statusCode != 0) {
+    String errMsg=asString("/error/msg",json);
+    errMsg=errMsg == null ? String.valueOf(json) : errMsg;
     throw new SolrServerException("Request to " + getUrl + " failed due to: "+ errMsg);
   }
   return json;
