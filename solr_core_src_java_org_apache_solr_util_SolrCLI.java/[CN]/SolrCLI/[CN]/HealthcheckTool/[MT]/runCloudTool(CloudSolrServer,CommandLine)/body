@@ -3,7 +3,9 @@
   if (collection == null)   throw new IllegalArgumentException("Must provide a collection to run a healthcheck against!");
   log.info("Running healthcheck for " + collection);
   ZkStateReader zkStateReader=cloudSolrServer.getZkStateReader();
-  Collection<Slice> slices=zkStateReader.getClusterState().getSlices(collection);
+  ClusterState clusterState=zkStateReader.getClusterState();
+  Set<String> liveNodes=clusterState.getLiveNodes();
+  Collection<Slice> slices=clusterState.getSlices(collection);
   if (slices == null)   throw new IllegalArgumentException("Collection " + collection + " not found!");
   SolrQuery q=new SolrQuery("*:*");
   q.setRows(0);
@@ -36,34 +38,40 @@
       ZkCoreNodeProps replicaCoreProps=new ZkCoreNodeProps(r);
       String coreUrl=replicaCoreProps.getCoreUrl();
       boolean isLeader=coreUrl.equals(leaderUrl);
-      HttpSolrServer solr=new HttpSolrServer(coreUrl);
-      String solrUrl=solr.getBaseURL();
-      q=new SolrQuery("*:*");
-      q.setRows(0);
-      q.set("distrib","false");
-      try {
-        qr=solr.query(q);
-        numDocs=qr.getResults().getNumFound();
-        int lastSlash=solrUrl.lastIndexOf('/');
-        String systemInfoUrl=solrUrl.substring(0,lastSlash) + "/admin/info/system";
-        Map<String,Object> info=getJson(solr.getHttpClient(),systemInfoUrl,2);
-        uptime=uptime(asLong("/jvm/jmx/upTimeMS",info));
-        String usedMemory=asString("/jvm/memory/used",info);
-        String totalMemory=asString("/jvm/memory/total",info);
-        memory=usedMemory + " of " + totalMemory;
-        replicaStatus=replicaCoreProps.getState();
+      String nodeName=replicaCoreProps.getNodeName();
+      if (nodeName == null || !liveNodes.contains(nodeName)) {
+        replicaStatus=ZkStateReader.DOWN;
       }
- catch (      Exception exc) {
-        log.error("ERROR: " + exc + " when trying to reach: "+ solrUrl);
-        if (checkCommunicationError(exc)) {
-          replicaStatus="down";
-        }
  else {
-          replicaStatus="error: " + exc;
+        HttpSolrServer solr=new HttpSolrServer(coreUrl);
+        String solrUrl=solr.getBaseURL();
+        q=new SolrQuery("*:*");
+        q.setRows(0);
+        q.set("distrib","false");
+        try {
+          qr=solr.query(q);
+          numDocs=qr.getResults().getNumFound();
+          int lastSlash=solrUrl.lastIndexOf('/');
+          String systemInfoUrl=solrUrl.substring(0,lastSlash) + "/admin/info/system";
+          Map<String,Object> info=getJson(solr.getHttpClient(),systemInfoUrl,2);
+          uptime=uptime(asLong("/jvm/jmx/upTimeMS",info));
+          String usedMemory=asString("/jvm/memory/used",info);
+          String totalMemory=asString("/jvm/memory/total",info);
+          memory=usedMemory + " of " + totalMemory;
+          replicaStatus=replicaCoreProps.getState();
         }
-      }
+ catch (        Exception exc) {
+          log.error("ERROR: " + exc + " when trying to reach: "+ solrUrl);
+          if (checkCommunicationError(exc)) {
+            replicaStatus="down";
+          }
+ else {
+            replicaStatus="error: " + exc;
+          }
+        }
  finally {
-        solr.shutdown();
+          solr.shutdown();
+        }
       }
       replicaList.add(new ReplicaHealth(shardName,r.getName(),coreUrl,replicaStatus,numDocs,isLeader,uptime,memory));
     }
