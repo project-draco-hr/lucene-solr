@@ -1,0 +1,34 @@
+{
+  StatsComponent component=new StatsComponent();
+  List<SearchComponent> components=new ArrayList<>(1);
+  components.add(component);
+  SolrParams common=params("stats","true","q","*:*","nested","foo_t:cow");
+  for (  String param : new String[]{"foo_i","{!func}field(\"foo_i\")","{!lucene}_val_:\"field(foo_i)\""}) {
+    SolrQueryRequest req=req(common);
+    try {
+      ResponseBuilder rb=new ResponseBuilder(req,new SolrQueryResponse(),components);
+      StatsField sf=new StatsField(rb,param);
+      assertNull("value source of: " + param,sf.getValueSource());
+      assertNotNull("schema field of: " + param,sf.getSchemaField());
+      assertEquals("field name of: " + param,"foo_i",sf.getSchemaField().getName());
+    }
+  finally {
+      req.close();
+    }
+  }
+  for (  String param : new String[]{"{!lucene}foo_t:cow","{!func}query($nested)","{!field f=foo_t}cow"}) {
+    SolrQueryRequest req=req(common);
+    try {
+      ResponseBuilder rb=new ResponseBuilder(req,new SolrQueryResponse(),components);
+      StatsField sf=new StatsField(rb,param);
+      assertNull("schema field of: " + param,sf.getSchemaField());
+      assertNotNull("value source of: " + param,sf.getValueSource());
+      assertTrue(sf.getValueSource().getClass() + " is vs type of: " + param,sf.getValueSource() instanceof QueryValueSource);
+      QueryValueSource qvs=(QueryValueSource)sf.getValueSource();
+      assertEquals("query of :" + param,new TermQuery(new Term("foo_t","cow")),qvs.getQuery());
+    }
+  finally {
+      req.close();
+    }
+  }
+}
