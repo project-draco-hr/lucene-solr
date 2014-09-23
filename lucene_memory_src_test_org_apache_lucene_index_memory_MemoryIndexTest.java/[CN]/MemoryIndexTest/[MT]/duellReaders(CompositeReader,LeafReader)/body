@@ -1,0 +1,56 @@
+{
+  LeafReader competitor=SlowCompositeReaderWrapper.wrap(other);
+  Fields memFields=memIndexReader.fields();
+  for (  String field : competitor.fields()) {
+    Terms memTerms=memFields.terms(field);
+    Terms iwTerms=memIndexReader.terms(field);
+    if (iwTerms == null) {
+      assertNull(memTerms);
+    }
+ else {
+      NumericDocValues normValues=competitor.getNormValues(field);
+      NumericDocValues memNormValues=memIndexReader.getNormValues(field);
+      if (normValues != null) {
+        assertNotNull(memNormValues);
+        assertEquals(normValues.get(0),memNormValues.get(0));
+      }
+      assertNotNull(memTerms);
+      assertEquals(iwTerms.getDocCount(),memTerms.getDocCount());
+      assertEquals(iwTerms.getSumDocFreq(),memTerms.getSumDocFreq());
+      assertEquals(iwTerms.getSumTotalTermFreq(),memTerms.getSumTotalTermFreq());
+      TermsEnum iwTermsIter=iwTerms.iterator(null);
+      TermsEnum memTermsIter=memTerms.iterator(null);
+      if (iwTerms.hasPositions()) {
+        final boolean offsets=iwTerms.hasOffsets() && memTerms.hasOffsets();
+        while (iwTermsIter.next() != null) {
+          assertNotNull(memTermsIter.next());
+          assertEquals(iwTermsIter.term(),memTermsIter.term());
+          DocsAndPositionsEnum iwDocsAndPos=iwTermsIter.docsAndPositions(null,null);
+          DocsAndPositionsEnum memDocsAndPos=memTermsIter.docsAndPositions(null,null);
+          while (iwDocsAndPos.nextDoc() != DocsAndPositionsEnum.NO_MORE_DOCS) {
+            assertEquals(iwDocsAndPos.docID(),memDocsAndPos.nextDoc());
+            assertEquals(iwDocsAndPos.freq(),memDocsAndPos.freq());
+            for (int i=0; i < iwDocsAndPos.freq(); i++) {
+              assertEquals("term: " + iwTermsIter.term().utf8ToString(),iwDocsAndPos.nextPosition(),memDocsAndPos.nextPosition());
+              if (offsets) {
+                assertEquals(iwDocsAndPos.startOffset(),memDocsAndPos.startOffset());
+                assertEquals(iwDocsAndPos.endOffset(),memDocsAndPos.endOffset());
+              }
+            }
+          }
+        }
+      }
+ else {
+        while (iwTermsIter.next() != null) {
+          assertEquals(iwTermsIter.term(),memTermsIter.term());
+          DocsEnum iwDocsAndPos=iwTermsIter.docs(null,null);
+          DocsEnum memDocsAndPos=memTermsIter.docs(null,null);
+          while (iwDocsAndPos.nextDoc() != DocsAndPositionsEnum.NO_MORE_DOCS) {
+            assertEquals(iwDocsAndPos.docID(),memDocsAndPos.nextDoc());
+            assertEquals(iwDocsAndPos.freq(),memDocsAndPos.freq());
+          }
+        }
+      }
+    }
+  }
+}
