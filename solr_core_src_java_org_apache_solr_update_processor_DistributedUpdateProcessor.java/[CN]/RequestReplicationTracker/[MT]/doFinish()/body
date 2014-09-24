@@ -20,6 +20,12 @@
     DistribPhase phase=DistribPhase.parseParam(error.req.uReq.getParams().get(DISTRIB_UPDATE_PARAM));
     if (phase != DistribPhase.FROMLEADER)     continue;
     final String replicaUrl=error.req.node.getUrl();
+    String cause=(error.e instanceof SolrException) ? ((SolrException)error.e).getMetadata("cause") : null;
+    if ("LeaderChanged".equals(cause)) {
+      log.error("On " + cloudDesc.getCoreNodeName() + ", replica "+ replicaUrl+ " now thinks it is the leader! Failing the request to let the client retry! "+ error.e);
+      rsp.setException(error.e);
+      break;
+    }
     int maxTries=1;
     boolean sendRecoveryCommand=true;
     String collection=null;
@@ -28,21 +34,38 @@
       StdNode stdNode=(StdNode)error.req.node;
       collection=stdNode.getCollection();
       shardId=stdNode.getShardId();
+      String leaderCoreNodeName=null;
       try {
-        sendRecoveryCommand=zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaUrl,stdNode.getNodeProps(),false);
-        if (sendRecoveryCommand) {
-          maxTries=120;
+        leaderCoreNodeName=zkController.getZkStateReader().getLeaderRetry(collection,shardId).getName();
+      }
+ catch (      Exception exc) {
+        log.error("Failed to determine if " + cloudDesc.getCoreNodeName() + " is still the leader for "+ collection+ " "+ shardId+ " before putting "+ replicaUrl+ " into leader-initiated recovery due to: "+ exc);
+      }
+      if (cloudDesc.getCoreNodeName().equals(leaderCoreNodeName)) {
+        try {
+          sendRecoveryCommand=zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaUrl,stdNode.getNodeProps(),false);
+          if (sendRecoveryCommand) {
+            maxTries=120;
+          }
+        }
+ catch (        KeeperException.SessionExpiredException see) {
+          log.error("Leader failed to set replica " + error.req.node.getUrl() + " state to DOWN due to: "+ see,see);
+          sendRecoveryCommand=false;
+        }
+catch (        Exception e) {
+          log.error("Leader failed to set replica " + error.req.node.getUrl() + " state to DOWN due to: "+ e,e);
         }
       }
- catch (      Exception e) {
-        log.error("Leader failed to set replica " + error.req.node.getUrl() + " state to DOWN due to: "+ e,e);
+ else {
+        sendRecoveryCommand=false;
+        log.warn("Core " + cloudDesc.getCoreNodeName() + " is no longer the leader for "+ collection+ " "+ shardId+ ", no request recovery command will be sent!");
       }
     }
     if (!sendRecoveryCommand)     continue;
     Throwable rootCause=SolrException.getRootCause(error.e);
     log.error("Setting up to try to start recovery on replica " + replicaUrl + " after: "+ rootCause);
     CoreContainer coreContainer=req.getCore().getCoreDescriptor().getCoreContainer();
-    LeaderInitiatedRecoveryThread lirThread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,collection,shardId,error.req.node.getNodeProps(),maxTries);
+    LeaderInitiatedRecoveryThread lirThread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,collection,shardId,error.req.node.getNodeProps(),maxTries,cloudDesc.getCoreNodeName());
     ExecutorService executor=coreContainer.getUpdateShardHandler().getUpdateExecutor();
     executor.execute(lirThread);
   }

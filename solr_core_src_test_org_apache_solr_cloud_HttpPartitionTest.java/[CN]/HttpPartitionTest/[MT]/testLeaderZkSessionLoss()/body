@@ -1,0 +1,78 @@
+{
+  String testCollectionName="c8n_1x2_leader_session_loss";
+  createCollection(testCollectionName,1,2,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  sendDoc(1);
+  List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",1,2,maxWaitSecsToSeeAllActive);
+  assertTrue("Expected 1 replicas for collection " + testCollectionName + " but found "+ notLeaders.size()+ "; clusterState: "+ printClusterStateInfo(testCollectionName),notLeaders.size() == 1);
+  Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
+  String leaderNode=leader.getNodeName();
+  assertNotNull("Could not find leader for shard1 of " + testCollectionName + "; clusterState: "+ printClusterStateInfo(testCollectionName),leader);
+  JettySolrRunner leaderJetty=getJettyOnPort(getReplicaPort(leader));
+  HttpSolrServer leaderSolr=getHttpSolrServer(leader,testCollectionName);
+  SolrInputDocument doc=new SolrInputDocument();
+  doc.addField(id,String.valueOf(2));
+  doc.addField("a_t","hello" + 2);
+  chaosMonkey.expireSession(leaderJetty);
+  String expectedNewLeaderCoreNodeName=notLeaders.get(0).getName();
+  long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(60,TimeUnit.SECONDS);
+  while (System.nanoTime() < timeout) {
+    String currentLeaderName=null;
+    try {
+      Replica currentLeader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
+      currentLeaderName=currentLeader.getName();
+    }
+ catch (    Exception exc) {
+    }
+    if (expectedNewLeaderCoreNodeName.equals(currentLeaderName))     break;
+    Thread.sleep(500);
+  }
+  Replica currentLeader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
+  assertEquals(expectedNewLeaderCoreNodeName,currentLeader.getName());
+  log.info("Sending doc 2 to old leader " + leader.getName());
+  try {
+    leaderSolr.add(doc);
+    leaderSolr.shutdown();
+    Replica oldLeaderInRecovery=null;
+    for (    Replica next : getActiveOrRecoveringReplicas(testCollectionName,"shard1")) {
+      if (next.getName().equals(leader.getName()) && ZkStateReader.RECOVERING.equals(next.getStr(ZkStateReader.STATE_PROP))) {
+        oldLeaderInRecovery=next;
+        break;
+      }
+    }
+    if (oldLeaderInRecovery != null) {
+      HttpSolrServer oldLeaderSolr=getHttpSolrServer(oldLeaderInRecovery,testCollectionName);
+      try {
+        assertDocExists(oldLeaderSolr,testCollectionName,"2");
+      }
+  finally {
+        oldLeaderSolr.shutdown();
+      }
+    }
+ else {
+      fail("Send doc 2 to old leader " + leader.getName() + " should have failed! ClusterState: "+ printClusterStateInfo(testCollectionName));
+    }
+  }
+ catch (  SolrException exc) {
+    leaderSolr=getHttpSolrServer(currentLeader,testCollectionName);
+    try {
+      leaderSolr.add(doc);
+    }
+  finally {
+      leaderSolr.shutdown();
+    }
+  }
+  List<Replica> participatingReplicas=getActiveOrRecoveringReplicas(testCollectionName,"shard1");
+  Set<String> replicasToCheck=new HashSet<>();
+  for (  Replica stillUp : participatingReplicas)   replicasToCheck.add(stillUp.getName());
+  waitToSeeReplicasActive(testCollectionName,"shard1",replicasToCheck,20);
+  assertDocsExistInAllReplicas(participatingReplicas,testCollectionName,1,2);
+  try {
+    CollectionAdminRequest req=new CollectionAdminRequest.Delete();
+    req.setCollectionName(testCollectionName);
+    req.process(cloudClient);
+  }
+ catch (  Exception e) {
+    log.warn("Could not delete collection {} after test completed",testCollectionName);
+  }
+}

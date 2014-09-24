@@ -11,7 +11,7 @@
   RequestRecovery recoverRequestCmd=new RequestRecovery();
   recoverRequestCmd.setAction(CoreAdminAction.REQUESTRECOVERY);
   recoverRequestCmd.setCoreName(coreNeedingRecovery);
-  while (continueTrying && ++tries < maxTries) {
+  while (continueTrying && ++tries <= maxTries) {
     if (tries > 1) {
       log.warn("Asking core={} coreNodeName={} on " + recoveryUrl + " to recover; unsuccessful after "+ tries+ " of "+ maxTries+ " attempts so far ...",coreNeedingRecovery,replicaCoreNodeName);
     }
@@ -47,7 +47,7 @@
         Thread.currentThread().interrupt();
       }
       if (coreContainer.isShutDown()) {
-        log.warn("Stop trying to send recovery command to downed replica core={} coreNodeName={} on " + replicaNodeName + " because my core container is close.",coreNeedingRecovery,replicaCoreNodeName);
+        log.warn("Stop trying to send recovery command to downed replica core={} coreNodeName={} on " + replicaNodeName + " because my core container is closed.",coreNeedingRecovery,replicaCoreNodeName);
         continueTrying=false;
         break;
       }
@@ -62,6 +62,20 @@
         log.warn("Node " + replicaNodeName + " hosting core "+ coreNeedingRecovery+ " is no longer live. No need to keep trying to tell it to recover!");
         continueTrying=false;
         break;
+      }
+      if (leaderCoreNodeName != null && collection != null) {
+        String leaderCoreNodeNameFromZk=null;
+        try {
+          leaderCoreNodeNameFromZk=zkController.getZkStateReader().getLeaderRetry(collection,shardId,1000).getName();
+        }
+ catch (        Exception exc) {
+          log.error("Failed to determine if " + leaderCoreNodeName + " is still the leader for "+ collection+ " "+ shardId+ " before starting leader-initiated recovery thread for "+ replicaUrl+ " due to: "+ exc);
+        }
+        if (!leaderCoreNodeName.equals(leaderCoreNodeNameFromZk)) {
+          log.warn("Stop trying to send recovery command to downed replica core=" + coreNeedingRecovery + ",coreNodeName="+ replicaCoreNodeName+ " on "+ replicaNodeName+ " because "+ leaderCoreNodeName+ " is no longer the leader! New leader is "+ leaderCoreNodeNameFromZk);
+          continueTrying=false;
+          break;
+        }
       }
       if (continueTrying && collection != null && shardId != null) {
         try {
