@@ -160,7 +160,9 @@
       if (infoStream != null)       infoStream.print("    test: check integrity.....");
       reader.checkIntegrity();
       msg(infoStream,"OK");
-      if (infoStream != null)       infoStream.print("    test: check live docs.....");
+      if (reader.maxDoc() != info.info.getDocCount()) {
+        throw new RuntimeException("SegmentReader.maxDoc() " + reader.maxDoc() + " != SegmentInfos.docCount "+ info.info.getDocCount());
+      }
       final int numDocs=reader.numDocs();
       toLoseDocCount=numDocs;
       if (reader.hasDeletions()) {
@@ -170,56 +172,29 @@
         if ((info.info.getDocCount() - reader.numDocs()) > reader.maxDoc()) {
           throw new RuntimeException("too many deleted docs: maxDoc()=" + reader.maxDoc() + " vs del count="+ (info.info.getDocCount() - reader.numDocs()));
         }
-        if (info.info.getDocCount() - numDocs != info.getDelCount()) {
-          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.info.getDocCount() - numDocs));
+        if (info.info.getDocCount() - reader.numDocs() != info.getDelCount()) {
+          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.info.getDocCount() - reader.numDocs()));
         }
-        Bits liveDocs=reader.getLiveDocs();
-        if (liveDocs == null) {
-          throw new RuntimeException("segment should have deletions, but liveDocs is null");
-        }
- else {
-          int numLive=0;
-          for (int j=0; j < liveDocs.length(); j++) {
-            if (liveDocs.get(j)) {
-              numLive++;
-            }
-          }
-          if (numLive != numDocs) {
-            throw new RuntimeException("liveDocs count mismatch: info=" + numDocs + ", vs bits="+ numLive);
-          }
-        }
-        segInfoStat.numDeleted=info.info.getDocCount() - numDocs;
-        msg(infoStream,"OK [" + (segInfoStat.numDeleted) + " deleted docs]");
       }
  else {
         if (info.getDelCount() != 0) {
-          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.info.getDocCount() - numDocs));
+          throw new RuntimeException("delete count mismatch: info=" + info.getDelCount() + " vs reader="+ (info.info.getDocCount() - reader.numDocs()));
         }
-        Bits liveDocs=reader.getLiveDocs();
-        if (liveDocs != null) {
-          for (int j=0; j < liveDocs.length(); j++) {
-            if (!liveDocs.get(j)) {
-              throw new RuntimeException("liveDocs mismatch: info says no deletions but doc " + j + " is deleted.");
-            }
-          }
-        }
-        msg(infoStream,"OK");
       }
-      if (reader.maxDoc() != info.info.getDocCount()) {
-        throw new RuntimeException("SegmentReader.maxDoc() " + reader.maxDoc() + " != SegmentInfos.docCount "+ info.info.getDocCount());
-      }
-      if (infoStream != null) {
-        infoStream.print("    test: fields..............");
-      }
-      FieldInfos fieldInfos=reader.getFieldInfos();
-      msg(infoStream,"OK [" + fieldInfos.size() + " fields]");
-      segInfoStat.numFields=fieldInfos.size();
+      segInfoStat.liveDocStatus=testLiveDocs(reader,infoStream,failFast);
+      segInfoStat.fieldInfoStatus=testFieldInfos(reader,infoStream,failFast);
       segInfoStat.fieldNormStatus=testFieldNorms(reader,infoStream,failFast);
       segInfoStat.termIndexStatus=testPostings(reader,infoStream,verbose,failFast);
       segInfoStat.storedFieldStatus=testStoredFields(reader,infoStream,failFast);
       segInfoStat.termVectorStatus=testTermVectors(reader,infoStream,verbose,crossCheckTermVectors,failFast);
       segInfoStat.docValuesStatus=testDocValues(reader,infoStream,failFast);
-      if (segInfoStat.fieldNormStatus.error != null) {
+      if (segInfoStat.liveDocStatus.error != null) {
+        throw new RuntimeException("Live docs test failed");
+      }
+ else       if (segInfoStat.fieldInfoStatus.error != null) {
+        throw new RuntimeException("Field Info test failed");
+      }
+ else       if (segInfoStat.fieldNormStatus.error != null) {
         throw new RuntimeException("Field Norm test failed");
       }
  else       if (segInfoStat.termIndexStatus.error != null) {
