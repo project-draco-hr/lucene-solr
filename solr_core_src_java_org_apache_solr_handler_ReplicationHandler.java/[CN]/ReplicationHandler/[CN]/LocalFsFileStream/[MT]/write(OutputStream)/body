@@ -1,44 +1,19 @@
 {
-  String fileName=params.get(FILE);
-  String cfileName=params.get(CONF_FILE_SHORT);
-  String sOffset=params.get(OFFSET);
-  String sLen=params.get(LEN);
-  String compress=params.get(COMPRESSION);
-  String sChecksum=params.get(CHECKSUM);
-  String sGen=params.get(GENERATION);
-  if (sGen != null)   indexGen=Long.parseLong(sGen);
-  if (Boolean.parseBoolean(compress)) {
-    fos=new FastOutputStream(new DeflaterOutputStream(out));
-  }
- else {
-    fos=new FastOutputStream(out);
-  }
+  createOutputStream(out);
   FileInputStream inputStream=null;
-  int packetsWritten=0;
   try {
-    long offset=-1;
-    int len=-1;
-    boolean useChecksum=Boolean.parseBoolean(sChecksum);
-    if (sOffset != null)     offset=Long.parseLong(sOffset);
-    if (sLen != null)     len=Integer.parseInt(sLen);
-    if (fileName == null && cfileName == null) {
-      writeNothing();
-    }
-    File file=null;
-    file=new File(core.getResourceLoader().getConfigDir(),cfileName);
+    initWrite();
+    File file=new File(core.getResourceLoader().getConfigDir(),cfileName);
     if (file.exists() && file.canRead()) {
       inputStream=new FileInputStream(file);
       FileChannel channel=inputStream.getChannel();
       if (offset != -1)       channel.position(offset);
-      byte[] buf=new byte[(len == -1 || len > PACKET_SZ) ? PACKET_SZ : len];
-      Checksum checksum=null;
-      if (useChecksum)       checksum=new Adler32();
       ByteBuffer bb=ByteBuffer.wrap(buf);
       while (true) {
         bb.clear();
         long bytesRead=channel.read(bb);
         if (bytesRead <= 0) {
-          writeNothing();
+          writeNothingAndFlush();
           fos.close();
           break;
         }
@@ -50,14 +25,10 @@
         }
         fos.write(buf,0,(int)bytesRead);
         fos.flush();
-        if (indexGen != null && (packetsWritten % 5 == 0)) {
-          delPolicy.setReserveDuration(indexGen,reserveCommitDuration);
-        }
-        packetsWritten++;
       }
     }
  else {
-      writeNothing();
+      writeNothingAndFlush();
     }
   }
  catch (  IOException e) {
@@ -65,5 +36,6 @@
   }
  finally {
     IOUtils.closeQuietly(inputStream);
+    releaseCommitPointAndExtendReserve();
   }
 }

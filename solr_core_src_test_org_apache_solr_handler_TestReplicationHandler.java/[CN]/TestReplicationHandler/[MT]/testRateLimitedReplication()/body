@@ -1,0 +1,47 @@
+{
+  masterClient.deleteByQuery("*:*");
+  slaveClient.deleteByQuery("*:*");
+  masterClient.commit();
+  slaveClient.commit();
+  masterJetty.stop();
+  slaveJetty.stop();
+  master.copyConfigFile(CONF_DIR + "solrconfig-master-throttled.xml","solrconfig.xml");
+  useFactory(null);
+  masterJetty=createJetty(master);
+  masterClient.shutdown();
+  masterClient=createNewSolrServer(masterJetty.getLocalPort());
+  final int totalDocs=TestUtil.nextInt(random(),50,100);
+  for (int i=0; i < totalDocs; i++)   index(masterClient,"id",i,"name",TestUtil.randomSimpleString(random(),1000,5000));
+  masterClient.commit();
+  String dataDir=master.getDataDir();
+  masterClient.shutdown();
+  masterJetty.stop();
+  Directory dir=FSDirectory.open(Paths.get(dataDir,"index"));
+  String[] files=dir.listAll();
+  long totalBytes=0;
+  for (  String file : files) {
+    totalBytes+=dir.fileLength(file);
+  }
+  float approximateTimeInSeconds=Math.round(totalBytes / 1024 / 1024/ 0.1);
+  useFactory(null);
+  masterJetty=createJetty(master);
+  masterClient=createNewSolrServer(masterJetty.getLocalPort());
+  slave.setTestPort(masterJetty.getLocalPort());
+  slave.copyConfigFile(CONF_DIR + "solrconfig-slave1.xml","solrconfig.xml");
+  slaveJetty=createJetty(slave);
+  slaveClient.shutdown();
+  slaveClient=createNewSolrServer(slaveJetty.getLocalPort());
+  long startTime=System.nanoTime();
+  pullFromMasterToSlave();
+  new Thread(new AddExtraDocs(masterClient,totalDocs)).start();
+  NamedList slaveQueryRsp=rQuery(totalDocs,"*:*",slaveClient);
+  SolrDocumentList slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
+  assertEquals(totalDocs,slaveQueryResult.getNumFound());
+  long timeTaken=System.nanoTime() - startTime;
+  long timeTakenInSeconds=TimeUnit.SECONDS.convert(timeTaken,TimeUnit.NANOSECONDS);
+  boolean isElapsed=false;
+  if (timeTakenInSeconds - approximateTimeInSeconds > 0) {
+    isElapsed=true;
+  }
+  assertTrue(isElapsed);
+}
