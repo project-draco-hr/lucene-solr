@@ -1,2 +1,29 @@
 {
+  boolean success=false;
+  try {
+    for (    FieldInfo fi : readState.fieldInfos) {
+      if (fi.hasDocValues()) {
+        final String fieldName=fi.name;
+        final String formatName=fi.getAttribute(PER_FIELD_FORMAT_KEY);
+        if (formatName != null) {
+          final String suffix=fi.getAttribute(PER_FIELD_SUFFIX_KEY);
+          if (suffix == null) {
+            throw new IllegalStateException("missing attribute: " + PER_FIELD_SUFFIX_KEY + " for field: "+ fieldName);
+          }
+          DocValuesFormat format=DocValuesFormat.forName(formatName);
+          String segmentSuffix=getFullSegmentSuffix(readState.segmentSuffix,getSuffix(formatName,suffix));
+          if (!formats.containsKey(segmentSuffix)) {
+            formats.put(segmentSuffix,format.fieldsProducer(new SegmentReadState(readState,segmentSuffix)));
+          }
+          fields.put(fieldName,formats.get(segmentSuffix));
+        }
+      }
+    }
+    success=true;
+  }
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(formats.values());
+    }
+  }
 }
