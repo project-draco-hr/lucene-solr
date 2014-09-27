@@ -1,0 +1,65 @@
+{
+  final String fileName=IndexFileNames.segmentFileName(segmentInfo.name,"",Lucene40FieldInfosFormat.FIELD_INFOS_EXTENSION);
+  IndexInput input=directory.openInput(fileName,iocontext);
+  boolean success=false;
+  try {
+    CodecUtil.checkHeader(input,Lucene40FieldInfosFormat.CODEC_NAME,Lucene40FieldInfosFormat.FORMAT_START,Lucene40FieldInfosFormat.FORMAT_CURRENT);
+    final int size=input.readVInt();
+    FieldInfo infos[]=new FieldInfo[size];
+    for (int i=0; i < size; i++) {
+      String name=input.readString();
+      final int fieldNumber=input.readVInt();
+      byte bits=input.readByte();
+      boolean isIndexed=(bits & Lucene40FieldInfosFormat.IS_INDEXED) != 0;
+      boolean storeTermVector=(bits & Lucene40FieldInfosFormat.STORE_TERMVECTOR) != 0;
+      boolean omitNorms=(bits & Lucene40FieldInfosFormat.OMIT_NORMS) != 0;
+      boolean storePayloads=(bits & Lucene40FieldInfosFormat.STORE_PAYLOADS) != 0;
+      final IndexOptions indexOptions;
+      if (!isIndexed) {
+        indexOptions=null;
+      }
+ else       if ((bits & Lucene40FieldInfosFormat.OMIT_TERM_FREQ_AND_POSITIONS) != 0) {
+        indexOptions=IndexOptions.DOCS_ONLY;
+      }
+ else       if ((bits & Lucene40FieldInfosFormat.OMIT_POSITIONS) != 0) {
+        indexOptions=IndexOptions.DOCS_AND_FREQS;
+      }
+ else       if ((bits & Lucene40FieldInfosFormat.STORE_OFFSETS_IN_POSTINGS) != 0) {
+        indexOptions=IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS;
+      }
+ else {
+        indexOptions=IndexOptions.DOCS_AND_FREQS_AND_POSITIONS;
+      }
+      if (isIndexed && indexOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) < 0) {
+        storePayloads=false;
+      }
+      byte val=input.readByte();
+      final LegacyDocValuesType oldValuesType=getDocValuesType((byte)(val & 0x0F));
+      final LegacyDocValuesType oldNormsType=getDocValuesType((byte)((val >>> 4) & 0x0F));
+      final Map<String,String> attributes=input.readStringStringMap();
+      ;
+      if (oldValuesType.mapping != null) {
+        attributes.put(LEGACY_DV_TYPE_KEY,oldValuesType.name());
+      }
+      if (oldNormsType.mapping != null) {
+        if (oldNormsType.mapping != DocValuesType.NUMERIC) {
+          throw new CorruptIndexException("invalid norm type: " + oldNormsType,input);
+        }
+        attributes.put(LEGACY_NORM_TYPE_KEY,oldNormsType.name());
+      }
+      infos[i]=new FieldInfo(name,isIndexed,fieldNumber,storeTermVector,omitNorms,storePayloads,indexOptions,oldValuesType.mapping,oldNormsType.mapping,-1,Collections.unmodifiableMap(attributes));
+    }
+    CodecUtil.checkEOF(input);
+    FieldInfos fieldInfos=new FieldInfos(infos);
+    success=true;
+    return fieldInfos;
+  }
+  finally {
+    if (success) {
+      input.close();
+    }
+ else {
+      IOUtils.closeWhileHandlingException(input);
+    }
+  }
+}
