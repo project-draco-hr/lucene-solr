@@ -1,19 +1,29 @@
 {
   int docCount=0;
-  for (int i=0; i < mergeState.readers.size(); i++) {
-    final LeafReader reader=mergeState.readers.get(i);
-    final int maxDoc=reader.maxDoc();
-    final Bits liveDocs=reader.getLiveDocs();
+  int numReaders=mergeState.maxDocs.length;
+  for (int i=0; i < numReaders; i++) {
+    int maxDoc=mergeState.maxDocs[i];
+    Bits liveDocs=mergeState.liveDocs[i];
+    TermVectorsReader termVectorsReader=mergeState.termVectorsReaders[i];
+    if (termVectorsReader != null) {
+      termVectorsReader.checkIntegrity();
+    }
     for (int docID=0; docID < maxDoc; docID++) {
       if (liveDocs != null && !liveDocs.get(docID)) {
         continue;
       }
-      Fields vectors=reader.getTermVectors(docID);
+      Fields vectors;
+      if (termVectorsReader == null) {
+        vectors=null;
+      }
+ else {
+        vectors=termVectorsReader.get(docID);
+      }
       addAllDocVectors(vectors,mergeState);
       docCount++;
       mergeState.checkAbort.work(300);
     }
   }
-  finish(mergeState.fieldInfos,docCount);
+  finish(mergeState.mergeFieldInfos,docCount);
   return docCount;
 }
