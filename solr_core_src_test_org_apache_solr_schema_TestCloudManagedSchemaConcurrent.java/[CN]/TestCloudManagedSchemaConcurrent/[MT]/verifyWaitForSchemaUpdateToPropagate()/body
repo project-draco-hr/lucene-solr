@@ -1,0 +1,30 @@
+{
+  String testCollectionName="collection1";
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  Replica shard1Leader=clusterState.getLeader(testCollectionName,"shard1");
+  final String coreUrl=(new ZkCoreNodeProps(shard1Leader)).getCoreUrl();
+  assertNotNull(coreUrl);
+  RestTestHarness harness=new RestTestHarness(new RESTfulServerProvider(){
+    public String getBaseURL(){
+      return coreUrl.endsWith("/") ? coreUrl.substring(0,coreUrl.length() - 1) : coreUrl;
+    }
+  }
+);
+  addFieldTypePut(harness,"fooInt",15);
+  SolrZkClient zkClient=cloudClient.getZkStateReader().getZkClient();
+  Stat stat=new Stat();
+  zkClient.getData("/configs/conf1/managed-schema",null,stat,false);
+  final int schemaZkVersion=stat.getVersion();
+  for (  Slice slice : clusterState.getActiveSlices(testCollectionName)) {
+    for (    Replica replica : slice.getReplicas()) {
+      final String replicaUrl=(new ZkCoreNodeProps(replica)).getCoreUrl();
+      RestTestHarness testHarness=new RestTestHarness(new RESTfulServerProvider(){
+        public String getBaseURL(){
+          return replicaUrl.endsWith("/") ? replicaUrl.substring(0,replicaUrl.length() - 1) : replicaUrl;
+        }
+      }
+);
+      testHarness.validateQuery("/schema/zkversion?wt=xml","//zkversion=" + schemaZkVersion);
+    }
+  }
+}

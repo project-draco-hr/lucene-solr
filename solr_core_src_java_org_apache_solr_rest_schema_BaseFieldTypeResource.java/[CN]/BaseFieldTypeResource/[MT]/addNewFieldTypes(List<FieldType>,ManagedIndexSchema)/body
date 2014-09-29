@@ -1,0 +1,24 @@
+{
+  IndexSchema newSchema=null;
+  boolean success=false;
+  while (!success) {
+    try {
+synchronized (oldSchema.getSchemaUpdateLock()) {
+        newSchema=oldSchema.addFieldTypes(newFieldTypes);
+        getSolrCore().setLatestSchema(newSchema);
+        success=true;
+      }
+    }
+ catch (    ManagedIndexSchema.SchemaChangedInZkException e) {
+      oldSchema=(ManagedIndexSchema)getSolrCore().getLatestSchema();
+    }
+  }
+  if (getUpdateTimeoutSecs() > 0 && newSchema != null && newSchema.getResourceLoader() instanceof ZkSolrResourceLoader) {
+    CoreDescriptor cd=getSolrCore().getCoreDescriptor();
+    String collection=cd.getCollectionName();
+    if (collection != null) {
+      ZkSolrResourceLoader zkLoader=(ZkSolrResourceLoader)newSchema.getResourceLoader();
+      ManagedIndexSchema.waitForSchemaZkVersionAgreement(collection,cd.getCloudDescriptor().getCoreNodeName(),((ManagedIndexSchema)newSchema).getSchemaZkVersion(),zkLoader.getZkController(),getUpdateTimeoutSecs());
+    }
+  }
+}
