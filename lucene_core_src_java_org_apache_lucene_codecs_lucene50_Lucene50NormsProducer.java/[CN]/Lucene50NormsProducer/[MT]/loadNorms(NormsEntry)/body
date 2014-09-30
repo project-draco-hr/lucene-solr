@@ -1,0 +1,106 @@
+{
+  LoadedNorms instance=new LoadedNorms();
+switch (entry.format) {
+case CONST_COMPRESSED:
+{
+      final long v=entry.offset;
+      instance.info=Accountables.namedAccountable("constant",8);
+      instance.ramBytesUsed=8;
+      instance.norms=new NumericDocValues(){
+        @Override public long get(        int docID){
+          return v;
+        }
+      }
+;
+      break;
+    }
+case UNCOMPRESSED:
+{
+    data.seek(entry.offset);
+    final byte bytes[]=new byte[entry.count];
+    data.readBytes(bytes,0,bytes.length);
+    instance.info=Accountables.namedAccountable("byte array",bytes.length);
+    instance.ramBytesUsed=RamUsageEstimator.sizeOf(bytes);
+    instance.norms=new NumericDocValues(){
+      @Override public long get(      int docID){
+        return bytes[docID];
+      }
+    }
+;
+    break;
+  }
+case DELTA_COMPRESSED:
+{
+  data.seek(entry.offset);
+  int packedIntsVersion=data.readVInt();
+  int blockSize=data.readVInt();
+  final BlockPackedReader reader=new BlockPackedReader(data,packedIntsVersion,blockSize,entry.count,false);
+  instance.info=Accountables.namedAccountable("delta compressed",reader);
+  instance.ramBytesUsed=reader.ramBytesUsed();
+  instance.norms=reader;
+  break;
+}
+case TABLE_COMPRESSED:
+{
+data.seek(entry.offset);
+int packedIntsVersion=data.readVInt();
+int size=data.readVInt();
+if (size > 256) {
+  throw new CorruptIndexException("TABLE_COMPRESSED cannot have more than 256 distinct values, got=" + size,data);
+}
+final long decode[]=new long[size];
+for (int i=0; i < decode.length; i++) {
+  decode[i]=data.readLong();
+}
+final int formatID=data.readVInt();
+final int bitsPerValue=data.readVInt();
+final PackedInts.Reader ordsReader=PackedInts.getReaderNoHeader(data,PackedInts.Format.byId(formatID),packedIntsVersion,entry.count,bitsPerValue);
+instance.info=Accountables.namedAccountable("table compressed",ordsReader);
+instance.ramBytesUsed=RamUsageEstimator.sizeOf(decode) + ordsReader.ramBytesUsed();
+instance.norms=new NumericDocValues(){
+  @Override public long get(  int docID){
+    return decode[(int)ordsReader.get(docID)];
+  }
+}
+;
+break;
+}
+case INDIRECT:
+{
+data.seek(entry.offset);
+int packedIntsVersion=data.readVInt();
+int blockSize=data.readVInt();
+final MonotonicBlockPackedReader live=MonotonicBlockPackedReader.of(data,packedIntsVersion,blockSize,entry.count,false);
+LoadedNorms nestedInstance=loadNorms(entry.nested);
+instance.ramBytesUsed=live.ramBytesUsed() + nestedInstance.ramBytesUsed;
+instance.info=Accountables.namedAccountable("indirect -> " + nestedInstance.info,instance.ramBytesUsed);
+final NumericDocValues values=nestedInstance.norms;
+final int upperBound=entry.count - 1;
+instance.norms=new NumericDocValues(){
+@Override public long get(int docID){
+  int low=0;
+  int high=upperBound;
+  while (low <= high) {
+    int mid=(low + high) >>> 1;
+    long doc=live.get(mid);
+    if (doc < docID) {
+      low=mid + 1;
+    }
+ else     if (doc > docID) {
+      high=mid - 1;
+    }
+ else {
+      return values.get(mid);
+    }
+  }
+  return 0;
+}
+}
+;
+break;
+}
+default :
+throw new AssertionError();
+}
+return instance;
+}
