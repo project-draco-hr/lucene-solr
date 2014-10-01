@@ -1,20 +1,18 @@
 {
   final PagedBytes termBytes=new PagedBytes(PAGED_BYTES_BITS);
-  this.termComp=termComp;
-  final IndexInput in=dir.openInput(IndexFileNames.segmentFileName(segment,segmentSuffix,FixedGapTermsIndexWriter.TERMS_INDEX_EXTENSION),context);
+  String fileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,FixedGapTermsIndexWriter.TERMS_INDEX_EXTENSION);
+  final IndexInput in=state.directory.openInput(fileName,state.context);
   boolean success=false;
   try {
-    readHeader(in);
-    if (version >= FixedGapTermsIndexWriter.VERSION_CHECKSUM) {
-      CodecUtil.checksumEntireFile(in);
-    }
+    CodecUtil.checkSegmentHeader(in,FixedGapTermsIndexWriter.CODEC_NAME,FixedGapTermsIndexWriter.VERSION_CURRENT,FixedGapTermsIndexWriter.VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+    CodecUtil.checksumEntireFile(in);
     indexInterval=in.readVInt();
     if (indexInterval < 1) {
       throw new CorruptIndexException("invalid indexInterval: " + indexInterval,in);
     }
     packedIntsVersion=in.readVInt();
     blocksize=in.readVInt();
-    seekDir(in,dirOffset);
+    seekDir(in);
     final int numFields=in.readVInt();
     if (numFields < 0) {
       throw new CorruptIndexException("invalid numFields: " + numFields,in);
@@ -32,7 +30,7 @@
       if (packedIndexStart < indexStart) {
         throw new CorruptIndexException("invalid packedIndexStart: " + packedIndexStart + " indexStart: "+ indexStart+ "numIndexTerms: "+ numIndexTerms,in);
       }
-      final FieldInfo fieldInfo=fieldInfos.fieldInfo(field);
+      final FieldInfo fieldInfo=state.fieldInfos.fieldInfo(field);
       FieldIndexData previous=fields.put(fieldInfo.name,new FieldIndexData(in,termBytes,indexStart,termsStart,packedIndexStart,packedOffsetsStart,numIndexTerms));
       if (previous != null) {
         throw new CorruptIndexException("duplicate field: " + fieldInfo.name,in);
