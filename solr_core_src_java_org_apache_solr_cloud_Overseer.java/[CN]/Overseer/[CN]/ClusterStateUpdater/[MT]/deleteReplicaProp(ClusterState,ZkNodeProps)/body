@@ -1,0 +1,21 @@
+{
+  if (checkKeyExistence(message,ZkStateReader.COLLECTION_PROP) == false || checkKeyExistence(message,ZkStateReader.SHARD_ID_PROP) == false || checkKeyExistence(message,ZkStateReader.REPLICA_PROP) == false || checkKeyExistence(message,ZkStateReader.PROPERTY_PROP) == false) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Overseer DELETEREPLICAPROPERTY requires " + ZkStateReader.COLLECTION_PROP + " and "+ ZkStateReader.SHARD_ID_PROP+ " and "+ ZkStateReader.REPLICA_PROP+ " and "+ ZkStateReader.PROPERTY_PROP+ " no action taken.");
+  }
+  String collectionName=message.getStr(ZkStateReader.COLLECTION_PROP);
+  String sliceName=message.getStr(ZkStateReader.SHARD_ID_PROP);
+  String replicaName=message.getStr(ZkStateReader.REPLICA_PROP);
+  String property=message.getStr(ZkStateReader.PROPERTY_PROP).toLowerCase(Locale.ROOT);
+  Replica replica=clusterState.getReplica(collectionName,replicaName);
+  if (replica == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Could not find collection/slice/replica " + collectionName + "/"+ sliceName+ "/"+ replicaName+ " no action taken.");
+  }
+  log.info("Deleting property " + property + " for collection: "+ collectionName+ " slice "+ sliceName+ " replica "+ replicaName+ ". Full message: "+ message);
+  String curProp=replica.getStr(property);
+  if (curProp == null)   return clusterState;
+  Map<String,Replica> replicas=clusterState.getSlice(collectionName,sliceName).getReplicasCopy();
+  replica=replicas.get(replicaName);
+  replica.getProperties().remove(property);
+  Slice newSlice=new Slice(sliceName,replicas,clusterState.getSlice(collectionName,sliceName).shallowCopy());
+  return updateSlice(clusterState,collectionName,newSlice);
+}
