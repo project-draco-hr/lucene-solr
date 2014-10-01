@@ -1,0 +1,35 @@
+{
+  String payload="{\n" + "          'add-field' : {\n" + "                       'name':'a1',\n"+ "                       'type': 'string',\n"+ "                       'stored':true,\n"+ "                       'indexed':false\n"+ "                       },\n"+ "          'add-field' : {\n"+ "                       'name':'a2',\n"+ "                       'type': 'string',\n"+ "                       'stored':true,\n"+ "                       'indexed':true\n"+ "                       },\n"+ "          'add-dynamic-field' : {\n"+ "                       'name' :'*_lol',\n"+ "                        'type':'string',\n"+ "                        'stored':true,\n"+ "                        'indexed':true\n"+ "                        },\n"+ "          'add-copy-field' : {\n"+ "                       'source' :'a1',\n"+ "                        'dest':['a2','hello_lol']\n"+ "                        },\n"+ "          'add-field-type' : {\n"+ "                       'name' :'mystr',\n"+ "                       'class' : 'solr.StrField',\n"+ "                        'sortMissingLast':'true'\n"+ "                        },\n"+ "          'add-field-type' : {"+ "                     'name' : 'myNewTxtField',\n"+ "                     'class':'solr.TextField','positionIncrementGap':'100',\n"+ "                     'analyzer' : {\n"+ "                                  'charFilters':[\n"+ "                                            {'class':'solr.PatternReplaceCharFilterFactory','replacement':'$1$1','pattern':'([a-zA-Z])\\\\\\\\1+'}\n"+ "                                         ],\n"+ "                     'tokenizer':{'class':'solr.WhitespaceTokenizerFactory'},\n"+ "                     'filters':[\n"+ "                             {'class':'solr.WordDelimiterFilterFactory','preserveOriginal':'0'},\n"+ "                             {'class':'solr.StopFilterFactory','words':'stopwords.txt','ignoreCase':'true'},\n"+ "                             {'class':'solr.LowerCaseFilterFactory'},\n"+ "                             {'class':'solr.ASCIIFoldingFilterFactory'},\n"+ "                             {'class':'solr.KStemFilterFactory'}\n"+ "                  ]\n"+ "                }\n"+ "              }"+ "          }";
+  RestTestHarness harness=restTestHarness;
+  String response=harness.post("/schema?wt=json",SolrTestCaseJ4.json(payload));
+  Map map=(Map)ObjectBuilder.getVal(new JSONParser(new StringReader(response)));
+  assertNull(response,map.get("errors"));
+  Map m=getObj(harness,"a1","fields");
+  assertNotNull("field a1 not created",m);
+  assertEquals("string",m.get("type"));
+  assertEquals(Boolean.TRUE,m.get("stored"));
+  assertEquals(Boolean.FALSE,m.get("indexed"));
+  m=getObj(harness,"a2","fields");
+  assertNotNull("field a2 not created",m);
+  assertEquals("string",m.get("type"));
+  assertEquals(Boolean.TRUE,m.get("stored"));
+  assertEquals(Boolean.TRUE,m.get("indexed"));
+  m=getObj(harness,"*_lol","dynamicFields");
+  assertNotNull("field *_lol not created",m);
+  assertEquals("string",m.get("type"));
+  assertEquals(Boolean.TRUE,m.get("stored"));
+  assertEquals(Boolean.TRUE,m.get("indexed"));
+  List l=getCopyFields(harness,"a1");
+  Set s=new HashSet();
+  assertEquals(2,l.size());
+  s.add(((Map)l.get(0)).get("dest"));
+  s.add(((Map)l.get(1)).get("dest"));
+  assertTrue(s.contains("hello_lol"));
+  assertTrue(s.contains("a2"));
+  m=getObj(harness,"mystr","fieldTypes");
+  assertNotNull(m);
+  assertEquals("solr.StrField",m.get("class"));
+  assertEquals("true",String.valueOf(m.get("sortMissingLast")));
+  m=getObj(harness,"myNewTxtField","fieldTypes");
+  assertNotNull(m);
+}
