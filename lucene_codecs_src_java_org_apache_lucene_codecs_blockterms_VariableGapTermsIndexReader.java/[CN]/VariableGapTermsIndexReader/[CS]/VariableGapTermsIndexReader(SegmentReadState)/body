@@ -1,13 +1,11 @@
 {
-  final IndexInput in=dir.openInput(IndexFileNames.segmentFileName(segment,segmentSuffix,VariableGapTermsIndexWriter.TERMS_INDEX_EXTENSION),new IOContext(context,true));
-  this.segment=segment;
+  String fileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,VariableGapTermsIndexWriter.TERMS_INDEX_EXTENSION);
+  final IndexInput in=state.directory.openInput(fileName,new IOContext(state.context,true));
   boolean success=false;
   try {
-    version=readHeader(in);
-    if (version >= VariableGapTermsIndexWriter.VERSION_CHECKSUM) {
-      CodecUtil.checksumEntireFile(in);
-    }
-    seekDir(in,dirOffset);
+    CodecUtil.checkSegmentHeader(in,VariableGapTermsIndexWriter.CODEC_NAME,VariableGapTermsIndexWriter.VERSION_START,VariableGapTermsIndexWriter.VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+    CodecUtil.checksumEntireFile(in);
+    seekDir(in);
     final int numFields=in.readVInt();
     if (numFields < 0) {
       throw new CorruptIndexException("invalid numFields: " + numFields,in);
@@ -15,7 +13,7 @@
     for (int i=0; i < numFields; i++) {
       final int field=in.readVInt();
       final long indexStart=in.readVLong();
-      final FieldInfo fieldInfo=fieldInfos.fieldInfo(field);
+      final FieldInfo fieldInfo=state.fieldInfos.fieldInfo(field);
       FieldIndexData previous=fields.put(fieldInfo.name,new FieldIndexData(in,fieldInfo,indexStart));
       if (previous != null) {
         throw new CorruptIndexException("duplicate field: " + fieldInfo.name,in);
