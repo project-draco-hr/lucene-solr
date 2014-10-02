@@ -1,0 +1,25 @@
+{
+  String testCollectionName="c8n_2x2_commits";
+  createCollection(testCollectionName,2,2,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",2,2,30);
+  assertTrue("Expected 1 replicas for collection " + testCollectionName + " but found "+ notLeaders.size()+ "; clusterState: "+ printClusterStateInfo(),notLeaders.size() == 1);
+  Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
+  SocketProxy leaderProxy=getProxyForReplica(leader);
+  leaderProxy.close();
+  Replica shard2Leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard2");
+  HttpSolrServer server=new HttpSolrServer(ZkCoreNodeProps.getCoreUrl(shard2Leader.getStr("base_url"),shard2Leader.getStr("core")));
+  server.commit();
+  Thread.sleep(sleepMsBeforeHealPartition);
+  cloudClient.getZkStateReader().updateClusterState(true);
+  leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
+  assertEquals("Leader was not active","active",leader.getStr("state"));
+  try {
+    CollectionAdminRequest req=new CollectionAdminRequest.Delete();
+    req.setCollectionName(testCollectionName);
+    req.process(cloudClient);
+  }
+ catch (  Exception e) {
+    log.warn("Could not delete collection {} after test completed",testCollectionName);
+  }
+}
