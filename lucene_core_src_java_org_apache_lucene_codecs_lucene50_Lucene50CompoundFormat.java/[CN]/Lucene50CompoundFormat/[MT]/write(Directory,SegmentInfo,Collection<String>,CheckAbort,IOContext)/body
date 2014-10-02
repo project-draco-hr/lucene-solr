@@ -1,9 +1,23 @@
 {
-  String fileName=IndexFileNames.segmentFileName(si.name,"",IndexFileNames.COMPOUND_FILE_EXTENSION);
-  try (CompoundFileDirectory cfs=new CompoundFileDirectory(si.getId(),dir,fileName,context,true)){
+  String dataFile=IndexFileNames.segmentFileName(si.name,"",IndexFileNames.COMPOUND_FILE_EXTENSION);
+  String entriesFile=IndexFileNames.segmentFileName(si.name,"",IndexFileNames.COMPOUND_FILE_ENTRIES_EXTENSION);
+  try (IndexOutput data=dir.createOutput(dataFile,context);IndexOutput entries=dir.createOutput(entriesFile,context)){
+    CodecUtil.writeSegmentHeader(data,DATA_CODEC,VERSION_CURRENT,si.getId(),"");
+    CodecUtil.writeSegmentHeader(entries,ENTRY_CODEC,VERSION_CURRENT,si.getId(),"");
+    entries.writeVInt(files.size());
     for (    String file : files) {
-      dir.copy(cfs,file,file,context);
-      checkAbort.work(dir.fileLength(file));
+      long startOffset=data.getFilePointer();
+      try (IndexInput in=dir.openInput(file,IOContext.READONCE)){
+        data.copyBytes(in,in.length());
+      }
+       long endOffset=data.getFilePointer();
+      long length=endOffset - startOffset;
+      entries.writeString(IndexFileNames.stripSegmentName(file));
+      entries.writeLong(startOffset);
+      entries.writeLong(length);
+      checkAbort.work(length);
     }
+    CodecUtil.writeFooter(data);
+    CodecUtil.writeFooter(entries);
   }
  }
