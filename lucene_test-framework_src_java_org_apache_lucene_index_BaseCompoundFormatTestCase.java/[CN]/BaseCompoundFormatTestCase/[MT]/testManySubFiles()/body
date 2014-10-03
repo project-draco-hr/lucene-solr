@@ -1,0 +1,27 @@
+{
+  final MockDirectoryWrapper dir=newMockFSDirectory(createTempDir("CFSManySubFiles"));
+  final int FILE_COUNT=atLeast(500);
+  for (int fileIdx=0; fileIdx < FILE_COUNT; fileIdx++) {
+    IndexOutput out=dir.createOutput("_123." + fileIdx,newIOContext(random()));
+    out.writeByte((byte)fileIdx);
+    out.close();
+  }
+  assertEquals(0,dir.getFileHandleCount());
+  SegmentInfo si=newSegmentInfo(dir,"_123");
+  si.getCodec().compoundFormat().write(dir,si,Arrays.asList(dir.listAll()),MergeState.CheckAbort.NONE,IOContext.DEFAULT);
+  Directory cfs=si.getCodec().compoundFormat().getCompoundReader(dir,si,IOContext.DEFAULT);
+  final IndexInput[] ins=new IndexInput[FILE_COUNT];
+  for (int fileIdx=0; fileIdx < FILE_COUNT; fileIdx++) {
+    ins[fileIdx]=cfs.openInput("file." + fileIdx,newIOContext(random()));
+  }
+  assertEquals(1,dir.getFileHandleCount());
+  for (int fileIdx=0; fileIdx < FILE_COUNT; fileIdx++) {
+    assertEquals((byte)fileIdx,ins[fileIdx].readByte());
+  }
+  assertEquals(1,dir.getFileHandleCount());
+  for (int fileIdx=0; fileIdx < FILE_COUNT; fileIdx++) {
+    ins[fileIdx].close();
+  }
+  cfs.close();
+  dir.close();
+}
