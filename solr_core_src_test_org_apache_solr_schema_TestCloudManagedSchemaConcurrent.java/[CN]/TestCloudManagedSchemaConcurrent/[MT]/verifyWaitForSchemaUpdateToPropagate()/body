@@ -13,18 +13,29 @@
   addFieldTypePut(harness,"fooInt",15);
   SolrZkClient zkClient=cloudClient.getZkStateReader().getZkClient();
   Stat stat=new Stat();
-  zkClient.getData("/configs/conf1/managed-schema",null,stat,false);
-  final int schemaZkVersion=stat.getVersion();
+  String znodePath="/configs/conf1/managed-schema";
+  byte[] managedSchemaBytes=zkClient.getData(znodePath,null,stat,false);
+  int schemaZkVersion=stat.getVersion();
+  Replica randomReplicaNotLeader=null;
   for (  Slice slice : clusterState.getActiveSlices(testCollectionName)) {
     for (    Replica replica : slice.getReplicas()) {
-      final String replicaUrl=(new ZkCoreNodeProps(replica)).getCoreUrl();
-      RestTestHarness testHarness=new RestTestHarness(new RESTfulServerProvider(){
-        public String getBaseURL(){
-          return replicaUrl.endsWith("/") ? replicaUrl.substring(0,replicaUrl.length() - 1) : replicaUrl;
-        }
-      }
-);
-      testHarness.validateQuery("/schema/zkversion?wt=xml","//zkversion=" + schemaZkVersion);
+      validateZkVersion(replica,schemaZkVersion,0,false);
+      if (randomReplicaNotLeader == null && !replica.getName().equals(shard1Leader.getName()))       randomReplicaNotLeader=replica;
     }
   }
+  assertNotNull(randomReplicaNotLeader);
+  zkClient.setData(znodePath,managedSchemaBytes,schemaZkVersion,false);
+  stat=new Stat();
+  managedSchemaBytes=zkClient.getData(znodePath,null,stat,false);
+  int updatedSchemaZkVersion=stat.getVersion();
+  assertTrue(updatedSchemaZkVersion > schemaZkVersion);
+  validateZkVersion(randomReplicaNotLeader,updatedSchemaZkVersion,2,true);
+  JettySolrRunner randomReplicaJetty=getJettyOnPort(getReplicaPort(randomReplicaNotLeader));
+  assertNotNull(randomReplicaJetty);
+  chaosMonkey.expireSession(randomReplicaJetty);
+  zkClient.setData(znodePath,managedSchemaBytes,updatedSchemaZkVersion,false);
+  stat=new Stat();
+  managedSchemaBytes=zkClient.getData(znodePath,null,stat,false);
+  updatedSchemaZkVersion=stat.getVersion();
+  validateZkVersion(randomReplicaNotLeader,updatedSchemaZkVersion,10,true);
 }
