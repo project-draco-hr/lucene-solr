@@ -1,0 +1,41 @@
+{
+  String testCollectionName="collection1";
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  Replica shard1Leader=clusterState.getLeader(testCollectionName,"shard1");
+  final String coreUrl=(new ZkCoreNodeProps(shard1Leader)).getCoreUrl();
+  assertNotNull(coreUrl);
+  RestTestHarness harness=new RestTestHarness(new RESTfulServerProvider(){
+    public String getBaseURL(){
+      return coreUrl.endsWith("/") ? coreUrl.substring(0,coreUrl.length() - 1) : coreUrl;
+    }
+  }
+);
+  addFieldTypePut(harness,"fooInt",15);
+  SolrZkClient zkClient=cloudClient.getZkStateReader().getZkClient();
+  Stat stat=new Stat();
+  String znodePath="/configs/conf1/managed-schema";
+  byte[] managedSchemaBytes=zkClient.getData(znodePath,null,stat,false);
+  int schemaZkVersion=stat.getVersion();
+  Replica randomReplicaNotLeader=null;
+  for (  Slice slice : clusterState.getActiveSlices(testCollectionName)) {
+    for (    Replica replica : slice.getReplicas()) {
+      validateZkVersion(replica,schemaZkVersion,0,false);
+      if (randomReplicaNotLeader == null && !replica.getName().equals(shard1Leader.getName()))       randomReplicaNotLeader=replica;
+    }
+  }
+  assertNotNull(randomReplicaNotLeader);
+  zkClient.setData(znodePath,managedSchemaBytes,schemaZkVersion,false);
+  stat=new Stat();
+  managedSchemaBytes=zkClient.getData(znodePath,null,stat,false);
+  int updatedSchemaZkVersion=stat.getVersion();
+  assertTrue(updatedSchemaZkVersion > schemaZkVersion);
+  validateZkVersion(randomReplicaNotLeader,updatedSchemaZkVersion,2,true);
+  JettySolrRunner randomReplicaJetty=getJettyOnPort(getReplicaPort(randomReplicaNotLeader));
+  assertNotNull(randomReplicaJetty);
+  chaosMonkey.expireSession(randomReplicaJetty);
+  zkClient.setData(znodePath,managedSchemaBytes,updatedSchemaZkVersion,false);
+  stat=new Stat();
+  managedSchemaBytes=zkClient.getData(znodePath,null,stat,false);
+  updatedSchemaZkVersion=stat.getVersion();
+  validateZkVersion(randomReplicaNotLeader,updatedSchemaZkVersion,10,true);
+}

@@ -1,0 +1,40 @@
+{
+  long startMs=System.currentTimeMillis();
+  List<GetZkSchemaVersionCallable> concurrentTasks=new ArrayList<>();
+  for (  String coreUrl : getActiveReplicaCoreUrls(zkController,collection,localCoreNodeName))   concurrentTasks.add(new GetZkSchemaVersionCallable(coreUrl,schemaZkVersion));
+  if (concurrentTasks.isEmpty())   return;
+  log.info("Waiting up to " + maxWaitSecs + " secs for "+ concurrentTasks.size()+ " replicas to apply schema update version "+ schemaZkVersion+ " for collection "+ collection);
+  int poolSize=Math.min(concurrentTasks.size(),10);
+  ExecutorService parallelExecutor=Executors.newFixedThreadPool(poolSize,new DefaultSolrThreadFactory("managedSchemaExecutor"));
+  try {
+    List<Future<Integer>> results=parallelExecutor.invokeAll(concurrentTasks,maxWaitSecs,TimeUnit.SECONDS);
+    List<String> failedList=null;
+    for (int f=0; f < results.size(); f++) {
+      int vers=-1;
+      Future<Integer> next=results.get(f);
+      if (next.isDone() && !next.isCancelled()) {
+        try {
+          vers=next.get();
+        }
+ catch (        ExecutionException e) {
+        }
+      }
+      if (vers == -1) {
+        String coreUrl=concurrentTasks.get(f).coreUrl;
+        log.warn("Core " + coreUrl + " version mismatch! Expected "+ schemaZkVersion+ " but got "+ vers);
+        if (failedList == null)         failedList=new ArrayList<>();
+        failedList.add(coreUrl);
+      }
+    }
+    if (failedList != null)     throw new SolrException(ErrorCode.SERVER_ERROR,failedList.size() + " out of " + (concurrentTasks.size() + 1)+ " replicas failed to update their schema to version "+ schemaZkVersion+ " within "+ maxWaitSecs+ " seconds! Failed cores: "+ failedList);
+  }
+ catch (  InterruptedException ie) {
+    log.warn("Core " + localCoreNodeName + " was interrupted waiting for schema version "+ schemaZkVersion+ " to propagate to "+ concurrentTasks.size()+ " replicas for collection "+ collection);
+    Thread.currentThread().interrupt();
+  }
+ finally {
+    if (!parallelExecutor.isShutdown())     parallelExecutor.shutdownNow();
+  }
+  long diffMs=(System.currentTimeMillis() - startMs);
+  log.info("Took " + Math.round(diffMs / 1000d) + " secs for "+ concurrentTasks.size()+ " replicas to apply schema update version "+ schemaZkVersion+ " for collection "+ collection);
+}

@@ -19,6 +19,7 @@
     }
     DistribPhase phase=DistribPhase.parseParam(error.req.uReq.getParams().get(DISTRIB_UPDATE_PARAM));
     if (phase != DistribPhase.FROMLEADER)     continue;
+    if (error.req.uReq.getParams().get(COMMIT_END_POINT) != null)     continue;
     final String replicaUrl=error.req.node.getUrl();
     String cause=(error.e instanceof SolrException) ? ((SolrException)error.e).getMetadata("cause") : null;
     if ("LeaderChanged".equals(cause)) {
@@ -41,7 +42,15 @@
  catch (      Exception exc) {
         log.error("Failed to determine if " + cloudDesc.getCoreNodeName() + " is still the leader for "+ collection+ " "+ shardId+ " before putting "+ replicaUrl+ " into leader-initiated recovery due to: "+ exc);
       }
-      if (cloudDesc.getCoreNodeName().equals(leaderCoreNodeName)) {
+      List<ZkCoreNodeProps> myReplicas=zkController.getZkStateReader().getReplicaProps(collection,cloudDesc.getShardId(),cloudDesc.getCoreNodeName());
+      boolean foundErrorNodeInReplicaList=false;
+      for (      ZkCoreNodeProps replicaProp : myReplicas) {
+        if (((Replica)replicaProp.getNodeProps()).getName().equals(((Replica)stdNode.getNodeProps().getNodeProps()).getName())) {
+          foundErrorNodeInReplicaList=true;
+          break;
+        }
+      }
+      if (cloudDesc.getCoreNodeName().equals(leaderCoreNodeName) && foundErrorNodeInReplicaList) {
         try {
           sendRecoveryCommand=zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaUrl,stdNode.getNodeProps(),false);
           if (sendRecoveryCommand) {
@@ -58,7 +67,12 @@ catch (        Exception e) {
       }
  else {
         sendRecoveryCommand=false;
-        log.warn("Core " + cloudDesc.getCoreNodeName() + " is no longer the leader for "+ collection+ " "+ shardId+ ", no request recovery command will be sent!");
+        if (!foundErrorNodeInReplicaList) {
+          log.warn("Core " + cloudDesc.getCoreNodeName() + " belonging to "+ collection+ " "+ shardId+ ", does not have error'd node "+ stdNode.getNodeProps().getCoreUrl()+ " as a replica. "+ "No request recovery command will be sent!");
+        }
+ else {
+          log.warn("Core " + cloudDesc.getCoreNodeName() + " is no longer the leader for "+ collection+ " "+ shardId+ ", no request recovery command will be sent!");
+        }
       }
     }
     if (!sendRecoveryCommand)     continue;
