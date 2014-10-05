@@ -1,2 +1,64 @@
 {
+  Map<PostingsFormat,FieldsGroup> formatToGroups=new HashMap<>();
+  Map<String,Integer> suffixes=new HashMap<>();
+  for (  String field : fields) {
+    FieldInfo fieldInfo=writeState.fieldInfos.fieldInfo(field);
+    final PostingsFormat format=getPostingsFormatForField(field);
+    if (format == null) {
+      throw new IllegalStateException("invalid null PostingsFormat for field=\"" + field + "\"");
+    }
+    String formatName=format.getName();
+    FieldsGroup group=formatToGroups.get(format);
+    if (group == null) {
+      Integer suffix=suffixes.get(formatName);
+      if (suffix == null) {
+        suffix=0;
+      }
+ else {
+        suffix=suffix + 1;
+      }
+      suffixes.put(formatName,suffix);
+      String segmentSuffix=getFullSegmentSuffix(field,writeState.segmentSuffix,getSuffix(formatName,Integer.toString(suffix)));
+      group=new FieldsGroup();
+      group.state=new SegmentWriteState(writeState,segmentSuffix);
+      group.suffix=suffix;
+      formatToGroups.put(format,group);
+    }
+ else {
+      if (!suffixes.containsKey(formatName)) {
+        throw new IllegalStateException("no suffix for format name: " + formatName + ", expected: "+ group.suffix);
+      }
+    }
+    group.fields.add(field);
+    String previousValue=fieldInfo.putAttribute(PER_FIELD_FORMAT_KEY,formatName);
+    if (previousValue != null) {
+      throw new IllegalStateException("found existing value for " + PER_FIELD_FORMAT_KEY + ", field="+ fieldInfo.name+ ", old="+ previousValue+ ", new="+ formatName);
+    }
+    previousValue=fieldInfo.putAttribute(PER_FIELD_SUFFIX_KEY,Integer.toString(group.suffix));
+    if (previousValue != null) {
+      throw new IllegalStateException("found existing value for " + PER_FIELD_SUFFIX_KEY + ", field="+ fieldInfo.name+ ", old="+ previousValue+ ", new="+ group.suffix);
+    }
+  }
+  boolean success=false;
+  try {
+    for (    Map.Entry<PostingsFormat,FieldsGroup> ent : formatToGroups.entrySet()) {
+      PostingsFormat format=ent.getKey();
+      final FieldsGroup group=ent.getValue();
+      Fields maskedFields=new FilterFields(fields){
+        @Override public Iterator<String> iterator(){
+          return group.fields.iterator();
+        }
+      }
+;
+      FieldsConsumer consumer=format.fieldsConsumer(group.state);
+      toClose.add(consumer);
+      consumer.write(maskedFields);
+    }
+    success=true;
+  }
+  finally {
+    if (success == false) {
+      IOUtils.closeWhileHandlingException(toClose);
+    }
+  }
 }

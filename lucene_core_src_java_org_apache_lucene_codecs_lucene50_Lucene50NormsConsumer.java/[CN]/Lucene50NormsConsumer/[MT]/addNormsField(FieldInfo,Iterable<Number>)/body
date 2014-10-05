@@ -1,0 +1,45 @@
+{
+  meta.writeVInt(field.number);
+  long minValue=Long.MAX_VALUE;
+  long maxValue=Long.MIN_VALUE;
+  NormMap uniqueValues=new NormMap();
+  int count=0;
+  int missingCount=0;
+  for (  Number nv : values) {
+    if (nv == null) {
+      throw new IllegalStateException("illegal norms data for field " + field.name + ", got null for value: "+ count);
+    }
+    final long v=nv.longValue();
+    if (v == 0) {
+      missingCount++;
+    }
+    minValue=Math.min(minValue,v);
+    maxValue=Math.max(maxValue,v);
+    if (uniqueValues != null) {
+      if (uniqueValues.add(v)) {
+        if (uniqueValues.size > 256) {
+          uniqueValues=null;
+        }
+      }
+    }
+    count++;
+  }
+  if (uniqueValues != null && uniqueValues.size == 1) {
+    addConstant(minValue);
+  }
+ else   if (count > 256 && missingCount > count * INDIRECT_THRESHOLD) {
+    addIndirect(field,values,count,missingCount);
+  }
+ else   if (uniqueValues != null) {
+    FormatAndBits compression=fastestFormatAndBits(uniqueValues.size - 1);
+    if (compression.bitsPerValue == 8 && minValue >= Byte.MIN_VALUE && maxValue <= Byte.MAX_VALUE) {
+      addUncompressed(values,count);
+    }
+ else {
+      addTableCompressed(values,compression,count,uniqueValues);
+    }
+  }
+ else {
+    addDeltaCompressed(values,count);
+  }
+}

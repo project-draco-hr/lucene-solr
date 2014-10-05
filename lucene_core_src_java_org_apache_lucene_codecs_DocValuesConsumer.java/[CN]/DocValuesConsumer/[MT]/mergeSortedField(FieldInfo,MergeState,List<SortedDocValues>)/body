@@ -1,19 +1,19 @@
 {
-  final LeafReader readers[]=mergeState.readers.toArray(new LeafReader[toMerge.size()]);
-  final SortedDocValues dvs[]=toMerge.toArray(new SortedDocValues[toMerge.size()]);
+  final int numReaders=toMerge.size();
+  final SortedDocValues dvs[]=toMerge.toArray(new SortedDocValues[numReaders]);
   TermsEnum liveTerms[]=new TermsEnum[dvs.length];
   long[] weights=new long[liveTerms.length];
-  for (int sub=0; sub < liveTerms.length; sub++) {
-    LeafReader reader=readers[sub];
+  for (int sub=0; sub < numReaders; sub++) {
     SortedDocValues dv=dvs[sub];
-    Bits liveDocs=reader.getLiveDocs();
+    Bits liveDocs=mergeState.liveDocs[sub];
+    int maxDoc=mergeState.maxDocs[sub];
     if (liveDocs == null) {
       liveTerms[sub]=dv.termsEnum();
       weights[sub]=dv.getValueCount();
     }
  else {
       LongBitSet bitset=new LongBitSet(dv.getValueCount());
-      for (int i=0; i < reader.maxDoc(); i++) {
+      for (int i=0; i < maxDoc; i++) {
         if (liveDocs.get(i)) {
           int ord=dv.getOrd(i);
           if (ord >= 0) {
@@ -56,7 +56,7 @@
         int readerUpto=-1;
         int docIDUpto;
         int nextValue;
-        LeafReader currentReader;
+        int currentMaxDoc;
         Bits currentLiveDocs;
         LongValues currentMap;
         boolean nextIsSet;
@@ -76,15 +76,15 @@
         }
         private boolean setNext(){
           while (true) {
-            if (readerUpto == readers.length) {
+            if (readerUpto == numReaders) {
               return false;
             }
-            if (currentReader == null || docIDUpto == currentReader.maxDoc()) {
+            if (docIDUpto == currentMaxDoc) {
               readerUpto++;
-              if (readerUpto < readers.length) {
-                currentReader=readers[readerUpto];
-                currentLiveDocs=currentReader.getLiveDocs();
+              if (readerUpto < numReaders) {
                 currentMap=map.getGlobalOrds(readerUpto);
+                currentLiveDocs=mergeState.liveDocs[readerUpto];
+                currentMaxDoc=mergeState.maxDocs[readerUpto];
               }
               docIDUpto=0;
               continue;

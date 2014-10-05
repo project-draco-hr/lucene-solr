@@ -1,0 +1,50 @@
+{
+  final PagedBytes termBytes=new PagedBytes(PAGED_BYTES_BITS);
+  String fileName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,FixedGapTermsIndexWriter.TERMS_INDEX_EXTENSION);
+  final IndexInput in=state.directory.openInput(fileName,state.context);
+  boolean success=false;
+  try {
+    CodecUtil.checkSegmentHeader(in,FixedGapTermsIndexWriter.CODEC_NAME,FixedGapTermsIndexWriter.VERSION_CURRENT,FixedGapTermsIndexWriter.VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+    CodecUtil.checksumEntireFile(in);
+    indexInterval=in.readVInt();
+    if (indexInterval < 1) {
+      throw new CorruptIndexException("invalid indexInterval: " + indexInterval,in);
+    }
+    packedIntsVersion=in.readVInt();
+    blocksize=in.readVInt();
+    seekDir(in);
+    final int numFields=in.readVInt();
+    if (numFields < 0) {
+      throw new CorruptIndexException("invalid numFields: " + numFields,in);
+    }
+    for (int i=0; i < numFields; i++) {
+      final int field=in.readVInt();
+      final long numIndexTerms=in.readVInt();
+      if (numIndexTerms < 0) {
+        throw new CorruptIndexException("invalid numIndexTerms: " + numIndexTerms,in);
+      }
+      final long termsStart=in.readVLong();
+      final long indexStart=in.readVLong();
+      final long packedIndexStart=in.readVLong();
+      final long packedOffsetsStart=in.readVLong();
+      if (packedIndexStart < indexStart) {
+        throw new CorruptIndexException("invalid packedIndexStart: " + packedIndexStart + " indexStart: "+ indexStart+ "numIndexTerms: "+ numIndexTerms,in);
+      }
+      final FieldInfo fieldInfo=state.fieldInfos.fieldInfo(field);
+      FieldIndexData previous=fields.put(fieldInfo.name,new FieldIndexData(in,termBytes,indexStart,termsStart,packedIndexStart,packedOffsetsStart,numIndexTerms));
+      if (previous != null) {
+        throw new CorruptIndexException("duplicate field: " + fieldInfo.name,in);
+      }
+    }
+    success=true;
+  }
+  finally {
+    if (success) {
+      IOUtils.close(in);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(in);
+    }
+    termBytesReader=termBytes.freeze(true);
+  }
+}
