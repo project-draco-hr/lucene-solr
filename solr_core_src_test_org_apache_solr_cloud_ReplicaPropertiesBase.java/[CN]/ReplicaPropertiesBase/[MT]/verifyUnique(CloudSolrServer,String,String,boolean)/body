@@ -1,0 +1,56 @@
+{
+  DocCollection col=null;
+  for (int idx=0; idx < 300; ++idx) {
+    client.getZkStateReader().updateClusterState(true);
+    ClusterState clusterState=client.getZkStateReader().getClusterState();
+    col=clusterState.getCollection(collectionName);
+    if (col == null) {
+      fail("Could not find collection " + collectionName);
+    }
+    Map<String,Integer> counts=new HashMap<>();
+    Set<String> uniqueNodes=new HashSet<>();
+    boolean allSlicesHaveProp=true;
+    boolean badSlice=false;
+    for (    Slice slice : col.getSlices()) {
+      boolean thisSliceHasProp=false;
+      int propCount=0;
+      for (      Replica replica : slice.getReplicas()) {
+        uniqueNodes.add(replica.getNodeName());
+        String propVal=replica.getStr(property);
+        if (StringUtils.isNotBlank(propVal)) {
+          ++propCount;
+          if (counts.containsKey(replica.getNodeName()) == false) {
+            counts.put(replica.getNodeName(),0);
+          }
+          int count=counts.get(replica.getNodeName());
+          thisSliceHasProp=true;
+          counts.put(replica.getNodeName(),count + 1);
+        }
+      }
+      badSlice=(propCount > 1) ? true : badSlice;
+      allSlicesHaveProp=allSlicesHaveProp ? thisSliceHasProp : allSlicesHaveProp;
+    }
+    if (balanced == false && badSlice == false) {
+      return;
+    }
+    if (allSlicesHaveProp && balanced) {
+      int minProps=col.getSlices().size() / uniqueNodes.size();
+      int maxProps=minProps;
+      if (col.getSlices().size() % uniqueNodes.size() > 0) {
+        ++maxProps;
+      }
+      boolean doSleep=false;
+      for (      Map.Entry<String,Integer> ent : counts.entrySet()) {
+        if (ent.getValue() != minProps && ent.getValue() != maxProps) {
+          doSleep=true;
+        }
+      }
+      if (doSleep == false) {
+        assertTrue("We really shouldn't be calling this if there is no node with the property " + property,counts.size() > 0);
+        return;
+      }
+    }
+    Thread.sleep(100);
+  }
+  fail("Collection " + collectionName + " does not have roles evenly distributed. Collection is: "+ col.toString());
+}
