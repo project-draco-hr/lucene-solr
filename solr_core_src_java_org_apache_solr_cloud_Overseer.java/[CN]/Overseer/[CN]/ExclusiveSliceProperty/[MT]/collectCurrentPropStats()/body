@@ -1,0 +1,47 @@
+{
+  int maxAssigned=0;
+  Set<String> allHosts=new HashSet<>();
+  for (  Slice slice : collection.getSlices()) {
+    boolean sliceHasProp=false;
+    for (    Replica replica : slice.getReplicas()) {
+      if (onlyActiveNodes && isActive(replica) == false) {
+        if (StringUtils.isNotBlank(replica.getStr(property))) {
+          removeProp(slice,replica.getName());
+        }
+        continue;
+      }
+      allHosts.add(replica.getNodeName());
+      String nodeName=replica.getNodeName();
+      if (StringUtils.isNotBlank(replica.getStr(property))) {
+        if (sliceHasProp) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"'" + BALANCESLICEUNIQUE + "' should only be called for properties that have at most one member "+ "in any slice with the property set. No action taken.");
+        }
+        if (nodesHostingProp.containsKey(nodeName) == false) {
+          nodesHostingProp.put(nodeName,new ArrayList<SliceReplica>());
+        }
+        nodesHostingProp.get(nodeName).add(new SliceReplica(slice,replica));
+        ++assigned;
+        maxAssigned=Math.max(maxAssigned,nodesHostingProp.get(nodeName).size());
+        sliceHasProp=true;
+      }
+      if (nodesHostingReplicas.containsKey(nodeName) == false) {
+        nodesHostingReplicas.put(nodeName,new ArrayList<SliceReplica>());
+      }
+      nodesHostingReplicas.get(nodeName).add(new SliceReplica(slice,replica));
+    }
+  }
+  origMaxPropPerNode=collection.getSlices().size() / allHosts.size();
+  origModulo=collection.getSlices().size() % allHosts.size();
+  if (origModulo > 0) {
+    origMaxPropPerNode++;
+  }
+  if (assigned != collection.getSlices().size()) {
+    return true;
+  }
+  int counter=origModulo;
+  for (  List<SliceReplica> list : nodesHostingProp.values()) {
+    if (list.size() == origMaxPropPerNode)     --counter;
+  }
+  if (counter == 0)   return false;
+  return true;
+}

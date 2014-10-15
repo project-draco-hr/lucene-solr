@@ -1,0 +1,40 @@
+{
+  if (collection == null || shardId == null || coreNodeName == null)   return null;
+  String znodePath=getLeaderInitiatedRecoveryZnodePath(collection,shardId,coreNodeName);
+  byte[] stateData=null;
+  try {
+    stateData=zkClient.getData(znodePath,null,new Stat(),false);
+  }
+ catch (  NoNodeException ignoreMe) {
+  }
+catch (  ConnectionLossException cle) {
+    log.warn("Unable to read " + znodePath + " due to: "+ cle);
+  }
+catch (  SessionExpiredException see) {
+    log.warn("Unable to read " + znodePath + " due to: "+ see);
+  }
+catch (  Exception exc) {
+    log.error("Failed to read data from znode " + znodePath + " due to: "+ exc);
+    if (exc instanceof SolrException) {
+      throw (SolrException)exc;
+    }
+ else {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to read data from znodePath: " + znodePath,exc);
+    }
+  }
+  Map<String,Object> stateObj=null;
+  if (stateData != null && stateData.length > 0) {
+    Object parsedJson=ZkStateReader.fromJSON(stateData);
+    if (parsedJson instanceof Map) {
+      stateObj=(Map<String,Object>)parsedJson;
+    }
+ else     if (parsedJson instanceof String) {
+      stateObj=new LinkedHashMap<>();
+      stateObj.put("state",(String)parsedJson);
+    }
+ else {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Leader-initiated recovery state data is invalid! " + parsedJson);
+    }
+  }
+  return stateObj;
+}

@@ -1,0 +1,31 @@
+{
+  Directory dir=newDirectory();
+  Codec codec=getCodec();
+  SegmentInfo segmentInfo=newSegmentInfo(dir,"_123");
+  int numFields=atLeast(2000);
+  Set<String> fieldNames=new HashSet<>();
+  for (int i=0; i < numFields; i++) {
+    fieldNames.add(TestUtil.randomUnicodeString(random()));
+  }
+  FieldInfos.Builder builder=new FieldInfos.Builder();
+  for (  String field : fieldNames) {
+    IndexableFieldType fieldType=randomFieldType(random());
+    FieldInfo fi=builder.addOrUpdate(field,fieldType);
+    if (fieldType.indexOptions().compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS) >= 0) {
+      if (random().nextBoolean()) {
+        fi.setStorePayloads();
+      }
+    }
+    if (fi.isIndexed() && !fi.omitsNorms()) {
+      if (random().nextBoolean()) {
+        fi.setNormValueType(DocValuesType.NUMERIC);
+      }
+    }
+    addAttributes(fi);
+  }
+  FieldInfos infos=builder.finish();
+  codec.fieldInfosFormat().write(dir,segmentInfo,"",infos,IOContext.DEFAULT);
+  FieldInfos infos2=codec.fieldInfosFormat().read(dir,segmentInfo,"",IOContext.DEFAULT);
+  assertEquals(infos,infos2);
+  dir.close();
+}
