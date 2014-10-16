@@ -1,3 +1,28 @@
 {
-  assertHits(new FunctionQuery(new QueryValueSource(new FunctionQuery(new ConstValueSource(2f)),0f)),new float[]{2f,2f});
+  Similarity saved=searcher.getSimilarity();
+  try {
+    searcher.setSimilarity(new DefaultSimilarity());
+    ValueSource vs=new QueryValueSource(new TermQuery(new Term("string","bar")),42F);
+    assertHits(new FunctionQuery(vs),new float[]{42F,1F});
+    ValueSource expected=new MultiFloatFunction(new ValueSource[]{new TFValueSource("bogus","bogus","string",new BytesRef("bar"))}){
+      @Override protected String name(){
+        return "tf_based_exists";
+      }
+      @Override protected float func(      int doc,      FunctionValues[] valsArr){
+        return valsArr[0].floatVal(doc);
+      }
+      @Override protected boolean exists(      int doc,      FunctionValues[] valsArr){
+        return 0 < func(doc,valsArr);
+      }
+    }
+;
+    assertExists(expected,vs);
+    vs=new QueryValueSource(new TermQuery(new Term("text","test")),0F);
+    assertAllExist(vs);
+    vs=new QueryValueSource(new TermQuery(new Term("bogus","does not exist")),0F);
+    assertNoneExist(vs);
+  }
+  finally {
+    searcher.setSimilarity(saved);
+  }
 }
