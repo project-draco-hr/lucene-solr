@@ -1,0 +1,30 @@
+{
+  String lastFailMsg="";
+  for (int idx=0; idx < 300; ++idx) {
+    lastFailMsg="";
+    client.getZkStateReader().updateClusterState(true);
+    ClusterState clusterState=client.getZkStateReader().getClusterState();
+    for (    Slice slice : clusterState.getSlices(collectionName)) {
+      Boolean foundLeader=false;
+      Boolean foundPreferred=false;
+      for (      Replica replica : slice.getReplicas()) {
+        Boolean isLeader=replica.getBool("leader",false);
+        Boolean isPreferred=replica.getBool("property.preferredleader",false);
+        if (isLeader != isPreferred) {
+          lastFailMsg="Replica should NOT have preferredLeader != leader. Preferred: " + isPreferred.toString() + " leader is "+ isLeader.toString();
+        }
+        if (foundLeader && isLeader) {
+          lastFailMsg="There should only be a single leader in _any_ shard! Replica " + replica.getName() + " is the second leader in slice "+ slice.getName();
+        }
+        if (foundPreferred && isPreferred) {
+          lastFailMsg="There should only be a single preferredLeader in _any_ shard! Replica " + replica.getName() + " is the second preferredLeader in slice "+ slice.getName();
+        }
+        foundLeader=foundLeader ? foundLeader : isLeader;
+        foundPreferred=foundPreferred ? foundPreferred : isPreferred;
+      }
+    }
+    if (lastFailMsg.length() == 0)     return;
+    Thread.sleep(100);
+  }
+  fail(lastFailMsg);
+}
