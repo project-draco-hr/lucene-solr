@@ -2,23 +2,33 @@
   if (split == null)   split="/";
   if (fields == null || fields.length == 0)   fields=new String[]{"$FQN:/**"};
   final boolean echo="true".equals(req.getParams().get("echo"));
+  final String srcField=req.getParams().get("srcField");
+  final boolean mapUniqueKeyOnly=req.getParams().getBool("mapUniqueKeyOnly",false);
+  if (srcField != null) {
+    if (!"/".equals(split))     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Raw data can be stored only if split=/");
+    parser=new RecordingJSONParser(reader);
+  }
+ else {
+    parser=new JSONParser(reader);
+  }
   JsonRecordReader jsonRecordReader=JsonRecordReader.getInst(split,Arrays.asList(fields));
   jsonRecordReader.streamRecords(parser,new JsonRecordReader.Handler(){
     ArrayList docs=null;
     @Override public void handle(    Map<String,Object> record,    String path){
+      Map<String,Object> copy=getDocMap(record,parser,srcField,mapUniqueKeyOnly);
       if (echo) {
         if (docs == null) {
           docs=new ArrayList();
           rsp.add("docs",docs);
         }
-        docs.add(record);
+        docs.add(copy);
       }
  else {
         AddUpdateCommand cmd=new AddUpdateCommand(req);
         cmd.commitWithin=commitWithin;
         cmd.overwrite=overwrite;
         cmd.solrDoc=new SolrInputDocument();
-        for (        Map.Entry<String,Object> entry : record.entrySet()) {
+        for (        Map.Entry<String,Object> entry : copy.entrySet()) {
           cmd.solrDoc.setField(entry.getKey(),entry.getValue());
         }
         try {
