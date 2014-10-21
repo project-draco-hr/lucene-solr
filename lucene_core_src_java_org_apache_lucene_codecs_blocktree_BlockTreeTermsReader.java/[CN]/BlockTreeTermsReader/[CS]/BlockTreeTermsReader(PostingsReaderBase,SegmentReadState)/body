@@ -1,66 +1,63 @@
 {
-  this.postingsReader=postingsReader;
-  this.segment=state.segmentInfo.name;
-  String termsFileName=IndexFileNames.segmentFileName(segment,state.segmentSuffix,BlockTreeTermsWriter.TERMS_EXTENSION);
-  in=state.directory.openInput(termsFileName,state.context);
   boolean success=false;
   IndexInput indexIn=null;
+  this.postingsReader=postingsReader;
+  this.segment=state.segmentInfo.name;
+  String termsName=IndexFileNames.segmentFileName(segment,state.segmentSuffix,TERMS_EXTENSION);
   try {
-    version=readHeader(in);
-    String indexFileName=IndexFileNames.segmentFileName(segment,state.segmentSuffix,BlockTreeTermsWriter.TERMS_INDEX_EXTENSION);
-    indexIn=state.directory.openInput(indexFileName,state.context);
-    int indexVersion=readIndexHeader(indexIn);
-    if (indexVersion != version) {
-      throw new CorruptIndexException("mixmatched version files: " + in + "="+ version+ ","+ indexIn+ "="+ indexVersion,indexIn);
-    }
+    termsIn=state.directory.openInput(termsName,state.context);
+    version=CodecUtil.checkSegmentHeader(termsIn,TERMS_CODEC_NAME,VERSION_START,VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+    String indexName=IndexFileNames.segmentFileName(segment,state.segmentSuffix,TERMS_INDEX_EXTENSION);
+    indexIn=state.directory.openInput(indexName,state.context);
+    CodecUtil.checkSegmentHeader(indexIn,TERMS_INDEX_CODEC_NAME,version,version,state.segmentInfo.getId(),state.segmentSuffix);
     CodecUtil.checksumEntireFile(indexIn);
-    postingsReader.init(in,state);
-    CodecUtil.retrieveChecksum(in);
-    seekDir(in,dirOffset);
+    postingsReader.init(termsIn,state);
+    CodecUtil.retrieveChecksum(termsIn);
+    seekDir(termsIn,dirOffset);
     seekDir(indexIn,indexDirOffset);
-    final int numFields=in.readVInt();
+    final int numFields=termsIn.readVInt();
     if (numFields < 0) {
-      throw new CorruptIndexException("invalid numFields: " + numFields,in);
+      throw new CorruptIndexException("invalid numFields: " + numFields,termsIn);
     }
-    for (int i=0; i < numFields; i++) {
-      final int field=in.readVInt();
-      final long numTerms=in.readVLong();
+    for (int i=0; i < numFields; ++i) {
+      final int field=termsIn.readVInt();
+      final long numTerms=termsIn.readVLong();
       if (numTerms <= 0) {
-        throw new CorruptIndexException("Illegal numTerms for field number: " + field,in);
+        throw new CorruptIndexException("Illegal numTerms for field number: " + field,termsIn);
       }
-      final int numBytes=in.readVInt();
+      final int numBytes=termsIn.readVInt();
       if (numBytes < 0) {
-        throw new CorruptIndexException("invalid rootCode for field number: " + field + ", numBytes="+ numBytes,in);
+        throw new CorruptIndexException("invalid rootCode for field number: " + field + ", numBytes="+ numBytes,termsIn);
       }
       final BytesRef rootCode=new BytesRef(new byte[numBytes]);
-      in.readBytes(rootCode.bytes,0,numBytes);
+      termsIn.readBytes(rootCode.bytes,0,numBytes);
       rootCode.length=numBytes;
       final FieldInfo fieldInfo=state.fieldInfos.fieldInfo(field);
       if (fieldInfo == null) {
-        throw new CorruptIndexException("invalid field number: " + field,in);
+        throw new CorruptIndexException("invalid field number: " + field,termsIn);
       }
-      final long sumTotalTermFreq=fieldInfo.getIndexOptions() == IndexOptions.DOCS_ONLY ? -1 : in.readVLong();
-      final long sumDocFreq=in.readVLong();
-      final int docCount=in.readVInt();
-      final int longsSize=in.readVInt();
+      final long sumTotalTermFreq=fieldInfo.getIndexOptions() == IndexOptions.DOCS_ONLY ? -1 : termsIn.readVLong();
+      final long sumDocFreq=termsIn.readVLong();
+      final int docCount=termsIn.readVInt();
+      final int longsSize=termsIn.readVInt();
       if (longsSize < 0) {
-        throw new CorruptIndexException("invalid longsSize for field: " + fieldInfo.name + ", longsSize="+ longsSize,in);
+        throw new CorruptIndexException("invalid longsSize for field: " + fieldInfo.name + ", longsSize="+ longsSize,termsIn);
       }
-      BytesRef minTerm=readBytesRef(in);
-      BytesRef maxTerm=readBytesRef(in);
+      BytesRef minTerm=readBytesRef(termsIn);
+      BytesRef maxTerm=readBytesRef(termsIn);
       if (docCount < 0 || docCount > state.segmentInfo.getDocCount()) {
-        throw new CorruptIndexException("invalid docCount: " + docCount + " maxDoc: "+ state.segmentInfo.getDocCount(),in);
+        throw new CorruptIndexException("invalid docCount: " + docCount + " maxDoc: "+ state.segmentInfo.getDocCount(),termsIn);
       }
       if (sumDocFreq < docCount) {
-        throw new CorruptIndexException("invalid sumDocFreq: " + sumDocFreq + " docCount: "+ docCount,in);
+        throw new CorruptIndexException("invalid sumDocFreq: " + sumDocFreq + " docCount: "+ docCount,termsIn);
       }
       if (sumTotalTermFreq != -1 && sumTotalTermFreq < sumDocFreq) {
-        throw new CorruptIndexException("invalid sumTotalTermFreq: " + sumTotalTermFreq + " sumDocFreq: "+ sumDocFreq,in);
+        throw new CorruptIndexException("invalid sumTotalTermFreq: " + sumTotalTermFreq + " sumDocFreq: "+ sumDocFreq,termsIn);
       }
       final long indexStartFP=indexIn.readVLong();
       FieldReader previous=fields.put(fieldInfo.name,new FieldReader(this,fieldInfo,numTerms,rootCode,sumTotalTermFreq,sumDocFreq,docCount,indexStartFP,longsSize,indexIn,minTerm,maxTerm));
       if (previous != null) {
-        throw new CorruptIndexException("duplicate field: " + fieldInfo.name,in);
+        throw new CorruptIndexException("duplicate field: " + fieldInfo.name,termsIn);
       }
     }
     indexIn.close();
