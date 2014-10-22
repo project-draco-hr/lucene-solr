@@ -1,2 +1,46 @@
 {
+  if (tragedy != null) {
+    throw new IllegalStateException("this writer hit an unrecoverable error; cannot flush",tragedy);
+  }
+  doBeforeFlush();
+  testPoint("startDoFlush");
+  boolean success=false;
+  try {
+    if (infoStream.isEnabled("IW")) {
+      infoStream.message("IW","  start flush: applyAllDeletes=" + applyAllDeletes);
+      infoStream.message("IW","  index before flush " + segString());
+    }
+    final boolean anySegmentFlushed;
+synchronized (fullFlushLock) {
+      boolean flushSuccess=false;
+      try {
+        anySegmentFlushed=docWriter.flushAllThreads(this);
+        flushSuccess=true;
+      }
+  finally {
+        docWriter.finishFullFlush(flushSuccess);
+        processEvents(false,true);
+      }
+    }
+synchronized (this) {
+      maybeApplyDeletes(applyAllDeletes);
+      doAfterFlush();
+      if (!anySegmentFlushed) {
+        flushCount.incrementAndGet();
+      }
+      success=true;
+      return anySegmentFlushed;
+    }
+  }
+ catch (  OutOfMemoryError oom) {
+    tragicEvent(oom,"doFlush");
+    return false;
+  }
+ finally {
+    if (!success) {
+      if (infoStream.isEnabled("IW")) {
+        infoStream.message("IW","hit exception during flush");
+      }
+    }
+  }
 }

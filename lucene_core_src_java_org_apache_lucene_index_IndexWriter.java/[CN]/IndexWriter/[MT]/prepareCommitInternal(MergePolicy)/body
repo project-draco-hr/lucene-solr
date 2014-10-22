@@ -1,2 +1,73 @@
 {
+  startCommitTime=System.nanoTime();
+synchronized (commitLock) {
+    ensureOpen(false);
+    if (infoStream.isEnabled("IW")) {
+      infoStream.message("IW","prepareCommit: flush");
+      infoStream.message("IW","  index before flush " + segString());
+    }
+    if (tragedy != null) {
+      throw new IllegalStateException("this writer hit an unrecoverable error; cannot commit",tragedy);
+    }
+    if (pendingCommit != null) {
+      throw new IllegalStateException("prepareCommit was already called with no corresponding call to commit");
+    }
+    doBeforeFlush();
+    testPoint("startDoFlush");
+    SegmentInfos toCommit=null;
+    boolean anySegmentsFlushed=false;
+    try {
+synchronized (fullFlushLock) {
+        boolean flushSuccess=false;
+        boolean success=false;
+        try {
+          anySegmentsFlushed=docWriter.flushAllThreads(this);
+          if (!anySegmentsFlushed) {
+            flushCount.incrementAndGet();
+          }
+          processEvents(false,true);
+          flushSuccess=true;
+synchronized (this) {
+            maybeApplyDeletes(true);
+            readerPool.commit(segmentInfos);
+            toCommit=segmentInfos.clone();
+            pendingCommitChangeCount=changeCount;
+            filesToCommit=toCommit.files(directory,false);
+            deleter.incRef(filesToCommit);
+          }
+          success=true;
+        }
+  finally {
+          if (!success) {
+            if (infoStream.isEnabled("IW")) {
+              infoStream.message("IW","hit exception during prepareCommit");
+            }
+          }
+          docWriter.finishFullFlush(flushSuccess);
+          doAfterFlush();
+        }
+      }
+    }
+ catch (    OutOfMemoryError oom) {
+      tragicEvent(oom,"prepareCommit");
+    }
+    boolean success=false;
+    try {
+      if (anySegmentsFlushed) {
+        maybeMerge(mergePolicy,MergeTrigger.FULL_FLUSH,UNBOUNDED_MAX_MERGE_SEGMENTS);
+      }
+      startCommit(toCommit);
+      success=true;
+    }
+  finally {
+      if (!success) {
+synchronized (this) {
+          if (filesToCommit != null) {
+            deleter.decRefWhileHandlingException(filesToCommit);
+            filesToCommit=null;
+          }
+        }
+      }
+    }
+  }
 }
