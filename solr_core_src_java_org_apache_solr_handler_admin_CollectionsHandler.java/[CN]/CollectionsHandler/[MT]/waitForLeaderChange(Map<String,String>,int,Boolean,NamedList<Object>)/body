@@ -1,0 +1,44 @@
+{
+  if (currentAsyncIds.size() == 0)   return true;
+  for (int idx=0; idx < maxWaitSecs * 10; ++idx) {
+    Iterator<Map.Entry<String,String>> iter=currentAsyncIds.entrySet().iterator();
+    boolean foundChange=false;
+    while (iter.hasNext()) {
+      Map.Entry<String,String> pair=iter.next();
+      String asyncId=pair.getKey();
+      if (coreContainer.getZkController().getOverseerFailureMap().contains(asyncId)) {
+        coreContainer.getZkController().getOverseerFailureMap().remove(asyncId);
+        NamedList<Object> fails=(NamedList<Object>)results.get("failures");
+        if (fails == null) {
+          fails=new NamedList<>();
+          results.add("failures",fails);
+        }
+        NamedList<Object> res=new NamedList<>();
+        res.add("status","failed");
+        res.add("msg","Failed to assign '" + pair.getValue() + "' to be leader");
+        fails.add(asyncId.substring(REBALANCELEADERS.toLower().length()),res);
+        iter.remove();
+        foundChange=true;
+      }
+ else       if (coreContainer.getZkController().getOverseerCompletedMap().contains(asyncId)) {
+        coreContainer.getZkController().getOverseerCompletedMap().remove(asyncId);
+        NamedList<Object> successes=(NamedList<Object>)results.get("successes");
+        if (successes == null) {
+          successes=new NamedList<>();
+          results.add("successes",successes);
+        }
+        NamedList<Object> res=new NamedList<>();
+        res.add("status","success");
+        res.add("msg","Assigned '" + pair.getValue() + "' to be leader");
+        successes.add(asyncId.substring(REBALANCELEADERS.toLower().length()),res);
+        iter.remove();
+        foundChange=true;
+      }
+    }
+    if ((foundChange && waitForAll == false) || currentAsyncIds.size() == 0) {
+      return true;
+    }
+    Thread.sleep(100);
+  }
+  return false;
+}
