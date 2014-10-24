@@ -5,13 +5,10 @@
     if (magic != CodecUtil.CODEC_MAGIC) {
       throw new IndexFormatTooOldException(input,magic,CodecUtil.CODEC_MAGIC,CodecUtil.CODEC_MAGIC);
     }
-    int format=CodecUtil.checkHeaderNoMagic(input,"segments",VERSION_40,VERSION_50);
-    byte id[]=null;
-    if (format >= VERSION_50) {
-      id=new byte[StringHelper.ID_LENGTH];
-      input.readBytes(id,0,id.length);
-      CodecUtil.checkIndexHeaderSuffix(input,Long.toString(generation,Character.MAX_RADIX));
-    }
+    CodecUtil.checkHeaderNoMagic(input,"segments",VERSION_50,VERSION_50);
+    byte id[]=new byte[StringHelper.ID_LENGTH];
+    input.readBytes(id,0,id.length);
+    CodecUtil.checkIndexHeaderSuffix(input,Long.toString(generation,Character.MAX_RADIX));
     SegmentInfos infos=new SegmentInfos();
     infos.id=id;
     infos.generation=generation;
@@ -25,21 +22,13 @@
     for (int seg=0; seg < numSegments; seg++) {
       String segName=input.readString();
       final byte segmentID[];
-      if (format >= VERSION_50) {
-        byte hasID=input.readByte();
-        if (hasID == 1) {
-          segmentID=new byte[StringHelper.ID_LENGTH];
-          input.readBytes(segmentID,0,segmentID.length);
-        }
- else         if (hasID == 0) {
-          segmentID=null;
-        }
- else {
-          throw new CorruptIndexException("invalid hasID byte, got: " + hasID,input);
-        }
+      byte hasID=input.readByte();
+      if (hasID == 1) {
+        segmentID=new byte[StringHelper.ID_LENGTH];
+        input.readBytes(segmentID,0,segmentID.length);
       }
  else {
-        segmentID=null;
+        throw new CorruptIndexException("invalid hasID byte, got: " + hasID,input);
       }
       Codec codec=Codec.forName(input.readString());
       SegmentInfo info=codec.segmentInfoFormat().read(directory,segName,segmentID,IOContext.READ);
@@ -49,63 +38,26 @@
       if (delCount < 0 || delCount > info.getDocCount()) {
         throw new CorruptIndexException("invalid deletion count: " + delCount + " vs docCount="+ info.getDocCount(),input);
       }
-      long fieldInfosGen=-1;
-      if (format >= VERSION_46) {
-        fieldInfosGen=input.readLong();
-      }
-      long dvGen=-1;
-      if (format >= VERSION_49) {
-        dvGen=input.readLong();
-      }
- else {
-        dvGen=fieldInfosGen;
-      }
+      long fieldInfosGen=input.readLong();
+      long dvGen=input.readLong();
       SegmentCommitInfo siPerCommit=new SegmentCommitInfo(info,delCount,delGen,fieldInfosGen,dvGen);
-      if (format >= VERSION_46) {
-        if (format < VERSION_49) {
-          final int numGensUpdatesFiles=input.readInt();
-          final Map<Long,Set<String>> genUpdatesFiles;
-          if (numGensUpdatesFiles == 0) {
-            genUpdatesFiles=Collections.emptyMap();
-          }
+      siPerCommit.setFieldInfosFiles(input.readStringSet());
+      final Map<Integer,Set<String>> dvUpdateFiles;
+      final int numDVFields=input.readInt();
+      if (numDVFields == 0) {
+        dvUpdateFiles=Collections.emptyMap();
+      }
  else {
-            genUpdatesFiles=new HashMap<>(numGensUpdatesFiles);
-            for (int i=0; i < numGensUpdatesFiles; i++) {
-              genUpdatesFiles.put(input.readLong(),input.readStringSet());
-            }
-          }
-          siPerCommit.setGenUpdatesFiles(genUpdatesFiles);
-        }
- else {
-          siPerCommit.setFieldInfosFiles(input.readStringSet());
-          final Map<Integer,Set<String>> dvUpdateFiles;
-          final int numDVFields=input.readInt();
-          if (numDVFields == 0) {
-            dvUpdateFiles=Collections.emptyMap();
-          }
- else {
-            dvUpdateFiles=new HashMap<>(numDVFields);
-            for (int i=0; i < numDVFields; i++) {
-              dvUpdateFiles.put(input.readInt(),input.readStringSet());
-            }
-          }
-          siPerCommit.setDocValuesUpdatesFiles(dvUpdateFiles);
+        dvUpdateFiles=new HashMap<>(numDVFields);
+        for (int i=0; i < numDVFields; i++) {
+          dvUpdateFiles.put(input.readInt(),input.readStringSet());
         }
       }
+      siPerCommit.setDocValuesUpdatesFiles(dvUpdateFiles);
       infos.add(siPerCommit);
     }
     infos.userData=input.readStringStringMap();
-    if (format >= VERSION_48) {
-      CodecUtil.checkFooter(input);
-    }
- else {
-      final long checksumNow=input.getChecksum();
-      final long checksumThen=input.readLong();
-      if (checksumNow != checksumThen) {
-        throw new CorruptIndexException("checksum failed (hardware problem?) : expected=" + Long.toHexString(checksumThen) + " actual="+ Long.toHexString(checksumNow),input);
-      }
-      CodecUtil.checkEOF(input);
-    }
+    CodecUtil.checkFooter(input);
     return infos;
   }
  }
