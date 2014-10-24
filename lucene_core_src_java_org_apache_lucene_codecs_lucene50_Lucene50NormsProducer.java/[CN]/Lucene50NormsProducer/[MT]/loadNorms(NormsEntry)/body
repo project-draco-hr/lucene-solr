@@ -68,6 +68,7 @@ break;
 case INDIRECT:
 {
 data.seek(entry.offset);
+final long common=data.readLong();
 int packedIntsVersion=data.readVInt();
 int blockSize=data.readVInt();
 final MonotonicBlockPackedReader live=MonotonicBlockPackedReader.of(data,packedIntsVersion,blockSize,entry.count,false);
@@ -93,7 +94,36 @@ instance.norms=new NumericDocValues(){
       return values.get(mid);
     }
   }
-  return 0;
+  return common;
+}
+}
+;
+break;
+}
+case PATCHED:
+{
+data.seek(entry.offset);
+final long common=data.readLong();
+int packedIntsVersion=data.readVInt();
+int blockSize=data.readVInt();
+MonotonicBlockPackedReader live=MonotonicBlockPackedReader.of(data,packedIntsVersion,blockSize,entry.count,true);
+final SparseFixedBitSet set=new SparseFixedBitSet(maxDoc);
+for (int i=0; i < live.size(); i++) {
+int doc=(int)live.get(i);
+set.set(doc);
+}
+LoadedNorms nestedInstance=loadNorms(entry.nested);
+instance.ramBytesUsed=set.ramBytesUsed() + nestedInstance.ramBytesUsed;
+instance.info=Accountables.namedAccountable("patched -> " + nestedInstance.info,instance.ramBytesUsed);
+final NumericDocValues values=nestedInstance.norms;
+instance.norms=new NumericDocValues(){
+@Override public long get(int docID){
+if (set.get(docID)) {
+  return values.get(docID);
+}
+ else {
+  return common;
+}
 }
 }
 ;

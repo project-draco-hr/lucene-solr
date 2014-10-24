@@ -1,0 +1,55 @@
+{
+  super();
+  docOut=state.directory.createOutput(IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,Lucene41PostingsFormat.DOC_EXTENSION),state.context);
+  IndexOutput posOut=null;
+  IndexOutput payOut=null;
+  boolean success=false;
+  try {
+    CodecUtil.writeHeader(docOut,Lucene41PostingsFormat.DOC_CODEC,Lucene41PostingsFormat.VERSION_CURRENT);
+    forUtil=new ForUtil(acceptableOverheadRatio,docOut);
+    if (state.fieldInfos.hasProx()) {
+      posDeltaBuffer=new int[MAX_DATA_SIZE];
+      posOut=state.directory.createOutput(IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,Lucene41PostingsFormat.POS_EXTENSION),state.context);
+      CodecUtil.writeHeader(posOut,Lucene41PostingsFormat.POS_CODEC,Lucene41PostingsFormat.VERSION_CURRENT);
+      if (state.fieldInfos.hasPayloads()) {
+        payloadBytes=new byte[128];
+        payloadLengthBuffer=new int[MAX_DATA_SIZE];
+      }
+ else {
+        payloadBytes=null;
+        payloadLengthBuffer=null;
+      }
+      if (state.fieldInfos.hasOffsets()) {
+        offsetStartDeltaBuffer=new int[MAX_DATA_SIZE];
+        offsetLengthBuffer=new int[MAX_DATA_SIZE];
+      }
+ else {
+        offsetStartDeltaBuffer=null;
+        offsetLengthBuffer=null;
+      }
+      if (state.fieldInfos.hasPayloads() || state.fieldInfos.hasOffsets()) {
+        payOut=state.directory.createOutput(IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,Lucene41PostingsFormat.PAY_EXTENSION),state.context);
+        CodecUtil.writeHeader(payOut,Lucene41PostingsFormat.PAY_CODEC,Lucene41PostingsFormat.VERSION_CURRENT);
+      }
+    }
+ else {
+      posDeltaBuffer=null;
+      payloadLengthBuffer=null;
+      offsetStartDeltaBuffer=null;
+      offsetLengthBuffer=null;
+      payloadBytes=null;
+    }
+    this.payOut=payOut;
+    this.posOut=posOut;
+    success=true;
+  }
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(docOut,posOut,payOut);
+    }
+  }
+  docDeltaBuffer=new int[MAX_DATA_SIZE];
+  freqBuffer=new int[MAX_DATA_SIZE];
+  skipWriter=new Lucene41SkipWriter(Lucene41PostingsFormat.maxSkipLevels,BLOCK_SIZE,state.segmentInfo.getDocCount(),docOut,posOut,payOut);
+  encoded=new byte[MAX_ENCODED_SIZE];
+}

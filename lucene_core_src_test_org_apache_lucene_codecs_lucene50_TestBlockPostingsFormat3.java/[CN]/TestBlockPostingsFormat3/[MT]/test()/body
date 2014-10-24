@@ -1,0 +1,76 @@
+{
+  Directory dir=newDirectory();
+  Analyzer analyzer=new Analyzer(Analyzer.PER_FIELD_REUSE_STRATEGY){
+    @Override protected TokenStreamComponents createComponents(    String fieldName){
+      Tokenizer tokenizer=new MockTokenizer();
+      if (fieldName.contains("payloadsFixed")) {
+        TokenFilter filter=new MockFixedLengthPayloadFilter(new Random(0),tokenizer,1);
+        return new TokenStreamComponents(tokenizer,filter);
+      }
+ else       if (fieldName.contains("payloadsVariable")) {
+        TokenFilter filter=new MockVariableLengthPayloadFilter(new Random(0),tokenizer);
+        return new TokenStreamComponents(tokenizer,filter);
+      }
+ else {
+        return new TokenStreamComponents(tokenizer);
+      }
+    }
+  }
+;
+  IndexWriterConfig iwc=newIndexWriterConfig(analyzer);
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new Lucene50PostingsFormat()));
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  Document doc=new Document();
+  FieldType docsOnlyType=new FieldType(TextField.TYPE_NOT_STORED);
+  docsOnlyType.setStoreTermVectors(true);
+  docsOnlyType.setIndexOptions(IndexOptions.DOCS_ONLY);
+  FieldType docsAndFreqsType=new FieldType(TextField.TYPE_NOT_STORED);
+  docsAndFreqsType.setStoreTermVectors(true);
+  docsAndFreqsType.setIndexOptions(IndexOptions.DOCS_AND_FREQS);
+  FieldType positionsType=new FieldType(TextField.TYPE_NOT_STORED);
+  positionsType.setStoreTermVectors(true);
+  positionsType.setStoreTermVectorPositions(true);
+  positionsType.setStoreTermVectorOffsets(true);
+  positionsType.setStoreTermVectorPayloads(true);
+  FieldType offsetsType=new FieldType(positionsType);
+  offsetsType.setIndexOptions(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS);
+  Field field1=new Field("field1docs","",docsOnlyType);
+  Field field2=new Field("field2freqs","",docsAndFreqsType);
+  Field field3=new Field("field3positions","",positionsType);
+  Field field4=new Field("field4offsets","",offsetsType);
+  Field field5=new Field("field5payloadsFixed","",positionsType);
+  Field field6=new Field("field6payloadsVariable","",positionsType);
+  Field field7=new Field("field7payloadsFixedOffsets","",offsetsType);
+  Field field8=new Field("field8payloadsVariableOffsets","",offsetsType);
+  doc.add(field1);
+  doc.add(field2);
+  doc.add(field3);
+  doc.add(field4);
+  doc.add(field5);
+  doc.add(field6);
+  doc.add(field7);
+  doc.add(field8);
+  for (int i=0; i < MAXDOC; i++) {
+    String stringValue=Integer.toString(i) + " verycommon " + English.intToEnglish(i).replace('-',' ')+ " "+ TestUtil.randomSimpleString(random());
+    field1.setStringValue(stringValue);
+    field2.setStringValue(stringValue);
+    field3.setStringValue(stringValue);
+    field4.setStringValue(stringValue);
+    field5.setStringValue(stringValue);
+    field6.setStringValue(stringValue);
+    field7.setStringValue(stringValue);
+    field8.setStringValue(stringValue);
+    iw.addDocument(doc);
+  }
+  iw.close();
+  verify(dir);
+  TestUtil.checkIndex(dir);
+  iwc=newIndexWriterConfig(analyzer);
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new Lucene50PostingsFormat()));
+  iwc.setOpenMode(OpenMode.APPEND);
+  IndexWriter iw2=new IndexWriter(dir,iwc);
+  iw2.forceMerge(1);
+  iw2.close();
+  verify(dir);
+  dir.close();
+}
