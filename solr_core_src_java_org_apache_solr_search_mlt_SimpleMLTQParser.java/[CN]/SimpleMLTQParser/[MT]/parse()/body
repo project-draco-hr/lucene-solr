@@ -1,0 +1,33 @@
+{
+  String defaultField=req.getSchema().getUniqueKeyField().getName();
+  String uniqueValue=localParams.get("id");
+  String[] qf=localParams.getParams("qf");
+  SolrIndexSearcher searcher=req.getSearcher();
+  Query docIdQuery=createIdQuery(defaultField,uniqueValue);
+  try {
+    TopDocs td=searcher.search(docIdQuery,1);
+    if (td.totalHits != 1)     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Error completing MLT request. Could not fetch " + "document with id [" + uniqueValue + "]");
+    ScoreDoc[] scoreDocs=td.scoreDocs;
+    MoreLikeThis mlt=new MoreLikeThis(req.getSearcher().getIndexReader());
+    mlt.setMinTermFreq(localParams.getInt("mintf",1));
+    mlt.setMinDocFreq(localParams.getInt("mindf",1));
+    if (localParams.get("minwl") != null)     mlt.setMinWordLen(localParams.getInt("minwl"));
+    if (localParams.get("maxwl") != null)     mlt.setMaxWordLen(localParams.getInt("maxwl"));
+    ArrayList<String> fields=new ArrayList();
+    if (qf != null) {
+      mlt.setFieldNames(qf);
+    }
+ else {
+      Map<String,SchemaField> fieldNames=req.getSearcher().getSchema().getFields();
+      for (      String fieldName : fieldNames.keySet()) {
+        if (fieldNames.get(fieldName).indexed() && fieldNames.get(fieldName).stored())         if (fieldNames.get(fieldName).getType().getNumericType() == null)         fields.add(fieldName);
+      }
+      mlt.setFieldNames(fields.toArray(new String[fields.size()]));
+    }
+    mlt.setAnalyzer(req.getSchema().getIndexAnalyzer());
+    return mlt.like(scoreDocs[0].doc);
+  }
+ catch (  IOException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Error completing MLT request" + e.getMessage());
+  }
+}
