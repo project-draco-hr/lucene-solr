@@ -1,0 +1,33 @@
+{
+  Set<String> liveNodes=cloudSolrServer.getZkStateReader().getClusterState().getLiveNodes();
+  if (liveNodes.isEmpty())   throw new IllegalStateException("No live nodes found! Cannot create a collection until " + "there is at least 1 live node in the cluster.");
+  String firstLiveNode=liveNodes.iterator().next();
+  int numShards=optionAsInt(cli,"shards",1);
+  int replicationFactor=optionAsInt(cli,"replicationFactor",1);
+  int maxShardsPerNode=-1;
+  if (cli.hasOption("maxShardsPerNode")) {
+    maxShardsPerNode=Integer.parseInt(cli.getOptionValue("maxShardsPerNode"));
+  }
+ else {
+    int numNodes=liveNodes.size();
+    maxShardsPerNode=((numShards * replicationFactor) + numNodes - 1) / numNodes;
+  }
+  String configSet=cli.getOptionValue("config",DEFAULT_CONFIG_SET);
+  if (!cloudSolrServer.getZkStateReader().getZkClient().exists("/configs/" + configSet,true)) {
+    File configsetsDir=new File(cli.getOptionValue("configsetsDir"));
+    if (!configsetsDir.isDirectory())     throw new FileNotFoundException(configsetsDir.getAbsolutePath() + " not found!");
+    File configSetDir=new File(configsetsDir,configSet);
+    if (!configSetDir.isDirectory())     throw new FileNotFoundException("Specified config " + configSet + " not found in "+ configsetsDir.getAbsolutePath());
+    File confDir=new File(configSetDir,"conf");
+    System.out.println("Uploading " + confDir.getAbsolutePath() + " for config "+ configSet+ " to ZooKeeper at "+ cloudSolrServer.getZkHost());
+    ZkController.uploadConfigDir(cloudSolrServer.getZkStateReader().getZkClient(),confDir,configSet);
+  }
+  String baseUrl=cloudSolrServer.getZkStateReader().getBaseUrlForNodeName(firstLiveNode);
+  String collectionName=cli.getOptionValue("name");
+  String createCollectionUrl=String.format(Locale.ROOT,"%s/admin/collections?action=CREATE&name=%s&numShards=%d&replicationFactor=%d&maxShardsPerNode=%d&configSet=%s",baseUrl,collectionName,numShards,replicationFactor,maxShardsPerNode,configSet);
+  System.out.println("Creating new collection '" + collectionName + "' using command:\n\n"+ createCollectionUrl+ "\n");
+  Map<String,Object> json=getJson(createCollectionUrl);
+  CharArr arr=new CharArr();
+  new JSONWriter(arr,2).write(json);
+  System.out.println(arr.toString());
+}

@@ -1,0 +1,44 @@
+{
+  LogManager.getLogger("org.apache.zookeeper").setLevel(Level.ERROR);
+  LogManager.getLogger("org.apache.solr.common.cloud").setLevel(Level.WARN);
+  String zkHost=cli.getOptionValue("zkHost");
+  if (zkHost == null) {
+    String solrUrl=cli.getOptionValue("solrUrl");
+    if (solrUrl == null)     throw new IllegalStateException("Must provide either the -zkHost or -solrUrl parameters to use the create_collection command!");
+    if (!solrUrl.endsWith("/"))     solrUrl+="/";
+    String systemInfoUrl=solrUrl + "admin/info/system";
+    HttpClient httpClient=getHttpClient();
+    try {
+      Map<String,Object> systemInfo=getJson(httpClient,systemInfoUrl,2);
+      StatusTool statusTool=new StatusTool();
+      Map<String,Object> status=statusTool.reportStatus(solrUrl,systemInfo,httpClient);
+      Map<String,Object> cloud=(Map<String,Object>)status.get("cloud");
+      if (cloud == null)       throw new IllegalArgumentException("Solr server at " + solrUrl + " not running in SolrCloud mode!");
+      String zookeeper=(String)cloud.get("ZooKeeper");
+      if (zookeeper.endsWith("(embedded)")) {
+        zookeeper=zookeeper.substring(0,zookeeper.length() - "(embedded)".length());
+      }
+      zkHost=zookeeper;
+    }
+  finally {
+      closeHttpClient(httpClient);
+    }
+  }
+  CloudSolrServer cloudSolrServer=null;
+  try {
+    cloudSolrServer=new CloudSolrServer(zkHost);
+    System.out.println("Connecting to ZooKeeper at " + zkHost);
+    cloudSolrServer.connect();
+    runCloudTool(cloudSolrServer,cli);
+  }
+  finally {
+    if (cloudSolrServer != null) {
+      try {
+        cloudSolrServer.shutdown();
+      }
+ catch (      Exception ignore) {
+      }
+    }
+  }
+  return 0;
+}
