@@ -1,0 +1,52 @@
+{
+  SolrServer server=getSolrServer();
+  server.deleteByQuery("*:*");
+  server.commit();
+  assertNumFound("*:*",0);
+  if (random().nextBoolean()) {
+    server.add(makeTestDoc("id",1,"features","aaa","cat","a","inStock",true,"popularity",12,"price",.017));
+    server.commit();
+  }
+  ignoreException("is not currently supported");
+  SolrQuery query=new SolrQuery("*:*");
+  query.addFacetPivotField("{!stats=s1}features,manu");
+  query.addGetFieldStatistics("{!key=inStock_val tag=s1}inStock");
+  try {
+    server.query(query);
+    fail("SolrException should be thrown on query");
+  }
+ catch (  SolrException e) {
+    assertEquals("Pivot facet on boolean is not currently supported, bad request returned",400,e.code());
+    assertTrue(e.getMessage().contains("is not currently supported"));
+    assertTrue(e.getMessage().contains("boolean"));
+  }
+  query=new SolrQuery("*:*");
+  query.addFacetPivotField("{!stats=tag1,tag2}features,manu");
+  query.addGetFieldStatistics("{!tag=tag1}price","{!tag=tag2}popularity");
+  query.setFacetMinCount(0);
+  query.setRows(0);
+  try {
+    server.query(query);
+    fail("SolrException should be thrown on query");
+  }
+ catch (  SolrException e) {
+    assertEquals(400,e.code());
+    assertTrue(e.getMessage().contains("stats"));
+    assertTrue(e.getMessage().contains("comma"));
+    assertTrue(e.getMessage().contains("tag"));
+  }
+  query=new SolrQuery("*:*");
+  query.addFacetPivotField("{!stats=s1}features,manu");
+  query.addGetFieldStatistics("{!tag=s1}features");
+  query.setFacetMinCount(0);
+  query.setRows(0);
+  try {
+    server.query(query);
+    fail("SolrException should be thrown on query");
+  }
+ catch (  SolrException e) {
+    assertEquals("Pivot facet on string is not currently supported, bad request returned",400,e.code());
+    assertTrue(e.getMessage().contains("is not currently supported"));
+    assertTrue(e.getMessage().contains("text_general"));
+  }
+}

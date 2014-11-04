@@ -1,0 +1,41 @@
+{
+  ModifiableSolrParams coreParams=params("q","*:*","rows","0","stats","true","stats.field","{!tag=s1}foo_i");
+  ModifiableSolrParams facetParams=new ModifiableSolrParams(coreParams);
+  facetParams.add(params("facet","true","facet.limit","1","facet.pivot","{!stats=s1}place_t,company_t"));
+  ModifiableSolrParams facetForceRefineParams=new ModifiableSolrParams(facetParams);
+  facetForceRefineParams.add(params(FacetParams.FACET_OVERREQUEST_COUNT,"0",FacetParams.FACET_OVERREQUEST_RATIO,"0"));
+  for (  ModifiableSolrParams params : new ModifiableSolrParams[]{coreParams,facetParams,facetForceRefineParams}) {
+    ModifiableSolrParams q=new ModifiableSolrParams(params);
+    q.set("shards",getShardsString());
+    QueryResponse rsp=queryServer(q);
+    FieldStatsInfo fieldStatsInfo=rsp.getFieldStatsInfo().get("foo_i");
+    String msg=q.toString();
+    assertEquals(msg,3.0,fieldStatsInfo.getMin());
+    assertEquals(msg,91.0,fieldStatsInfo.getMax());
+    assertEquals(msg,10,(long)fieldStatsInfo.getCount());
+    assertEquals(msg,0,(long)fieldStatsInfo.getMissing());
+    assertEquals(msg,248.0,fieldStatsInfo.getSum());
+    assertEquals(msg,15294.0,fieldStatsInfo.getSumOfSquares(),0.1E-7);
+    assertEquals(msg,24.8,(double)fieldStatsInfo.getMean(),0.1E-7);
+    assertEquals(msg,31.87405772027709,fieldStatsInfo.getStddev(),0.1E-7);
+    if (params.getBool("facet",false)) {
+      List<PivotField> placePivots=rsp.getFacetPivot().get("place_t,company_t");
+      assertEquals(1,placePivots.size());
+      PivotField dublinPivotField=placePivots.get(0);
+      assertEquals("dublin",dublinPivotField.getValue());
+      assertEquals(4,dublinPivotField.getCount());
+      assertEquals(1,dublinPivotField.getPivot().size());
+      PivotField microsoftPivotField=dublinPivotField.getPivot().get(0);
+      assertEquals("microsoft",microsoftPivotField.getValue());
+      assertEquals(4,microsoftPivotField.getCount());
+      FieldStatsInfo dublinMicrosoftStatsInfo=microsoftPivotField.getFieldStatsInfo().get("foo_i");
+      assertEquals(3.0D,dublinMicrosoftStatsInfo.getMin());
+      assertEquals(91.0D,dublinMicrosoftStatsInfo.getMax());
+      assertEquals(4,(long)dublinMicrosoftStatsInfo.getCount());
+      assertEquals(0,(long)dublinMicrosoftStatsInfo.getMissing());
+    }
+  }
+  Object s0pivValue=clients.get(0).query(facetParams).getFacetPivot().get("place_t,company_t").get(0).getValue();
+  Object s1pivValue=clients.get(1).query(facetParams).getFacetPivot().get("place_t,company_t").get(0).getValue();
+  assertFalse("both shards have same top constraint, test is invalid" + "(did someone change the test data?) ==> " + s0pivValue + "=="+ s1pivValue,s0pivValue.equals(s1pivValue));
+}

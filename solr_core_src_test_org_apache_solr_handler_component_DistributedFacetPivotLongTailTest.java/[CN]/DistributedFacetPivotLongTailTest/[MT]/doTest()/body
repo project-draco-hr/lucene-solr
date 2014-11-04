@@ -4,23 +4,23 @@
   final SolrServer shard2=clients.get(2);
   for (int i=0; i < 100; i++) {
     for (int j=0; j < 5; j++) {
-      shard0.add(sdoc("id",getDocNum(),"foo_s","aaa" + j));
-      shard1.add(sdoc("id",getDocNum(),"foo_s","aaa" + j));
-      shard2.add(sdoc("id",getDocNum(),"foo_s","aaa" + j));
+      shard0.add(sdoc("id",getDocNum(),"foo_s","aaa" + j,"stat_i",j * 13 - i));
+      shard1.add(sdoc("id",getDocNum(),"foo_s","aaa" + j,"stat_i",j * 3 + i));
+      shard2.add(sdoc("id",getDocNum(),"foo_s","aaa" + j,"stat_i",i * 7 + j));
     }
   }
   for (int i=0; i < 50; i++) {
     for (int j=0; j < 20; j++) {
-      shard0.add(sdoc("id",getDocNum(),"foo_s","bbb" + j));
-      shard1.add(sdoc("id",getDocNum(),"foo_s","bbb" + j));
+      shard0.add(sdoc("id",getDocNum(),"foo_s","bbb" + j,"stat_i",0));
+      shard1.add(sdoc("id",getDocNum(),"foo_s","bbb" + j,"stat_i",1));
     }
     shard2.add(sdoc("id",getDocNum(),"foo_s","junkA"));
   }
-  shard2.add(sdoc("id",getDocNum(),"foo_s","bbb0"));
+  shard2.add(sdoc("id",getDocNum(),"foo_s","bbb0","stat_i",-2));
   for (int i=0; i < 45; i++) {
     String sub_term=(i < 35) ? "ccc" + (i % 5) : ((i < 41) ? "tailB" : "junkA");
-    shard0.add(sdoc("id",getDocNum(),"foo_s","tail","bar_s",sub_term));
-    shard1.add(sdoc("id",getDocNum(),"foo_s","tail","bar_s",sub_term));
+    shard0.add(sdoc("id",getDocNum(),"foo_s","tail","bar_s",sub_term,"stat_i",i));
+    shard1.add(sdoc("id",getDocNum(),"foo_s","tail","bar_s",sub_term,"stat_i",i));
     sub_term=(i < 40) ? "junkB" + (i % 5) : "tailB";
     shard2.add(sdoc("id",getDocNum(),"foo_s","tail","bar_s",sub_term));
   }
@@ -71,15 +71,28 @@
   pivot=pivots.get(5);
   assertEquals("tailB",pivot.getValue());
   assertEquals(5,pivot.getCount());
-  pivots=queryServer(params("q","*:*","shards",getShardsString(),FacetParams.FACET_OVERREQUEST_COUNT,"0",FacetParams.FACET_OVERREQUEST_RATIO,"0","facet","true","facet.limit","6","facet.pivot","foo_s,bar_s")).getFacetPivot().get("foo_s,bar_s");
+  pivots=queryServer(params("q","*:*","shards",getShardsString(),FacetParams.FACET_OVERREQUEST_COUNT,"0",FacetParams.FACET_OVERREQUEST_RATIO,"0","facet","true","facet.limit","6","facet.pivot","{!stats=sxy}foo_s,bar_s","stats","true","stats.field","{!tag=sxy}stat_i")).getFacetPivot().get("foo_s,bar_s");
   assertEquals(6,pivots.size());
   for (int i=0; i < 5; i++) {
     pivot=pivots.get(i);
     assertTrue(pivot.toString(),pivot.getValue().toString().startsWith("aaa"));
     assertEquals(pivot.toString(),300,pivot.getCount());
   }
-  assertTrue(pivots.get(5).toString(),pivots.get(5).getValue().equals("bbb0"));
-  assertEquals(pivots.get(5).toString(),101,pivots.get(5).getCount());
+{
+    pivot=pivots.get(5);
+    assertTrue(pivot.toString(),pivot.getValue().equals("bbb0"));
+    assertEquals(pivot.toString(),101,pivot.getCount());
+    FieldStatsInfo bbb0Stats=pivot.getFieldStatsInfo().get("stat_i");
+    assertEquals("stat_i",bbb0Stats.getName());
+    assertEquals(-2.0,bbb0Stats.getMin());
+    assertEquals(1.0,bbb0Stats.getMax());
+    assertEquals(101,(long)bbb0Stats.getCount());
+    assertEquals(0,(long)bbb0Stats.getMissing());
+    assertEquals(48.0,bbb0Stats.getSum());
+    assertEquals(0.475247524752475,(double)bbb0Stats.getMean(),0.1E-7);
+    assertEquals(54.0,bbb0Stats.getSumOfSquares(),0.1E-7);
+    assertEquals(0.55846323792,bbb0Stats.getStddev(),0.1E-7);
+  }
   for (  ModifiableSolrParams q : new ModifiableSolrParams[]{params(),params("f.bar_s.facet.overrequest.ratio","0","f.bar_s.facet.overrequest.count","0")}) {
     q.add(params("q","*:*","shards",getShardsString(),"facet","true","facet.limit","6","facet.pivot","foo_s,bar_s"));
     pivots=queryServer(q).getFacetPivot().get("foo_s,bar_s");
@@ -140,4 +153,5 @@
     assertTrue(pivot.toString(),pivot.getValue().toString().startsWith("ccc"));
     assertEquals(pivot.toString(),14,pivot.getCount());
   }
+  doTestDeepPivotStats();
 }
