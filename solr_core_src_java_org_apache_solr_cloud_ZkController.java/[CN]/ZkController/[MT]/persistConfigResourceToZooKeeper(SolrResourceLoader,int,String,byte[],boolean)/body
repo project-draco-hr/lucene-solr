@@ -1,0 +1,36 @@
+{
+  final ZkSolrResourceLoader zkLoader=(ZkSolrResourceLoader)loader;
+  final ZkController zkController=zkLoader.getZkController();
+  final SolrZkClient zkClient=zkController.getZkClient();
+  final String resourceLocation=zkLoader.getCollectionZkPath() + "/" + resourceName;
+  String errMsg="Failed to persist resource at {0} - version mismatch";
+  try {
+    try {
+      zkClient.setData(resourceLocation,content,znodeVersion,true);
+    }
+ catch (    NoNodeException e) {
+      if (createIfNotExists) {
+        try {
+          zkClient.create(resourceLocation,content,CreateMode.PERSISTENT,true);
+        }
+ catch (        KeeperException.NodeExistsException nee) {
+          log.info(MessageFormat.format(errMsg,resourceLocation));
+          throw new ResourceModifiedInZkException(ErrorCode.CONFLICT,MessageFormat.format(errMsg,resourceLocation) + ", retry.");
+        }
+      }
+    }
+  }
+ catch (  KeeperException.BadVersionException bve) {
+    log.info(MessageFormat.format(errMsg,resourceLocation));
+    throw new ResourceModifiedInZkException(ErrorCode.CONFLICT,MessageFormat.format(errMsg,resourceLocation) + ", retry.");
+  }
+catch (  Exception e) {
+    if (e instanceof InterruptedException) {
+      Thread.currentThread().interrupt();
+    }
+    final String msg="Error persisting resource at " + resourceLocation;
+    log.error(msg,e);
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg,e);
+  }
+  return true;
+}

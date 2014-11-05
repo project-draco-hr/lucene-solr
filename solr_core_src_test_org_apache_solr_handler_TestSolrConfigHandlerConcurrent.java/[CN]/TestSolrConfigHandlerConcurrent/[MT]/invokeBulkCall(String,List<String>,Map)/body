@@ -1,0 +1,47 @@
+{
+  String payload="{" + "'set-property' : {'query.CACHENAME.size':'CACHEVAL1'," + "                  'query.CACHENAME.initialSize':'CACHEVAL2'},"+ "'set-property': {'query.CACHENAME.autowarmCount' : 'CACHEVAL3'}"+ "}";
+  Set<String> errmessages=new HashSet<>();
+  for (int i=1; i < 2; i++) {
+    RestTestHarness publisher=restTestHarnesses.get(r.nextInt(restTestHarnesses.size()));
+    payload=payload.replaceAll("CACHENAME",cacheName);
+    String val1=String.valueOf(10 * i + 1);
+    payload=payload.replace("CACHEVAL1",val1);
+    String val2=String.valueOf(10 * i + 2);
+    payload=payload.replace("CACHEVAL2",val2);
+    String val3=String.valueOf(10 * i + 3);
+    payload=payload.replace("CACHEVAL3",val3);
+    String response=publisher.post("/config?wt=json",SolrTestCaseJ4.json(payload));
+    Map map=(Map)getVal(new JSONParser(new StringReader(response)));
+    Object errors=map.get("errors");
+    if (errors != null) {
+      errs.add(new String(ZkStateReader.toJSON(errors),StandardCharsets.UTF_8));
+      return;
+    }
+    RestTestHarness harness=restTestHarnesses.get(r.nextInt(restTestHarnesses.size()));
+    long startTime=System.nanoTime();
+    boolean success=false;
+    long maxTimeoutSeconds=10;
+    while (TimeUnit.SECONDS.convert(System.nanoTime() - startTime,TimeUnit.NANOSECONDS) < maxTimeoutSeconds) {
+      Thread.sleep(100);
+      errmessages.clear();
+      Map respMap=getAsMap("/config/overlay?wt=json",harness);
+      Map m=(Map)respMap.get("overlay");
+      if (m != null)       m=(Map)m.get("props");
+      if (m == null) {
+        errmessages.add(MessageFormat.format("overlay does not exist for cache: {} , iteration: {} response {} ",cacheName,i,respMap.toString()));
+        continue;
+      }
+      Object o=getObjectByPath(m,true,asList("query",cacheName,"size"));
+      if (!val1.equals(o))       errmessages.add(MessageFormat.format("'size' property not set, expected = {}, actual {}",val1,o));
+      o=getObjectByPath(m,true,asList("query",cacheName,"initialSize"));
+      if (!val2.equals(o))       errmessages.add(MessageFormat.format("'initialSize' property not set, expected = {}, actual {}",val2,o));
+      o=getObjectByPath(m,true,asList("query",cacheName,"autowarmCount"));
+      if (!val3.equals(o))       errmessages.add(MessageFormat.format("'autowarmCount' property not set, expected = {}, actual {}",val3,o));
+      if (errmessages.isEmpty())       break;
+    }
+    if (!errmessages.isEmpty()) {
+      errs.addAll(errmessages);
+      return;
+    }
+  }
+}
