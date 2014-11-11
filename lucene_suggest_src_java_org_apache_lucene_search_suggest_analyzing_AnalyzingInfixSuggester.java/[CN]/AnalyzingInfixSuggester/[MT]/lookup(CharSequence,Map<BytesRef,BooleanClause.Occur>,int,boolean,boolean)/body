@@ -1,0 +1,84 @@
+{
+  if (searcherMgr == null) {
+    throw new IllegalStateException("suggester was not built");
+  }
+  final BooleanClause.Occur occur;
+  if (allTermsRequired) {
+    occur=BooleanClause.Occur.MUST;
+  }
+ else {
+    occur=BooleanClause.Occur.SHOULD;
+  }
+  BooleanQuery query;
+  Set<String> matchedTokens=new HashSet<>();
+  String prefixToken=null;
+  try (TokenStream ts=queryAnalyzer.tokenStream("",new StringReader(key.toString()))){
+    ts.reset();
+    final CharTermAttribute termAtt=ts.addAttribute(CharTermAttribute.class);
+    final OffsetAttribute offsetAtt=ts.addAttribute(OffsetAttribute.class);
+    String lastToken=null;
+    query=new BooleanQuery();
+    int maxEndOffset=-1;
+    matchedTokens=new HashSet<>();
+    while (ts.incrementToken()) {
+      if (lastToken != null) {
+        matchedTokens.add(lastToken);
+        query.add(new TermQuery(new Term(TEXT_FIELD_NAME,lastToken)),occur);
+      }
+      lastToken=termAtt.toString();
+      if (lastToken != null) {
+        maxEndOffset=Math.max(maxEndOffset,offsetAtt.endOffset());
+      }
+    }
+    ts.end();
+    if (lastToken != null) {
+      Query lastQuery;
+      if (maxEndOffset == offsetAtt.endOffset()) {
+        lastQuery=getLastTokenQuery(lastToken);
+        prefixToken=lastToken;
+      }
+ else {
+        matchedTokens.add(lastToken);
+        lastQuery=new TermQuery(new Term(TEXT_FIELD_NAME,lastToken));
+      }
+      if (lastQuery != null) {
+        query.add(lastQuery,occur);
+      }
+    }
+    if (contextInfo != null) {
+      boolean allMustNot=true;
+      for (      Map.Entry<BytesRef,BooleanClause.Occur> entry : contextInfo.entrySet()) {
+        if (entry.getValue() != BooleanClause.Occur.MUST_NOT) {
+          allMustNot=false;
+          break;
+        }
+      }
+      if (allMustNot == true) {
+        for (        Map.Entry<BytesRef,BooleanClause.Occur> entry : contextInfo.entrySet()) {
+          query.add(new TermQuery(new Term(CONTEXTS_FIELD_NAME,entry.getKey().utf8ToString())),BooleanClause.Occur.MUST_NOT);
+        }
+      }
+ else {
+        BooleanQuery sub=new BooleanQuery();
+        query.add(sub,BooleanClause.Occur.MUST);
+        for (        Map.Entry<BytesRef,BooleanClause.Occur> entry : contextInfo.entrySet()) {
+          sub.add(new TermQuery(new Term(CONTEXTS_FIELD_NAME,entry.getKey().utf8ToString())),entry.getValue());
+        }
+      }
+    }
+  }
+   Query finalQuery=finishQuery(query,allTermsRequired);
+  TopFieldCollector c=TopFieldCollector.create(SORT,num,true,false,false,false);
+  Collector c2=new EarlyTerminatingSortingCollector(c,SORT,num);
+  IndexSearcher searcher=searcherMgr.acquire();
+  List<LookupResult> results=null;
+  try {
+    searcher.search(finalQuery,c2);
+    TopFieldDocs hits=(TopFieldDocs)c.topDocs();
+    results=createResults(searcher,hits,num,key,doHighlight,matchedTokens,prefixToken);
+  }
+  finally {
+    searcherMgr.release(searcher);
+  }
+  return results;
+}
