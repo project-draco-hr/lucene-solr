@@ -3,9 +3,25 @@
   if (streams == null) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"missing content stream");
   }
+  ArrayList<CommandOperation> ops=new ArrayList<>();
+  for (  ContentStream stream : streams)   ops.addAll(CommandOperation.parse(stream.getReader()));
+  List<Map> errList=CommandOperation.captureErrors(ops);
+  if (!errList.isEmpty()) {
+    resp.add(CommandOperation.ERR_MSGS,errList);
+    return;
+  }
   try {
-    for (    ContentStream stream : streams) {
-      runCommandsTillSuccess(stream);
+    for (; ; ) {
+      ArrayList<CommandOperation> opsCopy=new ArrayList<>(ops.size());
+      ConfigOverlay overlay=SolrConfig.getConfigOverlay(req.getCore().getResourceLoader());
+      for (      CommandOperation op : ops)       opsCopy.add(op.getCopy());
+      try {
+        handleCommands(opsCopy,overlay);
+        break;
+      }
+ catch (      ZkController.ResourceModifiedInZkException e) {
+        log.info("Race condition, the node is modified in ZK by someone else " + e.getMessage());
+      }
     }
   }
  catch (  Exception e) {

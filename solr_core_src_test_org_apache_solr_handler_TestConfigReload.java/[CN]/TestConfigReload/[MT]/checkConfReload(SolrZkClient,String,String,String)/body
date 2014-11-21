@@ -1,0 +1,37 @@
+{
+  Stat stat=new Stat();
+  byte[] data=null;
+  try {
+    data=client.getData(resPath,null,stat,true);
+  }
+ catch (  KeeperException.NoNodeException e) {
+    data="{}".getBytes(StandardCharsets.UTF_8);
+    log.info("creating_node {}",resPath);
+    client.create(resPath,data,CreateMode.PERSISTENT,true);
+  }
+  long startTime=System.nanoTime();
+  Stat newStat=client.setData(resPath,data,true);
+  client.setData("/configs/conf1",new byte[]{1},true);
+  assertTrue(newStat.getVersion() > stat.getVersion());
+  log.info("new_version " + newStat.getVersion());
+  Integer newVersion=newStat.getVersion();
+  long maxTimeoutSeconds=20;
+  DocCollection coll=cloudClient.getZkStateReader().getClusterState().getCollection("collection1");
+  List<String> urls=new ArrayList<>();
+  for (  Slice slice : coll.getSlices()) {
+    for (    Replica replica : slice.getReplicas())     urls.add("" + replica.get(ZkStateReader.BASE_URL_PROP) + "/"+ replica.get(ZkStateReader.CORE_NAME_PROP));
+  }
+  HashSet<String> succeeded=new HashSet<>();
+  while (TimeUnit.SECONDS.convert(System.nanoTime() - startTime,TimeUnit.NANOSECONDS) < maxTimeoutSeconds) {
+    Thread.sleep(50);
+    for (    String url : urls) {
+      Map respMap=getAsMap(url + uri + "?wt=json");
+      if (String.valueOf(newVersion).equals(String.valueOf(getObjectByPath(respMap,true,asList(name,"znodeVersion"))))) {
+        succeeded.add(url);
+      }
+    }
+    if (succeeded.size() == urls.size())     break;
+    succeeded.clear();
+  }
+  assertEquals(MessageFormat.format("tried these servers {0} succeeded only in {1} ",urls,succeeded),urls.size(),succeeded.size());
+}
