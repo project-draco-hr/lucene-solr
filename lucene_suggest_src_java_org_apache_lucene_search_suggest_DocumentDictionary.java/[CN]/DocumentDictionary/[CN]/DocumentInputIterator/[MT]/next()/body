@@ -1,36 +1,75 @@
 {
-  while (currentDocId < docCount) {
+  while (true) {
+    if (nextFieldsPosition < currentDocFields.length) {
+      StorableField fieldValue=currentDocFields[nextFieldsPosition++];
+      if (fieldValue.binaryValue() != null) {
+        return fieldValue.binaryValue();
+      }
+ else       if (fieldValue.stringValue() != null) {
+        return new BytesRef(fieldValue.stringValue());
+      }
+ else {
+        continue;
+      }
+    }
+    if (currentDocId == docCount) {
+      break;
+    }
     currentDocId++;
     if (liveDocs != null && !liveDocs.get(currentDocId)) {
       continue;
     }
     StoredDocument doc=reader.document(currentDocId,relevantFields);
-    BytesRef tempPayload=null;
-    BytesRef tempTerm=null;
     Set<BytesRef> tempContexts=new HashSet<>();
+    BytesRef tempPayload;
     if (hasPayloads) {
       StorableField payload=doc.getField(payloadField);
-      if (payload == null || (payload.binaryValue() == null && payload.stringValue() == null)) {
+      if (payload == null) {
         continue;
       }
-      tempPayload=(payload.binaryValue() != null) ? payload.binaryValue() : new BytesRef(payload.stringValue());
+ else       if (payload.binaryValue() != null) {
+        tempPayload=payload.binaryValue();
+      }
+ else       if (payload.stringValue() != null) {
+        tempPayload=new BytesRef(payload.stringValue());
+      }
+ else {
+        continue;
+      }
+    }
+ else {
+      tempPayload=null;
     }
     if (hasContexts) {
       final StorableField[] contextFields=doc.getFields(contextsField);
       for (      StorableField contextField : contextFields) {
-        if (contextField.binaryValue() == null && contextField.stringValue() == null) {
-          continue;
+        if (contextField.binaryValue() != null) {
+          tempContexts.add(contextField.binaryValue());
+        }
+ else         if (contextField.stringValue() != null) {
+          tempContexts.add(new BytesRef(contextField.stringValue()));
         }
  else {
-          tempContexts.add((contextField.binaryValue() != null) ? contextField.binaryValue() : new BytesRef(contextField.stringValue()));
+          continue;
         }
       }
     }
-    StorableField fieldVal=doc.getField(field);
-    if (fieldVal == null || (fieldVal.binaryValue() == null && fieldVal.stringValue() == null)) {
+    currentDocFields=doc.getFields(field);
+    nextFieldsPosition=0;
+    if (currentDocFields.length == 0) {
       continue;
     }
-    tempTerm=(fieldVal.stringValue() != null) ? new BytesRef(fieldVal.stringValue()) : fieldVal.binaryValue();
+    StorableField fieldValue=currentDocFields[nextFieldsPosition++];
+    BytesRef tempTerm;
+    if (fieldValue.binaryValue() != null) {
+      tempTerm=fieldValue.binaryValue();
+    }
+ else     if (fieldValue.stringValue() != null) {
+      tempTerm=new BytesRef(fieldValue.stringValue());
+    }
+ else {
+      continue;
+    }
     currentPayload=tempPayload;
     currentContexts=tempContexts;
     currentWeight=getWeight(doc,currentDocId);
