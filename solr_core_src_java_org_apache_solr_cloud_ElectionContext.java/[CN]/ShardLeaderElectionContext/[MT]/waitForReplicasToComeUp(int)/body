@@ -3,13 +3,16 @@
   final String shardsElectZkPath=electionPath + LeaderElector.ELECTION_NODE;
   Slice slices=zkController.getClusterState().getSlice(collection,shardId);
   int cnt=0;
-  while (true && !isClosed && !cc.isShutDown()) {
+  while (!isClosed && !cc.isShutDown()) {
     if (slices != null) {
       int found=0;
       try {
         found=zkClient.getChildren(shardsElectZkPath,null,true).size();
       }
  catch (      KeeperException e) {
+        if (e instanceof KeeperException.SessionExpiredException) {
+          throw new SolrException(ErrorCode.SERVER_ERROR,"ZK session expired - cancelling election for " + collection + " "+ shardId);
+        }
         SolrException.log(log,"Error checking for the number of election participants",e);
       }
       if (found >= slices.getReplicasMap().size()) {
