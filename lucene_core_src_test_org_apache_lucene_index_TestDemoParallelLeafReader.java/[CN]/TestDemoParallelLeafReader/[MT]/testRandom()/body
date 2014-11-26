@@ -1,0 +1,62 @@
+{
+  Path root=createTempDir();
+  ReindexingReader reindexer=null;
+  int numDocs=atLeast(3000);
+  int maxID=0;
+  int refreshEveryNumDocs=100;
+  for (int i=0; i < numDocs; i++) {
+    if (reindexer == null) {
+      reindexer=getReindexer(root);
+    }
+    Document doc=new Document();
+    String id;
+    String updateID;
+    if (maxID > 0 && random().nextInt(10) == 7) {
+      id="" + random().nextInt(maxID);
+      updateID=id;
+    }
+ else {
+      id="" + (maxID++);
+      updateID=null;
+    }
+    doc.add(newStringField("id",id,Field.Store.NO));
+    doc.add(newTextField("text","number " + random().nextLong(),Field.Store.YES));
+    if (updateID == null) {
+      reindexer.w.addDocument(doc);
+    }
+ else {
+      reindexer.w.updateDocument(new Term("id",updateID),doc);
+    }
+    if (random().nextInt(refreshEveryNumDocs) == 17) {
+      if (DEBUG)       System.out.println("TEST: refresh @ " + (i + 1) + " docs");
+      reindexer.mgr.maybeRefresh();
+      DirectoryReader r=reindexer.mgr.acquire();
+      if (DEBUG)       System.out.println("TEST: got reader=" + r);
+      try {
+        checkAllNumberDVs(r);
+        IndexSearcher s=newSearcher(r);
+        testNumericDVSort(s);
+        testNumericRangeQuery(s);
+      }
+  finally {
+        reindexer.mgr.release(r);
+      }
+      refreshEveryNumDocs=(int)(1.25 * refreshEveryNumDocs);
+    }
+    if (i > 0 && random().nextInt(10) == 7) {
+      reindexer.w.deleteDocuments(new Term("id","" + random().nextInt(i)));
+    }
+    if (random().nextInt(1000) == 17) {
+      if (DEBUG)       System.out.println("TEST: commit @ " + (i + 1) + " docs");
+      reindexer.commit();
+    }
+    if (random().nextInt(1000) == 17) {
+      if (DEBUG)       System.out.println("TEST: close writer @ " + (i + 1) + " docs");
+      reindexer.close();
+      reindexer=null;
+    }
+  }
+  if (reindexer != null) {
+    reindexer.close();
+  }
+}

@@ -1,0 +1,69 @@
+{
+  return new ReindexingReader(root){
+    @Override protected IndexWriterConfig getIndexWriterConfig() throws IOException {
+      return newIndexWriterConfig();
+    }
+    @Override protected Directory openDirectory(    Path path) throws IOException {
+      MockDirectoryWrapper dir=newMockFSDirectory(path);
+      dir.setUseSlowOpenClosers(false);
+      dir.setThrottling(Throttling.NEVER);
+      return dir;
+    }
+    @Override protected void reindex(    long oldSchemaGen,    long newSchemaGen,    LeafReader reader,    Directory parallelDir) throws IOException {
+      IndexWriterConfig iwc=newIndexWriterConfig();
+      iwc.setMergePolicy(new LogByteSizeMergePolicy());
+      IndexWriter w=new IndexWriter(parallelDir,iwc);
+      int maxDoc=reader.maxDoc();
+      if (oldSchemaGen <= 0) {
+        for (int i=0; i < maxDoc; i++) {
+          StoredDocument oldDoc=reader.document(i);
+          Document newDoc=new Document();
+          long value=Long.parseLong(oldDoc.get("text").split(" ")[1]);
+          newDoc.add(new NumericDocValuesField("number_" + newSchemaGen,value));
+          newDoc.add(new LongField("number",value,Field.Store.NO));
+          w.addDocument(newDoc);
+        }
+      }
+ else {
+        NumericDocValues oldValues=reader.getNumericDocValues("number_" + oldSchemaGen);
+        assertNotNull("oldSchemaGen=" + oldSchemaGen,oldValues);
+        for (int i=0; i < maxDoc; i++) {
+          StoredDocument oldDoc=reader.document(i);
+          Document newDoc=new Document();
+          newDoc.add(new NumericDocValuesField("number_" + newSchemaGen,oldValues.get(i)));
+          w.addDocument(newDoc);
+        }
+      }
+      if (random().nextBoolean()) {
+        w.forceMerge(1);
+      }
+      w.close();
+    }
+    @Override protected long getCurrentSchemaGen(){
+      return currentSchemaGen.get();
+    }
+    @Override protected void checkParallelReader(    LeafReader r,    LeafReader parR,    long schemaGen) throws IOException {
+      String fieldName="number_" + schemaGen;
+      if (DEBUG)       System.out.println(Thread.currentThread().getName() + ": TEST: now check parallel number DVs field=" + fieldName+ " r="+ r+ " parR="+ parR);
+      NumericDocValues numbers=parR.getNumericDocValues(fieldName);
+      if (numbers == null) {
+        return;
+      }
+      int maxDoc=r.maxDoc();
+      boolean failed=false;
+      for (int i=0; i < maxDoc; i++) {
+        StoredDocument oldDoc=r.document(i);
+        long value=Long.parseLong(oldDoc.get("text").split(" ")[1]);
+        if (value != numbers.get(i)) {
+          if (DEBUG)           System.out.println("FAIL: docID=" + i + " "+ oldDoc+ " value="+ value+ " number="+ numbers.get(i)+ " numbers="+ numbers);
+          failed=true;
+        }
+ else         if (failed) {
+          if (DEBUG)           System.out.println("OK: docID=" + i + " "+ oldDoc+ " value="+ value+ " number="+ numbers.get(i));
+        }
+      }
+      assertFalse("FAILED field=" + fieldName + " r="+ r,failed);
+    }
+  }
+;
+}
