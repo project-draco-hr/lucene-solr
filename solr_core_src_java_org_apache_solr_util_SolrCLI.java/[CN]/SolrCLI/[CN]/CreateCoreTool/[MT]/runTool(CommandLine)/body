@@ -1,0 +1,42 @@
+{
+  String solrUrl=cli.getOptionValue("solrUrl","http://localhost:8983/solr");
+  if (!solrUrl.endsWith("/"))   solrUrl+="/";
+  File configsetsDir=new File(cli.getOptionValue("configsetsDir"));
+  if (!configsetsDir.isDirectory())   throw new FileNotFoundException(configsetsDir.getAbsolutePath() + " not found!");
+  String configSet=cli.getOptionValue("config",DEFAULT_CONFIG_SET);
+  File configSetDir=new File(configsetsDir,configSet);
+  if (!configSetDir.isDirectory())   throw new FileNotFoundException("Specified config " + configSet + " not found in "+ configsetsDir.getAbsolutePath());
+  File confDir=new File(configSetDir,"conf");
+  String coreName=cli.getOptionValue("name");
+  String systemInfoUrl=solrUrl + "admin/info/system";
+  HttpClient httpClient=getHttpClient();
+  String solrHome=null;
+  try {
+    Map<String,Object> systemInfo=getJson(httpClient,systemInfoUrl,2);
+    if ("solrcloud".equals(systemInfo.get("mode"))) {
+      System.err.println("\nERROR: Solr at " + solrUrl + " is running in SolrCloud mode, please use create_collection command instead.\n");
+      return 1;
+    }
+    solrHome=(String)systemInfo.get("solr_home");
+    if (solrHome == null) {
+      solrHome=configsetsDir.getParentFile().getAbsolutePath();
+    }
+  }
+  finally {
+    closeHttpClient(httpClient);
+  }
+  File coreInstanceDir=new File(solrHome,coreName);
+  if (!coreInstanceDir.isDirectory()) {
+    coreInstanceDir.mkdirs();
+    if (!coreInstanceDir.isDirectory())     throw new IOException("Failed to create new core instance directory: " + coreInstanceDir.getAbsolutePath());
+  }
+  FileUtils.copyDirectoryToDirectory(confDir,coreInstanceDir);
+  String createCoreUrl=String.format(Locale.ROOT,"%sadmin/cores?action=CREATE&name=%s&instanceDir=%s",solrUrl,coreName,coreName);
+  System.out.println("Creating new core '" + coreName + "' using command:\n\n"+ createCoreUrl+ "\n");
+  Map<String,Object> json=getJson(createCoreUrl);
+  CharArr arr=new CharArr();
+  new JSONWriter(arr,2).write(json);
+  System.out.println(arr.toString());
+  System.out.println();
+  return 0;
+}
