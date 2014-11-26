@@ -35,29 +35,35 @@
   Set<String> segSeen=new HashSet<>();
   int thread0Count=0;
   int thread1Count=0;
+  long counter=0;
+  long checkAt=100;
   while (thread0Count < 1000 || thread1Count < 1000) {
     Document doc=new Document();
     doc.add(newStringField("field","threadIDmain",Field.Store.NO));
     w.addDocument(doc);
-    for (    String fileName : dir.listAll()) {
-      if (fileName.endsWith(".si")) {
-        String segName=IndexFileNames.parseSegmentName(fileName);
-        if (segSeen.contains(segName) == false) {
-          segSeen.add(segName);
-          byte id[]=readSegmentInfoID(dir,fileName);
-          SegmentInfo si=TestUtil.getDefaultCodec().segmentInfoFormat().read(dir,segName,id,IOContext.DEFAULT);
-          si.setCodec(codec);
-          SegmentCommitInfo sci=new SegmentCommitInfo(si,0,-1,-1,-1);
-          SegmentReader sr=new SegmentReader(sci,IOContext.DEFAULT);
-          try {
-            thread0Count+=sr.docFreq(new Term("field","threadID0"));
-            thread1Count+=sr.docFreq(new Term("field","threadID1"));
-          }
+    if (counter++ == checkAt) {
+      for (      String fileName : dir.listAll()) {
+        if (fileName.endsWith(".si")) {
+          String segName=IndexFileNames.parseSegmentName(fileName);
+          if (segSeen.contains(segName) == false) {
+            segSeen.add(segName);
+            byte id[]=readSegmentInfoID(dir,fileName);
+            SegmentInfo si=TestUtil.getDefaultCodec().segmentInfoFormat().read(dir,segName,id,IOContext.DEFAULT);
+            si.setCodec(codec);
+            SegmentCommitInfo sci=new SegmentCommitInfo(si,0,-1,-1,-1);
+            SegmentReader sr=new SegmentReader(sci,IOContext.DEFAULT);
+            try {
+              thread0Count+=sr.docFreq(new Term("field","threadID0"));
+              thread1Count+=sr.docFreq(new Term("field","threadID1"));
+            }
   finally {
-            sr.close();
+              sr.close();
+            }
           }
         }
       }
+      checkAt=(long)(checkAt * 1.25);
+      counter=0;
     }
   }
   w.close();
