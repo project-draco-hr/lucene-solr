@@ -1,0 +1,38 @@
+{
+  Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  StringField f=new StringField("color","blue",Store.NO);
+  doc.add(f);
+  w.addDocument(doc);
+  f.setStringValue("red");
+  w.addDocument(doc);
+  f.setStringValue("green");
+  w.addDocument(doc);
+  final DirectoryReader reader=w.getReader();
+  final IndexSearcher searcher=newSearcher(reader);
+  final LRUFilterCache filterCache=new LRUFilterCache(2,100000);
+  final Filter blue=new QueryWrapperFilter(new TermQuery(new Term("color","blue")));
+  final Filter red=new QueryWrapperFilter(new TermQuery(new Term("color","red")));
+  final Filter green=new QueryWrapperFilter(new TermQuery(new Term("color","green")));
+  assertEquals(Collections.emptySet(),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(green,NEVER_CACHE)),1);
+  assertEquals(Collections.emptySet(),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(red,FilterCachingPolicy.ALWAYS_CACHE)),1);
+  assertEquals(Collections.singleton(red),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(green,FilterCachingPolicy.ALWAYS_CACHE)),1);
+  assertEquals(new HashSet<>(Arrays.asList(red,green)),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(red,FilterCachingPolicy.ALWAYS_CACHE)),1);
+  assertEquals(new HashSet<>(Arrays.asList(red,green)),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(blue,FilterCachingPolicy.ALWAYS_CACHE)),1);
+  assertEquals(new HashSet<>(Arrays.asList(red,blue)),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(blue,FilterCachingPolicy.ALWAYS_CACHE)),1);
+  assertEquals(new HashSet<>(Arrays.asList(red,blue)),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(green,FilterCachingPolicy.ALWAYS_CACHE)),1);
+  assertEquals(new HashSet<>(Arrays.asList(green,blue)),filterCache.cachedFilters());
+  searcher.search(new ConstantScoreQuery(filterCache.doCache(red,NEVER_CACHE)),1);
+  assertEquals(new HashSet<>(Arrays.asList(green,blue)),filterCache.cachedFilters());
+  reader.close();
+  w.close();
+  dir.close();
+}
