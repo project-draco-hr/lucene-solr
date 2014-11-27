@@ -8,14 +8,16 @@
     dirs[i]=new MockDirectoryWrapper(random(),new RAMDirectory(dir1,newIOContext(random())));
   }
   DirectoryReader r=writer.getReader();
-  final float SECONDS=0.5f;
-  final long endTime=(long)(System.currentTimeMillis() + 1000. * SECONDS);
+  final int numIterations=10;
   final List<Throwable> excs=Collections.synchronizedList(new ArrayList<Throwable>());
   final Thread[] threads=new Thread[1];
+  final AtomicBoolean threadDone=new AtomicBoolean(false);
   for (int i=0; i < threads.length; i++) {
     threads[i]=new Thread(){
       @Override public void run(){
+        int count=0;
         do {
+          count++;
           try {
             writer.addIndexes(dirs);
             writer.maybeMerge();
@@ -25,7 +27,8 @@
             throw new RuntimeException(t);
           }
         }
- while (System.currentTimeMillis() < endTime);
+ while (count < numIterations);
+        threadDone.set(true);
       }
     }
 ;
@@ -33,17 +36,17 @@
     threads[i].start();
   }
   int lastCount=0;
-  while (System.currentTimeMillis() < endTime) {
+  while (threadDone.get() == false) {
     DirectoryReader r2=DirectoryReader.openIfChanged(r);
     if (r2 != null) {
       r.close();
       r=r2;
+      Query q=new TermQuery(new Term("indexname","test"));
+      IndexSearcher searcher=newSearcher(r);
+      final int count=searcher.search(q,10).totalHits;
+      assertTrue(count >= lastCount);
+      lastCount=count;
     }
-    Query q=new TermQuery(new Term("indexname","test"));
-    IndexSearcher searcher=newSearcher(r);
-    final int count=searcher.search(q,10).totalHits;
-    assertTrue(count >= lastCount);
-    lastCount=count;
   }
   for (int i=0; i < threads.length; i++) {
     threads[i].join();

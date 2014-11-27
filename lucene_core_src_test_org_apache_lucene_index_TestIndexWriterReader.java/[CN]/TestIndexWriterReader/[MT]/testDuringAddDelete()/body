@@ -4,10 +4,10 @@
   createIndexNoClose(false,"test",writer);
   writer.commit();
   DirectoryReader r=writer.getReader();
-  final float SECONDS=0.5f;
-  final long endTime=(long)(System.currentTimeMillis() + 1000. * SECONDS);
+  final int iters=TEST_NIGHTLY ? 1000 : 10;
   final List<Throwable> excs=Collections.synchronizedList(new ArrayList<Throwable>());
   final Thread[] threads=new Thread[numThreads];
+  final AtomicInteger remainingThreads=new AtomicInteger(numThreads);
   for (int i=0; i < numThreads; i++) {
     threads[i]=new Thread(){
       final Random r=new Random(random().nextLong());
@@ -30,7 +30,8 @@
             throw new RuntimeException(t);
           }
         }
- while (System.currentTimeMillis() < endTime);
+ while (count < iters);
+        remainingThreads.decrementAndGet();
       }
     }
 ;
@@ -38,15 +39,15 @@
     threads[i].start();
   }
   int sum=0;
-  while (System.currentTimeMillis() < endTime) {
+  while (remainingThreads.get() > 0) {
     DirectoryReader r2=DirectoryReader.openIfChanged(r);
     if (r2 != null) {
       r.close();
       r=r2;
+      Query q=new TermQuery(new Term("indexname","test"));
+      IndexSearcher searcher=newSearcher(r);
+      sum+=searcher.search(q,10).totalHits;
     }
-    Query q=new TermQuery(new Term("indexname","test"));
-    IndexSearcher searcher=newSearcher(r);
-    sum+=searcher.search(q,10).totalHits;
   }
   for (int i=0; i < numThreads; i++) {
     threads[i].join();
