@@ -1,0 +1,56 @@
+{
+  Slice slice=collection.getSlice(sliceName);
+  Map<String,Object> sliceProps=slice.getProperties();
+  String sliceState=slice.getState();
+  if (Slice.RECOVERY.equals(sliceState)) {
+    log.info("Shard: {} is in recovery state",sliceName);
+    if (ZkStateReader.ACTIVE.equals(replicaProps.get(ZkStateReader.STATE_PROP))) {
+      log.info("Shard: {} is in recovery state and coreNodeName: {} is active",sliceName,coreNodeName);
+      boolean allActive=true;
+      for (      Map.Entry<String,Replica> entry : slice.getReplicasMap().entrySet()) {
+        if (coreNodeName.equals(entry.getKey()))         continue;
+        if (!Slice.ACTIVE.equals(entry.getValue().getStr(Slice.STATE))) {
+          allActive=false;
+          break;
+        }
+      }
+      if (allActive) {
+        log.info("Shard: {} - all replicas are active. Finding status of fellow sub-shards",sliceName);
+        Map<String,Slice> allSlicesCopy=new HashMap<>(collection.getSlicesMap());
+        List<Slice> subShardSlices=new ArrayList<>();
+        outer:         for (        Map.Entry<String,Slice> entry : allSlicesCopy.entrySet()) {
+          if (sliceName.equals(entry.getKey()))           continue;
+          Slice otherSlice=entry.getValue();
+          if (Slice.RECOVERY.equals(otherSlice.getState())) {
+            if (slice.getParent() != null && slice.getParent().equals(otherSlice.getParent())) {
+              log.info("Shard: {} - Fellow sub-shard: {} found",sliceName,otherSlice.getName());
+              for (              Map.Entry<String,Replica> sliceEntry : otherSlice.getReplicasMap().entrySet()) {
+                if (!ZkStateReader.ACTIVE.equals(sliceEntry.getValue().getStr(ZkStateReader.STATE_PROP))) {
+                  allActive=false;
+                  break outer;
+                }
+              }
+              log.info("Shard: {} - Fellow sub-shard: {} has all replicas active",sliceName,otherSlice.getName());
+              subShardSlices.add(otherSlice);
+            }
+          }
+        }
+        if (allActive) {
+          log.info("Shard: {} - All replicas across all fellow sub-shards are now ACTIVE. Preparing to switch shard states.",sliceName);
+          String parentSliceName=(String)sliceProps.remove(Slice.PARENT);
+          Map<String,Object> propMap=new HashMap<>();
+          propMap.put(Overseer.QUEUE_OPERATION,"updateshardstate");
+          propMap.put(parentSliceName,Slice.INACTIVE);
+          propMap.put(sliceName,Slice.ACTIVE);
+          for (          Slice subShardSlice : subShardSlices) {
+            propMap.put(subShardSlice.getName(),Slice.ACTIVE);
+          }
+          propMap.put(ZkStateReader.COLLECTION_PROP,collection.getName());
+          ZkNodeProps m=new ZkNodeProps(propMap);
+          return new SliceMutator(zkStateReader).updateShardState(prevState,m).collection;
+        }
+      }
+    }
+  }
+  return collection;
+}

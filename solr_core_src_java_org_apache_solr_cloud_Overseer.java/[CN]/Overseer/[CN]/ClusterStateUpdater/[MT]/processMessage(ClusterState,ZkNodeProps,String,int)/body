@@ -4,34 +4,26 @@
   if (collectionAction != null) {
 switch (collectionAction) {
 case CREATE:
-      clusterState=buildCollection(clusterState,message);
-    break;
+      return buildCollection(clusterState,message);
 case DELETE:
-  clusterState=removeCollection(clusterState,message);
-break;
+    return removeCollection(clusterState,message);
 case CREATESHARD:
-clusterState=createShard(clusterState,message);
-break;
+  return createShard(clusterState,message);
 case DELETESHARD:
-clusterState=removeShard(clusterState,message);
-break;
+return removeShard(clusterState,message);
 case ADDREPLICA:
-clusterState=createReplica(clusterState,message);
-break;
+return createReplica(clusterState,message);
 case CLUSTERPROP:
 handleProp(message);
-break;
 case ADDREPLICAPROP:
-clusterState=addReplicaProp(clusterState,message);
-break;
+return addReplicaProp(clusterState,message);
 case DELETEREPLICAPROP:
-clusterState=deleteReplicaProp(clusterState,message);
-break;
+return deleteReplicaProp(clusterState,message);
 case BALANCESHARDUNIQUE:
 ExclusiveSliceProperty dProp=new ExclusiveSliceProperty(this,clusterState,message);
 if (dProp.balanceProperty()) {
 String collName=message.getStr(ZkStateReader.COLLECTION_PROP);
-clusterState=newState(clusterState,singletonMap(collName,dProp.getDocCollection()));
+return new ZkWriteCommand(collName,dProp.getDocCollection());
 }
 break;
 default :
@@ -43,28 +35,17 @@ OverseerAction overseerAction=OverseerAction.get(operation);
 if (overseerAction != null) {
 switch (overseerAction) {
 case STATE:
-if (isLegacy(clusterProps)) {
-clusterState=updateState(clusterState,message);
-}
- else {
-clusterState=updateStateNew(clusterState,message);
-}
-break;
+return new ReplicaMutator(getZkStateReader()).setState(clusterState,message);
 case LEADER:
-clusterState=setShardLeader(clusterState,message);
-break;
+return setShardLeader(clusterState,message);
 case DELETECORE:
-clusterState=removeCore(clusterState,message);
-break;
+return removeCore(clusterState,message);
 case ADDROUTINGRULE:
-clusterState=addRoutingRule(clusterState,message);
-break;
+return addRoutingRule(clusterState,message);
 case REMOVEROUTINGRULE:
-clusterState=removeRoutingRule(clusterState,message);
-break;
+return removeRoutingRule(clusterState,message);
 case UPDATESHARDSTATE:
-clusterState=updateShardState(clusterState,message);
-break;
+return updateShardState(clusterState,message);
 case QUIT:
 if (myId.equals(message.get("id"))) {
 log.info("Quit command received {}",LeaderElector.getNodeName(myId));
@@ -82,18 +63,15 @@ throw new RuntimeException("unknown operation:" + operation + " contents:"+ mess
  else {
 switch (operation) {
 case OverseerCollectionProcessor.CREATECOLLECTION:
-clusterState=buildCollection(clusterState,message);
-break;
+return buildCollection(clusterState,message);
 case REMOVECOLLECTION:
-clusterState=removeCollection(clusterState,message);
-break;
+return removeCollection(clusterState,message);
 case REMOVESHARD:
-clusterState=removeShard(clusterState,message);
-break;
+return removeShard(clusterState,message);
 default :
 throw new RuntimeException("unknown operation:" + operation + " contents:"+ message.getProperties());
 }
 }
 }
-return clusterState;
+return ZkStateWriter.NO_OP;
 }

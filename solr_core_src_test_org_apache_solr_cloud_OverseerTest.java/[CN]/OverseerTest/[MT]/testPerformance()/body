@@ -1,0 +1,73 @@
+{
+  String zkDir=createTempDir("OverseerTest.testPerformance").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient controllerClient=null;
+  SolrZkClient overseerClient=null;
+  ZkStateReader reader=null;
+  MockZKController mockController=null;
+  try {
+    server.run();
+    controllerClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    controllerClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE,true);
+    reader=new ZkStateReader(controllerClient);
+    reader.createClusterStateWatchersAndUpdate();
+    mockController=new MockZKController(server.getZkAddress(),"node1");
+    for (int i=0; i < 100; i++) {
+      ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,CollectionParams.CollectionAction.CREATE.toLower(),"name","perf" + i,ZkStateReader.NUM_SHARDS_PROP,"1","stateFormat","2",ZkStateReader.REPLICATION_FACTOR,"1",ZkStateReader.MAX_SHARDS_PER_NODE,"1");
+      DistributedQueue q=Overseer.getInQueue(controllerClient);
+      q.offer(ZkStateReader.toJSON(m));
+      controllerClient.makePath("/collections/perf" + i,true);
+    }
+    for (int i=0, j=0, k=0; i < 20000; i++, j++, k++) {
+      ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.STATE_PROP,ZkStateReader.RECOVERING,ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.CORE_NAME_PROP,"core" + k,ZkStateReader.CORE_NODE_NAME_PROP,"node1",ZkStateReader.COLLECTION_PROP,"perf" + j,ZkStateReader.NUM_SHARDS_PROP,"1",ZkStateReader.BASE_URL_PROP,"http://" + "node1" + "/solr/");
+      DistributedQueue q=Overseer.getInQueue(controllerClient);
+      q.offer(ZkStateReader.toJSON(m));
+      if (j == 99)       j=0;
+      if (k == 9)       k=0;
+      if (i > 0 && i % 100 == 0)       log.info("Published {} items",i);
+    }
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.STATE_PROP,ZkStateReader.ACTIVE,ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.CORE_NAME_PROP,"core1",ZkStateReader.CORE_NODE_NAME_PROP,"node1",ZkStateReader.COLLECTION_PROP,"perf_sentinel",ZkStateReader.NUM_SHARDS_PROP,"1",ZkStateReader.BASE_URL_PROP,"http://" + "node1" + "/solr/");
+    DistributedQueue q=Overseer.getInQueue(controllerClient);
+    q.offer(ZkStateReader.toJSON(m));
+    Timer t=new Timer();
+    TimerContext context=t.time();
+    try {
+      overseerClient=electNewOverseer(server.getZkAddress());
+      assertTrue(overseers.size() > 0);
+      while (true) {
+        reader.updateClusterState(true);
+        ClusterState state=reader.getClusterState();
+        if (state.hasCollection("perf_sentinel")) {
+          break;
+        }
+        Thread.sleep(1000);
+      }
+    }
+  finally {
+      context.stop();
+    }
+    log.info("Overseer loop finished processing: ");
+    printTimingStats(t);
+    Overseer overseer=overseers.get(0);
+    Overseer.Stats stats=overseer.getStats();
+    String[] interestingOps={"state","update_state","am_i_leader",""};
+    Arrays.sort(interestingOps);
+    for (    Map.Entry<String,Overseer.Stat> entry : stats.getStats().entrySet()) {
+      String op=entry.getKey();
+      if (Arrays.binarySearch(interestingOps,op) < 0)       continue;
+      Overseer.Stat stat=entry.getValue();
+      log.info("op: {}, success: {}, failure: {}",op,stat.success.get(),stat.errors.get());
+      Timer timer=stat.requestTime;
+      printTimingStats(timer);
+    }
+  }
+  finally {
+    close(overseerClient);
+    close(mockController);
+    close(controllerClient);
+    close(reader);
+    server.shutdown();
+  }
+}

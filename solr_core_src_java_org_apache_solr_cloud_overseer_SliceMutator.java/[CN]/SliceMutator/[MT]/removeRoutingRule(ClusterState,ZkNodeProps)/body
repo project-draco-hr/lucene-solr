@@ -1,0 +1,21 @@
+{
+  String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
+  if (!checkCollectionKeyExistence(message))   return ZkStateWriter.NO_OP;
+  String shard=message.getStr(ZkStateReader.SHARD_ID_PROP);
+  String routeKeyStr=message.getStr("routeKey");
+  log.info("Overseer.removeRoutingRule invoked for collection: " + collection + " shard: "+ shard+ " routeKey: "+ routeKeyStr);
+  Slice slice=clusterState.getSlice(collection,shard);
+  if (slice == null) {
+    log.warn("Unknown collection: " + collection + " shard: "+ shard);
+    return ZkStateWriter.NO_OP;
+  }
+  Map<String,RoutingRule> routingRules=slice.getRoutingRules();
+  if (routingRules != null) {
+    routingRules.remove(routeKeyStr);
+    Map<String,Object> props=slice.shallowCopy();
+    props.put("routingRules",routingRules);
+    Slice newSlice=new Slice(slice.getName(),slice.getReplicasCopy(),props);
+    return new ZkWriteCommand(collection,CollectionMutator.updateSlice(collection,clusterState.getCollection(collection),newSlice));
+  }
+  return ZkStateWriter.NO_OP;
+}

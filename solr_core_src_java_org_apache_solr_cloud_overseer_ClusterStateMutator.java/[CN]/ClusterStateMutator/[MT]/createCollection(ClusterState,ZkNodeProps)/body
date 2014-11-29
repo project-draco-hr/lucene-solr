@@ -1,0 +1,43 @@
+{
+  String cName=message.getStr("name");
+  log.info("building a new cName: " + cName);
+  if (clusterState.hasCollection(cName)) {
+    log.warn("Collection {} already exists. exit",cName);
+    return ZkStateWriter.NO_OP;
+  }
+  ArrayList<String> shards=new ArrayList<>();
+  if (ImplicitDocRouter.NAME.equals(message.getStr("router.name",DocRouter.DEFAULT_NAME))) {
+    getShardNames(shards,message.getStr("shards",DocRouter.DEFAULT_NAME));
+  }
+ else {
+    int numShards=message.getInt(ZkStateReader.NUM_SHARDS_PROP,-1);
+    if (numShards < 1)     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"numShards is a required parameter for 'compositeId' router");
+    getShardNames(numShards,shards);
+  }
+  Map<String,Object> routerSpec=DocRouter.getRouterSpec(message);
+  String routerName=routerSpec.get("name") == null ? DocRouter.DEFAULT_NAME : (String)routerSpec.get("name");
+  DocRouter router=DocRouter.getDocRouter(routerName);
+  List<DocRouter.Range> ranges=router.partitionRange(shards.size(),router.fullRange());
+  Map<String,Slice> newSlices=new LinkedHashMap<>();
+  for (int i=0; i < shards.size(); i++) {
+    String sliceName=shards.get(i);
+    Map<String,Object> sliceProps=new LinkedHashMap<>(1);
+    sliceProps.put(Slice.RANGE,ranges == null ? null : ranges.get(i));
+    newSlices.put(sliceName,new Slice(sliceName,null,sliceProps));
+  }
+  Map<String,Object> collectionProps=new HashMap<>();
+  for (  Map.Entry<String,Object> e : OverseerCollectionProcessor.COLL_PROPS.entrySet()) {
+    Object val=message.get(e.getKey());
+    if (val == null) {
+      val=OverseerCollectionProcessor.COLL_PROPS.get(e.getKey());
+    }
+    if (val != null)     collectionProps.put(e.getKey(),val);
+  }
+  collectionProps.put(DocCollection.DOC_ROUTER,routerSpec);
+  if (message.getStr("fromApi") == null) {
+    collectionProps.put("autoCreated","true");
+  }
+  String znode=message.getInt(DocCollection.STATE_FORMAT,1) == 1 ? null : ZkStateReader.getCollectionPath(cName);
+  DocCollection newCollection=new DocCollection(cName,newSlices,collectionProps,router,-1,znode);
+  return new ZkWriteCommand(cName,newCollection);
+}

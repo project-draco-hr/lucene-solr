@@ -1,0 +1,24 @@
+{
+  String collectionName=message.getStr(ZkStateReader.COLLECTION_PROP);
+  if (!checkCollectionKeyExistence(message))   return ZkStateWriter.NO_OP;
+  String shardId=message.getStr(ZkStateReader.SHARD_ID_PROP);
+  Slice slice=clusterState.getSlice(collectionName,shardId);
+  if (slice == null) {
+    Map<String,Replica> replicas=Collections.EMPTY_MAP;
+    Map<String,Object> sliceProps=new HashMap<>();
+    String shardRange=message.getStr(ZkStateReader.SHARD_RANGE_PROP);
+    String shardState=message.getStr(ZkStateReader.SHARD_STATE_PROP);
+    String shardParent=message.getStr(ZkStateReader.SHARD_PARENT_PROP);
+    sliceProps.put(Slice.RANGE,shardRange);
+    sliceProps.put(Slice.STATE,shardState);
+    if (shardParent != null) {
+      sliceProps.put(Slice.PARENT,shardParent);
+    }
+    DocCollection collection=updateSlice(collectionName,clusterState.getCollection(collectionName),new Slice(shardId,replicas,sliceProps));
+    return new ZkWriteCommand(collectionName,collection);
+  }
+ else {
+    log.error("Unable to create Shard: " + shardId + " because it already exists in collection: "+ collectionName);
+    return ZkStateWriter.NO_OP;
+  }
+}

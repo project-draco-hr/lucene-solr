@@ -1,0 +1,19 @@
+{
+  final String cName=message.getStr(ZkStateReader.COLLECTION_PROP);
+  if (!checkCollectionKeyExistence(message))   return ZkStateWriter.NO_OP;
+  Integer numShards=message.getInt(ZkStateReader.NUM_SHARDS_PROP,null);
+  log.info("Update state numShards={} message={}",numShards,message);
+  List<String> shardNames=new ArrayList<>();
+  ZkWriteCommand writeCommand=null;
+  ClusterState newState=null;
+  boolean collectionExists=prevState.hasCollection(cName);
+  if (!collectionExists && numShards != null) {
+    ClusterStateMutator.getShardNames(numShards,shardNames);
+    Map<String,Object> createMsg=ZkNodeProps.makeMap("name",cName);
+    createMsg.putAll(message.getProperties());
+    writeCommand=new ClusterStateMutator(zkStateReader).createCollection(prevState,new ZkNodeProps(createMsg));
+    DocCollection collection=writeCommand.collection;
+    newState=ClusterStateMutator.newState(prevState,cName,collection);
+  }
+  return updateState(newState != null ? newState : prevState,message,cName,numShards,collectionExists);
+}

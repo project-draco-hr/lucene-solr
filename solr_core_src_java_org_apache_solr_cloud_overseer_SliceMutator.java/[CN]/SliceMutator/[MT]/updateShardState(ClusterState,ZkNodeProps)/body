@@ -1,0 +1,23 @@
+{
+  String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
+  if (!checkCollectionKeyExistence(message))   return ZkStateWriter.NO_OP;
+  log.info("Update shard state invoked for collection: " + collection + " with message: "+ message);
+  Map<String,Slice> slicesCopy=new LinkedHashMap<>(clusterState.getSlicesMap(collection));
+  for (  String key : message.keySet()) {
+    if (ZkStateReader.COLLECTION_PROP.equals(key))     continue;
+    if (Overseer.QUEUE_OPERATION.equals(key))     continue;
+    Slice slice=clusterState.getSlice(collection,key);
+    if (slice == null) {
+      throw new RuntimeException("Overseer.updateShardState unknown collection: " + collection + " slice: "+ key);
+    }
+    log.info("Update shard state " + key + " to "+ message.getStr(key));
+    Map<String,Object> props=slice.shallowCopy();
+    if (Slice.RECOVERY.equals(props.get(Slice.STATE)) && Slice.ACTIVE.equals(message.getStr(key))) {
+      props.remove(Slice.PARENT);
+    }
+    props.put(Slice.STATE,message.getStr(key));
+    Slice newSlice=new Slice(slice.getName(),slice.getReplicasCopy(),props);
+    slicesCopy.put(slice.getName(),newSlice);
+  }
+  return new ZkWriteCommand(collection,clusterState.getCollection(collection).copyWithSlices(slicesCopy));
+}
