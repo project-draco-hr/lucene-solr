@@ -1,0 +1,135 @@
+{
+  MockDirectoryWrapper dir=new MockDirectoryWrapper(random(),new RAMDirectory());
+  dir.setEnableVirusScanner(false);
+  ByteArrayOutputStream exceptionLog=new ByteArrayOutputStream();
+  PrintStream exceptionStream=new PrintStream(exceptionLog,true,"UTF-8");
+  Analyzer analyzer=new MockAnalyzer(random());
+  Codec codec=new CrankyCodec(Codec.getDefault(),new Random(random().nextLong()));
+  IndexWriterConfig conf=newIndexWriterConfig(analyzer);
+  conf.setMergeScheduler(new SerialMergeScheduler());
+  conf.setCodec(codec);
+  int numDocs=atLeast(500);
+  IndexWriter iw=new IndexWriter(dir,conf);
+  try {
+    for (int i=0; i < numDocs; i++) {
+      Document doc=new Document();
+      doc.add(newStringField("id",Integer.toString(i),Field.Store.NO));
+      doc.add(new NumericDocValuesField("dv",i));
+      doc.add(new BinaryDocValuesField("dv2",new BytesRef(Integer.toString(i))));
+      doc.add(new SortedDocValuesField("dv3",new BytesRef(Integer.toString(i))));
+      doc.add(new SortedSetDocValuesField("dv4",new BytesRef(Integer.toString(i))));
+      doc.add(new SortedSetDocValuesField("dv4",new BytesRef(Integer.toString(i - 1))));
+      doc.add(new SortedNumericDocValuesField("dv5",i));
+      doc.add(new SortedNumericDocValuesField("dv5",i - 1));
+      doc.add(newTextField("text1",TestUtil.randomAnalysisString(random(),20,true),Field.Store.NO));
+      doc.add(new StoredField("stored1","foo"));
+      doc.add(new StoredField("stored1","bar"));
+      doc.add(newTextField("text_payloads",TestUtil.randomAnalysisString(random(),6,true),Field.Store.NO));
+      FieldType ft=new FieldType(TextField.TYPE_NOT_STORED);
+      ft.setStoreTermVectors(true);
+      doc.add(newField("text_vectors",TestUtil.randomAnalysisString(random(),6,true),ft));
+      if (random().nextInt(10) > 0) {
+        try {
+          iw.addDocument(doc);
+          int thingToDo=random().nextInt(4);
+          if (thingToDo == 0) {
+            iw.deleteDocuments(new Term("id",Integer.toString(i)));
+          }
+ else           if (thingToDo == 1) {
+            iw.updateNumericDocValue(new Term("id",Integer.toString(i)),"dv",i + 1L);
+          }
+ else           if (thingToDo == 2) {
+            iw.updateBinaryDocValue(new Term("id",Integer.toString(i)),"dv2",new BytesRef(Integer.toString(i + 1)));
+          }
+        }
+ catch (        Exception e) {
+          if (e.getMessage() != null && e.getMessage().startsWith("Fake IOException")) {
+            exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+            e.printStackTrace(exceptionStream);
+          }
+ else {
+            Rethrow.rethrow(e);
+          }
+        }
+      }
+ else {
+        Document doc2=new Document();
+        doc2.add(newStringField("id",Integer.toString(-i),Field.Store.NO));
+        doc2.add(newTextField("text1",TestUtil.randomAnalysisString(random(),20,true),Field.Store.NO));
+        doc2.add(new StoredField("stored1","foo"));
+        doc2.add(new StoredField("stored1","bar"));
+        doc2.add(newField("text_vectors",TestUtil.randomAnalysisString(random(),6,true),ft));
+        try {
+          iw.addDocuments(Arrays.asList(doc,doc2));
+          if (random().nextBoolean()) {
+            iw.deleteDocuments(new Term("id",Integer.toString(i)),new Term("id",Integer.toString(-i)));
+          }
+        }
+ catch (        Exception e) {
+          if (e.getMessage() != null && e.getMessage().startsWith("Fake IOException")) {
+            exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+            e.printStackTrace(exceptionStream);
+          }
+ else {
+            Rethrow.rethrow(e);
+          }
+        }
+      }
+      if (random().nextInt(10) == 0) {
+        try {
+          if (random().nextBoolean()) {
+            DirectoryReader ir=null;
+            try {
+              ir=DirectoryReader.open(iw,random().nextBoolean());
+            }
+  finally {
+              IOUtils.closeWhileHandlingException(ir);
+            }
+          }
+ else {
+            iw.commit();
+          }
+        }
+ catch (        Exception e) {
+          if (e.getMessage() != null && e.getMessage().startsWith("Fake IOException")) {
+            exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+            e.printStackTrace(exceptionStream);
+          }
+ else {
+            Rethrow.rethrow(e);
+          }
+        }
+      }
+    }
+    try {
+      iw.close();
+    }
+ catch (    Exception e) {
+      if (e.getMessage() != null && e.getMessage().startsWith("Fake IOException")) {
+        exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+        e.printStackTrace(exceptionStream);
+        try {
+          iw.rollback();
+        }
+ catch (        Throwable t) {
+        }
+      }
+ else {
+        Rethrow.rethrow(e);
+      }
+    }
+    TestIndexWriter.assertNoUnreferencedFiles(dir,"unreferenced files remain after close()");
+    dir.close();
+  }
+ catch (  Throwable t) {
+    System.out.println("Unexpected exception: dumping fake-exception-log:...");
+    exceptionStream.flush();
+    System.out.println(exceptionLog.toString("UTF-8"));
+    System.out.flush();
+    Rethrow.rethrow(t);
+  }
+  if (VERBOSE) {
+    System.out.println("TEST PASSED: dumping fake-exception-log:...");
+    System.out.println(exceptionLog.toString("UTF-8"));
+  }
+}
