@@ -2,19 +2,18 @@
   final SolrIndexSearcher searcher=req.getSearcher();
   final IndexSchema schema=searcher.getSchema();
   final SchemaField schemaField=schema.getFieldOrNull(fieldName);
-  if (schemaField != null && ((schemaField.getType() instanceof org.apache.solr.schema.TrieField) || (schemaField.getType() instanceof org.apache.solr.schema.TrieDateField)))   return;
+  if (schemaField != null && schemaField.getType() instanceof org.apache.solr.schema.TrieField)   return;
   SolrParams params=req.getParams();
   boolean preserveMulti=params.getFieldBool(fieldName,HighlightParams.PRESERVE_MULTI,false);
   List<StorableField> allFields=doc.getFields();
-  if (allFields != null && allFields.size() == 0)   return;
-  TokenStream tstream=null;
+  if (allFields == null || allFields.isEmpty())   return;
   int numFragments=getMaxSnippets(fieldName,params);
   boolean mergeContiguousFragments=isMergeContiguousFragments(fieldName,params);
   String[] summaries=null;
   List<TextFragment> frags=new ArrayList<>();
   TermOffsetsTokenStream tots=null;
   TokenStream tvStream=TokenSources.getTokenStreamWithOffsets(searcher.getIndexReader(),docId,fieldName);
-  if (tvStream != null) {
+  if (tvStream != null && schemaField.multiValued() && isActuallyMultiValued(allFields,fieldName)) {
     tots=new TermOffsetsTokenStream(tvStream);
   }
   int mvToExamine=Integer.parseInt(req.getParams().get(HighlightParams.MAX_MULTIVALUED_TO_EXAMINE,Integer.toString(Integer.MAX_VALUE)));
@@ -24,8 +23,12 @@
     if (!thisField.name().equals(fieldName))     continue;
     --mvToExamine;
     String thisText=thisField.stringValue();
+    TokenStream tstream;
     if (tots != null) {
       tstream=tots.getMultiValuedTokenStream(thisText.length());
+    }
+ else     if (tvStream != null) {
+      tstream=tvStream;
     }
  else {
       tstream=createAnalyzerTStream(schema,fieldName,thisText);
@@ -33,14 +36,22 @@
     int maxCharsToAnalyze=params.getFieldInt(fieldName,HighlightParams.MAX_CHARS,Highlighter.DEFAULT_MAX_CHARS_TO_ANALYZE);
     Highlighter highlighter;
     if (Boolean.valueOf(req.getParams().get(HighlightParams.USE_PHRASE_HIGHLIGHTER,"true"))) {
-      if (maxCharsToAnalyze < 0) {
-        tstream=new CachingTokenFilter(tstream);
+      final TokenStream tempTokenStream;
+      if (tstream != tvStream) {
+        if (maxCharsToAnalyze < 0) {
+          tempTokenStream=new CachingTokenFilter(tstream);
+        }
+ else {
+          tempTokenStream=new CachingTokenFilter(new OffsetLimitTokenFilter(tstream,maxCharsToAnalyze));
+        }
       }
  else {
-        tstream=new CachingTokenFilter(new OffsetLimitTokenFilter(tstream,maxCharsToAnalyze));
+        tempTokenStream=tstream;
       }
-      highlighter=getPhraseHighlighter(query,fieldName,req,(CachingTokenFilter)tstream);
-      tstream.reset();
+      highlighter=getPhraseHighlighter(query,fieldName,req,tempTokenStream);
+      if (tempTokenStream instanceof CachingTokenFilter && ((CachingTokenFilter)tempTokenStream).isCached()) {
+        tstream=tempTokenStream;
+      }
     }
  else {
       highlighter=getHighlighter(query,fieldName,req);
@@ -53,16 +64,16 @@
     }
     try {
       TextFragment[] bestTextFragments=highlighter.getBestTextFragments(tstream,thisText,mergeContiguousFragments,numFragments);
-      for (int k=0; k < bestTextFragments.length; k++) {
+      for (      TextFragment bestTextFragment : bestTextFragments) {
         if (preserveMulti) {
-          if (bestTextFragments[k] != null) {
-            frags.add(bestTextFragments[k]);
+          if (bestTextFragment != null) {
+            frags.add(bestTextFragment);
             --mvToMatch;
           }
         }
  else {
-          if ((bestTextFragments[k] != null) && (bestTextFragments[k].getScore() > 0)) {
-            frags.add(bestTextFragments[k]);
+          if ((bestTextFragment != null) && (bestTextFragment.getScore() > 0)) {
+            frags.add(bestTextFragment);
             --mvToMatch;
           }
         }
