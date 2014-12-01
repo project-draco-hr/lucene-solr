@@ -20,23 +20,8 @@ synchronized (reader.getUpdateLock()) {
             }
  else             if (LeaderStatus.YES == isLeader) {
               final ZkNodeProps message=ZkNodeProps.load(head);
-              final String operation=message.getStr(QUEUE_OPERATION);
-              final TimerContext timerContext=stats.time(operation);
-              try {
-                ZkWriteCommand zkWriteCommand=processMessage(clusterState,message,operation,workQueue.getStats().getQueueLength());
-                clusterState=zkStateWriter.enqueueUpdate(clusterState,zkWriteCommand);
-                stats.success(operation);
-              }
- catch (              Exception e) {
-                log.error("Overseer could not process the current clusterstate state update message, skipping the message.",e);
-                stats.error(operation);
-              }
- finally {
-                timerContext.stop();
-              }
-              if (zkStateWriter.hasPendingUpdates()) {
-                clusterState=zkStateWriter.writePendingUpdates();
-              }
+              log.info("processMessage: queueSize: {}, message = {}",workQueue.getStats().getQueueLength(),message);
+              clusterState=processQueueItem(message,clusterState,zkStateWriter);
               workQueue.poll();
             }
  else {
@@ -44,6 +29,7 @@ synchronized (reader.getUpdateLock()) {
             }
             head=workQueue.peek();
           }
+          clusterState=zkStateWriter.writePendingUpdates();
         }
       }
  catch (      KeeperException e) {
@@ -63,8 +49,6 @@ catch (      Exception e) {
     }
   }
   log.info("Starting to work on the main queue");
-  int lastStateFormat=-1;
-  String lastCollectionName=null;
   try {
     ZkStateWriter zkStateWriter=new ZkStateWriter(reader,stats);
     ClusterState clusterState=null;
@@ -103,71 +87,28 @@ synchronized (reader.getUpdateLock()) {
             clusterState=reader.getClusterState();
             refreshClusterState=false;
             byte[] data=workQueue.peek();
+            boolean hadWorkItems=data != null;
             while (data != null) {
               final ZkNodeProps message=ZkNodeProps.load(data);
-              final String operation=message.getStr(QUEUE_OPERATION);
-              final TimerContext timerContext=stats.time(operation);
-              try {
-                ZkWriteCommand zkWriteCommand=processMessage(clusterState,message,operation,workQueue.getStats().getQueueLength());
-                clusterState=zkStateWriter.enqueueUpdate(clusterState,zkWriteCommand);
-                stats.success(operation);
-              }
- catch (              Exception e) {
-                log.error("Overseer could not process the current clusterstate state update message, skipping the message.",e);
-                stats.error(operation);
-              }
- finally {
-                timerContext.stop();
-              }
-              if (zkStateWriter.hasPendingUpdates()) {
-                clusterState=zkStateWriter.writePendingUpdates();
-              }
+              log.info("processMessage: queueSize: {}, message = {}",workQueue.getStats().getQueueLength(),message);
+              clusterState=processQueueItem(message,clusterState,zkStateWriter);
               workQueue.poll();
               data=workQueue.peek();
+            }
+            if (hadWorkItems) {
+              clusterState=zkStateWriter.writePendingUpdates();
             }
           }
           while (head != null) {
             final ZkNodeProps message=ZkNodeProps.load(head.getBytes());
-            final String operation=message.getStr(QUEUE_OPERATION);
-            String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
-            if (collection == null)             collection=message.getStr("name");
-            if (collection != null) {
-              DocCollection docCollection=clusterState.getCollectionOrNull(collection);
-              if (lastStateFormat != -1 && docCollection != null && docCollection.getStateFormat() != lastStateFormat) {
-                lastStateFormat=docCollection.getStateFormat();
-                break;
-              }
-              if (docCollection != null) {
-                lastStateFormat=docCollection.getStateFormat();
-              }
-            }
-            final TimerContext timerContext=stats.time(operation);
-            try {
-              ZkWriteCommand zkWriteCommand=processMessage(clusterState,message,operation,stateUpdateQueue.getStats().getQueueLength());
-              clusterState=zkStateWriter.enqueueUpdate(clusterState,zkWriteCommand);
-              stats.success(operation);
-            }
- catch (            Exception e) {
-              log.error("Overseer could not process the current clusterstate state update message, skipping the message.",e);
-              stats.error(operation);
-            }
- finally {
-              timerContext.stop();
-            }
+            log.info("processMessage: queueSize: {}, message = {} current state version: {}",stateUpdateQueue.getStats().getQueueLength(),message,clusterState.getZkClusterStateVersion());
+            clusterState=processQueueItem(message,clusterState,zkStateWriter);
             workQueue.offer(head.getBytes());
             stateUpdateQueue.poll();
-            if (isClosed || System.nanoTime() - lastUpdatedTime > TimeUnit.NANOSECONDS.convert(STATE_UPDATE_DELAY,TimeUnit.MILLISECONDS))             break;
-            if (!updateNodes.isEmpty() && !collection.equals(lastCollectionName)) {
-              lastCollectionName=collection;
-              break;
-            }
-            lastCollectionName=collection;
+            if (isClosed)             break;
             head=stateUpdateQueue.peek(100);
           }
-          if (zkStateWriter.hasPendingUpdates()) {
-            clusterState=zkStateWriter.writePendingUpdates();
-            lastUpdatedTime=zkStateWriter.getLastUpdatedTime();
-          }
+          clusterState=zkStateWriter.writePendingUpdates();
           while (workQueue.poll() != null)           ;
         }
  catch (        KeeperException e) {

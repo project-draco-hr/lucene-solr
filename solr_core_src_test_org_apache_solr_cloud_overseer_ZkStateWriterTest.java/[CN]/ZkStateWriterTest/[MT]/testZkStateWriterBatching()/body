@@ -1,0 +1,54 @@
+{
+  String zkDir=createTempDir("testZkStateWriterBatching").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient zkClient=null;
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    zkClient=new SolrZkClient(server.getZkAddress(),OverseerTest.DEFAULT_CONNECTION_TIMEOUT);
+    zkClient.makePath(ZkStateReader.LIVE_NODES_ZKNODE,true);
+    ZkStateReader reader=new ZkStateReader(zkClient);
+    reader.createClusterStateWatchersAndUpdate();
+    ZkStateWriter writer=new ZkStateWriter(reader,new Overseer.Stats());
+    assertFalse("Deletes can always be batched",writer.maybeFlushBefore(new ZkWriteCommand("xyz",null)));
+    assertFalse("Deletes can always be batched",writer.maybeFlushAfter(new ZkWriteCommand("xyz",null)));
+    zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/c1",true);
+    zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/c2",true);
+    ZkWriteCommand c1=new ZkWriteCommand("c1",new DocCollection("c1",new HashMap<>(),new HashMap<>(),DocRouter.DEFAULT,0,ZkStateReader.COLLECTIONS_ZKNODE + "/c1"));
+    assertFalse("First requests can always be batched",writer.maybeFlushBefore(c1));
+    ClusterState clusterState=writer.enqueueUpdate(reader.getClusterState(),c1);
+    ZkWriteCommand c2=new ZkWriteCommand("c2",new DocCollection("c2",new HashMap<>(),new HashMap<>(),DocRouter.DEFAULT,0,ZkStateReader.COLLECTIONS_ZKNODE + "/c2"));
+    assertTrue("Different (new) collection create cannot be batched together with another create",writer.maybeFlushBefore(c2));
+    assertFalse(writer.maybeFlushBefore(c1));
+    assertFalse(writer.maybeFlushBefore(c1));
+    assertFalse(writer.maybeFlushBefore(c1));
+    assertFalse(writer.maybeFlushAfter(c1));
+    assertFalse(writer.maybeFlushAfter(c1));
+    assertFalse(writer.maybeFlushAfter(c1));
+    assertFalse(writer.maybeFlushBefore(c1));
+    assertFalse(writer.maybeFlushAfter(c1));
+    assertTrue(writer.maybeFlushBefore(c2));
+    assertFalse(writer.maybeFlushAfter(c2));
+    assertTrue(writer.maybeFlushBefore(c1));
+    assertFalse(writer.maybeFlushAfter(c1));
+    ZkWriteCommand c3=new ZkWriteCommand("c3",new DocCollection("c3",new HashMap<>(),new HashMap<>(),DocRouter.DEFAULT,0,ZkStateReader.CLUSTER_STATE));
+    clusterState=writer.enqueueUpdate(clusterState,c3);
+    for (int i=0; i < 3; i++) {
+      assertFalse(writer.maybeFlushBefore(c3));
+      assertFalse(writer.maybeFlushAfter(c3));
+    }
+    assertFalse(writer.maybeFlushBefore(c3));
+    assertFalse(writer.maybeFlushAfter(c3));
+    assertTrue("different stateFormat, should be flushed",writer.maybeFlushBefore(c1));
+    assertFalse(writer.maybeFlushAfter(c1));
+    assertTrue("different stateFormat, should be flushed",writer.maybeFlushBefore(c3));
+    assertFalse(writer.maybeFlushAfter(c3));
+    assertTrue("different stateFormat, should be flushed",writer.maybeFlushBefore(c2));
+    assertFalse(writer.maybeFlushAfter(c2));
+  }
+  finally {
+    IOUtils.close(zkClient);
+    server.shutdown();
+  }
+}
