@@ -1,0 +1,79 @@
+{
+  try {
+    String path=(String)req.getContext().get("path");
+switch (path) {
+case "/schema":
+      rsp.add(IndexSchema.SCHEMA,req.getSchema().getNamedPropertyValues());
+    break;
+case "/schema/version":
+  rsp.add(IndexSchema.VERSION,req.getSchema().getVersion());
+break;
+case "/schema/uniquekey":
+rsp.add(IndexSchema.UNIQUE_KEY,req.getSchema().getUniqueKeyField().getName());
+break;
+case "/schema/similarity":
+rsp.add(IndexSchema.SIMILARITY,req.getSchema().getSimilarityFactory().getNamedPropertyValues());
+break;
+case "/schema/name":
+{
+final String schemaName=req.getSchema().getSchemaName();
+if (null == schemaName) {
+String message="Schema has no name";
+throw new SolrException(SolrException.ErrorCode.NOT_FOUND,message);
+}
+rsp.add(IndexSchema.NAME,schemaName);
+break;
+}
+case "/schema/defaultsearchfield":
+{
+final String defaultSearchFieldName=req.getSchema().getDefaultSearchFieldName();
+if (null == defaultSearchFieldName) {
+final String message="undefined " + IndexSchema.DEFAULT_SEARCH_FIELD;
+throw new SolrException(SolrException.ErrorCode.NOT_FOUND,message);
+}
+rsp.add(IndexSchema.DEFAULT_SEARCH_FIELD,defaultSearchFieldName);
+break;
+}
+case "/schema/solrqueryparser":
+{
+SimpleOrderedMap<Object> props=new SimpleOrderedMap<>();
+props.add(IndexSchema.DEFAULT_OPERATOR,req.getSchema().getQueryParserDefaultOperator());
+rsp.add(IndexSchema.SOLR_QUERY_PARSER,props);
+break;
+}
+case "/schema/zkversion":
+{
+int refreshIfBelowVersion=-1;
+Object refreshParam=req.getParams().get("refreshIfBelowVersion");
+if (refreshParam != null) refreshIfBelowVersion=(refreshParam instanceof Number) ? ((Number)refreshParam).intValue() : Integer.parseInt(refreshParam.toString());
+int zkVersion=-1;
+IndexSchema schema=req.getSchema();
+if (schema instanceof ManagedIndexSchema) {
+ManagedIndexSchema managed=(ManagedIndexSchema)schema;
+zkVersion=managed.getSchemaZkVersion();
+if (refreshIfBelowVersion != -1 && zkVersion < refreshIfBelowVersion) {
+log.info("REFRESHING SCHEMA (refreshIfBelowVersion=" + refreshIfBelowVersion + ", currentVersion="+ zkVersion+ ") before returning version!");
+ZkSolrResourceLoader zkSolrResourceLoader=(ZkSolrResourceLoader)req.getCore().getResourceLoader();
+ZkIndexSchemaReader zkIndexSchemaReader=zkSolrResourceLoader.getZkIndexSchemaReader();
+managed=zkIndexSchemaReader.refreshSchemaFromZk(refreshIfBelowVersion);
+zkVersion=managed.getSchemaZkVersion();
+}
+}
+rsp.add("zkversion",zkVersion);
+break;
+}
+case "/schema/solrqueryparser/defaultoperator":
+{
+rsp.add(IndexSchema.DEFAULT_OPERATOR,req.getSchema().getQueryParserDefaultOperator());
+break;
+}
+default :
+{
+throw new SolrException(SolrException.ErrorCode.NOT_FOUND,"No such path " + path);
+}
+}
+}
+ catch (Exception e) {
+rsp.setException(e);
+}
+}

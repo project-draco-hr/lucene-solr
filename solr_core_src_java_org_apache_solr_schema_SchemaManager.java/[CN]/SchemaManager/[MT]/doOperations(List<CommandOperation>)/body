@@ -4,7 +4,7 @@
   long endTime=timeout > 0 ? System.nanoTime() + (timeout * 1000 * 1000) : Long.MAX_VALUE;
   SolrCore core=req.getCore();
   for (; System.nanoTime() < endTime; ) {
-    managedIndexSchema=(ManagedIndexSchema)core.getLatestSchema();
+    managedIndexSchema=getFreshManagedSchema();
     for (    CommandOperation op : operations) {
       if (ADD_FIELD.equals(op.name) || ADD_DYNAMIC_FIELD.equals(op.name)) {
         applyAddField(op);
@@ -21,21 +21,47 @@
     }
     List errs=CommandOperation.captureErrors(operations);
     if (!errs.isEmpty())     return errs;
-    try {
-      managedIndexSchema.persistManagedSchema(false);
-      core.setLatestSchema(managedIndexSchema);
-      waitForOtherReplicasToUpdate(timeout,startTime);
-      return EMPTY_LIST;
+    SolrResourceLoader loader=req.getCore().getResourceLoader();
+    if (loader instanceof ZkSolrResourceLoader) {
+      StringWriter sw=new StringWriter();
+      try {
+        managedIndexSchema.persist(sw);
+      }
+ catch (      IOException e) {
+        log.info("race condition ");
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"unable to serialize schema");
+      }
+      try {
+        ZkController.persistConfigResourceToZooKeeper(loader,managedIndexSchema.getSchemaZkVersion(),managedIndexSchema.getResourceName(),sw.toString().getBytes(StandardCharsets.UTF_8),true);
+        return EMPTY_LIST;
+      }
+ catch (      ZkController.ResourceModifiedInZkException e) {
+        log.info("Race condition schema modified by another node");
+        continue;
+      }
+catch (      Exception e) {
+        String s="Exception persisting schema";
+        log.warn(s,e);
+        return singletonList(s + e.getMessage());
+      }
     }
- catch (    ManagedIndexSchema.SchemaChangedInZkException e) {
-      String s="Failed to update schema because schema is modified";
-      log.warn(s,e);
-      continue;
-    }
-catch (    Exception e) {
-      String s="Exception persisting schema";
-      log.warn(s,e);
-      return singletonList(s + e.getMessage());
+ else {
+      try {
+        managedIndexSchema.persistManagedSchema(false);
+        core.setLatestSchema(managedIndexSchema);
+        waitForOtherReplicasToUpdate(timeout,startTime);
+        return EMPTY_LIST;
+      }
+ catch (      ManagedIndexSchema.SchemaChangedInZkException e) {
+        String s="Failed to update schema because schema is modified";
+        log.warn(s,e);
+        continue;
+      }
+catch (      Exception e) {
+        String s="Exception persisting schema";
+        log.warn(s,e);
+        return singletonList(s + e.getMessage());
+      }
     }
   }
   return singletonList("Unable to persist schema");
