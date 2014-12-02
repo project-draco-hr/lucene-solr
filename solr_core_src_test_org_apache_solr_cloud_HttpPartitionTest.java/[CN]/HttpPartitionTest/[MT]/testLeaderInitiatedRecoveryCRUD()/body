@@ -1,0 +1,37 @@
+{
+  String testCollectionName="c8n_crud_1x2";
+  String shardId="shard1";
+  createCollection(testCollectionName,1,2,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,shardId);
+  JettySolrRunner leaderJetty=getJettyOnPort(getReplicaPort(leader));
+  CoreContainer cores=((SolrDispatchFilter)leaderJetty.getDispatchFilter().getFilter()).getCores();
+  ZkController zkController=cores.getZkController();
+  assertNotNull("ZkController is null",zkController);
+  Replica notLeader=ensureAllReplicasAreActive(testCollectionName,shardId,1,2,maxWaitSecsToSeeAllActive).get(0);
+  ZkCoreNodeProps replicaCoreNodeProps=new ZkCoreNodeProps(notLeader);
+  String replicaUrl=replicaCoreNodeProps.getCoreUrl();
+  assertTrue(!zkController.isReplicaInRecoveryHandling(replicaUrl));
+  assertTrue(zkController.ensureReplicaInLeaderInitiatedRecovery(testCollectionName,shardId,replicaUrl,replicaCoreNodeProps,false));
+  assertTrue(zkController.isReplicaInRecoveryHandling(replicaUrl));
+  Map<String,Object> lirStateMap=zkController.getLeaderInitiatedRecoveryStateObject(testCollectionName,shardId,notLeader.getName());
+  assertNotNull(lirStateMap);
+  assertEquals(ZkStateReader.DOWN,lirStateMap.get("state"));
+  zkController.removeReplicaFromLeaderInitiatedRecoveryHandling(replicaUrl);
+  assertTrue(!zkController.isReplicaInRecoveryHandling(replicaUrl));
+  SolrZkClient zkClient=zkController.getZkClient();
+  String znodePath=zkController.getLeaderInitiatedRecoveryZnodePath(testCollectionName,shardId,notLeader.getName());
+  zkClient.setData(znodePath,"down".getBytes(StandardCharsets.UTF_8),true);
+  lirStateMap=zkController.getLeaderInitiatedRecoveryStateObject(testCollectionName,shardId,notLeader.getName());
+  assertNotNull(lirStateMap);
+  assertEquals(ZkStateReader.DOWN,lirStateMap.get("state"));
+  zkClient.delete(znodePath,-1,false);
+  try {
+    CollectionAdminRequest req=new CollectionAdminRequest.Delete();
+    req.setCollectionName(testCollectionName);
+    req.process(cloudClient);
+  }
+ catch (  Exception e) {
+    log.warn("Could not delete collection {} after test completed",testCollectionName);
+  }
+}
