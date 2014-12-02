@@ -25,35 +25,18 @@
   sreq.params.set(ResponseBuilder.FIELD_SORT_VALUES,"true");
   boolean shardQueryIncludeScore=(rb.getFieldFlags() & SolrIndexSearcher.GET_SCORES) != 0 || rb.getSortSpec().includesScore();
   if (distribSinglePass) {
-    String fl=rb.req.getParams().get(CommonParams.FL);
-    if (fl == null) {
-      if (fields.getRequestedFieldNames() == null && fields.wantsAllFields()) {
-        fl="*";
-      }
- else {
-        fl="";
-        for (        String s : fields.getRequestedFieldNames()) {
-          fl+=s + ",";
-        }
-      }
-    }
-    if (!fields.wantsField(keyFieldName)) {
-      if (fl.endsWith(",")) {
-        fl+=keyFieldName;
-      }
- else {
-        fl+="," + keyFieldName;
-      }
-    }
-    sreq.params.set(CommonParams.FL,updateFl(fl,shardQueryIncludeScore));
-  }
- else {
-    if (shardQueryIncludeScore) {
-      sreq.params.set(CommonParams.FL,keyFieldName + ",score");
+    String[] fls=rb.req.getParams().getParams(CommonParams.FL);
+    if (fls != null && fls.length > 0 && (fls.length != 1 || !fls[0].isEmpty())) {
+      sreq.params.set(CommonParams.FL,fls);
     }
  else {
-      sreq.params.set(CommonParams.FL,keyFieldName);
+      sreq.params.set(CommonParams.FL,"*");
     }
   }
+  StringBuilder additionalFL=new StringBuilder();
+  boolean additionalAdded=false;
+  if (!distribSinglePass || !fields.wantsField(keyFieldName))   additionalAdded=addFL(additionalFL,keyFieldName,additionalAdded);
+  if ((!distribSinglePass || !fields.wantsScore()) && shardQueryIncludeScore)   additionalAdded=addFL(additionalFL,"score",additionalAdded);
+  if (additionalAdded)   sreq.params.add(CommonParams.FL,additionalFL.toString());
   rb.addRequest(this,sreq);
 }
