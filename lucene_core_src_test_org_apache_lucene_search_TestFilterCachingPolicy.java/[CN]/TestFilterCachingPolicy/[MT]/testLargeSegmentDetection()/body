@@ -1,0 +1,22 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  final int numDocs=atLeast(100);
+  for (int i=0; i < numDocs; ++i) {
+    w.addDocument(new Document());
+  }
+  final IndexReader reader=w.getReader();
+  for (  float minSizeRatio : new float[]{Float.MIN_VALUE,0.01f,0.1f,0.9f}) {
+    final FilterCachingPolicy policy=new FilterCachingPolicy.CacheOnLargeSegments(minSizeRatio);
+    for (    LeafReaderContext ctx : reader.leaves()) {
+      final Filter filter=new QueryWrapperFilter(new TermQuery(new Term("field","value")));
+      final DocIdSet set=null;
+      final boolean shouldCache=policy.shouldCache(filter,ctx,set);
+      final float sizeRatio=(float)ctx.reader().maxDoc() / reader.maxDoc();
+      assertEquals(sizeRatio >= minSizeRatio,shouldCache);
+    }
+  }
+  reader.close();
+  w.close();
+  dir.close();
+}
