@@ -23,9 +23,15 @@
  else {
     countryEntity=true;
     sportsEntity=true;
-    if (numChildren == 1) {
-      countryEntity=random().nextBoolean();
-      sportsEntity=!countryEntity;
+    if (countryZipper || sportsZipper) {
+      countryEntity=countryZipper;
+      sportsEntity=sportsZipper;
+    }
+ else {
+      if (numChildren == 1) {
+        countryEntity=random().nextBoolean();
+        sportsEntity=!countryEntity;
+      }
     }
     if (countryEntity) {
       countryTransformer=random().nextBoolean();
@@ -54,16 +60,23 @@
     assertQ("There should be 1 document with a transformer-added column per person is the database: " + totalPeople(),req("AddAColumn_s:Added"),"//*[@numFound='" + (totalPeople()) + "']");
   }
   if (countryEntity) {
-    if (personNameExists("Jayden")) {
-      String nrName=countryNameByCode("NP");
-      if (nrName != null && nrName.length() > 0) {
-        assertQ(req("NAME_mult_s:Jayden"),"//*[@numFound='1']","//doc/str[@name='COUNTRY_NAME_s']='" + nrName + "'");
-      }
+{
+      String[] people=getStringsFromQuery("SELECT NAME FROM PEOPLE WHERE DELETED != 'Y'");
+      String man=people[random().nextInt(people.length)];
+      String[] countryNames=getStringsFromQuery("SELECT C.COUNTRY_NAME FROM PEOPLE P " + "INNER JOIN COUNTRIES C ON P.COUNTRY_CODE=C.CODE " + "WHERE P.DELETED!='Y' AND C.DELETED!='Y' AND P.NAME='" + man + "'");
+      assertQ(req("{!term f=NAME_mult_s}" + man),"//*[@numFound='1']",countryNames.length > 0 ? "//doc/str[@name='COUNTRY_NAME_s']='" + countryNames[random().nextInt(countryNames.length)] + "'" : "//doc[count(*[@name='COUNTRY_NAME_s'])=0]");
     }
-    String nrName=countryNameByCode("NR");
-    int num=numberPeopleByCountryCode("NR");
-    if (nrName != null && num > 0) {
-      assertQ(req("COUNTRY_CODES_mult_s:NR"),"//*[@numFound='" + num + "']","//doc/str[@name='COUNTRY_NAME_s']='" + nrName + "'");
+{
+      String[] countryCodes=getStringsFromQuery("SELECT CODE FROM COUNTRIES WHERE DELETED != 'Y'");
+      String theCode=countryCodes[random().nextInt(countryCodes.length)];
+      int num=numberPeopleByCountryCode(theCode);
+      if (num > 0) {
+        String nrName=countryNameByCode(theCode);
+        assertQ(req("COUNTRY_CODES_mult_s:" + theCode),"//*[@numFound='" + num + "']","//doc/str[@name='COUNTRY_NAME_s']='" + nrName + "'");
+      }
+ else {
+        assertQ(req("COUNTRY_CODES_mult_s:" + theCode),"//*[@numFound='" + num + "']");
+      }
     }
     if (countryTransformer && !underlyingDataModified) {
       assertQ(req("countryAdded_s:country_added"),"//*[@numFound='" + totalPeople() + "']");
@@ -73,21 +86,22 @@
     if (!underlyingDataModified) {
       assertQ(req("SPORT_NAME_mult_s:Sailing"),"//*[@numFound='2']");
     }
-    String michaelsName=personNameById(3);
-    String[] michaelsSports=sportNamesByPersonId(3);
-    if (michaelsName != null && michaelsSports.length > 0) {
-      String[] xpath=new String[michaelsSports.length + 1];
-      xpath[0]="//*[@numFound='1']";
-      int i=1;
-      for (      String ms : michaelsSports) {
-        xpath[i]="//doc/arr[@name='SPORT_NAME_mult_s']/str[" + i + "]='"+ ms+ "'";
-        i++;
-      }
-      assertQ(req("NAME_mult_s:" + michaelsName.replaceAll("\\W","\\\\$0")),xpath);
+    String[] names=getStringsFromQuery("SELECT NAME FROM PEOPLE WHERE DELETED != 'Y'");
+    String name=names[random().nextInt(names.length)];
+    int personId=getIntFromQuery("SELECT ID FROM PEOPLE WHERE DELETED != 'Y' AND NAME='" + name + "'");
+    String[] michaelsSports=sportNamesByPersonId(personId);
+    String[] xpath=new String[michaelsSports.length + 1];
+    xpath[0]="//*[@numFound='1']";
+    int i=1;
+    for (    String ms : michaelsSports) {
+      xpath[i]="//doc/arr[@name='SPORT_NAME_mult_s']/str='" + ms + "'";
+      i++;
     }
+    assertQ(req("NAME_mult_s:" + name.replaceAll("\\W","\\\\$0")),xpath);
     if (!underlyingDataModified && sportsTransformer) {
-      assertQ(req("sportsAdded_s:sport_added"),"//*[@numFound='" + (totalPeople()) + "']");
+      assertQ(req("sportsAdded_s:sport_added"),"//*[@numFound='" + (totalSportsmen()) + "']");
     }
+    assertQ("checking orphan sport is absent",req("{!term f=SPORT_NAME_mult_s}No Fishing"),"//*[@numFound='0']");
   }
   if (checkDatabaseRequests) {
     Assert.assertTrue("Expecting " + numDatabaseRequests + " database calls, but DIH reported "+ totalDatabaseRequests(),totalDatabaseRequests() == numDatabaseRequests);
