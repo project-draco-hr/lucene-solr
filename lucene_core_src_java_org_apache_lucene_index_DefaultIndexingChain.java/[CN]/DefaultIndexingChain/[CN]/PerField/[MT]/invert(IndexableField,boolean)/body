@@ -10,7 +10,6 @@
   }
   final boolean analyzed=fieldType.tokenized() && docState.analyzer != null;
   final boolean checkOffsets=indexOptions == IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS;
-  boolean aborting=false;
   boolean succeededInProcessingField=false;
   try (TokenStream stream=tokenStream=field.tokenStream(docState.analyzer,tokenStream)){
     stream.reset();
@@ -41,30 +40,29 @@
       if (invertState.length < 0) {
         throw new IllegalArgumentException("too many tokens in field '" + field.name() + "'");
       }
-      aborting=true;
-      termsHashPerField.add();
-      aborting=false;
+      try {
+        termsHashPerField.add();
+      }
+ catch (      MaxBytesLengthExceededException e) {
+        byte[] prefix=new byte[30];
+        BytesRef bigTerm=invertState.termAttribute.getBytesRef();
+        System.arraycopy(bigTerm.bytes,bigTerm.offset,prefix,0,30);
+        String msg="Document contains at least one immense term in field=\"" + fieldInfo.name + "\" (whose UTF8 encoding is longer than the max length "+ DocumentsWriterPerThread.MAX_TERM_LENGTH_UTF8+ "), all of which were skipped.  Please correct the analyzer to not produce such terms.  The prefix of the first immense term is: '"+ Arrays.toString(prefix)+ "...', original message: "+ e.getMessage();
+        if (docState.infoStream.isEnabled("IW")) {
+          docState.infoStream.message("IW","ERROR: " + msg);
+        }
+        throw new IllegalArgumentException(msg,e);
+      }
+catch (      Throwable th) {
+        throw new AbortingException(th);
+      }
     }
     stream.end();
     invertState.position+=invertState.posIncrAttribute.getPositionIncrement();
     invertState.offset+=invertState.offsetAttribute.endOffset();
     succeededInProcessingField=true;
   }
- catch (  MaxBytesLengthExceededException e) {
-    aborting=false;
-    byte[] prefix=new byte[30];
-    BytesRef bigTerm=invertState.termAttribute.getBytesRef();
-    System.arraycopy(bigTerm.bytes,bigTerm.offset,prefix,0,30);
-    String msg="Document contains at least one immense term in field=\"" + fieldInfo.name + "\" (whose UTF8 encoding is longer than the max length "+ DocumentsWriterPerThread.MAX_TERM_LENGTH_UTF8+ "), all of which were skipped.  Please correct the analyzer to not produce such terms.  The prefix of the first immense term is: '"+ Arrays.toString(prefix)+ "...', original message: "+ e.getMessage();
-    if (docState.infoStream.isEnabled("IW")) {
-      docState.infoStream.message("IW","ERROR: " + msg);
-    }
-    throw new IllegalArgumentException(msg,e);
-  }
- finally {
-    if (succeededInProcessingField == false && aborting) {
-      docState.docWriter.setAborting();
-    }
+  finally {
     if (!succeededInProcessingField && docState.infoStream.isEnabled("DW")) {
       docState.infoStream.message("DW","An exception was thrown while processing field " + fieldInfo.name);
     }
