@@ -1,0 +1,22 @@
+{
+  final String text="random words and words";
+  Analyzer analyzer=new MockPayloadAnalyzer();
+  try (IndexWriter writer=new IndexWriter(dir,new IndexWriterConfig(analyzer))){
+    writer.deleteAll();
+    Document doc=new Document();
+    doc.add(new Field(FIELD_NAME,text,FIELD_TYPE_TV));
+    writer.addDocument(doc);
+    writer.commit();
+  }
+   try (IndexReader reader=DirectoryReader.open(dir)){
+    Query query=new SpanPayloadCheckQuery(new SpanTermQuery(new Term(FIELD_NAME,"words")),Collections.singleton("pos: 1".getBytes("UTF-8")));
+    IndexSearcher searcher=newSearcher(reader);
+    Scorer scorer=new QueryScorer(query,searcher.getIndexReader(),FIELD_NAME);
+    Highlighter h=new Highlighter(scorer);
+    TopDocs hits=searcher.search(query,null,10);
+    assertEquals(1,hits.scoreDocs.length);
+    TokenStream stream=TokenSources.getAnyTokenStream(searcher.getIndexReader(),0,FIELD_NAME,analyzer);
+    String result=h.getBestFragment(stream,text);
+    assertEquals("random <B>words</B> and words",result);
+  }
+ }
