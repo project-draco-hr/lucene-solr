@@ -1,0 +1,51 @@
+{
+  Directory dir=newMockDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setMaxBufferedDocs(2);
+  LogDocMergePolicy mp=new LogDocMergePolicy();
+  iwc.setMergePolicy(mp);
+  mp.setMergeFactor(2);
+  final CountDownLatch mergeStart=new CountDownLatch(1);
+  final CountDownLatch mergeFinish=new CountDownLatch(1);
+  ConcurrentMergeScheduler cms=new ConcurrentMergeScheduler(){
+    @Override protected void doMerge(    MergePolicy.OneMerge merge) throws IOException {
+      mergeStart.countDown();
+      try {
+        mergeFinish.await();
+      }
+ catch (      InterruptedException ie) {
+        throw new RuntimeException(ie);
+      }
+      super.doMerge(merge);
+    }
+  }
+;
+  cms.setMaxMergesAndThreads(1,1);
+  iwc.setMergeScheduler(cms);
+  final IndexWriter w=new IndexWriter(dir,iwc);
+  w.addDocument(new Document());
+  w.addDocument(new Document());
+  w.addDocument(new Document());
+  w.addDocument(new Document());
+  mergeStart.await();
+  new Thread(){
+    @Override public void run(){
+      try {
+        w.addDocument(new Document());
+        w.addDocument(new Document());
+        w.addDocument(new Document());
+        w.addDocument(new Document());
+        mergeFinish.countDown();
+      }
+ catch (      Exception e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+.start();
+  while (w.numDocs() != 8) {
+    Thread.sleep(10);
+  }
+  w.rollback();
+  dir.close();
+}
