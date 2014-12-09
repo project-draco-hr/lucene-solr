@@ -1,0 +1,94 @@
+{
+  String httpMethod=(String)req.getContext().get("httpMethod");
+  String path=(String)req.getContext().get("path");
+  SolrConfigHandler.setWt(req,"json");
+  List<String> pieces=StrUtils.splitSmart(path,'/');
+  String blobName=null;
+  if (pieces.size() >= 3)   blobName=pieces.get(2);
+  if ("POST".equals(httpMethod)) {
+    if (blobName == null || blobName.isEmpty()) {
+      rsp.add("error","Name not found");
+      return;
+    }
+    if (req.getContentStreams() == null) {
+      rsp.add("error","No stream");
+      return;
+    }
+    for (    ContentStream stream : req.getContentStreams()) {
+      ByteBuffer payload=SimplePostTool.inputStreamToByteArray(stream.getStream(),maxSize);
+      MessageDigest m=MessageDigest.getInstance("MD5");
+      m.update(payload.array(),payload.position(),payload.limit());
+      String md5=new BigInteger(1,m.digest()).toString(16);
+      TopDocs duplicate=req.getSearcher().search(new TermQuery(new Term("id",md5)),1);
+      if (duplicate.totalHits > 0) {
+        rsp.add("error","duplicate entry");
+        SolrParams solrParams=new MapSolrParams((Map)ZkNodeProps.makeMap("q","id:" + md5,"fl","id,size,version,timestamp,blobName"));
+        try (LocalSolrQueryRequest r=new LocalSolrQueryRequest(req.getCore(),solrParams)){
+          req.getCore().getRequestHandler(null).handleRequest(r,rsp);
+        }
+         return;
+      }
+      TopFieldDocs docs=req.getSearcher().search(new TermQuery(new Term("blobName",blobName)),null,1,new Sort(new SortField("version",SortField.Type.LONG,true)));
+      long version=0;
+      if (docs.totalHits > 0) {
+        StoredDocument doc=req.getSearcher().doc(docs.scoreDocs[0].doc);
+        Number n=doc.getField("version").numericValue();
+        version=n.longValue();
+      }
+      indexMap(req,makeMap("id",md5,"blobName",blobName,"version",++version,"timestamp",new Date(),"size",payload.limit(),"blob",payload));
+      break;
+    }
+  }
+ else {
+    int version=-1;
+    if (pieces.size() > 3) {
+      try {
+        version=Integer.parseInt(pieces.get(3));
+      }
+ catch (      NumberFormatException e) {
+        rsp.add("error","Invalid version" + pieces.get(3));
+        return;
+      }
+    }
+    if (ReplicationHandler.FILE_STREAM.equals(req.getParams().get(CommonParams.WT))) {
+      if (blobName == null) {
+        throw new SolrException(SolrException.ErrorCode.NOT_FOUND,"Please send the request in the format /blob/<blobName>/<version>");
+      }
+ else {
+        String q="blobName:{0}";
+        if (version != -1)         q+=" AND version:{1}";
+        QParser qparser=QParser.getParser(MessageFormat.format(q,blobName,version),"lucene",req);
+        final TopDocs docs=req.getSearcher().search(qparser.parse(),1,new Sort(new SortField("version",SortField.Type.LONG,true)));
+        if (docs.totalHits > 0) {
+          rsp.add(ReplicationHandler.FILE_STREAM,new SolrCore.RawWriter(){
+            @Override public void write(            OutputStream os) throws IOException {
+              StoredDocument doc=req.getSearcher().doc(docs.scoreDocs[0].doc);
+              StorableField sf=doc.getField("blob");
+              FieldType fieldType=req.getSchema().getField("blob").getType();
+              ByteBuffer buf=(ByteBuffer)fieldType.toObject(sf);
+              if (buf == null) {
+                throw new SolrException(SolrException.ErrorCode.NOT_FOUND,"Invalid document . No field called blob");
+              }
+ else {
+                os.write(buf.array(),0,buf.limit());
+              }
+            }
+          }
+);
+        }
+ else {
+          throw new SolrException(SolrException.ErrorCode.NOT_FOUND,MessageFormat.format("Invalid combination of blobName {0} and version {1}",blobName,version));
+        }
+      }
+    }
+ else {
+      String q="*:*";
+      if (blobName != null)       q="blobName" + ":" + blobName;
+      if (version > -1)       q+=" AND version:" + version;
+      SolrParams args=new MapSolrParams((Map)ZkNodeProps.makeMap("q",q,"fl","id,size,version,timestamp,blobName","sort","version desc"));
+      try (LocalSolrQueryRequest r=new LocalSolrQueryRequest(req.getCore(),args)){
+        req.getCore().getRequestHandler(null).handleRequest(r,rsp);
+      }
+     }
+  }
+}
