@@ -1,0 +1,36 @@
+{
+  String collectionName="solrj_test_core_props";
+  SolrServer server=createNewSolrServer("",getBaseUrl((HttpSolrServer)clients.get(0)));
+  File tmpDir=createTempDir("testPropertyParamsForCreate").toFile();
+  File instanceDir=new File(tmpDir,"instanceDir-" + TestUtil.randomSimpleString(random(),1,5));
+  File dataDir=new File(tmpDir,"dataDir-" + TestUtil.randomSimpleString(random(),1,5));
+  File ulogDir=new File(tmpDir,"ulogDir-" + TestUtil.randomSimpleString(random(),1,5));
+  Properties properties=new Properties();
+  properties.put(CoreAdminParams.INSTANCE_DIR,instanceDir.getAbsolutePath());
+  properties.put(CoreAdminParams.DATA_DIR,dataDir.getAbsolutePath());
+  properties.put(CoreAdminParams.ULOG_DIR,ulogDir.getAbsolutePath());
+  CollectionAdminRequest.Create createReq=new CollectionAdminRequest.Create();
+  createReq.setCollectionName(collectionName);
+  createReq.setNumShards(1);
+  createReq.setConfigName("conf1");
+  createReq.setProperties(properties);
+  CollectionAdminResponse response=createReq.process(server);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  Map<String,NamedList<Integer>> coresStatus=response.getCollectionCoresStatus();
+  assertEquals(1,coresStatus.size());
+  DocCollection testcoll=getCommonCloudSolrServer().getZkStateReader().getClusterState().getCollection(collectionName);
+  Replica replica1=testcoll.getReplica("core_node1");
+  HttpSolrServer replica1Server=new HttpSolrServer(replica1.getStr("base_url"));
+  try {
+    CoreAdminResponse status=CoreAdminRequest.getStatus(replica1.getStr("core"),replica1Server);
+    NamedList<Object> coreStatus=status.getCoreStatus(replica1.getStr("core"));
+    String dataDirStr=(String)coreStatus.get("dataDir");
+    String instanceDirStr=(String)coreStatus.get("instanceDir");
+    assertEquals("Instance dir does not match param passed in property.instanceDir syntax",new File(instanceDirStr).getAbsolutePath(),instanceDir.getAbsolutePath());
+    assertEquals("Data dir does not match param given in property.dataDir syntax",new File(dataDirStr).getAbsolutePath(),dataDir.getAbsolutePath());
+  }
+  finally {
+    replica1Server.shutdown();
+  }
+}
