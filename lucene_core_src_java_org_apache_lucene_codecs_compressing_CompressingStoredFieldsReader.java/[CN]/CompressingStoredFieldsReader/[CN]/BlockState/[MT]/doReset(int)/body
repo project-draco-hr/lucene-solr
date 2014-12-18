@@ -1,0 +1,77 @@
+{
+  docBase=fieldsStream.readVInt();
+  final int token=fieldsStream.readVInt();
+  chunkDocs=token >>> 1;
+  if (contains(docID) == false || docBase + chunkDocs > numDocs) {
+    throw new CorruptIndexException("Corrupted: docID=" + docID + ", docBase="+ docBase+ ", chunkDocs="+ chunkDocs+ ", numDocs="+ numDocs,fieldsStream);
+  }
+  sliced=(token & 1) != 0;
+  offsets=ArrayUtil.grow(offsets,chunkDocs + 1);
+  numStoredFields=ArrayUtil.grow(numStoredFields,chunkDocs);
+  if (chunkDocs == 1) {
+    numStoredFields[0]=fieldsStream.readVInt();
+    offsets[1]=fieldsStream.readVInt();
+  }
+ else {
+    final int bitsPerStoredFields=fieldsStream.readVInt();
+    if (bitsPerStoredFields == 0) {
+      Arrays.fill(numStoredFields,0,chunkDocs,fieldsStream.readVInt());
+    }
+ else     if (bitsPerStoredFields > 31) {
+      throw new CorruptIndexException("bitsPerStoredFields=" + bitsPerStoredFields,fieldsStream);
+    }
+ else {
+      final PackedInts.ReaderIterator it=PackedInts.getReaderIteratorNoHeader(fieldsStream,PackedInts.Format.PACKED,packedIntsVersion,chunkDocs,bitsPerStoredFields,1);
+      for (int i=0; i < chunkDocs; ++i) {
+        numStoredFields[i]=(int)it.next();
+      }
+    }
+    final int bitsPerLength=fieldsStream.readVInt();
+    if (bitsPerLength == 0) {
+      final int length=fieldsStream.readVInt();
+      for (int i=0; i < chunkDocs; ++i) {
+        offsets[1 + i]=(1 + i) * length;
+      }
+    }
+ else     if (bitsPerStoredFields > 31) {
+      throw new CorruptIndexException("bitsPerLength=" + bitsPerLength,fieldsStream);
+    }
+ else {
+      final PackedInts.ReaderIterator it=PackedInts.getReaderIteratorNoHeader(fieldsStream,PackedInts.Format.PACKED,packedIntsVersion,chunkDocs,bitsPerLength,1);
+      for (int i=0; i < chunkDocs; ++i) {
+        offsets[i + 1]=(int)it.next();
+      }
+      for (int i=0; i < chunkDocs; ++i) {
+        offsets[i + 1]+=offsets[i];
+      }
+    }
+    for (int i=0; i < chunkDocs; ++i) {
+      final int len=offsets[i + 1] - offsets[i];
+      final int storedFields=numStoredFields[i];
+      if ((len == 0) != (storedFields == 0)) {
+        throw new CorruptIndexException("length=" + len + ", numStoredFields="+ storedFields,fieldsStream);
+      }
+    }
+  }
+  startPointer=fieldsStream.getFilePointer();
+  if (merging) {
+    final int totalLength=offsets[chunkDocs];
+    if (sliced) {
+      bytes.offset=bytes.length=0;
+      for (int decompressed=0; decompressed < totalLength; ) {
+        final int toDecompress=Math.min(totalLength - decompressed,chunkSize);
+        decompressor.decompress(fieldsStream,toDecompress,0,toDecompress,spare);
+        bytes.bytes=ArrayUtil.grow(bytes.bytes,bytes.length + spare.length);
+        System.arraycopy(spare.bytes,spare.offset,bytes.bytes,bytes.length,spare.length);
+        bytes.length+=spare.length;
+        decompressed+=toDecompress;
+      }
+    }
+ else {
+      decompressor.decompress(fieldsStream,totalLength,0,totalLength,bytes);
+    }
+    if (bytes.length != totalLength) {
+      throw new CorruptIndexException("Corrupted: expected chunk size = " + totalLength + ", got "+ bytes.length,fieldsStream);
+    }
+  }
+}
