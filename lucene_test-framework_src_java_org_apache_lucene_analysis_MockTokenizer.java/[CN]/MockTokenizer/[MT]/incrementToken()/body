@@ -1,2 +1,64 @@
 {
+  if (streamState != State.RESET && streamState != State.INCREMENT) {
+    fail("incrementToken() called while in wrong state: " + streamState);
+  }
+  clearAttributes();
+  for (; ; ) {
+    int startOffset;
+    int cp;
+    if (bufferedCodePoint >= 0) {
+      cp=bufferedCodePoint;
+      startOffset=bufferedOff;
+      bufferedCodePoint=-1;
+    }
+ else {
+      startOffset=off;
+      cp=readCodePoint();
+    }
+    if (cp < 0) {
+      break;
+    }
+ else     if (isTokenChar(cp)) {
+      int endOffset;
+      do {
+        char chars[]=Character.toChars(normalize(cp));
+        for (int i=0; i < chars.length; i++)         termAtt.append(chars[i]);
+        endOffset=off;
+        if (termAtt.length() >= maxTokenLength) {
+          break;
+        }
+        cp=readCodePoint();
+      }
+ while (cp >= 0 && isTokenChar(cp));
+      if (termAtt.length() < maxTokenLength) {
+        bufferedCodePoint=cp;
+        bufferedOff=endOffset;
+      }
+ else {
+        bufferedCodePoint=-1;
+      }
+      int correctedStartOffset=correctOffset(startOffset);
+      int correctedEndOffset=correctOffset(endOffset);
+      if (correctedStartOffset < 0) {
+        failAlways("invalid start offset: " + correctedStartOffset + ", before correction: "+ startOffset);
+      }
+      if (correctedEndOffset < 0) {
+        failAlways("invalid end offset: " + correctedEndOffset + ", before correction: "+ endOffset);
+      }
+      if (correctedStartOffset < lastOffset) {
+        failAlways("start offset went backwards: " + correctedStartOffset + ", before correction: "+ startOffset+ ", lastOffset: "+ lastOffset);
+      }
+      lastOffset=correctedStartOffset;
+      if (correctedEndOffset < correctedStartOffset) {
+        failAlways("end offset: " + correctedEndOffset + " is before start offset: "+ correctedStartOffset);
+      }
+      offsetAtt.setOffset(correctedStartOffset,correctedEndOffset);
+      if (state == -1 || runAutomaton.isAccept(state)) {
+        streamState=State.INCREMENT;
+        return true;
+      }
+    }
+  }
+  streamState=State.INCREMENT_FALSE;
+  return false;
 }
