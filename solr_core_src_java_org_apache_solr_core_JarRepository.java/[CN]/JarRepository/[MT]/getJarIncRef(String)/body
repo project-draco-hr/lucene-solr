@@ -1,0 +1,38 @@
+{
+  JarContent jar=jars.get(key);
+  if (jar == null) {
+    if (this.coreContainer.isZooKeeperAware()) {
+      ClusterState cs=this.coreContainer.getZkController().getZkStateReader().getClusterState();
+      DocCollection coll=cs.getCollectionOrNull(CollectionsHandler.SYSTEM_COLL);
+      if (coll == null)       throw new SolrException(SERVICE_UNAVAILABLE,".system collection not available");
+      Slice slice=coll.getActiveSlices().iterator().next();
+      if (slice == null)       throw new SolrException(SERVICE_UNAVAILABLE,".no active slices for .system collection");
+      Replica replica=slice.getReplicas().iterator().next();
+      if (replica == null)       throw new SolrException(SERVICE_UNAVAILABLE,".no active replica available for .system collection");
+      String url=replica.getStr(BASE_URL_PROP) + "/.system/blob/" + key+ "?wt=filestream";
+      HttpClient httpClient=coreContainer.getUpdateShardHandler().getHttpClient();
+      HttpGet httpGet=new HttpGet(url);
+      ByteBuffer b;
+      try {
+        HttpResponse entity=httpClient.execute(httpGet);
+        int statusCode=entity.getStatusLine().getStatusCode();
+        if (statusCode != 200) {
+          throw new SolrException(SolrException.ErrorCode.NOT_FOUND,"no such blob or version available: " + key);
+        }
+        b=SimplePostTool.inputStreamToByteArray(entity.getEntity().getContent());
+      }
+  finally {
+        httpGet.releaseConnection();
+      }
+      jars.put(key,jar=new JarContent(key,b));
+    }
+ else {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Jar loading is not supported in non-cloud mode");
+    }
+  }
+  JarContentRef ref=new JarContentRef(jar);
+synchronized (jar.references) {
+    jar.references.add(ref);
+  }
+  return ref;
+}

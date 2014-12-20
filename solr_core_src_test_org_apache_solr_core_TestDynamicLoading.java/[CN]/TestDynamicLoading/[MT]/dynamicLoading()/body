@@ -1,0 +1,20 @@
+{
+  String payload="{\n" + "'create-requesthandler' : { 'name' : '/test1', 'class': 'org.apache.solr.core.BlobStoreTestRequestHandler' , 'lib':'test','version':'1'}\n" + "}";
+  RestTestHarness client=restTestHarnesses.get(random().nextInt(restTestHarnesses.size()));
+  TestSolrConfigHandler.runConfigCommand(client,"/config?wt=json",payload);
+  TestSolrConfigHandler.testForResponseElement(client,null,"/config/overlay?wt=json",null,Arrays.asList("overlay","requestHandler","/test1","lib"),"test",10);
+  Map map=TestSolrConfigHandler.getRespMap("/test1?wt=json",client);
+  assertNotNull(map=(Map)map.get("error"));
+  assertEquals(".system collection not available",map.get("msg"));
+  HttpSolrServer server=(HttpSolrServer)clients.get(random().nextInt(clients.size()));
+  String baseURL=server.getBaseURL();
+  baseURL=baseURL.substring(0,baseURL.lastIndexOf('/'));
+  TestBlobHandler.createSysColl(new HttpSolrServer(baseURL,server.getHttpClient()));
+  map=TestSolrConfigHandler.getRespMap("/test1?wt=json",client);
+  assertNotNull(map=(Map)map.get("error"));
+  assertEquals("no such blob or version available: test/1",map.get("msg"));
+  ByteBuffer jar=generateZip(TestDynamicLoading.class,BlobStoreTestRequestHandler.class);
+  TestBlobHandler.postAndCheck(cloudClient,baseURL,jar,1);
+  map=TestSolrConfigHandler.getRespMap("/test1?wt=json",client);
+  assertEquals(RequestHandlers.MemClassLoader.class.getName(),map.get("classloader"));
+}
