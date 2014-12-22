@@ -1,4 +1,5 @@
 {
+  LOG.debug("process: {}",rb.req.getParams());
   SolrQueryRequest req=rb.req;
   SolrQueryResponse rsp=rb.rsp;
   SolrParams params=req.getParams();
@@ -6,6 +7,15 @@
     return;
   }
   SolrIndexSearcher searcher=req.getSearcher();
+  StatsCache statsCache=req.getCore().getStatsCache();
+  int purpose=params.getInt(ShardParams.SHARDS_PURPOSE,ShardRequest.PURPOSE_GET_TOP_IDS);
+  if ((purpose & ShardRequest.PURPOSE_GET_TERM_STATS) != 0) {
+    statsCache.returnLocalStats(rb,searcher);
+    return;
+  }
+  if ((purpose & ShardRequest.PURPOSE_SET_TERM_STATS) != 0) {
+    statsCache.receiveGlobalStats(req);
+  }
   if (rb.getQueryCommand().getOffset() < 0) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"'start' parameter cannot be negative");
   }
@@ -41,6 +51,7 @@
   }
   SolrIndexSearcher.QueryCommand cmd=rb.getQueryCommand();
   cmd.setTimeAllowed(timeAllowed);
+  req.getContext().put(SolrIndexSearcher.STATS_SOURCE,statsCache.get(req));
   SolrIndexSearcher.QueryResult result=new SolrIndexSearcher.QueryResult();
   GroupingSpecification groupingSpec=rb.getGroupingSpec();
   if (groupingSpec != null) {

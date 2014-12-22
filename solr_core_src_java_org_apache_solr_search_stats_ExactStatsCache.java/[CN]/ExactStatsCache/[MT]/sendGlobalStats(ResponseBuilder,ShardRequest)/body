@@ -1,0 +1,49 @@
+{
+  outgoing.purpose|=ShardRequest.PURPOSE_SET_TERM_STATS;
+  ModifiableSolrParams params=outgoing.params;
+  List<String> terms=(List<String>)rb.req.getContext().get(TERMS_KEY);
+  if (terms != null) {
+    Set<String> fields=new HashSet<String>();
+    for (    String t : terms) {
+      String[] fv=t.split(":");
+      fields.add(fv[0]);
+    }
+    Map<String,TermStats> globalTermStats=new HashMap<String,TermStats>();
+    Map<String,CollectionStats> globalColStats=new HashMap<String,CollectionStats>();
+    for (    String shard : rb.shards) {
+      Map<String,CollectionStats> s=getPerShardColStats(rb,shard);
+      if (s == null) {
+        continue;
+      }
+      for (      Entry<String,CollectionStats> e : s.entrySet()) {
+        if (!fields.contains(e.getKey())) {
+          continue;
+        }
+        CollectionStats g=globalColStats.get(e.getKey());
+        if (g == null) {
+          g=new CollectionStats(e.getKey());
+          globalColStats.put(e.getKey(),g);
+        }
+        g.add(e.getValue());
+      }
+    }
+    params.add(COL_STATS_KEY,StatsUtil.colStatsMapToString(globalColStats));
+    for (    String t : terms) {
+      params.add(TERMS_KEY,t);
+      for (      String shard : rb.shards) {
+        TermStats termStats=getPerShardTermStats(rb.req,t,shard);
+        if (termStats == null || termStats.docFreq == 0) {
+          continue;
+        }
+        TermStats g=globalTermStats.get(t);
+        if (g == null) {
+          g=new TermStats(t);
+          globalTermStats.put(t,g);
+        }
+        g.add(termStats);
+      }
+    }
+    LOG.debug("terms={}, termStats={}",terms,globalTermStats);
+    params.add(TERM_STATS_KEY,StatsUtil.termStatsMapToString(globalTermStats));
+  }
+}
