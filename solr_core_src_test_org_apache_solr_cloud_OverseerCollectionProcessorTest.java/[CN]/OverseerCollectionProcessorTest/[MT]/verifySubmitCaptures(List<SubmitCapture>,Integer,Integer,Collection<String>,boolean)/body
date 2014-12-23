@@ -7,6 +7,7 @@
     if (nodeUrlWithoutProtocolPart.startsWith("http://"))     nodeUrlWithoutProtocolPart=nodeUrlWithoutProtocolPart.substring(7);
     nodeUrlWithoutProtocolPartForLiveNodes.add(nodeUrlWithoutProtocolPart);
   }
+  final Map<String,String> coreName_TO_nodeUrlWithoutProtocolPartForLiveNodes_map=new HashMap<>();
   for (  SubmitCapture submitCapture : submitCaptures) {
     ShardRequest shardRequest=submitCapture.shardRequestCapture.getValue();
     assertEquals(CoreAdminAction.CREATE.toString(),shardRequest.params.get(CoreAdminParams.ACTION));
@@ -21,6 +22,7 @@
     assertEquals(1,shardRequest.shards.length);
     assertEquals(submitCapture.nodeUrlsWithoutProtocolPartCapture.getValue(),shardRequest.shards[0]);
     assertTrue("Shard " + coreName + " created on wrong node "+ shardRequest.shards[0],nodeUrlWithoutProtocolPartForLiveNodes.contains(shardRequest.shards[0]));
+    coreName_TO_nodeUrlWithoutProtocolPartForLiveNodes_map.put(coreName,shardRequest.shards[0]);
     assertEquals(shardRequest.shards,shardRequest.actualShards);
     String sliceName=shardRequest.params.get(CoreAdminParams.SHARD);
     if (!sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.containsKey(sliceName)) {
@@ -35,6 +37,13 @@
     for (int j=1; j <= numberOfReplica; j++) {
       String coreName=COLLECTION_NAME + "_shard" + i+ "_replica"+ j;
       assertTrue("Shard " + coreName + " was not created",coreNames.contains(coreName));
+      if (dontShuffleCreateNodeSet) {
+        final String expectedNodeName=nodeUrlWithoutProtocolPartForLiveNodes.get((numberOfReplica * (i - 1) + (j - 1)) % nodeUrlWithoutProtocolPartForLiveNodes.size());
+        assertFalse("expectedNodeName is null for coreName=" + coreName,null == expectedNodeName);
+        final String actualNodeName=coreName_TO_nodeUrlWithoutProtocolPartForLiveNodes_map.get(coreName);
+        assertFalse("actualNodeName is null for coreName=" + coreName,null == actualNodeName);
+        assertTrue("node name mismatch for coreName=" + coreName + " ( actual="+ actualNodeName+ " versus expected="+ expectedNodeName+ " )",actualNodeName.equals(expectedNodeName));
+      }
     }
   }
   assertEquals(numberOfSlices.intValue(),sliceToNodeUrlsWithoutProtocolPartToNumberOfShardsRunningMapMap.size());
