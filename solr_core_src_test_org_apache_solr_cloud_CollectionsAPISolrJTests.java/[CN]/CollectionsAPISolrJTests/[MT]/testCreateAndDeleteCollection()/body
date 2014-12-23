@@ -1,0 +1,39 @@
+{
+  String collectionName="solrj_test";
+  CollectionAdminRequest.Create createCollectionRequest=new CollectionAdminRequest.Create();
+  createCollectionRequest.setCollectionName(collectionName);
+  createCollectionRequest.setNumShards(2);
+  createCollectionRequest.setReplicationFactor(2);
+  createCollectionRequest.setConfigName("conf1");
+  createCollectionRequest.setRouterField("myOwnField");
+  CollectionAdminResponse response=createCollectionRequest.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  Map<String,NamedList<Integer>> coresStatus=response.getCollectionCoresStatus();
+  assertEquals(4,coresStatus.size());
+  for (int i=0; i < 4; i++) {
+    NamedList<Integer> status=coresStatus.get(collectionName + "_shard" + (i / 2 + 1)+ "_replica"+ (i % 2 + 1));
+    assertEquals(0,(int)status.get("status"));
+    assertTrue(status.get("QTime") > 0);
+  }
+  cloudClient.setDefaultCollection(collectionName);
+  CollectionAdminRequest.Delete deleteCollectionRequest=new CollectionAdminRequest.Delete();
+  deleteCollectionRequest.setCollectionName(collectionName);
+  response=deleteCollectionRequest.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  Map<String,NamedList<Integer>> nodesStatus=response.getCollectionNodesStatus();
+  assertNull("Deleted collection " + collectionName + "still exists",cloudClient.getZkStateReader().getClusterState().getCollectionOrNull(collectionName));
+  assertEquals(4,nodesStatus.size());
+  collectionName="solrj_newstateformat";
+  createCollectionRequest=new CollectionAdminRequest.Create();
+  createCollectionRequest.setCollectionName(collectionName);
+  createCollectionRequest.setNumShards(2);
+  createCollectionRequest.setConfigName("conf1");
+  createCollectionRequest.setStateFormat(2);
+  response=createCollectionRequest.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  waitForRecoveriesToFinish(collectionName,false);
+  assertTrue("Collection state does not exist",cloudClient.getZkStateReader().getZkClient().exists(ZkStateReader.getCollectionPath(collectionName),true));
+}

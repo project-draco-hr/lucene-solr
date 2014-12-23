@@ -1,0 +1,31 @@
+{
+  String collectionName="solrj_test_splitshard";
+  cloudClient.setDefaultCollection(collectionName);
+  CollectionAdminRequest.Create createCollectionRequest=new CollectionAdminRequest.Create();
+  createCollectionRequest.setConfigName("conf1");
+  createCollectionRequest.setNumShards(2);
+  createCollectionRequest.setCollectionName(collectionName);
+  createCollectionRequest.process(cloudClient);
+  CollectionAdminRequest.SplitShard splitShardRequest=new CollectionAdminRequest.SplitShard();
+  splitShardRequest.setCollectionName(collectionName);
+  splitShardRequest.setShardName("shard1");
+  CollectionAdminResponse response=splitShardRequest.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  Map<String,NamedList<Integer>> coresStatus=response.getCollectionCoresStatus();
+  assertEquals(0,(int)coresStatus.get(collectionName + "_shard1_0_replica1").get("status"));
+  assertEquals(0,(int)coresStatus.get(collectionName + "_shard1_1_replica1").get("status"));
+  waitForRecoveriesToFinish(collectionName,false);
+  waitForThingsToLevelOut(10);
+  splitShardRequest=new CollectionAdminRequest.SplitShard();
+  splitShardRequest.setCollectionName(collectionName);
+  splitShardRequest.setSplitKey("b!");
+  response=splitShardRequest.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  waitForRecoveriesToFinish(collectionName,false);
+  waitForThingsToLevelOut(10);
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  Collection<Slice> slices=clusterState.getActiveSlices(collectionName);
+  assertEquals("ClusterState: " + clusterState.getActiveSlices(collectionName),5,slices.size());
+}
