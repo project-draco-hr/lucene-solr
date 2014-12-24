@@ -1,0 +1,79 @@
+{
+  for (  CommandOperation op : ops) {
+switch (op.name) {
+case CREATE:
+case MODIFY:
+case UPDATE:
+{
+        Map<String,Object> map=op.getDataMap();
+        if (op.hasError())         break;
+        for (        Map.Entry<String,Object> entry : map.entrySet()) {
+          Map val=map;
+          String key=entry.getKey();
+          if (key == null || key.trim().isEmpty()) {
+            op.addError("null key ");
+            continue;
+          }
+          key=key.trim();
+          if (!validName(key)) {
+            op.addError(MessageFormat.format("''{0}'' name should only have chars [a-zA-Z_-.0-9] ",key));
+            continue;
+          }
+          try {
+            val=(Map)entry.getValue();
+          }
+ catch (          Exception e1) {
+            op.addError("invalid params for key : " + key);
+            continue;
+          }
+          if (val.containsKey("")) {
+            op.addError("Empty keys are not allowed in params");
+            continue;
+          }
+          MapSolrParams old=params.getParams(key);
+          if (CREATE.equals(op.name) && (old != null)) {
+            op.addError(MessageFormat.format("params exist ''{0}'' , use {1}",key,UPDATE));
+            break;
+          }
+          if (MODIFY.equals(op.name) || UPDATE.equals(op.name)) {
+            if (old == null) {
+              op.addError(MessageFormat.format("params  ''{0}'' does not exist , use {1}",key,CREATE));
+              break;
+            }
+          }
+          if (op.name.equals(MODIFY)) {
+            LinkedHashMap m=new LinkedHashMap(old.getMap());
+            m.putAll(val);
+            val=m;
+          }
+          params=params.setParams(key,val);
+        }
+        break;
+      }
+case "delete":
+{
+      List<String> name=op.getStrs(CommandOperation.ROOT_OBJ);
+      if (op.hasError())       break;
+      for (      String s : name) {
+        if (params.getParams(s) == null) {
+          op.addError(MessageFormat.format("can't delete . No such params ''{0}'' exist",s));
+        }
+        params=params.setParams(s,null);
+      }
+    }
+}
+}
+List errs=CommandOperation.captureErrors(ops);
+if (!errs.isEmpty()) {
+resp.add(CommandOperation.ERR_MSGS,errs);
+return;
+}
+SolrResourceLoader loader=req.getCore().getResourceLoader();
+if (loader instanceof ZkSolrResourceLoader) {
+ZkController.persistConfigResourceToZooKeeper(loader,params.getZnodeVersion(),RequestParams.RESOURCE,params.toByteArray(),true);
+}
+ else {
+SolrResourceLoader.persistConfLocally(loader,ConfigOverlay.RESOURCE_NAME,params.toByteArray());
+req.getCore().getSolrConfig().refreshRequestParams();
+}
+}
