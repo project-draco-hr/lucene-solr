@@ -1,0 +1,53 @@
+{
+  MockSearchComponent.registerFirstSearcherListener=false;
+  MockSearchComponent.registerNewSearcherListener=false;
+  MockSearchComponent.registerSlowSearcherListener=true;
+  final AtomicBoolean querySucceeded=new AtomicBoolean(false);
+  SlowSearcherListener.numberOfTimesCalled=new AtomicInteger(0);
+  SlowSearcherListener.latch=new CountDownLatch(1);
+  CoreContainer cores=h.getCoreContainer();
+  CoreDescriptor cd=h.getCore().getCoreDescriptor();
+  final SolrCore newCore;
+  boolean coreCreated=false;
+  try {
+    CoreDescriptor newCd=new CoreDescriptor(cores,"core1",cd.getInstanceDir(),"config","solrconfig-searcher-listeners1.xml");
+    newCore=cores.create(newCd);
+    coreCreated=true;
+    assertNotNull(newCore.getSearchComponent("mock"));
+    assertEquals(MockSearchComponent.class,newCore.getSearchComponent("mock").getClass());
+    assertFalse(newCore.getSolrConfig().useColdSearcher);
+    Thread t=new Thread(){
+      public void run(){
+        try {
+          doQuery(newCore);
+          querySucceeded.set(true);
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    t.start();
+    if (System.getProperty(SYSPROP_NIGHTLY) != null) {
+      Thread.sleep(500);
+    }
+    assertEquals(0,SlowSearcherListener.numberOfTimesCalled.get());
+    assertFalse("Query should be waiting for warming to finish",querySucceeded.get());
+    SlowSearcherListener.latch.countDown();
+    for (int i=0; i <= 1000; i++) {
+      if (querySucceeded.get()) {
+        break;
+      }
+      if (i == 1000) {
+        fail("Query didn't succeed after 10 secoonds");
+      }
+      Thread.sleep(10);
+    }
+  }
+  finally {
+    if (coreCreated) {
+      cores.unload("core1");
+    }
+  }
+}
