@@ -1,0 +1,31 @@
+{
+  ZkStateReader zkStateReader=coreContainer.getZkController().getZkStateReader();
+  List<String> electionNodes=OverseerCollectionProcessor.getSortedElectionNodes(zkStateReader.getZkClient(),ZkStateReader.getShardLeadersElectPath(collectionName,slice.getName()));
+  int newSeq=-1;
+  for (  String electionNode : electionNodes) {
+    if (LeaderElector.getNodeName(electionNode).equals(replica.getName())) {
+      String coreName=slice.getReplica(LeaderElector.getNodeName(electionNode)).getStr(CORE_NAME_PROP);
+      rejoinElection(collectionName,slice,electionNode,coreName,true);
+      newSeq=waitForNodeChange(collectionName,slice,electionNode);
+      break;
+    }
+  }
+  if (newSeq == -1) {
+    return;
+  }
+  List<String> electionNodesTmp=OverseerCollectionProcessor.getSortedElectionNodes(zkStateReader.getZkClient(),ZkStateReader.getShardLeadersElectPath(collectionName,slice.getName()));
+  electionNodes=OverseerCollectionProcessor.getSortedElectionNodes(zkStateReader.getZkClient(),ZkStateReader.getShardLeadersElectPath(collectionName,slice.getName()));
+  for (  String thisNode : electionNodes) {
+    if (LeaderElector.getSeq(thisNode) > newSeq) {
+      break;
+    }
+    if (LeaderElector.getNodeName(thisNode).equals(replica.getName())) {
+      continue;
+    }
+    if (LeaderElector.getSeq(thisNode) == newSeq) {
+      String coreName=slice.getReplica(LeaderElector.getNodeName(thisNode)).getStr(CORE_NAME_PROP);
+      rejoinElection(collectionName,slice,thisNode,coreName,false);
+      waitForNodeChange(collectionName,slice,thisNode);
+    }
+  }
+}

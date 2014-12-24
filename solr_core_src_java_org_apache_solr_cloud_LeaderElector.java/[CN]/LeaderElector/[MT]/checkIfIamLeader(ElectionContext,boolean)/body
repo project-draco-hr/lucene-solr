@@ -8,9 +8,28 @@
     log.warn("Our node is no longer in line to be leader");
     return;
   }
+  int seq=-1;
+  String newLeaderSeq="";
+  for (  String elec : seqs) {
+    if (getNodeName(elec).equals(getNodeName(context.leaderSeqPath)) && seq < getSeq(elec)) {
+      seq=getSeq(elec);
+      newLeaderSeq=elec;
+      break;
+    }
+  }
+  if (StringUtils.isNotBlank(newLeaderSeq) && seq > getSeq(context.leaderSeqPath)) {
+    log.info("Node " + context.leaderSeqPath + " already in queue as "+ newLeaderSeq+ " nothing to do.");
+    return;
+  }
+  if (seq == -1) {
+    seq=getSeq(context.leaderSeqPath);
+  }
   if (seq <= intSeqs.get(0)) {
     if (seq == intSeqs.get(0) && !context.leaderSeqPath.equals(holdElectionPath + "/" + seqs.get(0))) {
-      log.info("was going be leader {} , seq(0) {}",context.leaderSeqPath,holdElectionPath + "/" + seqs.get(0));
+      log.info("was going to be leader {} , seq(0) {}",context.leaderSeqPath,holdElectionPath + "/" + seqs.get(0));
+      if (getNodeName(context.leaderSeqPath).equals(getNodeName(seqs.get(0)))) {
+        return;
+      }
       retryElection(context,false);
       return;
     }
@@ -37,20 +56,21 @@ catch (    Exception e) {
     }
   }
  else {
-    int i=1;
-    for (; i < intSeqs.size(); i++) {
-      int s=intSeqs.get(i);
-      if (seq < s) {
+    int toWatch=-1;
+    for (int idx=0; idx < intSeqs.size(); idx++) {
+      if (intSeqs.get(idx) < seq && !getNodeName(context.leaderSeqPath).equals(getNodeName(seqs.get(idx)))) {
+        toWatch=idx;
+      }
+      if (intSeqs.get(idx) >= seq) {
         break;
       }
     }
-    int index=i - 2;
-    if (index < 0) {
+    if (toWatch < 0) {
       log.warn("Our node is no longer in line to be leader");
       return;
     }
     try {
-      String watchedNode=holdElectionPath + "/" + seqs.get(index);
+      String watchedNode=holdElectionPath + "/" + seqs.get(toWatch);
       zkClient.getData(watchedNode,watcher=new ElectionWatcher(context.leaderSeqPath,watchedNode,seq,context),null,true);
     }
  catch (    KeeperException.SessionExpiredException e) {
@@ -58,7 +78,7 @@ catch (    Exception e) {
     }
 catch (    KeeperException e) {
       log.warn("Failed setting watch",e);
-      checkIfIamLeader(seq,context,true);
+      checkIfIamLeader(context,true);
     }
   }
 }

@@ -10,71 +10,24 @@
   if (dc == null) {
     throw new SolrException(ErrorCode.BAD_REQUEST,"Collection '" + collectionName + "' does not exist, no action taken.");
   }
-  Map<String,String> current=new HashMap<>();
+  Map<String,String> currentRequests=new HashMap<>();
   int max=req.getParams().getInt(MAX_AT_ONCE_PROP,Integer.MAX_VALUE);
   if (max <= 0)   max=Integer.MAX_VALUE;
   int maxWaitSecs=req.getParams().getInt(MAX_WAIT_SECONDS_PROP,60);
   NamedList<Object> results=new NamedList<>();
-  SolrQueryResponse rspIgnore=new SolrQueryResponse();
-  final String inactivePreferreds="inactivePreferreds";
-  final String alreadyLeaders="alreadyLeaders";
   boolean keepGoing=true;
   for (  Slice slice : dc.getSlices()) {
-    for (    Replica replica : slice.getReplicas()) {
-      if (replica.getBool(SliceMutator.PREFERRED_LEADER_PROP,false) == false) {
-        continue;
-      }
-      if (StringUtils.equalsIgnoreCase(replica.getStr(STATE_PROP),ACTIVE) == false) {
-        NamedList<Object> inactives=(NamedList<Object>)results.get(inactivePreferreds);
-        if (inactives == null) {
-          inactives=new NamedList<>();
-          results.add(inactivePreferreds,inactives);
-        }
-        NamedList<Object> res=new NamedList<>();
-        res.add("status","skipped");
-        res.add("msg","Node is a referredLeader, but it's inactive. Skipping");
-        res.add("nodeName",replica.getNodeName());
-        inactives.add(replica.getName(),res);
-        break;
-      }
-      if (replica.getBool(LEADER_PROP,false)) {
-        NamedList<Object> noops=(NamedList<Object>)results.get(alreadyLeaders);
-        if (noops == null) {
-          noops=new NamedList<>();
-          results.add(alreadyLeaders,noops);
-        }
-        NamedList<Object> res=new NamedList<>();
-        res.add("status","success");
-        res.add("msg","Already leader");
-        res.add("nodeName",replica.getNodeName());
-        noops.add(replica.getName(),res);
-        break;
-      }
-      Map<String,Object> propMap=new HashMap<>();
-      propMap.put(Overseer.QUEUE_OPERATION,REBALANCELEADERS.toLower());
-      propMap.put(COLLECTION_PROP,collectionName);
-      propMap.put(SHARD_ID_PROP,slice.getName());
-      propMap.put(BASE_URL_PROP,replica.get(BASE_URL_PROP));
-      String coreName=(String)replica.get(CORE_NAME_PROP);
-      String asyncId=REBALANCELEADERS.toLower() + "_" + coreName;
-      current.put(asyncId,String.format(Locale.ROOT,"Collection: '%s', Shard: '%s', Core: '%s', BaseUrl: '%s'",collectionName,slice.getName(),coreName,replica.get(BASE_URL_PROP)));
-      propMap.put(CORE_NAME_PROP,coreName);
-      propMap.put(ASYNC,asyncId);
-      ZkNodeProps m=new ZkNodeProps(propMap);
-      log.info("Queueing collection '" + collectionName + "' slice '"+ slice.getName()+ "' replica '"+ coreName+ "' to become leader.");
-      handleResponse(REBALANCELEADERS.toLower(),m,rspIgnore);
-      break;
-    }
-    if (current.size() == max) {
-      log.info("Queued " + max + " leader reassgnments, waiting for some to complete.");
-      keepGoing=waitForLeaderChange(current,maxWaitSecs,false,results);
+    insurePreferredIsLeader(req,results,slice,currentRequests);
+    if (currentRequests.size() == max) {
+      log.info("Queued " + max + " leader reassignments, waiting for some to complete.");
+      keepGoing=waitForLeaderChange(currentRequests,maxWaitSecs,false,results);
       if (keepGoing == false) {
         break;
       }
     }
   }
   if (keepGoing == true) {
-    keepGoing=waitForLeaderChange(current,maxWaitSecs,true,results);
+    keepGoing=waitForLeaderChange(currentRequests,maxWaitSecs,true,results);
   }
   if (keepGoing == true) {
     log.info("All leader reassignments completed.");
