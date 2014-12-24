@@ -5,8 +5,15 @@
   if (!configsetsDir.isDirectory())   throw new FileNotFoundException(configsetsDir.getAbsolutePath() + " not found!");
   String configSet=cli.getOptionValue("config",DEFAULT_CONFIG_SET);
   File configSetDir=new File(configsetsDir,configSet);
-  if (!configSetDir.isDirectory())   throw new FileNotFoundException("Specified config " + configSet + " not found in "+ configsetsDir.getAbsolutePath());
-  File confDir=new File(configSetDir,"conf");
+  if (!configSetDir.isDirectory()) {
+    File possibleConfigDir=new File(configSet);
+    if (possibleConfigDir.isDirectory()) {
+      configSetDir=possibleConfigDir;
+    }
+ else {
+      throw new FileNotFoundException("Specified config " + configSet + " not found in "+ configsetsDir.getAbsolutePath());
+    }
+  }
   String coreName=cli.getOptionValue("name");
   String systemInfoUrl=solrUrl + "admin/info/system";
   HttpClient httpClient=getHttpClient();
@@ -18,22 +25,54 @@
       return 1;
     }
     solrHome=(String)systemInfo.get("solr_home");
-    if (solrHome == null) {
-      solrHome=configsetsDir.getParentFile().getAbsolutePath();
-    }
+    if (solrHome == null)     solrHome=configsetsDir.getParentFile().getAbsolutePath();
   }
   finally {
     closeHttpClient(httpClient);
   }
+  String coreStatusUrl=solrUrl + "admin/cores?action=STATUS&core=" + coreName;
+  if (safeCheckCoreExists(coreStatusUrl,coreName)) {
+    System.err.println("\nCore '" + coreName + "' already exists!");
+    System.err.println("\nChecked core existence using Core API command:\n" + coreStatusUrl);
+    System.err.println();
+    return 1;
+  }
   File coreInstanceDir=new File(solrHome,coreName);
+  File confDir=new File(configSetDir,"conf");
   if (!coreInstanceDir.isDirectory()) {
     coreInstanceDir.mkdirs();
     if (!coreInstanceDir.isDirectory())     throw new IOException("Failed to create new core instance directory: " + coreInstanceDir.getAbsolutePath());
+    if (confDir.isDirectory()) {
+      FileUtils.copyDirectoryToDirectory(confDir,coreInstanceDir);
+    }
+ else {
+      if ((new File(configSetDir,"solrconfig.xml")).isFile()) {
+        FileUtils.copyDirectory(configSetDir,new File(coreInstanceDir,"conf"));
+      }
+ else {
+        System.err.println("\n" + configSetDir.getAbsolutePath() + " doesn't contain a conf subdirectory or solrconfig.xml\n");
+        return 1;
+      }
+    }
+    System.out.println("\nSetup new core instance directory:\n" + coreInstanceDir.getAbsolutePath());
   }
-  FileUtils.copyDirectoryToDirectory(confDir,coreInstanceDir);
   String createCoreUrl=String.format(Locale.ROOT,"%sadmin/cores?action=CREATE&name=%s&instanceDir=%s",solrUrl,coreName,coreName);
-  System.out.println("Creating new core '" + coreName + "' using command:\n\n"+ createCoreUrl+ "\n");
-  Map<String,Object> json=getJson(createCoreUrl);
+  System.out.println("\nCreating new core '" + coreName + "' using command:\n"+ createCoreUrl+ "\n");
+  Map<String,Object> json=null;
+  try {
+    json=getJson(createCoreUrl);
+  }
+ catch (  SolrServerException sse) {
+    if (safeCheckCoreExists(coreStatusUrl,coreName)) {
+      System.err.println("Core '" + coreName + "' already exists!");
+      System.err.println("\nChecked core existence using Core API command:\n" + coreStatusUrl);
+    }
+ else {
+      System.err.println("Failed to create core '" + coreName + "' due to: "+ sse.getMessage());
+    }
+    System.err.println();
+    return 1;
+  }
   CharArr arr=new CharArr();
   new JSONWriter(arr,2).write(json);
   System.out.println(arr.toString());

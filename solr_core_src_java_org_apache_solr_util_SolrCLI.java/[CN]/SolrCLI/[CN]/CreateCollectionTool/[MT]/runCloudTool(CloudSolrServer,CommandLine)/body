@@ -13,22 +13,64 @@
     maxShardsPerNode=((numShards * replicationFactor) + numNodes - 1) / numNodes;
   }
   String configSet=cli.getOptionValue("config",DEFAULT_CONFIG_SET);
-  if (!cloudSolrServer.getZkStateReader().getZkClient().exists("/configs/" + configSet,true)) {
+  String configSetNameInZk=configSet;
+  File configSetDir=null;
+  File possibleConfigDir=new File(configSet);
+  if (possibleConfigDir.isDirectory()) {
+    configSetDir=possibleConfigDir;
+    configSetNameInZk=possibleConfigDir.getName();
+  }
+ else {
     File configsetsDir=new File(cli.getOptionValue("configsetsDir"));
     if (!configsetsDir.isDirectory())     throw new FileNotFoundException(configsetsDir.getAbsolutePath() + " not found!");
-    File configSetDir=new File(configsetsDir,configSet);
-    if (!configSetDir.isDirectory())     throw new FileNotFoundException("Specified config " + configSet + " not found in "+ configsetsDir.getAbsolutePath());
-    File confDir=new File(configSetDir,"conf");
-    System.out.println("Uploading " + confDir.getAbsolutePath() + " for config "+ configSet+ " to ZooKeeper at "+ cloudSolrServer.getZkHost());
-    ZkController.uploadConfigDir(cloudSolrServer.getZkStateReader().getZkClient(),confDir,configSet);
+    configSetDir=new File(configsetsDir,configSet);
+    if (!configSetDir.isDirectory()) {
+      throw new FileNotFoundException("Specified config " + configSet + " not found in "+ configsetsDir.getAbsolutePath());
+    }
+  }
+  File confDir=new File(configSetDir,"conf");
+  if (!confDir.isDirectory()) {
+    if ((new File(configSetDir,"solrconfig.xml")).isFile()) {
+      confDir=configSetDir;
+    }
+ else {
+      System.err.println("Specified configuration directory " + configSetDir.getAbsolutePath() + " is invalid;\nit should contain either conf sub-directory or solrconfig.xml");
+      return 1;
+    }
+  }
+  if (!cloudSolrServer.getZkStateReader().getZkClient().exists("/configs/" + configSetNameInZk,true)) {
+    System.out.println("Uploading " + confDir.getAbsolutePath() + " for config "+ configSetNameInZk+ " to ZooKeeper at "+ cloudSolrServer.getZkHost());
+    ZkController.uploadConfigDir(cloudSolrServer.getZkStateReader().getZkClient(),confDir,configSetNameInZk);
   }
   String baseUrl=cloudSolrServer.getZkStateReader().getBaseUrlForNodeName(firstLiveNode);
   String collectionName=cli.getOptionValue("name");
-  String createCollectionUrl=String.format(Locale.ROOT,"%s/admin/collections?action=CREATE&name=%s&numShards=%d&replicationFactor=%d&maxShardsPerNode=%d&collection.configName=%s",baseUrl,collectionName,numShards,replicationFactor,maxShardsPerNode,configSet);
-  System.out.println("Creating new collection '" + collectionName + "' using command:\n\n"+ createCollectionUrl+ "\n");
-  Map<String,Object> json=getJson(createCollectionUrl);
+  String collectionListUrl=baseUrl + "/admin/collections?action=list";
+  if (safeCheckCollectionExists(collectionListUrl,collectionName)) {
+    System.err.println("\nCollection '" + collectionName + "' already exists!");
+    System.err.println("\nChecked collection existence using Collections API command:\n" + collectionListUrl);
+    System.err.println();
+    return 1;
+  }
+  String createCollectionUrl=String.format(Locale.ROOT,"%s/admin/collections?action=CREATE&name=%s&numShards=%d&replicationFactor=%d&maxShardsPerNode=%d&collection.configName=%s",baseUrl,collectionName,numShards,replicationFactor,maxShardsPerNode,configSetNameInZk);
+  System.out.println("\nCreating new collection '" + collectionName + "' using command:\n"+ createCollectionUrl+ "\n");
+  Map<String,Object> json=null;
+  try {
+    json=getJson(createCollectionUrl);
+  }
+ catch (  SolrServerException sse) {
+    if (safeCheckCollectionExists(collectionListUrl,collectionName)) {
+      System.err.println("Collection '" + collectionName + "' already exists!");
+      System.err.println("\nChecked collection existence using Collections API command:\n" + collectionListUrl);
+    }
+ else {
+      System.err.println("Failed to create collection '" + collectionName + "' due to: "+ sse.getMessage());
+    }
+    System.err.println();
+    return 1;
+  }
   CharArr arr=new CharArr();
   new JSONWriter(arr,2).write(json);
   System.out.println(arr.toString());
   System.out.println();
+  return 0;
 }
