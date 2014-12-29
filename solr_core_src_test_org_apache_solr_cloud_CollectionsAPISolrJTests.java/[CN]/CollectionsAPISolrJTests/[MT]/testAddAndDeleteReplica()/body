@@ -1,0 +1,35 @@
+{
+  String collectionName="solrj_replicatests";
+  createCollection(collectionName,cloudClient,1,2);
+  cloudClient.setDefaultCollection(collectionName);
+  String newReplicaName=Assign.assignNode(collectionName,cloudClient.getZkStateReader().getClusterState());
+  ArrayList<String> nodeList=new ArrayList<>(cloudClient.getZkStateReader().getClusterState().getLiveNodes());
+  Collections.shuffle(nodeList,random());
+  CollectionAdminRequest.AddReplica addReplica=new CollectionAdminRequest.AddReplica();
+  addReplica.setCollectionName(collectionName);
+  addReplica.setShardName("shard1");
+  addReplica.setNode(nodeList.get(0));
+  CollectionAdminResponse response=addReplica.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  long timeout=System.currentTimeMillis() + 3000;
+  Replica newReplica=null;
+  while (System.currentTimeMillis() < timeout && newReplica == null) {
+    Slice slice=cloudClient.getZkStateReader().getClusterState().getSlice(collectionName,"shard1");
+    newReplica=slice.getReplica(newReplicaName);
+  }
+  assertNotNull(newReplica);
+  assertEquals("Replica should be created on the right node",cloudClient.getZkStateReader().getBaseUrlForNodeName(nodeList.get(0)),newReplica.getStr(ZkStateReader.BASE_URL_PROP));
+  CollectionAdminRequest.DeleteReplica deleteReplicaRequest=new CollectionAdminRequest.DeleteReplica();
+  deleteReplicaRequest.setCollectionName(collectionName);
+  deleteReplicaRequest.setShardName("shard1");
+  deleteReplicaRequest.setReplica(newReplicaName);
+  response=deleteReplicaRequest.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  timeout=System.currentTimeMillis() + 3000;
+  while (System.currentTimeMillis() < timeout && newReplica != null) {
+    Slice slice=cloudClient.getZkStateReader().getClusterState().getSlice(collectionName,"shard1");
+    newReplica=slice.getReplica(newReplicaName);
+  }
+  assertNull(newReplica);
+}

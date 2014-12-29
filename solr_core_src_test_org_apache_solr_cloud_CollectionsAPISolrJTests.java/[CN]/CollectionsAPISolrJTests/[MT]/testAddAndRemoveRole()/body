@@ -1,0 +1,34 @@
+{
+  cloudClient.setDefaultCollection(DEFAULT_COLLECTION);
+  Replica replica=cloudClient.getZkStateReader().getLeaderRetry(DEFAULT_COLLECTION,SHARD1);
+  CollectionAdminRequest.AddRole addRoleRequest=new CollectionAdminRequest.AddRole();
+  addRoleRequest.setNode(replica.getNodeName());
+  addRoleRequest.setRole("overseer");
+  addRoleRequest.process(cloudClient);
+  CollectionAdminRequest.ClusterStatus clusterStatusRequest=new CollectionAdminRequest.ClusterStatus();
+  clusterStatusRequest.setCollectionName(DEFAULT_COLLECTION);
+  CollectionAdminResponse response=clusterStatusRequest.process(cloudClient);
+  NamedList<Object> rsp=response.getResponse();
+  NamedList<Object> cluster=(NamedList<Object>)rsp.get("cluster");
+  assertNotNull("Cluster state should not be null",cluster);
+  Map<String,Object> roles=(Map<String,Object>)cluster.get("roles");
+  assertNotNull("Role information should not be null",roles);
+  List<String> overseer=(List<String>)roles.get("overseer");
+  assertNotNull(overseer);
+  assertEquals(1,overseer.size());
+  assertTrue(overseer.contains(replica.getNodeName()));
+  CollectionAdminRequest.RemoveRole removeRoleRequest=new CollectionAdminRequest.RemoveRole();
+  removeRoleRequest.setNode(replica.getNodeName());
+  removeRoleRequest.setRole("overseer");
+  removeRoleRequest.process(cloudClient);
+  clusterStatusRequest=new CollectionAdminRequest.ClusterStatus();
+  clusterStatusRequest.setCollectionName(DEFAULT_COLLECTION);
+  response=clusterStatusRequest.process(cloudClient);
+  rsp=response.getResponse();
+  cluster=(NamedList<Object>)rsp.get("cluster");
+  assertNotNull("Cluster state should not be null",cluster);
+  roles=(Map<String,Object>)cluster.get("roles");
+  assertNotNull("Role information should not be null",roles);
+  overseer=(List<String>)roles.get("overseer");
+  assertFalse(overseer.contains(replica.getNodeName()));
+}
