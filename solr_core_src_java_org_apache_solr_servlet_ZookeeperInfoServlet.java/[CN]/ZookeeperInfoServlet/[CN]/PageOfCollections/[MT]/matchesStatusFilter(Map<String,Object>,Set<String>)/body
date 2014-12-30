@@ -1,0 +1,41 @@
+{
+  if (filterType != FilterType.status || filter == null || filter.length() == 0)   return true;
+  boolean isHealthy=true;
+  boolean hasDownedShard=false;
+  boolean replicaInRecovery=false;
+  Map<String,Object> shards=(Map<String,Object>)collectionState.get("shards");
+  for (  String shardId : shards.keySet()) {
+    boolean hasActive=false;
+    Map<String,Object> shard=(Map<String,Object>)shards.get(shardId);
+    Map<String,Object> replicas=(Map<String,Object>)shard.get("replicas");
+    for (    String replicaId : replicas.keySet()) {
+      Map<String,Object> replicaState=(Map<String,Object>)replicas.get(replicaId);
+      String coreState=(String)replicaState.get("state");
+      String nodeName=(String)replicaState.get("node_name");
+      if (!liveNodes.contains(nodeName))       coreState="down";
+      if ("active".equals(coreState)) {
+        hasActive=true;
+      }
+ else {
+        if ("recovering".equals(coreState)) {
+          replicaInRecovery=true;
+        }
+        isHealthy=false;
+      }
+    }
+    if (!hasActive)     hasDownedShard=true;
+  }
+  if ("healthy".equals(filter)) {
+    return isHealthy;
+  }
+ else   if ("degraded".equals(filter)) {
+    return !hasDownedShard && !isHealthy;
+  }
+ else   if ("downed_shard".equals(filter)) {
+    return hasDownedShard;
+  }
+ else   if ("recovering".equals(filter)) {
+    return !isHealthy && replicaInRecovery;
+  }
+  return true;
+}

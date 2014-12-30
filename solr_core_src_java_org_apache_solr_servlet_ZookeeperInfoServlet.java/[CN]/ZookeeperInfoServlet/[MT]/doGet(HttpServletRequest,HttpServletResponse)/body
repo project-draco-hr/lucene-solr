@@ -3,6 +3,15 @@
   if (cores == null) {
     throw new ServletException("Missing request attribute org.apache.solr.CoreContainer.");
   }
+synchronized (this) {
+    if (pagingSupport == null) {
+      pagingSupport=new PagedCollectionSupport();
+      ZkController zkController=cores.getZkController();
+      if (zkController != null) {
+        zkController.addOnReconnectListener(pagingSupport);
+      }
+    }
+  }
   final SolrParams params;
   try {
     params=SolrRequestParsers.DEFAULT.parse(null,request.getServletPath(),request).getParams();
@@ -24,13 +33,28 @@
   boolean detail=detailS != null && detailS.equals("true");
   String dumpS=params.get("dump");
   boolean dump=dumpS != null && dumpS.equals("true");
+  int start=paramAsInt("start",params,0);
+  int rows=paramAsInt("rows",params,-1);
+  String filterType=params.get("filterType");
+  if (filterType != null) {
+    filterType=filterType.trim().toLowerCase(Locale.ROOT);
+    if (filterType.length() == 0)     filterType=null;
+  }
+  FilterType type=(filterType != null) ? FilterType.valueOf(filterType) : FilterType.none;
+  String filter=(type != FilterType.none) ? params.get("filter") : null;
+  if (filter != null) {
+    filter=filter.trim();
+    if (filter.length() == 0)     filter=null;
+  }
   response.setCharacterEncoding("UTF-8");
   response.setContentType("application/json");
   Writer out=new FastWriter(new OutputStreamWriter(response.getOutputStream(),StandardCharsets.UTF_8));
   ZKPrinter printer=new ZKPrinter(response,out,cores.getZkController(),addr);
   printer.detail=detail;
   printer.dump=dump;
-  printer.isTreeView=(params.get("wt") == null);
+  boolean isGraphView="graph".equals(params.get("view"));
+  printer.page=(isGraphView && "/clusterstate.json".equals(path)) ? new PageOfCollections(start,rows,type,filter) : null;
+  printer.pagingSupport=pagingSupport;
   try {
     printer.print(path);
   }

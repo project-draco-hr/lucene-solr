@@ -1,9 +1,9 @@
 {
   try {
-    Stat stat=new Stat();
-    byte[] data=zkClient.getData(path,null,stat,true);
     String dataStr=null;
     String dataStrErr=null;
+    Stat stat=new Stat();
+    byte[] data=zkClient.getData(path,null,stat,true);
     if (null != data) {
       try {
         dataStr=(new BytesRef(data)).utf8ToString();
@@ -12,32 +12,70 @@
         dataStrErr="data is not parsable as a utf8 String: " + e.toString();
       }
     }
-    if (ZkStateReader.CLUSTER_STATE.equals(path) && !isTreeView) {
-      SortedMap<String,Object> collectionStates=null;
-      List<String> children=zkClient.getChildren(ZkStateReader.COLLECTIONS_ZKNODE,null,true);
-      java.util.Collections.sort(children);
-      for (      String collection : children) {
-        String collStatePath=ZkStateReader.getCollectionPath(collection);
-        String childDataStr=null;
+    if (page != null) {
+      Map<String,Object> clusterstateJsonMap=null;
+      if (dataStr != null) {
         try {
-          byte[] childData=zkClient.getData(collStatePath,null,null,true);
-          if (childData != null) {
-            childDataStr=(new BytesRef(childData)).utf8ToString();
+          clusterstateJsonMap=(Map<String,Object>)ObjectBuilder.fromJSON(dataStr);
+        }
+ catch (        Exception e) {
+          throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to parse /clusterstate.json from ZooKeeper due to: " + e,e);
+        }
+      }
+ else {
+        clusterstateJsonMap=ZkNodeProps.makeMap();
+      }
+      page=pagingSupport.fetchPage(page,zkClient);
+      boolean applyStatusFilter=(page.filterType == FilterType.status && page.filter != null);
+      List<String> matchesStatusFilter=applyStatusFilter ? new ArrayList<String>() : null;
+      Set<String> liveNodes=applyStatusFilter ? zkController.getZkStateReader().getClusterState().getLiveNodes() : null;
+      SortedMap<String,Object> collectionStates=new TreeMap<String,Object>(pagingSupport);
+      for (      String collection : page.selected) {
+        Object collectionState=clusterstateJsonMap.get(collection);
+        if (collectionState != null) {
+          if (applyStatusFilter) {
+            if (page.matchesStatusFilter((Map<String,Object>)collectionState,liveNodes)) {
+              matchesStatusFilter.add(collection);
+              collectionStates.put(collection,collectionState);
+            }
+          }
+ else {
+            collectionStates.put(collection,collectionState);
           }
         }
- catch (        KeeperException.NoNodeException nne) {
-        }
-catch (        Exception childErr) {
-          log.error("Failed to get " + collStatePath + " due to: "+ childErr);
-        }
-        if (childDataStr != null) {
-          if (collectionStates == null) {
-            collectionStates=new TreeMap<>();
-            if (dataStr != null)             collectionStates.putAll((Map<String,Object>)ObjectBuilder.fromJSON(dataStr));
+ else {
+          String collStatePath=String.format(Locale.ROOT,"/collections/%s/state.json",collection);
+          String childDataStr=null;
+          try {
+            byte[] childData=zkClient.getData(collStatePath,null,null,true);
+            if (childData != null)             childDataStr=(new BytesRef(childData)).utf8ToString();
           }
-          Map<String,Object> extColl=(Map<String,Object>)ObjectBuilder.fromJSON(childDataStr);
-          collectionStates.put(collection,extColl.get(collection));
+ catch (          KeeperException.NoNodeException nne) {
+            log.warn("State for collection " + collection + " not found in /clusterstate.json or /collections/"+ collection+ "/state.json!");
+          }
+catch (          Exception childErr) {
+            log.error("Failed to get " + collStatePath + " due to: "+ childErr);
+          }
+          if (childDataStr != null) {
+            Map<String,Object> extColl=(Map<String,Object>)ObjectBuilder.fromJSON(childDataStr);
+            collectionState=extColl.get(collection);
+            if (applyStatusFilter) {
+              if (page.matchesStatusFilter((Map<String,Object>)collectionState,liveNodes)) {
+                matchesStatusFilter.add(collection);
+                collectionStates.put(collection,collectionState);
+              }
+            }
+ else {
+              collectionStates.put(collection,collectionState);
+            }
+          }
         }
+      }
+      if (applyStatusFilter) {
+        page.selectPage(matchesStatusFilter);
+        SortedMap<String,Object> map=new TreeMap<String,Object>(pagingSupport);
+        for (        String next : page.selected)         map.put(next,collectionStates.get(next));
+        collectionStates=map;
       }
       if (collectionStates != null) {
         CharArr out=new CharArr();
@@ -70,6 +108,9 @@ catch (        Exception childErr) {
     json.endObject();
     if (null != dataStr) {
       writeKeyValue(json,"data",dataStr,false);
+    }
+    if (page != null) {
+      writeKeyValue(json,"paging",page.getPagingHeader(),false);
     }
     json.endObject();
   }
