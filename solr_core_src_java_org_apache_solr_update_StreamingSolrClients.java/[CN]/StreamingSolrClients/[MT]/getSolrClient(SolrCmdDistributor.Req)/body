@@ -1,0 +1,32 @@
+{
+  String url=getFullUrl(req.node.getUrl());
+  ConcurrentUpdateSolrClient client=solrClients.get(url);
+  if (client == null) {
+    client=new ConcurrentUpdateSolrClient(url,httpClient,100,1,updateExecutor,true){
+      @Override public void handleError(      Throwable ex){
+        req.trackRequestResult(null,false);
+        log.error("error",ex);
+        Error error=new Error();
+        error.e=(Exception)ex;
+        if (ex instanceof SolrException) {
+          error.statusCode=((SolrException)ex).code();
+        }
+        error.req=req;
+        errors.add(error);
+      }
+      @Override public void onSuccess(      HttpResponse resp){
+        req.trackRequestResult(resp,true);
+      }
+    }
+;
+    client.setParser(new BinaryResponseParser());
+    client.setRequestWriter(new BinaryRequestWriter());
+    client.setPollQueueTime(0);
+    Set<String> queryParams=new HashSet<>(2);
+    queryParams.add(DistributedUpdateProcessor.DISTRIB_FROM);
+    queryParams.add(DistributingUpdateProcessorFactory.DISTRIB_UPDATE_PARAM);
+    client.setQueryParams(queryParams);
+    solrClients.put(url,client);
+  }
+  return client;
+}

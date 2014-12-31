@@ -1,0 +1,118 @@
+{
+  runnerLock.lock();
+  log.debug("starting runner: {}",this);
+  HttpPost method=null;
+  HttpResponse response=null;
+  try {
+    while (!queue.isEmpty()) {
+      try {
+        final UpdateRequest updateRequest=queue.poll(pollQueueTime,TimeUnit.MILLISECONDS);
+        if (updateRequest == null)         break;
+        String contentType=client.requestWriter.getUpdateContentType();
+        final boolean isXml=ClientUtils.TEXT_XML.equals(contentType);
+        final ModifiableSolrParams origParams=new ModifiableSolrParams(updateRequest.getParams());
+        EntityTemplate template=new EntityTemplate(new ContentProducer(){
+          @Override public void writeTo(          OutputStream out) throws IOException {
+            try {
+              if (isXml) {
+                out.write("<stream>".getBytes(StandardCharsets.UTF_8));
+              }
+              UpdateRequest req=updateRequest;
+              while (req != null) {
+                SolrParams currentParams=new ModifiableSolrParams(req.getParams());
+                if (!origParams.toNamedList().equals(currentParams.toNamedList())) {
+                  queue.add(req);
+                  break;
+                }
+                client.requestWriter.write(req,out);
+                if (isXml) {
+                  SolrParams params=req.getParams();
+                  if (params != null) {
+                    String fmt=null;
+                    if (params.getBool(UpdateParams.OPTIMIZE,false)) {
+                      fmt="<optimize waitSearcher=\"%s\" />";
+                    }
+ else                     if (params.getBool(UpdateParams.COMMIT,false)) {
+                      fmt="<commit waitSearcher=\"%s\" />";
+                    }
+                    if (fmt != null) {
+                      byte[] content=String.format(Locale.ROOT,fmt,params.getBool(UpdateParams.WAIT_SEARCHER,false) + "").getBytes(StandardCharsets.UTF_8);
+                      out.write(content);
+                    }
+                  }
+                }
+                out.flush();
+                req=queue.poll(pollQueueTime,TimeUnit.MILLISECONDS);
+              }
+              if (isXml) {
+                out.write("</stream>".getBytes(StandardCharsets.UTF_8));
+              }
+            }
+ catch (            InterruptedException e) {
+              Thread.currentThread().interrupt();
+              log.warn("",e);
+            }
+          }
+        }
+);
+        ModifiableSolrParams requestParams=new ModifiableSolrParams(origParams);
+        requestParams.set(CommonParams.WT,client.parser.getWriterType());
+        requestParams.set(CommonParams.VERSION,client.parser.getVersion());
+        method=new HttpPost(client.getBaseURL() + "/update" + ClientUtils.toQueryString(requestParams,false));
+        method.setEntity(template);
+        method.addHeader("User-Agent",HttpSolrClient.AGENT);
+        method.addHeader("Content-Type",contentType);
+        response=client.getHttpClient().execute(method);
+        int statusCode=response.getStatusLine().getStatusCode();
+        if (statusCode != HttpStatus.SC_OK) {
+          StringBuilder msg=new StringBuilder();
+          msg.append(response.getStatusLine().getReasonPhrase());
+          msg.append("\n\n\n\n");
+          msg.append("request: ").append(method.getURI());
+          SolrException solrExc=new SolrException(ErrorCode.getErrorCode(statusCode),msg.toString());
+          try {
+            NamedList<Object> resp=client.parser.processResponse(response.getEntity().getContent(),response.getEntity().getContentType().getValue());
+            NamedList<Object> error=(NamedList<Object>)resp.get("error");
+            if (error != null)             solrExc.setMetadata((NamedList<String>)error.get("metadata"));
+          }
+ catch (          Exception exc) {
+            log.warn("Failed to parse error response from " + client.getBaseURL() + " due to: "+ exc);
+          }
+          handleError(solrExc);
+        }
+ else {
+          onSuccess(response);
+        }
+      }
+  finally {
+        try {
+          if (response != null) {
+            response.getEntity().getContent().close();
+          }
+        }
+ catch (        Exception ex) {
+          log.warn("",ex);
+        }
+      }
+    }
+  }
+ catch (  Throwable e) {
+    if (e instanceof OutOfMemoryError) {
+      throw (OutOfMemoryError)e;
+    }
+    handleError(e);
+  }
+ finally {
+synchronized (runners) {
+      if (runners.size() == 1 && !queue.isEmpty()) {
+        scheduler.execute(this);
+      }
+ else {
+        runners.remove(this);
+        if (runners.isEmpty())         runners.notifyAll();
+      }
+    }
+    log.debug("finished: {}",this);
+    runnerLock.unlock();
+  }
+}

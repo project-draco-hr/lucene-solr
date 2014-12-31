@@ -1,0 +1,125 @@
+{
+  method.addHeader("User-Agent",AGENT);
+  InputStream respBody=null;
+  boolean shouldClose=true;
+  boolean success=false;
+  try {
+    final HttpResponse response=httpClient.execute(method);
+    int httpStatus=response.getStatusLine().getStatusCode();
+    respBody=response.getEntity().getContent();
+    Header ctHeader=response.getLastHeader("content-type");
+    String contentType;
+    if (ctHeader != null) {
+      contentType=ctHeader.getValue();
+    }
+ else {
+      contentType="";
+    }
+switch (httpStatus) {
+case HttpStatus.SC_OK:
+case HttpStatus.SC_BAD_REQUEST:
+case HttpStatus.SC_CONFLICT:
+      break;
+case HttpStatus.SC_MOVED_PERMANENTLY:
+case HttpStatus.SC_MOVED_TEMPORARILY:
+    if (!followRedirects) {
+      throw new SolrServerException("Server at " + getBaseURL() + " sent back a redirect ("+ httpStatus+ ").");
+    }
+  break;
+default :
+if (processor == null) {
+  throw new RemoteSolrException(baseUrl,httpStatus,"non ok status: " + httpStatus + ", message:"+ response.getStatusLine().getReasonPhrase(),null);
+}
+}
+if (processor == null) {
+NamedList<Object> rsp=new NamedList<>();
+rsp.add("stream",respBody);
+shouldClose=false;
+success=true;
+return rsp;
+}
+String procCt=processor.getContentType();
+if (procCt != null) {
+String procMimeType=ContentType.parse(procCt).getMimeType().trim().toLowerCase(Locale.ROOT);
+String mimeType=ContentType.parse(contentType).getMimeType().trim().toLowerCase(Locale.ROOT);
+if (!procMimeType.equals(mimeType)) {
+String msg="Expected mime type " + procMimeType + " but got "+ mimeType+ ".";
+Header encodingHeader=response.getEntity().getContentEncoding();
+String encoding;
+if (encodingHeader != null) {
+  encoding=encodingHeader.getValue();
+}
+ else {
+  encoding="UTF-8";
+}
+try {
+  msg=msg + " " + IOUtils.toString(respBody,encoding);
+}
+ catch (IOException e) {
+  throw new RemoteSolrException(baseUrl,httpStatus,"Could not parse response with encoding " + encoding,e);
+}
+throw new RemoteSolrException(baseUrl,httpStatus,msg,null);
+}
+}
+NamedList<Object> rsp=null;
+String charset=EntityUtils.getContentCharSet(response.getEntity());
+try {
+rsp=processor.processResponse(respBody,charset);
+}
+ catch (Exception e) {
+throw new RemoteSolrException(baseUrl,httpStatus,e.getMessage(),e);
+}
+if (httpStatus != HttpStatus.SC_OK) {
+NamedList<String> metadata=null;
+String reason=null;
+try {
+NamedList err=(NamedList)rsp.get("error");
+if (err != null) {
+  reason=(String)err.get("msg");
+  if (reason == null) {
+    reason=(String)err.get("trace");
+  }
+  metadata=(NamedList<String>)err.get("metadata");
+}
+}
+ catch (Exception ex) {
+}
+if (reason == null) {
+StringBuilder msg=new StringBuilder();
+msg.append(response.getStatusLine().getReasonPhrase());
+msg.append("\n\n");
+msg.append("request: " + method.getURI());
+reason=java.net.URLDecoder.decode(msg.toString(),UTF_8);
+}
+RemoteSolrException rss=new RemoteSolrException(baseUrl,httpStatus,reason,null);
+if (metadata != null) rss.setMetadata(metadata);
+throw rss;
+}
+success=true;
+return rsp;
+}
+ catch (ConnectException e) {
+throw new SolrServerException("Server refused connection at: " + getBaseURL(),e);
+}
+catch (SocketTimeoutException e) {
+throw new SolrServerException("Timeout occured while waiting response from server at: " + getBaseURL(),e);
+}
+catch (IOException e) {
+throw new SolrServerException("IOException occured when talking to server at: " + getBaseURL(),e);
+}
+ finally {
+if (respBody != null && shouldClose) {
+try {
+respBody.close();
+}
+ catch (IOException e) {
+log.error("",e);
+}
+ finally {
+if (!success) {
+  method.abort();
+}
+}
+}
+}
+}

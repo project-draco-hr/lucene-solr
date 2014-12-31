@@ -1,9 +1,9 @@
 {
   log.info("### STARTING testANewCollectionInOneInstanceWithManualShardAssignement");
   System.clearProperty("numShards");
-  List<SolrServer> collectionClients=new ArrayList<>();
-  SolrServer client=clients.get(0);
-  final String baseUrl=((HttpSolrServer)client).getBaseURL().substring(0,((HttpSolrServer)client).getBaseURL().length() - DEFAULT_COLLECTION.length() - 1);
+  List<SolrClient> collectionClients=new ArrayList<>();
+  SolrClient client=clients.get(0);
+  final String baseUrl=((HttpSolrClient)client).getBaseURL().substring(0,((HttpSolrClient)client).getBaseURL().length() - DEFAULT_COLLECTION.length() - 1);
   createSolrCore(oneInstanceCollection2,collectionClients,baseUrl,1,"slice1");
   createSolrCore(oneInstanceCollection2,collectionClients,baseUrl,2,"slice2");
   createSolrCore(oneInstanceCollection2,collectionClients,baseUrl,3,"slice2");
@@ -12,12 +12,12 @@
     Future<Object> future=completionService.take();
     pending.remove(future);
   }
-  SolrServer client1=collectionClients.get(0);
-  SolrServer client2=collectionClients.get(1);
-  SolrServer client3=collectionClients.get(2);
-  SolrServer client4=collectionClients.get(3);
-  waitForRecoveriesToFinish(oneInstanceCollection2,getCommonCloudSolrServer().getZkStateReader(),false,true);
-  assertAllActive(oneInstanceCollection2,getCommonCloudSolrServer().getZkStateReader());
+  SolrClient client1=collectionClients.get(0);
+  SolrClient client2=collectionClients.get(1);
+  SolrClient client3=collectionClients.get(2);
+  SolrClient client4=collectionClients.get(3);
+  waitForRecoveriesToFinish(oneInstanceCollection2,getCommonCloudSolrClient().getZkStateReader(),false,true);
+  assertAllActive(oneInstanceCollection2,getCommonCloudSolrClient().getZkStateReader());
   client2.add(getDoc(id,"1"));
   client3.add(getDoc(id,"2"));
   client4.add(getDoc(id,"3"));
@@ -30,23 +30,23 @@
   long fourDocs=client4.query(query).getResults().getNumFound();
   query.set("collection",oneInstanceCollection2);
   query.set("distrib",true);
-  long allDocs=getCommonCloudSolrServer().query(query).getResults().getNumFound();
+  long allDocs=getCommonCloudSolrClient().query(query).getResults().getNumFound();
   assertEquals(3,allDocs);
-  ZkStateReader zkStateReader=getCommonCloudSolrServer().getZkStateReader();
+  ZkStateReader zkStateReader=getCommonCloudSolrClient().getZkStateReader();
   zkStateReader.updateClusterState(true);
   Map<String,Slice> slices=zkStateReader.getClusterState().getSlicesMap(oneInstanceCollection2);
   assertNotNull(slices);
   String roles=slices.get("slice1").getReplicasMap().values().iterator().next().getStr(ZkStateReader.ROLES_PROP);
   assertEquals("none",roles);
-  ZkCoreNodeProps props=new ZkCoreNodeProps(getCommonCloudSolrServer().getZkStateReader().getClusterState().getLeader(oneInstanceCollection2,"slice1"));
-  HttpSolrServer server=new HttpSolrServer(baseUrl);
-  server.setConnectionTimeout(15000);
-  server.setSoTimeout(60000);
+  ZkCoreNodeProps props=new ZkCoreNodeProps(getCommonCloudSolrClient().getZkStateReader().getClusterState().getLeader(oneInstanceCollection2,"slice1"));
+  HttpSolrClient unloadClient=new HttpSolrClient(baseUrl);
+  unloadClient.setConnectionTimeout(15000);
+  unloadClient.setSoTimeout(60000);
   Unload unloadCmd=new Unload(true);
   unloadCmd.setCoreName(props.getCoreName());
   String leader=props.getCoreUrl();
-  server.request(unloadCmd);
-  server.shutdown();
+  unloadClient.request(unloadCmd);
+  unloadClient.shutdown();
   int tries=50;
   while (leader.equals(zkStateReader.getLeaderUrl(oneInstanceCollection2,"slice1",10000))) {
     Thread.sleep(100);
@@ -54,7 +54,7 @@
       fail("Leader never changed");
     }
   }
-  for (  SolrServer aClient : collectionClients) {
+  for (  SolrClient aClient : collectionClients) {
     aClient.shutdown();
   }
 }

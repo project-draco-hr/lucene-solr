@@ -1,0 +1,37 @@
+{
+  connect();
+  Map<String,Integer> results=new HashMap<String,Integer>();
+  if (resp instanceof CloudSolrClient.RouteResponse) {
+    NamedList routes=((CloudSolrClient.RouteResponse)resp).getRouteResponses();
+    ClusterState clusterState=zkStateReader.getClusterState();
+    Map<String,String> leaders=new HashMap<String,String>();
+    for (    Slice slice : clusterState.getActiveSlices(collection)) {
+      Replica leader=slice.getLeader();
+      if (leader != null) {
+        ZkCoreNodeProps zkProps=new ZkCoreNodeProps(leader);
+        String leaderUrl=zkProps.getBaseUrl() + "/" + zkProps.getCoreName();
+        leaders.put(leaderUrl,slice.getName());
+        String altLeaderUrl=zkProps.getBaseUrl() + "/" + collection;
+        leaders.put(altLeaderUrl,slice.getName());
+      }
+    }
+    Iterator<Map.Entry<String,Object>> routeIter=routes.iterator();
+    while (routeIter.hasNext()) {
+      Map.Entry<String,Object> next=routeIter.next();
+      String host=next.getKey();
+      NamedList hostResp=(NamedList)next.getValue();
+      Integer rf=(Integer)((NamedList)hostResp.get("responseHeader")).get(UpdateRequest.REPFACT);
+      if (rf != null) {
+        String shard=leaders.get(host);
+        if (shard == null) {
+          if (host.endsWith("/"))           shard=leaders.get(host.substring(0,host.length() - 1));
+          if (shard == null) {
+            shard=host;
+          }
+        }
+        results.put(shard,rf);
+      }
+    }
+  }
+  return results;
+}

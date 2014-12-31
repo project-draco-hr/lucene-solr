@@ -1,6 +1,6 @@
 {
   boolean disableLegacy=random().nextBoolean();
-  CloudSolrServer client1=null;
+  CloudSolrClient client1=null;
   if (disableLegacy) {
     log.info("legacyCloud=false");
     client1=createCloudClient(null);
@@ -11,8 +11,8 @@
   for (int i=0; i < cnt; i++) {
     int numShards=TestUtil.nextInt(random(),0,shardCount) + 1;
     int replicationFactor=TestUtil.nextInt(random(),0,3) + 1;
-    int maxShardsPerNode=(((numShards * replicationFactor) / getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes().size())) + 1;
-    CloudSolrServer client=null;
+    int maxShardsPerNode=(((numShards * replicationFactor) / getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size())) + 1;
+    CloudSolrClient client=null;
     try {
       if (i == 0) {
         client=createCloudClient(null);
@@ -37,7 +37,7 @@
     List<Integer> list=entry.getValue();
     checkForCollection(collection,list,null);
     String url=getUrlFromZk(collection);
-    HttpSolrServer collectionClient=new HttpSolrServer(url);
+    HttpSolrClient collectionClient=new HttpSolrClient(url);
     waitForNon403or404or503(collectionClient);
     collectionClient.shutdown();
   }
@@ -50,7 +50,7 @@
       List<Integer> list=entry.getValue();
       checkForCollection(collection,list,null);
       String url=getUrlFromZk(collection);
-      HttpSolrServer collectionClient=new HttpSolrServer(url);
+      HttpSolrClient collectionClient=new HttpSolrClient(url);
       waitForNon403or404or503(collectionClient);
       collectionClient.shutdown();
     }
@@ -64,7 +64,7 @@
     JettySolrRunner jetty=jettys.get(random().nextInt(jettys.size()));
     ChaosMonkey.causeConnectionLoss(jetty);
   }
-  ZkStateReader zkStateReader=getCommonCloudSolrServer().getZkStateReader();
+  ZkStateReader zkStateReader=getCommonCloudSolrClient().getZkStateReader();
   for (int j=0; j < cnt; j++) {
     waitForRecoveriesToFinish("awholynewcollection_" + j,zkStateReader,false);
     if (secondConfigSet) {
@@ -80,7 +80,7 @@
   collectionNameList.addAll(collectionInfos.keySet());
   String collectionName=collectionNameList.get(random().nextInt(collectionNameList.size()));
   String url=getUrlFromZk(collectionName);
-  HttpSolrServer collectionClient=new HttpSolrServer(url);
+  HttpSolrClient collectionClient=new HttpSolrClient(url);
   SolrInputDocument doc1=getDoc(id,6,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
   SolrInputDocument doc2=getDoc(id,7,i1,-600,tlong,600,t1,"humpty dumpy3 sat on a walls");
   SolrInputDocument doc3=getDoc(id,8,i1,-600,tlong,600,t1,"humpty dumpy2 sat on a walled");
@@ -99,8 +99,8 @@
   params.set("name",collectionName);
   QueryRequest request=new QueryRequest(params);
   request.setPath("/admin/collections");
-  final String baseUrl=getBaseUrl((HttpSolrServer)clients.get(0));
-  createNewSolrServer("",baseUrl).request(request);
+  final String baseUrl=getBaseUrl((HttpSolrClient)clients.get(0));
+  createNewSolrClient("",baseUrl).request(request);
   boolean allTimesAreCorrect=waitForReloads(collectionName,urlToTimeBefore);
   assertTrue("some core start times did not change on reload",allTimesAreCorrect);
   waitForRecoveriesToFinish("awholynewcollection_" + (cnt - 1),zkStateReader,false);
@@ -109,7 +109,7 @@
   params.set("name",collectionName);
   request=new QueryRequest(params);
   request.setPath("/admin/collections");
-  createNewSolrServer("",baseUrl).request(request);
+  createNewSolrClient("",baseUrl).request(request);
   checkForMissingCollection(collectionName);
   params=new ModifiableSolrParams();
   params.set("action",CollectionAction.DELETE.toString());
@@ -118,7 +118,7 @@
   request.setPath("/admin/collections");
   boolean exp=false;
   try {
-    createNewSolrServer("",baseUrl).request(request);
+    createNewSolrClient("",baseUrl).request(request);
   }
  catch (  SolrException e) {
     exp=true;
@@ -135,25 +135,25 @@
   }
   request=new QueryRequest(params);
   request.setPath("/admin/collections");
-  createNewSolrServer("",baseUrl).request(request);
+  createNewSolrClient("",baseUrl).request(request);
   List<Integer> list=new ArrayList<>(2);
   list.add(1);
   list.add(2);
   checkForCollection(collectionName,list,null);
   url=getUrlFromZk(collectionName);
-  collectionClient=new HttpSolrServer(url);
+  collectionClient=new HttpSolrClient(url);
   waitForNon403or404or503(collectionClient);
   collectionClient.shutdown();
   collectionClient=null;
   for (int j=0; j < cnt; j++) {
     waitForRecoveriesToFinish(collectionName,zkStateReader,false);
   }
-  int numLiveNodes=getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes().size();
+  int numLiveNodes=getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size();
   int numShards=(numLiveNodes / 2) + 1;
   int replicationFactor=2;
   int maxShardsPerNode=1;
   collectionInfos=new HashMap<>();
-  CloudSolrServer client=createCloudClient("awholynewcollection_" + cnt);
+  CloudSolrClient client=createCloudClient("awholynewcollection_" + cnt);
   try {
     exp=false;
     try {
@@ -167,12 +167,12 @@
   finally {
     client.shutdown();
   }
-  numLiveNodes=getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes().size();
+  numLiveNodes=getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size();
   List<String> createNodeList=new ArrayList<>();
   int numOfCreateNodes=numLiveNodes / 2;
   assertFalse("createNodeSet test is pointless with only " + numLiveNodes + " nodes running",numOfCreateNodes == 0);
   int i=0;
-  for (  String liveNode : getCommonCloudSolrServer().getZkStateReader().getClusterState().getLiveNodes()) {
+  for (  String liveNode : getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes()) {
     if (i < numOfCreateNodes) {
       createNodeList.add(liveNode);
       i++;

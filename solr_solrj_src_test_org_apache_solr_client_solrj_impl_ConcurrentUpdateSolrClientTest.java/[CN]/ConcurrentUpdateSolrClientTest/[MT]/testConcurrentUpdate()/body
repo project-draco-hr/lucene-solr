@@ -1,0 +1,39 @@
+{
+  TestServlet.clear();
+  String serverUrl=jetty.getBaseUrl().toString() + "/cuss/foo";
+  int cussThreadCount=2;
+  int cussQueueSize=100;
+  final AtomicInteger successCounter=new AtomicInteger(0);
+  final AtomicInteger errorCounter=new AtomicInteger(0);
+  final StringBuilder errors=new StringBuilder();
+  @SuppressWarnings("serial") ConcurrentUpdateSolrClient concurrentClient=new ConcurrentUpdateSolrClient(serverUrl,cussQueueSize,cussThreadCount){
+    @Override public void handleError(    Throwable ex){
+      errorCounter.incrementAndGet();
+      errors.append(" " + ex);
+    }
+    @Override public void onSuccess(    HttpResponse resp){
+      successCounter.incrementAndGet();
+    }
+  }
+;
+  concurrentClient.setParser(new BinaryResponseParser());
+  concurrentClient.setRequestWriter(new BinaryRequestWriter());
+  concurrentClient.setPollQueueTime(0);
+  concurrentClient.blockUntilFinished();
+  int poolSize=5;
+  ExecutorService threadPool=Executors.newFixedThreadPool(poolSize,new SolrjNamedThreadFactory("testCUSS"));
+  int numDocs=100;
+  int numRunnables=5;
+  for (int r=0; r < numRunnables; r++)   threadPool.execute(new SendDocsRunnable(String.valueOf(r),numDocs,concurrentClient));
+  threadPool.awaitTermination(5,TimeUnit.SECONDS);
+  threadPool.shutdown();
+  concurrentClient.blockUntilFinished();
+  concurrentClient.shutdownNow();
+  assertEquals("post",TestServlet.lastMethod);
+  int expectedSuccesses=TestServlet.numReqsRcvd.get();
+  assertTrue(expectedSuccesses > 0);
+  assertTrue("Expected no errors but got " + errorCounter.get() + ", due to: "+ errors.toString(),errorCounter.get() == 0);
+  assertTrue("Expected " + expectedSuccesses + " successes, but got "+ successCounter.get(),successCounter.get() == expectedSuccesses);
+  int expectedDocs=numDocs * numRunnables;
+  assertTrue("Expected CUSS to send " + expectedDocs + " but got "+ TestServlet.numDocsRcvd.get(),TestServlet.numDocsRcvd.get() == expectedDocs);
+}
