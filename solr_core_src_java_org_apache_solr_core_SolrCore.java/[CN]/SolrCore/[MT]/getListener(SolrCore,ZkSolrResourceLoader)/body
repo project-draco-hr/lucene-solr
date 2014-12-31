@@ -15,8 +15,8 @@
       SolrZkClient zkClient=cc.getZkController().getZkClient();
       int solrConfigversion, overlayVersion, managedSchemaVersion=0;
       SolrConfig cfg=null;
-      try (SolrCore core=cc.getCore(coreName)){
-        if (core.isClosed())         return;
+      try (SolrCore core=cc.solrCores.getCoreFromAnyList(coreName,true)){
+        if (core == null || core.isClosed())         return;
         cfg=core.getSolrConfig();
         solrConfigversion=core.getSolrConfig().getOverlay().getZnodeVersion();
         overlayVersion=core.getSolrConfig().getZnodeVersion();
@@ -30,8 +30,20 @@
       if (checkStale(zkClient,overlayPath,solrConfigversion) || checkStale(zkClient,solrConfigPath,overlayVersion) || checkStale(zkClient,managedSchmaResourcePath,managedSchemaVersion)) {
         log.info("core reload {}",coreName);
         cc.reload(coreName);
+        return;
       }
-    }
+      try (SolrCore core=cc.solrCores.getCoreFromAnyList(coreName,true)){
+        if (core == null || core.isClosed())         return;
+        for (        Runnable listener : core.confListeners) {
+          try {
+            listener.run();
+          }
+ catch (          Exception e) {
+            log.error("Error in listener ",e);
+          }
+        }
+      }
+     }
   }
 ;
 }
