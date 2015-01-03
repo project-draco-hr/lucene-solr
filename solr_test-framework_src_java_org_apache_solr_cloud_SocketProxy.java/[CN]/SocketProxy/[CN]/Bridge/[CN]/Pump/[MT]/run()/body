@@ -1,16 +1,31 @@
 {
   byte[] buf=new byte[1024];
   try {
-    InputStream in=src.getInputStream();
-    OutputStream out=destination.getOutputStream();
+    src.setSoTimeout(10 * 1000);
+  }
+ catch (  SocketException e) {
+    log.error("Failed to set socket timeout on " + src + " due to: "+ e);
+    throw new RuntimeException(e);
+  }
+  InputStream in=null;
+  OutputStream out=null;
+  try {
+    in=src.getInputStream();
+    out=destination.getOutputStream();
     while (true) {
-      int len=in.read(buf);
+      int len=-1;
+      try {
+        len=in.read(buf);
+      }
+ catch (      SocketTimeoutException ste) {
+        log.warn(ste + " when reading from " + src);
+      }
       if (len == -1) {
         log.debug("read eof from:" + src);
         break;
       }
       pause.get().await();
-      out.write(buf,0,len);
+      if (len > 0)       out.write(buf,0,len);
     }
   }
  catch (  Exception e) {
@@ -21,6 +36,24 @@
       }
     }
  catch (    Exception ignore) {
+    }
+  }
+ finally {
+    if (in != null) {
+      try {
+        in.close();
+      }
+ catch (      Exception exc) {
+        log.debug(exc + " when closing InputStream on socket: " + src);
+      }
+    }
+    if (out != null) {
+      try {
+        out.close();
+      }
+ catch (      Exception exc) {
+        log.debug(exc + " when closing OutputStream on socket: " + destination);
+      }
     }
   }
 }
