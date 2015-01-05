@@ -1,56 +1,53 @@
 {
   this.context=context;
-  server=new Server(port);
   this.solrHome=solrHome;
   this.stopAtShutdown=stopAtShutdown;
-  server.setStopAtShutdown(stopAtShutdown);
-  if (!stopAtShutdown) {
-    server.setGracefulShutdown(0);
-  }
   System.setProperty("solr.solr.home",solrHome);
   if (System.getProperty("jetty.testMode") != null) {
-    final String connectorName=System.getProperty("tests.jettyConnector","SelectChannel");
     final boolean useSsl=sslConfig == null ? false : sslConfig.isSSLMode();
     final SslContextFactory sslcontext=new SslContextFactory(false);
     sslInit(useSsl,sslcontext);
-    final Connector connector;
-    if ("SelectChannel".equals(connectorName)) {
-      final SelectChannelConnector c=useSsl ? new SslSelectChannelConnector(sslcontext) : new SelectChannelConnector();
-      c.setReuseAddress(true);
-      c.setLowResourcesMaxIdleTime(1500);
-      c.setSoLingerTime(0);
-      connector=c;
-    }
- else     if ("Socket".equals(connectorName)) {
-      final SocketConnector c=useSsl ? new SslSocketConnector(sslcontext) : new SocketConnector();
-      c.setReuseAddress(true);
-      c.setSoLingerTime(0);
-      connector=c;
-    }
- else {
-      throw new IllegalArgumentException("Illegal value for system property 'tests.jettyConnector': " + connectorName);
-    }
-    connector.setPort(port);
-    connector.setHost("127.0.0.1");
     QueuedThreadPool qtp=new QueuedThreadPool();
     qtp.setMaxThreads(10000);
-    qtp.setMaxIdleTimeMs((int)TimeUnit.MILLISECONDS.toMillis(200));
-    qtp.setMaxStopTimeMs((int)TimeUnit.MINUTES.toMillis(1));
-    server.setThreadPool(qtp);
+    qtp.setIdleTimeout((int)TimeUnit.SECONDS.toMillis(5));
+    qtp.setStopTimeout((int)TimeUnit.MINUTES.toMillis(1));
+    server=new Server(qtp);
+    server.setStopAtShutdown(stopAtShutdown);
+    server.manage(qtp);
+    ServerConnector connector;
+    if (useSsl) {
+      HttpConfiguration configuration=new HttpConfiguration();
+      configuration.setSecureScheme("https");
+      configuration.addCustomizer(new SecureRequestCustomizer());
+      connector=new ServerConnector(server,new SslConnectionFactory(sslcontext,"http/1.1"),new HttpConnectionFactory(configuration));
+    }
+ else {
+      connector=new ServerConnector(server,new HttpConnectionFactory());
+    }
+    connector.setReuseAddress(true);
+    connector.setSoLingerTime(0);
+    connector.setPort(port);
+    connector.setHost("127.0.0.1");
+    LowResourceMonitor lowResources=new LowResourceMonitor(server);
+    lowResources.setLowResourcesIdleTimeout(1500);
+    lowResources.setMaxConnections(10000);
+    server.addBean(lowResources);
     server.setConnectors(new Connector[]{connector});
     server.setSessionIdManager(new HashSessionIdManager(new Random()));
   }
  else {
-    if (server.getThreadPool() == null) {
-      QueuedThreadPool qtp=new QueuedThreadPool();
-      qtp.setMaxThreads(10000);
-      qtp.setMaxIdleTimeMs((int)TimeUnit.SECONDS.toMillis(5));
-      qtp.setMaxStopTimeMs((int)TimeUnit.SECONDS.toMillis(1));
-      server.setThreadPool(qtp);
-    }
+    ServerConnector connector=new ServerConnector(server,new HttpConnectionFactory());
+    connector.setPort(port);
+    QueuedThreadPool qtp=new QueuedThreadPool();
+    qtp.setMaxThreads(10000);
+    qtp.setIdleTimeout((int)TimeUnit.SECONDS.toMillis(5));
+    qtp.setStopTimeout((int)TimeUnit.SECONDS.toMillis(1));
+    server=new Server(qtp);
+    server.setStopAtShutdown(stopAtShutdown);
+    server.manage(qtp);
   }
   final ServletContextHandler root=new ServletContextHandler(server,context,ServletContextHandler.SESSIONS);
-  root.setHandler(new GzipHandler());
+  root.addFilter(GzipFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
   server.addLifeCycleListener(new LifeCycle.Listener(){
     @Override public void lifeCycleStopping(    LifeCycle arg0){
       System.clearProperty("hostPort");
@@ -75,11 +72,11 @@ synchronized (JettySolrRunner.this) {
           extraFilters.add(root.addFilter(filterClass,extraRequestFilters.get(filterClass),EnumSet.of(DispatcherType.REQUEST)));
         }
       }
-      dispatchFilter=root.addFilter(SolrDispatchFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
       for (      ServletHolder servletHolder : extraServlets.keySet()) {
         String pathSpec=extraServlets.get(servletHolder);
         root.addServlet(servletHolder,pathSpec);
       }
+      dispatchFilter=root.addFilter(SolrDispatchFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
       if (solrConfigFilename != null)       System.clearProperty("solrconfig");
       if (schemaFilename != null)       System.clearProperty("schema");
       System.clearProperty("solr.solr.home");

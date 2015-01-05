@@ -1,7 +1,4 @@
 {
-  Server server=new Server(0);
-  server.setHandler(handler);
-  final String connectorName=System.getProperty("tests.jettyConnector","SelectChannel");
   final boolean useSsl=Boolean.getBoolean("tests.jettySsl");
   final SslContextFactory sslcontext=new SslContextFactory(false);
   if (useSsl) {
@@ -12,41 +9,38 @@
       sslcontext.setKeyStorePassword(System.getProperty("javax.net.ssl.keyStorePassword"));
     }
     if (null != System.getProperty("javax.net.ssl.trustStore")) {
-      sslcontext.setTrustStore(System.getProperty("javax.net.ssl.trustStore"));
+      sslcontext.setKeyStorePath(System.getProperty("javax.net.ssl.trustStore"));
     }
     if (null != System.getProperty("javax.net.ssl.trustStorePassword")) {
       sslcontext.setTrustStorePassword(System.getProperty("javax.net.ssl.trustStorePassword"));
     }
     sslcontext.setNeedClientAuth(Boolean.getBoolean("tests.jettySsl.clientAuth"));
   }
-  final Connector connector;
-  final QueuedThreadPool threadPool;
-  if ("SelectChannel".equals(connectorName)) {
-    final SelectChannelConnector c=useSsl ? new SslSelectChannelConnector(sslcontext) : new SelectChannelConnector();
-    c.setReuseAddress(true);
-    c.setLowResourcesMaxIdleTime(1500);
+  final QueuedThreadPool threadPool=new QueuedThreadPool();
+  threadPool.setDaemon(true);
+  threadPool.setMaxThreads(10000);
+  threadPool.setIdleTimeout(5000);
+  threadPool.setStopTimeout(30000);
+  Server server=new Server(threadPool);
+  server.setStopAtShutdown(true);
+  server.manage(threadPool);
+  final ServerConnector connector;
+  if (useSsl) {
+    HttpConfiguration configuration=new HttpConfiguration();
+    configuration.setSecureScheme("https");
+    configuration.addCustomizer(new SecureRequestCustomizer());
+    ServerConnector c=new ServerConnector(server,new SslConnectionFactory(sslcontext,"http/1.1"),new HttpConnectionFactory(configuration));
     connector=c;
-    threadPool=(QueuedThreadPool)c.getThreadPool();
-  }
- else   if ("Socket".equals(connectorName)) {
-    final SocketConnector c=useSsl ? new SslSocketConnector(sslcontext) : new SocketConnector();
-    c.setReuseAddress(true);
-    connector=c;
-    threadPool=(QueuedThreadPool)c.getThreadPool();
   }
  else {
-    throw new IllegalArgumentException("Illegal value for system property 'tests.jettyConnector': " + connectorName);
+    ServerConnector c=new ServerConnector(server,new HttpConnectionFactory());
+    connector=c;
   }
   connector.setPort(0);
   connector.setHost("127.0.0.1");
-  if (threadPool != null) {
-    threadPool.setDaemon(true);
-    threadPool.setMaxThreads(10000);
-    threadPool.setMaxIdleTimeMs(5000);
-    threadPool.setMaxStopTimeMs(30000);
-  }
   server.setConnectors(new Connector[]{connector});
   server.setSessionIdManager(new HashSessionIdManager(new Random(random().nextLong())));
+  server.setHandler(handler);
   server.start();
   return server;
 }
