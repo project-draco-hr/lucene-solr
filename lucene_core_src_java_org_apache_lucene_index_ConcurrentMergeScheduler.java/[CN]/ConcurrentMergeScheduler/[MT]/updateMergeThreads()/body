@@ -7,40 +7,82 @@
       mergeThreads.remove(threadIdx);
       continue;
     }
-    if (mergeThread.getCurrentMerge() != null) {
-      activeMerges.add(mergeThread);
-    }
+    activeMerges.add(mergeThread);
     threadIdx++;
   }
-  CollectionUtil.timSort(activeMerges,compareByMergeDocCount);
-  int pri=mergeThreadPriority;
+  CollectionUtil.timSort(activeMerges);
   final int activeMergeCount=activeMerges.size();
-  for (threadIdx=0; threadIdx < activeMergeCount; threadIdx++) {
-    final MergeThread mergeThread=activeMerges.get(threadIdx);
-    final MergePolicy.OneMerge merge=mergeThread.getCurrentMerge();
-    if (merge == null) {
-      continue;
+  int bigMergeCount=0;
+  for (threadIdx=activeMergeCount - 1; threadIdx >= 0; threadIdx--) {
+    MergeThread mergeThread=activeMerges.get(threadIdx);
+    if (mergeThread.merge.estimatedMergeBytes > MIN_BIG_MERGE_MB * 1024 * 1024) {
+      bigMergeCount=1 + threadIdx;
+      break;
     }
-    final boolean doPause=threadIdx < activeMergeCount - maxThreadCount;
+  }
+  long now=System.nanoTime();
+  StringBuilder message;
+  if (verbose()) {
+    message=new StringBuilder();
+    message.append(String.format(Locale.ROOT,"updateMergeThreads ioThrottle=%s targetMBPerSec=%.1f MB/sec",doAutoIOThrottle,targetMBPerSec));
+  }
+ else {
+    message=null;
+  }
+  for (threadIdx=0; threadIdx < activeMergeCount; threadIdx++) {
+    MergeThread mergeThread=activeMerges.get(threadIdx);
+    OneMerge merge=mergeThread.merge;
+    final boolean doPause=threadIdx < bigMergeCount - maxThreadCount;
+    double newMBPerSec;
+    if (doPause) {
+      newMBPerSec=0.0;
+    }
+ else     if (merge.maxNumSegments != -1) {
+      newMBPerSec=forceMergeMBPerSec;
+    }
+ else     if (doAutoIOThrottle == false) {
+      newMBPerSec=Double.POSITIVE_INFINITY;
+    }
+ else     if (merge.estimatedMergeBytes < MIN_BIG_MERGE_MB * 1024 * 1024) {
+      newMBPerSec=Double.POSITIVE_INFINITY;
+    }
+ else {
+      newMBPerSec=targetMBPerSec;
+    }
+    double curMBPerSec=merge.rateLimiter.getMBPerSec();
     if (verbose()) {
-      if (doPause != merge.getPause()) {
-        if (doPause) {
-          message("pause thread " + mergeThread.getName());
+      long mergeStartNS=merge.mergeStartNS;
+      if (mergeStartNS == -1) {
+        mergeStartNS=now;
+      }
+      message.append('\n');
+      message.append(String.format(Locale.ROOT,"merge thread %s estSize=%.1f MB (written=%.1f MB) runTime=%.1fs (stopped=%.1fs, paused=%.1fs) rate=%s\n",mergeThread.getName(),bytesToMB(merge.estimatedMergeBytes),bytesToMB(merge.rateLimiter.totalBytesWritten),nsToSec(now - mergeStartNS),nsToSec(merge.rateLimiter.getTotalStoppedNS()),nsToSec(merge.rateLimiter.getTotalPausedNS()),rateToString(merge.rateLimiter.getMBPerSec())));
+      if (newMBPerSec != curMBPerSec) {
+        if (newMBPerSec == 0.0) {
+          message.append("  now stop");
+        }
+ else         if (curMBPerSec == 0.0) {
+          if (newMBPerSec == Double.POSITIVE_INFINITY) {
+            message.append("  now resume");
+          }
+ else {
+            message.append(String.format(Locale.ROOT,"  now resume to %.1f MB/sec",newMBPerSec));
+          }
         }
  else {
-          message("unpause thread " + mergeThread.getName());
+          message.append(String.format(Locale.ROOT,"  now change from %.1f MB/sec to %.1f MB/sec",curMBPerSec,newMBPerSec));
         }
       }
-    }
-    if (doPause != merge.getPause()) {
-      merge.setPause(doPause);
-    }
-    if (!doPause) {
-      if (verbose()) {
-        message("set priority of merge thread " + mergeThread.getName() + " to "+ pri);
+ else       if (curMBPerSec == 0.0) {
+        message.append("  leave stopped");
       }
-      mergeThread.setThreadPriority(pri);
-      pri=Math.min(Thread.MAX_PRIORITY,1 + pri);
+ else {
+        message.append(String.format(Locale.ROOT,"  leave running at %.1f MB/sec",curMBPerSec));
+      }
     }
+    merge.rateLimiter.setMBPerSec(newMBPerSec);
+  }
+  if (verbose()) {
+    message(message.toString());
   }
 }

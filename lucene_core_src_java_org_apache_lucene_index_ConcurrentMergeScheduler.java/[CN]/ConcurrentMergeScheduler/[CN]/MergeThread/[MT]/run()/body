@@ -1,39 +1,30 @@
 {
-  MergePolicy.OneMerge merge=this.startMerge;
   try {
     if (verbose()) {
       message("  merge thread: start");
     }
-    while (true) {
-      setRunningMerge(merge);
-      doMerge(merge);
-      merge=tWriter.getNextMerge();
-synchronized (ConcurrentMergeScheduler.this) {
-        ConcurrentMergeScheduler.this.notifyAll();
-      }
-      if (merge != null) {
-        updateMergeThreads();
-        if (verbose()) {
-          message("  merge thread: do another merge " + tWriter.segString(merge.segments));
-        }
-      }
- else {
-        break;
-      }
-    }
+    doMerge(writer,merge);
     if (verbose()) {
       message("  merge thread: done");
     }
+    removeMergeThread(this);
+    try {
+      merge(writer,MergeTrigger.MERGE_FINISHED,true);
+    }
+ catch (    AlreadyClosedException ace) {
+    }
+catch (    IOException ioe) {
+      throw new RuntimeException(ioe);
+    }
   }
  catch (  Throwable exc) {
-    if (!(exc instanceof MergePolicy.MergeAbortedException)) {
-      if (!suppressExceptions) {
-        handleMergeException(exc);
-      }
+    if (exc instanceof MergePolicy.MergeAbortedException) {
+    }
+ else     if (suppressExceptions == false) {
+      handleMergeException(writer.getDirectory(),exc);
     }
   }
  finally {
-    done=true;
 synchronized (ConcurrentMergeScheduler.this) {
       updateMergeThreads();
       ConcurrentMergeScheduler.this.notifyAll();

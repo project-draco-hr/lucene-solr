@@ -1,0 +1,40 @@
+{
+  String dataFile=IndexFileNames.segmentFileName(si.name,"",DATA_EXTENSION);
+  int numFiles=files.size();
+  String names[]=files.toArray(new String[numFiles]);
+  Arrays.sort(names);
+  long startOffsets[]=new long[numFiles];
+  long endOffsets[]=new long[numFiles];
+  BytesRefBuilder scratch=new BytesRefBuilder();
+  try (IndexOutput out=dir.createOutput(dataFile,context)){
+    for (int i=0; i < names.length; i++) {
+      SimpleTextUtil.write(out,HEADER);
+      SimpleTextUtil.write(out,names[i],scratch);
+      SimpleTextUtil.writeNewline(out);
+      startOffsets[i]=out.getFilePointer();
+      try (IndexInput in=dir.openInput(names[i],IOContext.READONCE)){
+        out.copyBytes(in,in.length());
+      }
+       endOffsets[i]=out.getFilePointer();
+    }
+    long tocPos=out.getFilePointer();
+    SimpleTextUtil.write(out,TABLE);
+    SimpleTextUtil.write(out,Integer.toString(numFiles),scratch);
+    SimpleTextUtil.writeNewline(out);
+    for (int i=0; i < names.length; i++) {
+      SimpleTextUtil.write(out,TABLENAME);
+      SimpleTextUtil.write(out,names[i],scratch);
+      SimpleTextUtil.writeNewline(out);
+      SimpleTextUtil.write(out,TABLESTART);
+      SimpleTextUtil.write(out,Long.toString(startOffsets[i]),scratch);
+      SimpleTextUtil.writeNewline(out);
+      SimpleTextUtil.write(out,TABLEEND);
+      SimpleTextUtil.write(out,Long.toString(endOffsets[i]),scratch);
+      SimpleTextUtil.writeNewline(out);
+    }
+    DecimalFormat df=new DecimalFormat(OFFSETPATTERN,DecimalFormatSymbols.getInstance(Locale.ROOT));
+    SimpleTextUtil.write(out,TABLEPOS);
+    SimpleTextUtil.write(out,df.format(tocPos),scratch);
+    SimpleTextUtil.writeNewline(out);
+  }
+ }

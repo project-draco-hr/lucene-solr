@@ -1,0 +1,61 @@
+{
+  if (doAutoIOThrottle == false) {
+    return;
+  }
+  double mergeMB=bytesToMB(merge.estimatedMergeBytes);
+  if (mergeMB < MIN_BIG_MERGE_MB) {
+    return;
+  }
+  long now=System.nanoTime();
+  boolean newBacklog=isBacklog(now,merge);
+  boolean curBacklog=false;
+  if (newBacklog == false) {
+    if (mergeThreads.size() > maxThreadCount) {
+      curBacklog=true;
+    }
+ else {
+      for (      MergeThread mergeThread : mergeThreads) {
+        if (isBacklog(now,mergeThread.merge)) {
+          curBacklog=true;
+          break;
+        }
+      }
+    }
+  }
+  double curMBPerSec=targetMBPerSec;
+  if (newBacklog) {
+    targetMBPerSec*=1.20;
+    if (targetMBPerSec > 10000) {
+      targetMBPerSec=10000;
+    }
+    if (verbose()) {
+      if (curMBPerSec == targetMBPerSec) {
+        message(String.format(Locale.ROOT,"io throttle: new merge backlog; leave IO rate at ceiling %.1f MB/sec",targetMBPerSec));
+      }
+ else {
+        message(String.format(Locale.ROOT,"io throttle: new merge backlog; increase IO rate to %.1f MB/sec",targetMBPerSec));
+      }
+    }
+  }
+ else   if (curBacklog) {
+    if (verbose()) {
+      message(String.format(Locale.ROOT,"io throttle: current merge backlog; leave IO rate at %.1f MB/sec",targetMBPerSec));
+    }
+  }
+ else {
+    targetMBPerSec/=1.10;
+    if (targetMBPerSec < MIN_MERGE_MB_PER_SEC) {
+      targetMBPerSec=MIN_MERGE_MB_PER_SEC;
+    }
+    if (verbose()) {
+      if (curMBPerSec == targetMBPerSec) {
+        message(String.format(Locale.ROOT,"io throttle: no merge backlog; leave IO rate at floor %.1f MB/sec",targetMBPerSec));
+      }
+ else {
+        message(String.format(Locale.ROOT,"io throttle: no merge backlog; decrease IO rate to %.1f MB/sec",targetMBPerSec));
+      }
+    }
+  }
+  targetMBPerSecChanged();
+  updateMergeThreads();
+}
