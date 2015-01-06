@@ -4,13 +4,12 @@
   }
   SolrIndexSearcher tmp;
   RefCounted<SolrIndexSearcher> newestSearcher=null;
-  boolean nrt=solrConfig.nrtMode && updateHandlerReopens;
   openSearcherLock.lock();
   try {
     String newIndexDir=getNewIndexDir();
     String indexDirFile=null;
     String newIndexDirFile=null;
-    if (!nrt) {
+    if (!updateHandlerReopens) {
       indexDirFile=getDirectoryFactory().normalize(getIndexDir());
       newIndexDirFile=getDirectoryFactory().normalize(newIndexDir);
     }
@@ -20,12 +19,12 @@ synchronized (searcherLock) {
         newestSearcher.incref();
       }
     }
-    if (newestSearcher != null && (nrt || indexDirFile.equals(newIndexDirFile))) {
+    if (newestSearcher != null && (updateHandlerReopens || indexDirFile.equals(newIndexDirFile))) {
       DirectoryReader newReader;
       DirectoryReader currentReader=newestSearcher.get().getRawReader();
       RefCounted<IndexWriter> writer=getUpdateHandler().getSolrCoreState().getIndexWriter(null);
       try {
-        if (writer != null && solrConfig.nrtMode) {
+        if (writer != null) {
           newReader=DirectoryReader.openIfChanged(currentReader,writer.get(),true);
         }
  else {
@@ -59,7 +58,7 @@ synchronized (searcherLock) {
         DirectoryReader newReader=newReaderCreator.call();
         tmp=new SolrIndexSearcher(this,newIndexDir,getLatestSchema(),(realtime ? "realtime" : "main"),newReader,true,!realtime,true,directoryFactory);
       }
- else       if (solrConfig.nrtMode) {
+ else {
         RefCounted<IndexWriter> writer=getUpdateHandler().getSolrCoreState().getIndexWriter(this);
         DirectoryReader newReader=null;
         try {
@@ -69,9 +68,6 @@ synchronized (searcherLock) {
           writer.decref();
         }
         tmp=new SolrIndexSearcher(this,newIndexDir,getLatestSchema(),(realtime ? "realtime" : "main"),newReader,true,!realtime,true,directoryFactory);
-      }
- else {
-        tmp=new SolrIndexSearcher(this,newIndexDir,getLatestSchema(),getSolrConfig().indexConfig,"main",true,directoryFactory);
       }
     }
     List<RefCounted<SolrIndexSearcher>> searcherList=realtime ? _realtimeSearchers : _searchers;
