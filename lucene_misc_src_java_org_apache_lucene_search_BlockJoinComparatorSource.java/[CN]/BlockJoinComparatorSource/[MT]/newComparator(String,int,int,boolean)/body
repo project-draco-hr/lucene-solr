@@ -18,7 +18,9 @@
   return new FieldComparator<Integer>(){
     int bottomParent;
     int bottomChild;
-    FixedBitSet parentBits;
+    BitSet parentBits;
+    LeafFieldComparator[] parentLeafComparators;
+    LeafFieldComparator[] childLeafComparators;
     @Override public int compare(    int slot1,    int slot2){
       try {
         return compare(childSlots[slot1],parentSlots[slot1],childSlots[slot2],parentSlots[slot2]);
@@ -27,51 +29,57 @@
         throw new RuntimeException(e);
       }
     }
-    @Override public void setBottom(    int slot){
-      bottomParent=parentSlots[slot];
-      bottomChild=childSlots[slot];
-    }
     @Override public void setTopValue(    Integer value){
       throw new UnsupportedOperationException("this comparator cannot be used with deep paging");
     }
-    @Override public int compareBottom(    int doc) throws IOException {
-      return compare(bottomChild,bottomParent,doc,parent(doc));
-    }
-    @Override public int compareTop(    int doc) throws IOException {
-      throw new UnsupportedOperationException("this comparator cannot be used with deep paging");
-    }
-    @Override public void copy(    int slot,    int doc) throws IOException {
-      childSlots[slot]=doc;
-      parentSlots[slot]=parent(doc);
-    }
-    @Override public FieldComparator<Integer> setNextReader(    LeafReaderContext context) throws IOException {
+    @Override public LeafFieldComparator getLeafComparator(    LeafReaderContext context) throws IOException {
+      if (parentBits != null) {
+        throw new IllegalStateException("This comparator can only be used on a single segment");
+      }
       final DocIdSet parents=parentsFilter.getDocIdSet(context,null);
       if (parents == null) {
         throw new IllegalStateException("LeafReader " + context.reader() + " contains no parents!");
       }
-      if (!(parents instanceof BitDocIdSet)) {
-        throw new IllegalStateException("parentFilter must return FixedBitSet; got " + parents);
+      if (parents instanceof BitDocIdSet == false) {
+        throw new IllegalStateException("parentFilter must return BitSet; got " + parents);
       }
-      parentBits=(FixedBitSet)parents.bits();
+      parentBits=(BitSet)parents.bits();
+      parentLeafComparators=new LeafFieldComparator[parentComparators.length];
       for (int i=0; i < parentComparators.length; i++) {
-        parentComparators[i]=parentComparators[i].setNextReader(context);
+        parentLeafComparators[i]=parentComparators[i].getLeafComparator(context);
       }
+      childLeafComparators=new LeafFieldComparator[childComparators.length];
       for (int i=0; i < childComparators.length; i++) {
-        childComparators[i]=childComparators[i].setNextReader(context);
+        childLeafComparators[i]=childComparators[i].getLeafComparator(context);
       }
-      return this;
+      return new LeafFieldComparator(){
+        @Override public int compareBottom(        int doc) throws IOException {
+          return compare(bottomChild,bottomParent,doc,parent(doc));
+        }
+        @Override public int compareTop(        int doc) throws IOException {
+          throw new UnsupportedOperationException("this comparator cannot be used with deep paging");
+        }
+        @Override public void copy(        int slot,        int doc) throws IOException {
+          childSlots[slot]=doc;
+          parentSlots[slot]=parent(doc);
+        }
+        @Override public void setBottom(        int slot){
+          bottomParent=parentSlots[slot];
+          bottomChild=childSlots[slot];
+        }
+        @Override public void setScorer(        Scorer scorer){
+          for (          LeafFieldComparator comp : parentLeafComparators) {
+            comp.setScorer(scorer);
+          }
+          for (          LeafFieldComparator comp : childLeafComparators) {
+            comp.setScorer(scorer);
+          }
+        }
+      }
+;
     }
     @Override public Integer value(    int slot){
       throw new UnsupportedOperationException("filling sort field values is not yet supported");
-    }
-    @Override public void setScorer(    Scorer scorer){
-      super.setScorer(scorer);
-      for (      FieldComparator<?> comp : parentComparators) {
-        comp.setScorer(scorer);
-      }
-      for (      FieldComparator<?> comp : childComparators) {
-        comp.setScorer(scorer);
-      }
     }
     int parent(    int doc){
       return parentBits.nextSetBit(doc);
@@ -82,11 +90,11 @@
           return docID1 - docID2;
         }
  else {
-          return compare(docID1,docID2,childComparators,childReverseMul);
+          return compare(docID1,docID2,childLeafComparators,childReverseMul);
         }
       }
  else {
-        int cmp=compare(parent1,parent2,parentComparators,parentReverseMul);
+        int cmp=compare(parent1,parent2,parentLeafComparators,parentReverseMul);
         if (cmp == 0) {
           return parent1 - parent2;
         }
@@ -95,7 +103,7 @@
         }
       }
     }
-    int compare(    int docID1,    int docID2,    FieldComparator<?> comparators[],    int reverseMul[]) throws IOException {
+    int compare(    int docID1,    int docID2,    LeafFieldComparator comparators[],    int reverseMul[]) throws IOException {
       for (int i=0; i < comparators.length; i++) {
         comparators[i].copy(0,docID1);
         comparators[i].setBottom(0);

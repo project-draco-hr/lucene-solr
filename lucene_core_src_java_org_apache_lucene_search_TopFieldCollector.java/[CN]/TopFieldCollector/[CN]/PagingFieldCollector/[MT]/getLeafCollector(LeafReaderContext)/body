@@ -1,0 +1,51 @@
+{
+  docBase=context.docBase;
+  final int afterDoc=after.doc - docBase;
+  return new MultiComparatorLeafCollector(queue.getComparators(context),queue.getReverseMul()){
+    @Override public void collect(    int doc) throws IOException {
+      totalHits++;
+      float score=Float.NaN;
+      if (trackMaxScore) {
+        score=scorer.score();
+        if (score > maxScore) {
+          maxScore=score;
+        }
+      }
+      if (queueFull) {
+        final int cmp=compareBottom(doc);
+        if (cmp < 0 || (cmp == 0 && doc + docBase > bottom.doc)) {
+          return;
+        }
+      }
+      final int topCmp=compareTop(doc);
+      if (topCmp > 0 || (topCmp == 0 && doc <= afterDoc)) {
+        return;
+      }
+      if (queueFull) {
+        copy(bottom.slot,doc);
+        if (trackDocScores && !trackMaxScore) {
+          score=scorer.score();
+        }
+        updateBottom(doc,score);
+        setBottom(bottom.slot);
+      }
+ else {
+        collectedHits++;
+        final int slot=collectedHits - 1;
+        copy(slot,doc);
+        if (trackDocScores && !trackMaxScore) {
+          score=scorer.score();
+        }
+        bottom=pq.add(new Entry(slot,docBase + doc,score));
+        queueFull=collectedHits == numHits;
+        if (queueFull) {
+          setBottom(bottom.slot);
+        }
+      }
+    }
+    @Override public boolean acceptsDocsOutOfOrder(){
+      return true;
+    }
+  }
+;
+}

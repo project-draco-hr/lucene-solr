@@ -1,0 +1,65 @@
+{
+  docBase=context.docBase;
+  final LeafFieldComparator[] comparators=queue.getComparators(context);
+  final int[] reverseMul=queue.getReverseMul();
+  if (comparators.length == 1) {
+    return new OneComparatorLeafCollector(comparators[0],reverseMul[0]){
+      @Override public void collect(      int doc) throws IOException {
+        ++totalHits;
+        if (queueFull) {
+          final int cmp=reverseMul * comparator.compareBottom(doc);
+          if (cmp < 0 || (cmp == 0 && doc + docBase > bottom.doc)) {
+            return;
+          }
+          final float score=scorer.score();
+          comparator.copy(bottom.slot,doc);
+          updateBottom(doc,score);
+          comparator.setBottom(bottom.slot);
+        }
+ else {
+          final float score=scorer.score();
+          final int slot=totalHits - 1;
+          comparator.copy(slot,doc);
+          add(slot,doc,score);
+          if (queueFull) {
+            comparator.setBottom(bottom.slot);
+          }
+        }
+      }
+      @Override public boolean acceptsDocsOutOfOrder(){
+        return true;
+      }
+    }
+;
+  }
+ else {
+    return new MultiComparatorLeafCollector(comparators,reverseMul){
+      @Override public void collect(      int doc) throws IOException {
+        ++totalHits;
+        if (queueFull) {
+          final int cmp=compareBottom(doc);
+          if (cmp < 0 || (cmp == 0 && doc + docBase > bottom.doc)) {
+            return;
+          }
+          final float score=scorer.score();
+          copy(bottom.slot,doc);
+          updateBottom(doc,score);
+          setBottom(bottom.slot);
+        }
+ else {
+          final float score=scorer.score();
+          final int slot=totalHits - 1;
+          copy(slot,doc);
+          add(slot,doc,score);
+          if (queueFull) {
+            setBottom(bottom.slot);
+          }
+        }
+      }
+      @Override public boolean acceptsDocsOutOfOrder(){
+        return true;
+      }
+    }
+;
+  }
+}
