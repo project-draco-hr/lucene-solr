@@ -1,0 +1,87 @@
+{
+  ensureOpen();
+  int numDocs=0;
+  try {
+    if (infoStream.isEnabled("IW")) {
+      infoStream.message("IW","flush at addIndexes(CodecReader...)");
+    }
+    flush(false,true);
+    String mergedName=newSegmentName();
+    for (    CodecReader leaf : readers) {
+      numDocs+=leaf.numDocs();
+    }
+    reserveDocs(numDocs);
+    final IOContext context=new IOContext(new MergeInfo(numDocs,-1,false,-1));
+    TrackingDirectoryWrapper trackingDir=new TrackingDirectoryWrapper(mergeDirectory);
+    SegmentInfo info=new SegmentInfo(directory,Version.LATEST,mergedName,-1,false,codec,null,StringHelper.randomId(),new HashMap<>());
+    SegmentMerger merger=new SegmentMerger(Arrays.asList(readers),info,infoStream,trackingDir,globalFieldNumberMap,context);
+    rateLimiters.set(new MergeRateLimiter(null));
+    if (!merger.shouldMerge()) {
+      return;
+    }
+    boolean success=false;
+    try {
+      merger.merge();
+      success=true;
+    }
+  finally {
+      if (!success) {
+synchronized (this) {
+          deleter.refresh(info.name);
+        }
+      }
+    }
+    SegmentCommitInfo infoPerCommit=new SegmentCommitInfo(info,0,-1L,-1L,-1L);
+    info.setFiles(new HashSet<>(trackingDir.getCreatedFiles()));
+    trackingDir.getCreatedFiles().clear();
+    setDiagnostics(info,SOURCE_ADDINDEXES_READERS);
+    final MergePolicy mergePolicy=config.getMergePolicy();
+    boolean useCompoundFile;
+synchronized (this) {
+      if (stopMerges) {
+        deleter.deleteNewFiles(infoPerCommit.files());
+        return;
+      }
+      ensureOpen();
+      useCompoundFile=mergePolicy.useCompoundFile(segmentInfos,infoPerCommit,this);
+    }
+    if (useCompoundFile) {
+      Collection<String> filesToDelete=infoPerCommit.files();
+      try {
+        createCompoundFile(infoStream,mergeDirectory,info,context);
+      }
+  finally {
+synchronized (this) {
+          deleter.deleteNewFiles(filesToDelete);
+        }
+      }
+      info.setUseCompoundFile(true);
+    }
+    success=false;
+    try {
+      codec.segmentInfoFormat().write(trackingDir,info,context);
+      success=true;
+    }
+  finally {
+      if (!success) {
+synchronized (this) {
+          deleter.refresh(info.name);
+        }
+      }
+    }
+    info.addFiles(trackingDir.getCreatedFiles());
+synchronized (this) {
+      if (stopMerges) {
+        deleter.deleteNewFiles(info.files());
+        return;
+      }
+      ensureOpen();
+      segmentInfos.add(infoPerCommit);
+      checkpoint();
+    }
+  }
+ catch (  OutOfMemoryError oom) {
+    tragicEvent(oom,"addIndexes(IndexReader...)");
+  }
+  maybeMerge();
+}
