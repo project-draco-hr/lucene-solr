@@ -10,11 +10,14 @@
       infoStream.message("IW","  start flush: applyAllDeletes=" + applyAllDeletes);
       infoStream.message("IW","  index before flush " + segString());
     }
-    final boolean anySegmentFlushed;
+    boolean anyChanges=false;
 synchronized (fullFlushLock) {
       boolean flushSuccess=false;
       try {
-        anySegmentFlushed=docWriter.flushAllThreads();
+        anyChanges=docWriter.flushAllThreads();
+        if (!anyChanges) {
+          flushCount.incrementAndGet();
+        }
         flushSuccess=true;
       }
   finally {
@@ -23,13 +26,10 @@ synchronized (fullFlushLock) {
       }
     }
 synchronized (this) {
-      maybeApplyDeletes(applyAllDeletes);
+      anyChanges|=maybeApplyDeletes(applyAllDeletes);
       doAfterFlush();
-      if (!anySegmentFlushed) {
-        flushCount.incrementAndGet();
-      }
       success=true;
-      return anySegmentFlushed;
+      return anyChanges;
     }
   }
  catch (  AbortingException|OutOfMemoryError tragedy) {
