@@ -1,30 +1,35 @@
 {
   HttpSolrClient client=new HttpSolrClient(jetty.getBaseUrl().toString() + "/debug/foo");
-  SolrQuery q=new SolrQuery("*:*");
-  DebugServlet.clear();
   try {
-    client.query(q);
+    SolrQuery q=new SolrQuery("*:*");
+    DebugServlet.clear();
+    try {
+      client.query(q);
+    }
+ catch (    Throwable t) {
+    }
+    assertNull(DebugServlet.headers.get("Accept-Encoding"));
+    client.setAllowCompression(true);
+    try {
+      client.query(q);
+    }
+ catch (    Throwable t) {
+    }
+    assertNotNull(DebugServlet.headers.get("Accept-Encoding"));
+    client.setAllowCompression(false);
+    try {
+      client.query(q);
+    }
+ catch (    Throwable t) {
+    }
+    assertNull(DebugServlet.headers.get("Accept-Encoding"));
   }
- catch (  Throwable t) {
+  finally {
+    client.shutdown();
   }
-  assertNull(DebugServlet.headers.get("Accept-Encoding"));
-  client.setAllowCompression(true);
-  try {
-    client.query(q);
-  }
- catch (  Throwable t) {
-  }
-  assertNotNull(DebugServlet.headers.get("Accept-Encoding"));
-  client.setAllowCompression(false);
-  try {
-    client.query(q);
-  }
- catch (  Throwable t) {
-  }
-  assertNull(DebugServlet.headers.get("Accept-Encoding"));
   HttpGet get=new HttpGet(jetty.getBaseUrl().toString() + "/collection1" + "/select?q=foo&wt=xml");
   get.setHeader("Accept-Encoding","gzip");
-  HttpClient httpclient=HttpClientUtil.createClient(null);
+  CloseableHttpClient httpclient=HttpClientUtil.createClient(null);
   HttpEntity entity=null;
   try {
     HttpResponse response=httpclient.execute(get);
@@ -36,12 +41,16 @@
     if (entity != null) {
       entity.getContent().close();
     }
-    httpclient.getConnectionManager().shutdown();
+    httpclient.close();
   }
   client=new HttpSolrClient(jetty.getBaseUrl().toString() + "/collection1");
-  client.setAllowCompression(true);
-  q=new SolrQuery("foo");
-  QueryResponse response=client.query(q);
-  assertEquals(0,response.getStatus());
-  client.shutdown();
+  try {
+    client.setAllowCompression(true);
+    SolrQuery q=new SolrQuery("foo");
+    QueryResponse response=client.query(q);
+    assertEquals(0,response.getStatus());
+  }
+  finally {
+    client.shutdown();
+  }
 }

@@ -1,43 +1,48 @@
 {
   SolrClient client=createNewSolrClient("",getBaseUrl((HttpSolrClient)clients.get(0)));
-  Create createCollectionRequest=new Create();
-  createCollectionRequest.setCollectionName("ocptest_shardsplit");
-  createCollectionRequest.setNumShards(4);
-  createCollectionRequest.setConfigName("conf1");
-  createCollectionRequest.setAsyncId("1000");
-  createCollectionRequest.process(client);
-  SplitShard splitShardRequest=new SplitShard();
-  splitShardRequest.setCollectionName("ocptest_shardsplit");
-  splitShardRequest.setShardName(SHARD1);
-  splitShardRequest.setAsyncId("1001");
-  splitShardRequest.process(client);
-  splitShardRequest=new SplitShard();
-  splitShardRequest.setCollectionName("ocptest_shardsplit");
-  splitShardRequest.setShardName(SHARD2);
-  splitShardRequest.setAsyncId("1002");
-  splitShardRequest.process(client);
-  int iterations=0;
-  while (true) {
-    int runningTasks=0;
-    int completedTasks=0;
+  try {
+    Create createCollectionRequest=new Create();
+    createCollectionRequest.setCollectionName("ocptest_shardsplit");
+    createCollectionRequest.setNumShards(4);
+    createCollectionRequest.setConfigName("conf1");
+    createCollectionRequest.setAsyncId("1000");
+    createCollectionRequest.process(client);
+    SplitShard splitShardRequest=new SplitShard();
+    splitShardRequest.setCollectionName("ocptest_shardsplit");
+    splitShardRequest.setShardName(SHARD1);
+    splitShardRequest.setAsyncId("1001");
+    splitShardRequest.process(client);
+    splitShardRequest=new SplitShard();
+    splitShardRequest.setCollectionName("ocptest_shardsplit");
+    splitShardRequest.setShardName(SHARD2);
+    splitShardRequest.setAsyncId("1002");
+    splitShardRequest.process(client);
+    int iterations=0;
+    while (true) {
+      int runningTasks=0;
+      int completedTasks=0;
+      for (int i=1001; i <= 1002; i++) {
+        String state=getRequestState(i,client);
+        if (state.equals("running"))         runningTasks++;
+        if (state.equals("completed"))         completedTasks++;
+        assertTrue("We have a failed SPLITSHARD task",!state.equals("failed"));
+      }
+      assertTrue("Mutual exclusion failed. Found more than one task running for the same collection",runningTasks < 2);
+      if (completedTasks == 2 || iterations++ > REQUEST_STATUS_TIMEOUT)       break;
+      try {
+        Thread.sleep(1000);
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return;
+      }
+    }
     for (int i=1001; i <= 1002; i++) {
-      String state=getRequestState(i,client);
-      if (state.equals("running"))       runningTasks++;
-      if (state.equals("completed"))       completedTasks++;
-      assertTrue("We have a failed SPLITSHARD task",!state.equals("failed"));
-    }
-    assertTrue("Mutual exclusion failed. Found more than one task running for the same collection",runningTasks < 2);
-    if (completedTasks == 2 || iterations++ > REQUEST_STATUS_TIMEOUT)     break;
-    try {
-      Thread.sleep(1000);
-    }
- catch (    InterruptedException e) {
-      Thread.currentThread().interrupt();
-      return;
+      String state=getRequestStateAfterCompletion(i + "",REQUEST_STATUS_TIMEOUT,client);
+      assertTrue("Task " + i + " did not complete, final state: "+ state,state.equals("completed"));
     }
   }
-  for (int i=1001; i <= 1002; i++) {
-    String state=getRequestStateAfterCompletion(i + "",REQUEST_STATUS_TIMEOUT,client);
-    assertTrue("Task " + i + " did not complete, final state: "+ state,state.equals("completed"));
+  finally {
+    client.shutdown();
   }
 }
