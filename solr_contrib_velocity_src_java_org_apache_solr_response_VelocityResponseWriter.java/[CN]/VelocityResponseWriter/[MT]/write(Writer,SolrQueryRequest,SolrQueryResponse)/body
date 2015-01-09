@@ -1,53 +1,35 @@
 {
-  VelocityEngine engine=getEngine(request);
+  VelocityEngine engine=createEngine(request);
   Template template=getTemplate(engine,request);
-  VelocityContext context=new VelocityContext();
-  context.put("request",request);
-  SolrResponse rsp=new QueryResponse();
-  NamedList<Object> parsedResponse=BinaryResponseWriter.getParsedResponse(request,response);
-  try {
-    rsp.setResponse(parsedResponse);
-    context.put("page",new PageTool(request,response));
-  }
- catch (  ClassCastException e) {
-    rsp=new SolrResponseBase();
-    rsp.setResponse(parsedResponse);
-  }
-  context.put("response",rsp);
-  context.put("esc",new EscapeTool());
-  context.put("date",new ComparisonDateTool());
-  context.put("list",new ListTool());
-  context.put("math",new MathTool());
-  context.put("number",new NumberTool());
-  context.put("sort",new SortTool());
-  context.put("display",new DisplayTool());
+  VelocityContext context=createContext(request,response);
   context.put("engine",engine);
-  String layout_template=request.getParams().get("v.layout");
-  String json_wrapper=request.getParams().get("v.json");
-  boolean wrap_response=(layout_template != null) || (json_wrapper != null);
-  if (wrap_response) {
+  String layoutTemplate=request.getParams().get(LAYOUT);
+  boolean layoutEnabled=request.getParams().getBool(LAYOUT_ENABLED,true) && layoutTemplate != null;
+  String jsonWrapper=request.getParams().get(JSON);
+  boolean wrapResponse=layoutEnabled || jsonWrapper != null;
+  if (!wrapResponse) {
+    template.merge(context,writer);
+  }
+ else {
     StringWriter stringWriter=new StringWriter();
     template.merge(context,stringWriter);
-    if (layout_template != null) {
+    if (layoutEnabled) {
       context.put("content",stringWriter.toString());
       stringWriter=new StringWriter();
       try {
-        engine.getTemplate(layout_template + ".vm").merge(context,stringWriter);
+        engine.getTemplate(layoutTemplate + TEMPLATE_EXTENSION).merge(context,stringWriter);
       }
  catch (      Exception e) {
         throw new IOException(e.getMessage());
       }
     }
-    if (json_wrapper != null) {
-      writer.write(request.getParams().get("v.json") + "(");
+    if (jsonWrapper != null) {
+      writer.write(jsonWrapper + "(");
       writer.write(getJSONWrap(stringWriter.toString()));
       writer.write(')');
     }
  else {
       writer.write(stringWriter.toString());
     }
-  }
- else {
-    template.merge(context,writer);
   }
 }
