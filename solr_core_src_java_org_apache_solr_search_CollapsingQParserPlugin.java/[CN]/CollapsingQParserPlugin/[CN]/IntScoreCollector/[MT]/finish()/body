@@ -1,0 +1,63 @@
+{
+  if (contexts.length == 0) {
+    return;
+  }
+  if (nullScore > -1) {
+    collapsedSet.set(nullDoc);
+  }
+  if (this.boostKeys != null) {
+    int s=boostKeys.size();
+    for (int i=0; i < s; i++) {
+      int key=this.boostKeys.get(i);
+      if (key != nullValue) {
+        cmap.remove(key);
+      }
+      this.collapsedSet.set(boostDocs.get(i));
+    }
+  }
+  Iterator<IntLongCursor> it1=cmap.iterator();
+  while (it1.hasNext()) {
+    IntLongCursor cursor=it1.next();
+    int doc=(int)cursor.value;
+    collapsedSet.set(doc);
+  }
+  int currentContext=0;
+  int currentDocBase=0;
+  collapseValues=contexts[currentContext].reader().getNumericDocValues(this.field);
+  int nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+  leafDelegate=delegate.getLeafCollector(contexts[currentContext]);
+  DummyScorer dummy=new DummyScorer();
+  leafDelegate.setScorer(dummy);
+  DocIdSetIterator it=new BitSetIterator(collapsedSet,0L);
+  int globalDoc=-1;
+  int nullScoreIndex=0;
+  while ((globalDoc=it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+    while (globalDoc >= nextDocBase) {
+      currentContext++;
+      currentDocBase=contexts[currentContext].docBase;
+      nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+      leafDelegate=delegate.getLeafCollector(contexts[currentContext]);
+      leafDelegate.setScorer(dummy);
+      collapseValues=contexts[currentContext].reader().getNumericDocValues(this.field);
+    }
+    int contextDoc=globalDoc - currentDocBase;
+    int collapseValue=(int)collapseValues.get(contextDoc);
+    if (collapseValue != nullValue) {
+      long scoreDoc=cmap.get(collapseValue);
+      dummy.score=Float.intBitsToFloat((int)(scoreDoc >> 32));
+    }
+ else     if (boosts && mergeBoost.boost(globalDoc)) {
+    }
+ else     if (nullPolicy == CollapsingPostFilter.NULL_POLICY_COLLAPSE) {
+      dummy.score=nullScore;
+    }
+ else     if (nullPolicy == CollapsingPostFilter.NULL_POLICY_EXPAND) {
+      dummy.score=nullScores.get(nullScoreIndex++);
+    }
+    dummy.docId=contextDoc;
+    leafDelegate.collect(contextDoc);
+  }
+  if (delegate instanceof DelegatingCollector) {
+    ((DelegatingCollector)delegate).finish();
+  }
+}

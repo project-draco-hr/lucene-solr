@@ -5,6 +5,7 @@
   SolrQueryRequest req=rb.req;
   SolrParams params=req.getParams();
   String field=params.get(ExpandParams.EXPAND_FIELD);
+  String hint=null;
   if (field == null) {
     List<Query> filters=rb.getFilters();
     if (filters != null) {
@@ -12,6 +13,7 @@
         if (q instanceof CollapsingQParserPlugin.CollapsingPostFilter) {
           CollapsingQParserPlugin.CollapsingPostFilter cp=(CollapsingQParserPlugin.CollapsingPostFilter)q;
           field=cp.getField();
+          hint=cp.hint;
         }
       }
     }
@@ -66,22 +68,152 @@
   }
   SolrIndexSearcher searcher=req.getSearcher();
   LeafReader reader=searcher.getLeafReader();
-  SortedDocValues values=DocValues.getSorted(reader,field);
-  FixedBitSet groupBits=new FixedBitSet(values.getValueCount());
+  FieldType fieldType=searcher.getSchema().getField(field).getType();
+  SortedDocValues values=null;
+  long nullValue=0;
+  if (fieldType instanceof StrField) {
+    if (CollapsingQParserPlugin.HINT_TOP_FC.equals(hint)) {
+      Map<String,UninvertingReader.Type> mapping=new HashMap();
+      mapping.put(field,UninvertingReader.Type.SORTED);
+      UninvertingReader uninvertingReader=new UninvertingReader(new ReaderWrapper(searcher.getLeafReader(),field),mapping);
+      values=uninvertingReader.getSortedDocValues(field);
+    }
+ else {
+      values=DocValues.getSorted(reader,field);
+    }
+  }
+ else {
+    String defaultValue=searcher.getSchema().getField(field).getDefaultValue();
+    if (defaultValue != null) {
+      if (fieldType instanceof TrieIntField || fieldType instanceof TrieLongField) {
+        nullValue=Long.parseLong(defaultValue);
+      }
+ else       if (fieldType instanceof TrieFloatField) {
+        nullValue=Float.floatToIntBits(Float.parseFloat(defaultValue));
+      }
+ else       if (fieldType instanceof TrieDoubleField) {
+        nullValue=Double.doubleToLongBits(Double.parseDouble(defaultValue));
+      }
+    }
+ else {
+      if (fieldType instanceof TrieFloatField) {
+        nullValue=Float.floatToIntBits(0.0f);
+      }
+ else       if (fieldType instanceof TrieDoubleField) {
+        nullValue=Double.doubleToLongBits(0.0f);
+      }
+    }
+  }
+  FixedBitSet groupBits=null;
+  LongOpenHashSet groupSet=null;
   DocList docList=rb.getResults().docList;
   IntOpenHashSet collapsedSet=new IntOpenHashSet(docList.size() * 2);
   DocIterator idit=docList.iterator();
+  int[] globalDocs=new int[docList.size()];
+  int docsIndex=-1;
   while (idit.hasNext()) {
-    int doc=idit.nextDoc();
-    int ord=values.getOrd(doc);
-    if (ord > -1) {
-      groupBits.set(ord);
-      collapsedSet.add(doc);
+    globalDocs[++docsIndex]=idit.nextDoc();
+  }
+  Arrays.sort(globalDocs);
+  Query groupQuery=null;
+  List<LeafReaderContext> contexts=searcher.getTopReaderContext().leaves();
+  int currentContext=0;
+  int currentDocBase=contexts.get(currentContext).docBase;
+  int nextDocBase=(currentContext + 1) < contexts.size() ? contexts.get(currentContext + 1).docBase : Integer.MAX_VALUE;
+  IntObjectOpenHashMap<BytesRef> ordBytes=null;
+  if (values != null) {
+    groupBits=new FixedBitSet(values.getValueCount());
+    MultiDocValues.OrdinalMap ordinalMap=null;
+    SortedDocValues[] sortedDocValues=null;
+    LongValues segmentOrdinalMap=null;
+    SortedDocValues currentValues=null;
+    if (values instanceof MultiDocValues.MultiSortedDocValues) {
+      ordinalMap=((MultiDocValues.MultiSortedDocValues)values).mapping;
+      sortedDocValues=((MultiDocValues.MultiSortedDocValues)values).values;
+      currentValues=sortedDocValues[currentContext];
+      segmentOrdinalMap=ordinalMap.getGlobalOrds(currentContext);
+    }
+    int count=0;
+    ordBytes=new IntObjectOpenHashMap();
+    for (int i=0; i < globalDocs.length; i++) {
+      int globalDoc=globalDocs[i];
+      while (globalDoc >= nextDocBase) {
+        currentContext++;
+        currentDocBase=contexts.get(currentContext).docBase;
+        nextDocBase=(currentContext + 1) < contexts.size() ? contexts.get(currentContext + 1).docBase : Integer.MAX_VALUE;
+        if (ordinalMap != null) {
+          currentValues=sortedDocValues[currentContext];
+          segmentOrdinalMap=ordinalMap.getGlobalOrds(currentContext);
+        }
+      }
+      int contextDoc=globalDoc - currentDocBase;
+      if (ordinalMap != null) {
+        int ord=currentValues.getOrd(contextDoc);
+        if (ord > -1) {
+          ++count;
+          BytesRef ref=currentValues.lookupOrd(ord);
+          ord=(int)segmentOrdinalMap.get(ord);
+          ordBytes.put(ord,BytesRef.deepCopyOf(ref));
+          groupBits.set(ord);
+          collapsedSet.add(globalDoc);
+        }
+      }
+ else {
+        int ord=values.getOrd(globalDoc);
+        if (ord > -1) {
+          ++count;
+          BytesRef ref=values.lookupOrd(ord);
+          ordBytes.put(ord,BytesRef.deepCopyOf(ref));
+          groupBits.set(ord);
+          collapsedSet.add(globalDoc);
+        }
+      }
+    }
+    if (count > 0 && count < 200) {
+      try {
+        groupQuery=getGroupQuery(field,count,ordBytes);
+      }
+ catch (      Exception e) {
+        throw new IOException(e);
+      }
+    }
+  }
+ else {
+    groupSet=new LongOpenHashSet((int)(docList.size() * 1.25));
+    NumericDocValues collapseValues=contexts.get(currentContext).reader().getNumericDocValues(field);
+    int count=0;
+    for (int i=0; i < globalDocs.length; i++) {
+      int globalDoc=globalDocs[i];
+      while (globalDoc >= nextDocBase) {
+        currentContext++;
+        currentDocBase=contexts.get(currentContext).docBase;
+        nextDocBase=currentContext + 1 < contexts.size() ? contexts.get(currentContext + 1).docBase : Integer.MAX_VALUE;
+        collapseValues=contexts.get(currentContext).reader().getNumericDocValues(field);
+      }
+      int contextDoc=globalDoc - currentDocBase;
+      long value=collapseValues.get(contextDoc);
+      if (value != nullValue) {
+        ++count;
+        groupSet.add(value);
+        collapsedSet.add(globalDoc);
+      }
+    }
+    if (count > 0 && count < 200) {
+      groupQuery=getGroupQuery(field,fieldType,count,groupSet);
     }
   }
   Collector collector;
   if (sort != null)   sort=sort.rewrite(searcher);
-  GroupExpandCollector groupExpandCollector=new GroupExpandCollector(values,groupBits,collapsedSet,limit,sort);
+  Collector groupExpandCollector=null;
+  if (values != null) {
+    groupExpandCollector=new GroupExpandCollector(values,groupBits,collapsedSet,limit,sort);
+  }
+ else {
+    groupExpandCollector=new NumericGroupExpandCollector(field,nullValue,groupSet,collapsedSet,limit,sort);
+  }
+  if (groupQuery != null) {
+    newFilters.add(groupQuery);
+  }
   SolrIndexSearcher.ProcessedFilter pfilter=searcher.getProcessedFilter(null,newFilters);
   if (pfilter.postFilter != null) {
     pfilter.postFilter.setLastDelegate(groupExpandCollector);
@@ -91,12 +223,11 @@
     collector=groupExpandCollector;
   }
   searcher.search(query,pfilter.filter,collector);
-  IntObjectMap groups=groupExpandCollector.getGroups();
+  LongObjectMap groups=((GroupCollector)groupExpandCollector).getGroups();
   Map<String,DocSlice> outMap=new HashMap<>();
   CharsRefBuilder charsRef=new CharsRefBuilder();
-  FieldType fieldType=searcher.getSchema().getField(field).getType();
-  for (  IntObjectCursor cursor : (Iterable<IntObjectCursor>)groups) {
-    int ord=cursor.key;
+  for (  LongObjectCursor cursor : (Iterable<LongObjectCursor>)groups) {
+    long groupValue=cursor.key;
     TopDocsCollector topDocsCollector=(TopDocsCollector)cursor.value;
     TopDocs topDocs=topDocsCollector.topDocs();
     ScoreDoc[] scoreDocs=topDocs.scoreDocs;
@@ -109,10 +240,23 @@
         scores[i]=scoreDoc.score;
       }
       DocSlice slice=new DocSlice(0,docs.length,docs,scores,topDocs.totalHits,topDocs.getMaxScore());
-      final BytesRef bytesRef=values.lookupOrd(ord);
-      fieldType.indexedToReadable(bytesRef,charsRef);
-      String group=charsRef.toString();
-      outMap.put(group,slice);
+      if (fieldType instanceof StrField) {
+        final BytesRef bytesRef=ordBytes.get((int)groupValue);
+        fieldType.indexedToReadable(bytesRef,charsRef);
+        String group=charsRef.toString();
+        outMap.put(group,slice);
+      }
+ else {
+        if (fieldType instanceof TrieIntField || fieldType instanceof TrieLongField) {
+          outMap.put(Long.toString(groupValue),slice);
+        }
+ else         if (fieldType instanceof TrieFloatField) {
+          outMap.put(Float.toString(Float.intBitsToFloat((int)groupValue)),slice);
+        }
+ else         if (fieldType instanceof TrieDoubleField) {
+          outMap.put(Double.toString(Double.longBitsToDouble(groupValue)),slice);
+        }
+      }
     }
   }
   rb.rsp.add("expanded",outMap);

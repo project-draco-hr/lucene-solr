@@ -1,0 +1,81 @@
+{
+  if (contexts.length == 0) {
+    return;
+  }
+  if (nullScore > 0) {
+    collapsedSet.set(nullDoc);
+  }
+  if (this.boostOrds != null) {
+    int s=boostOrds.size();
+    for (int i=0; i < s; i++) {
+      int ord=this.boostOrds.get(i);
+      if (ord > -1) {
+        ords[ord]=-1;
+      }
+      this.collapsedSet.set(boostDocs.get(i));
+    }
+    mergeBoost.reset();
+  }
+  for (int i=0; i < ords.length; i++) {
+    int doc=ords[i];
+    if (doc > -1) {
+      collapsedSet.set(doc);
+    }
+  }
+  int currentContext=0;
+  int currentDocBase=0;
+  if (ordinalMap != null) {
+    this.segmentValues=this.multiSortedDocValues.values[currentContext];
+    this.segmentOrdinalMap=this.ordinalMap.getGlobalOrds(currentContext);
+  }
+ else {
+    this.segmentValues=collapseValues;
+  }
+  int nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+  leafDelegate=delegate.getLeafCollector(contexts[currentContext]);
+  DummyScorer dummy=new DummyScorer();
+  leafDelegate.setScorer(dummy);
+  DocIdSetIterator it=new BitSetIterator(collapsedSet,0L);
+  int docId=-1;
+  int index=-1;
+  while ((docId=it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+    while (docId >= nextDocBase) {
+      currentContext++;
+      currentDocBase=contexts[currentContext].docBase;
+      nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+      leafDelegate=delegate.getLeafCollector(contexts[currentContext]);
+      leafDelegate.setScorer(dummy);
+      if (ordinalMap != null) {
+        this.segmentValues=this.multiSortedDocValues.values[currentContext];
+        this.segmentOrdinalMap=this.ordinalMap.getGlobalOrds(currentContext);
+      }
+    }
+    int contextDoc=docId - currentDocBase;
+    int ord=-1;
+    if (this.ordinalMap != null) {
+      ord=segmentValues.getOrd(contextDoc);
+      if (ord > -1) {
+        ord=(int)segmentOrdinalMap.get(ord);
+      }
+    }
+ else {
+      ord=segmentValues.getOrd(docId);
+    }
+    if (ord > -1) {
+      dummy.score=scores[ord];
+    }
+ else     if (boosts && mergeBoost.boost(docId)) {
+    }
+ else     if (this.nullPolicy == CollapsingPostFilter.NULL_POLICY_COLLAPSE) {
+      dummy.score=nullScore;
+    }
+ else     if (this.nullPolicy == CollapsingPostFilter.NULL_POLICY_EXPAND) {
+      dummy.score=nullScores.get(++index);
+    }
+    dummy.docId=contextDoc;
+    leafDelegate.collect(contextDoc);
+  }
+  if (delegate instanceof DelegatingCollector) {
+    ((DelegatingCollector)delegate).finish();
+  }
+}

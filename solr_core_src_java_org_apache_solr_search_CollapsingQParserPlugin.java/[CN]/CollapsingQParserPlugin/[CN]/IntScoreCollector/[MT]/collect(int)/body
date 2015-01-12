@@ -1,0 +1,35 @@
+{
+  int collapseValue=(int)this.collapseValues.get(contextDoc);
+  int globalDoc=docBase + contextDoc;
+  if (boosts && mergeBoost.boost(globalDoc)) {
+    boostDocs.add(globalDoc);
+    boostKeys.add(collapseValue);
+    return;
+  }
+  if (collapseValue != nullValue) {
+    float score=scorer.score();
+    if (cmap.containsKey(collapseValue)) {
+      long scoreDoc=cmap.lget();
+      int testScore=(int)(scoreDoc >> 32);
+      int currentScore=Float.floatToRawIntBits(score);
+      if (currentScore > testScore) {
+        cmap.lset((((long)currentScore) << 32) + globalDoc);
+      }
+    }
+ else {
+      long scoreDoc=(((long)Float.floatToRawIntBits(score)) << 32) + globalDoc;
+      cmap.put(collapseValue,scoreDoc);
+    }
+  }
+ else   if (nullPolicy == CollapsingPostFilter.NULL_POLICY_COLLAPSE) {
+    float score=scorer.score();
+    if (score > this.nullScore) {
+      this.nullScore=score;
+      this.nullDoc=globalDoc;
+    }
+  }
+ else   if (nullPolicy == CollapsingPostFilter.NULL_POLICY_EXPAND) {
+    collapsedSet.set(globalDoc);
+    nullScores.add(scorer.score());
+  }
+}

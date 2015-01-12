@@ -1,7 +1,11 @@
 {
   final int docBase=context.docBase;
-  final IntObjectMap<LeafCollector> leafCollectors=new IntObjectOpenHashMap<>();
-  for (  IntObjectCursor<Collector> entry : groups) {
+  if (ordinalMap != null) {
+    this.segmentValues=this.multiSortedDocValues.values[context.ord];
+    this.segmentOrdinalMap=ordinalMap.getGlobalOrds(context.ord);
+  }
+  final LongObjectMap<LeafCollector> leafCollectors=new LongObjectOpenHashMap<>();
+  for (  LongObjectCursor<Collector> entry : groups) {
     leafCollectors.put(entry.key,entry.value.getLeafCollector(context));
   }
   return new LeafCollector(){
@@ -11,9 +15,18 @@
       }
     }
     @Override public void collect(    int docId) throws IOException {
-      int doc=docId + docBase;
-      int ord=docValues.getOrd(doc);
-      if (ord > -1 && groupBits.get(ord) && !collapsedSet.contains(doc)) {
+      int globalDoc=docId + docBase;
+      int ord=-1;
+      if (ordinalMap != null) {
+        ord=segmentValues.getOrd(docId);
+        if (ord > -1) {
+          ord=(int)segmentOrdinalMap.get(ord);
+        }
+      }
+ else {
+        ord=docValues.getOrd(globalDoc);
+      }
+      if (ord > -1 && groupBits.get(ord) && !collapsedSet.contains(globalDoc)) {
         LeafCollector c=leafCollectors.get(ord);
         c.collect(docId);
       }

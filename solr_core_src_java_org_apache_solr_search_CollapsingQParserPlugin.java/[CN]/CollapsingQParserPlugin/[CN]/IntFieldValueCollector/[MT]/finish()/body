@@ -1,0 +1,54 @@
+{
+  if (contexts.length == 0) {
+    return;
+  }
+  int currentContext=0;
+  int currentDocBase=0;
+  this.collapseValues=contexts[currentContext].reader().getNumericDocValues(this.collapseField);
+  int nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+  leafDelegate=delegate.getLeafCollector(contexts[currentContext]);
+  DummyScorer dummy=new DummyScorer();
+  leafDelegate.setScorer(dummy);
+  DocIdSetIterator it=new BitSetIterator(collapseStrategy.getCollapsedSet(),0);
+  int globalDoc=-1;
+  int nullScoreIndex=0;
+  IntLongOpenHashMap cmap=collapseStrategy.getCollapseMap();
+  LongArrayList docScores=collapseStrategy.getDocScores();
+  FloatArrayList nullScores=collapseStrategy.getNullScores();
+  MergeBoost mergeBoost=collapseStrategy.getMergeBoost();
+  float nullScore=collapseStrategy.getNullScore();
+  while ((globalDoc=it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+    while (globalDoc >= nextDocBase) {
+      currentContext++;
+      currentDocBase=contexts[currentContext].docBase;
+      nextDocBase=currentContext + 1 < contexts.length ? contexts[currentContext + 1].docBase : maxDoc;
+      leafDelegate=delegate.getLeafCollector(contexts[currentContext]);
+      leafDelegate.setScorer(dummy);
+      this.collapseValues=contexts[currentContext].reader().getNumericDocValues(this.collapseField);
+    }
+    int contextDoc=globalDoc - currentDocBase;
+    if (this.needsScores) {
+      int collapseValue=(int)collapseValues.get(contextDoc);
+      if (collapseValue != nullValue) {
+        long pointerValue=cmap.get(collapseValue);
+        int pointer=(int)(pointerValue >> 32);
+        long docScore=docScores.get(pointer);
+        dummy.score=Float.intBitsToFloat(((int)docScore));
+      }
+ else       if (mergeBoost != null && mergeBoost.boost(globalDoc)) {
+        dummy.score=0F;
+      }
+ else       if (nullPolicy == CollapsingPostFilter.NULL_POLICY_COLLAPSE) {
+        dummy.score=nullScore;
+      }
+ else       if (nullPolicy == CollapsingPostFilter.NULL_POLICY_EXPAND) {
+        dummy.score=nullScores.get(nullScoreIndex++);
+      }
+    }
+    dummy.docId=contextDoc;
+    leafDelegate.collect(contextDoc);
+  }
+  if (delegate instanceof DelegatingCollector) {
+    ((DelegatingCollector)delegate).finish();
+  }
+}
