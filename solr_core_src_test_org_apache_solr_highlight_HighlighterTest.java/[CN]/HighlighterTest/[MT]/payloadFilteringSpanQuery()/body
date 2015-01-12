@@ -1,0 +1,22 @@
+{
+  clearIndex();
+  String FIELD_NAME="payloadDelimited";
+  assertU(adoc("id","0",FIELD_NAME,"word|7 word|2"));
+  assertU(commit());
+  Query query=new SpanPayloadCheckQuery(new SpanTermQuery(new Term(FIELD_NAME,"word")),Collections.singleton(new byte[]{0,0,0,7}));
+  final SearchComponent hlComp=h.getCore().getSearchComponent("highlight");
+  SolrQueryRequest req=req("hl","true","hl.fl",FIELD_NAME,HighlightParams.USE_PHRASE_HIGHLIGHTER,"true");
+  try {
+    SolrQueryResponse resp=new SolrQueryResponse();
+    ResponseBuilder rb=new ResponseBuilder(req,resp,Collections.singletonList(hlComp));
+    rb.setHighlightQuery(query);
+    rb.setResults(req.getSearcher().getDocListAndSet(query,(DocSet)null,null,0,1));
+    hlComp.prepare(rb);
+    hlComp.process(rb);
+    final String[] snippets=(String[])resp.getValues().findRecursive("highlighting","0",FIELD_NAME);
+    assertEquals("<em>word|7</em> word|2",snippets[0]);
+  }
+  finally {
+    req.close();
+  }
+}
