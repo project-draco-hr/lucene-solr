@@ -1,0 +1,21 @@
+{
+  HttpSolrClient client=(HttpSolrClient)getSolrClient();
+  client.deleteByQuery("*:*");
+  client.commit();
+  assertNumFound("*:*",0);
+  String json="{\"name one\": \"name\"} " + "{\"name  two\" : \"name\"}" + "{\"first-second\" : \"name\"}"+ "{\"x+y\" : \"name\"}"+ "{\"p%q\" : \"name\"}"+ "{\"a&b\" : \"name\"}";
+  HttpClient httpClient=client.getHttpClient();
+  HttpPost post=new HttpPost(client.getBaseURL() + "/update/json/docs");
+  post.setHeader("Content-Type","application/json");
+  post.setEntity(new InputStreamEntity(new ByteArrayInputStream(json.getBytes("UTF-8")),-1));
+  HttpResponse response=httpClient.execute(post);
+  assertEquals(200,response.getStatusLine().getStatusCode());
+  client.commit();
+  List<String> expected=Arrays.asList("name_one","name__two","first-second","a_b","p_q","x_y");
+  HashSet set=new HashSet();
+  QueryResponse rsp=assertNumFound("*:*",expected.size());
+  for (  SolrDocument doc : rsp.getResults())   set.addAll(doc.getFieldNames());
+  for (  String s : expected) {
+    assertTrue(s + " not created " + rsp,set.contains(s));
+  }
+}
