@@ -3,14 +3,22 @@
   return new Weight(){
     private TermsEnum segmentTermsEnum;
     @Override public Explanation explain(    LeafReaderContext context,    int doc) throws IOException {
-      SVInnerScorer scorer=(SVInnerScorer)bulkScorer(context,false,null);
-      if (scorer != null) {
-        return scorer.explain(doc);
+      Terms terms=context.reader().terms(field);
+      if (terms != null) {
+        segmentTermsEnum=terms.iterator(segmentTermsEnum);
+        BytesRef spare=new BytesRef();
+        DocsEnum docsEnum=null;
+        for (int i=0; i < TermsIncludingScoreQuery.this.terms.size(); i++) {
+          if (segmentTermsEnum.seekExact(TermsIncludingScoreQuery.this.terms.get(ords[i],spare))) {
+            docsEnum=segmentTermsEnum.docs(null,docsEnum,DocsEnum.FLAG_NONE);
+            if (docsEnum.advance(doc) == doc) {
+              final float score=TermsIncludingScoreQuery.this.scores[ords[i]];
+              return new ComplexExplanation(true,score,"Score based on join value " + segmentTermsEnum.term().utf8ToString());
+            }
+          }
+        }
       }
       return new ComplexExplanation(false,0.0f,"Not a match");
-    }
-    @Override public boolean scoresDocsOutOfOrder(){
-      return true;
     }
     @Override public Query getQuery(){
       return TermsIncludingScoreQuery.this;
@@ -33,25 +41,6 @@
       }
  else {
         return new SVInOrderScorer(this,acceptDocs,segmentTermsEnum,context.reader().maxDoc(),cost);
-      }
-    }
-    @Override public BulkScorer bulkScorer(    LeafReaderContext context,    boolean scoreDocsInOrder,    Bits acceptDocs) throws IOException {
-      if (scoreDocsInOrder) {
-        return super.bulkScorer(context,scoreDocsInOrder,acceptDocs);
-      }
- else {
-        Terms terms=context.reader().terms(field);
-        if (terms == null) {
-          return null;
-        }
-        final long cost=context.reader().maxDoc() * terms.size();
-        segmentTermsEnum=terms.iterator(segmentTermsEnum);
-        if (multipleValuesPerDocument) {
-          return new MVInnerScorer(this,acceptDocs,segmentTermsEnum,context.reader().maxDoc(),cost);
-        }
- else {
-          return new SVInnerScorer(this,acceptDocs,segmentTermsEnum,cost);
-        }
       }
     }
   }
