@@ -11,22 +11,22 @@
     return search(leafContexts,weight,after,nDocs);
   }
  else {
-    final HitQueue hq=new HitQueue(nDocs,false);
-    final Lock lock=new ReentrantLock();
-    final ExecutionHelper<TopDocs> runner=new ExecutionHelper<>(executor);
+    final List<Future<TopDocs>> topDocsFutures=new ArrayList<>(leafSlices.length);
     for (int i=0; i < leafSlices.length; i++) {
-      runner.submit(new SearcherCallableNoSort(lock,this,leafSlices[i],weight,after,nDocs,hq));
+      topDocsFutures.add(executor.submit(new SearcherCallableNoSort(this,leafSlices[i],weight,after,nDocs)));
     }
-    int totalHits=0;
-    float maxScore=Float.NEGATIVE_INFINITY;
-    for (    final TopDocs topDocs : runner) {
-      if (topDocs.totalHits != 0) {
-        totalHits+=topDocs.totalHits;
-        maxScore=Math.max(maxScore,topDocs.getMaxScore());
+    final TopDocs[] topDocs=new TopDocs[leafSlices.length];
+    for (int i=0; i < leafSlices.length; i++) {
+      try {
+        topDocs[i]=topDocsFutures.get(i).get();
+      }
+ catch (      InterruptedException e) {
+        throw new ThreadInterruptedException(e);
+      }
+catch (      ExecutionException e) {
+        throw new RuntimeException(e);
       }
     }
-    final ScoreDoc[] scoreDocs=new ScoreDoc[hq.size()];
-    for (int i=hq.size() - 1; i >= 0; i--)     scoreDocs[i]=hq.pop();
-    return new TopDocs(totalHits,scoreDocs,maxScore);
+    return TopDocs.merge(null,nDocs,topDocs);
   }
 }
