@@ -1,0 +1,59 @@
+{
+  Set<String> liveNodes=cloudSolrClient.getZkStateReader().getClusterState().getLiveNodes();
+  if (liveNodes.isEmpty())   throw new IllegalStateException("No live nodes found! Cannot delete a collection until " + "there is at least 1 live node in the cluster.");
+  String firstLiveNode=liveNodes.iterator().next();
+  ZkStateReader zkStateReader=cloudSolrClient.getZkStateReader();
+  String baseUrl=zkStateReader.getBaseUrlForNodeName(firstLiveNode);
+  String collectionName=cli.getOptionValue("name");
+  if (!zkStateReader.getClusterState().hasCollection(collectionName)) {
+    System.err.println("\nERROR: Collection " + collectionName + " not found!");
+    System.err.println();
+    return 1;
+  }
+  String configName=zkStateReader.readConfigName(collectionName);
+  boolean deleteConfig="true".equals(cli.getOptionValue("deleteConfig","true"));
+  if (deleteConfig && configName != null) {
+    if (cli.hasOption("forceDeleteConfig")) {
+      log.warn("Skipping safety checks, configuration directory " + configName + " will be deleted with impunity.");
+    }
+ else {
+      Set<String> collections=zkStateReader.getClusterState().getCollections();
+      if (collections.size() > 50)       log.info("Scanning " + collections.size() + " to ensure no other collections are using config "+ configName);
+      for (      String next : collections) {
+        if (collectionName.equals(next))         continue;
+        if (configName.equals(zkStateReader.readConfigName(next))) {
+          deleteConfig=false;
+          log.warn("Configuration directory " + configName + " is also being used by "+ next+ "; configuration will not be deleted from ZooKeeper. You can pass the -forceDeleteConfig flag to force delete.");
+          break;
+        }
+      }
+    }
+  }
+  String deleteCollectionUrl=String.format(Locale.ROOT,"%s/admin/collections?action=DELETE&name=%s",baseUrl,collectionName);
+  System.out.println("\nDeleting collection '" + collectionName + "' using command:\n"+ deleteCollectionUrl+ "\n");
+  Map<String,Object> json=null;
+  try {
+    json=getJson(deleteCollectionUrl);
+  }
+ catch (  SolrServerException sse) {
+    System.err.println("Failed to delete collection '" + collectionName + "' due to: "+ sse.getMessage());
+    System.err.println();
+    return 1;
+  }
+  if (deleteConfig) {
+    String configZnode="/configs/" + configName;
+    try {
+      zkStateReader.getZkClient().clean(configZnode);
+    }
+ catch (    Exception exc) {
+      System.err.println("\nERROR: Failed to delete configuration directory " + configZnode + " in ZooKeeper due to: "+ exc.getMessage()+ "\nYou'll need to manually delete this znode using the zkcli script.");
+    }
+  }
+  if (json != null) {
+    CharArr arr=new CharArr();
+    new JSONWriter(arr,2).write(json);
+    System.out.println(arr.toString());
+    System.out.println();
+  }
+  return 0;
+}
