@@ -1,5 +1,5 @@
 {
-  if (!isAtomicUpdate(cmd))   return false;
+  if (!AtomicUpdateDocumentMerger.isAtomicUpdate(cmd))   return false;
   SolrInputDocument sdoc=cmd.getSolrInputDocument();
   BytesRef id=cmd.getIndexedId();
   SolrInputDocument oldDoc=RealTimeGetComponent.getInputDocument(cmd.getReq().getCore(),id);
@@ -14,48 +14,6 @@
  else {
     oldDoc.remove(VERSION_FIELD);
   }
-  IndexSchema schema=cmd.getReq().getSchema();
-  for (  SolrInputField sif : sdoc.values()) {
-    Object val=sif.getValue();
-    if (val instanceof Map) {
-      for (      Entry<String,Object> entry : ((Map<String,Object>)val).entrySet()) {
-        String key=entry.getKey();
-        Object fieldVal=entry.getValue();
-        boolean updateField=false;
-switch (key) {
-case "add":
-          updateField=true;
-        oldDoc.addField(sif.getName(),fieldVal,sif.getBoost());
-      break;
-case "set":
-    updateField=true;
-  oldDoc.setField(sif.getName(),fieldVal,sif.getBoost());
-break;
-case "remove":
-updateField=true;
-doRemove(oldDoc,sif,fieldVal,schema);
-break;
-case "removeregex":
-updateField=true;
-doRemoveRegex(oldDoc,sif,fieldVal);
-break;
-case "inc":
-updateField=true;
-doInc(oldDoc,schema,sif,fieldVal);
-break;
-default :
-log.warn("Unknown operation for the an atomic update, operation ignored: " + key);
-break;
-}
-if (updateField && idField.getName().equals(sif.getName())) {
-throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid update of id field: " + sif);
-}
-}
-}
- else {
-oldDoc.put(sif.getName(),sif);
-}
-}
-cmd.solrDoc=oldDoc;
-return true;
+  cmd.solrDoc=docMerger.merge(sdoc,oldDoc);
+  return true;
 }
