@@ -1,31 +1,37 @@
 {
   final long sleepInterval=200;
   long timeSlept=0;
-  SolrParams p=params("action","status","core","collection1");
-  while (timeSlept < timeout) {
-    QueryRequest req=new QueryRequest(p);
-    req.setPath("/admin/cores");
-    try {
-      NamedList data=client.request(req);
-      for (      String k : new String[]{"status","collection1"}) {
-        Object o=data.get(k);
-        assertNotNull("core status rsp missing key: " + k,o);
-        data=(NamedList)o;
+  HttpSolrClient adminClient=adminClient(client);
+  try {
+    SolrParams p=params("action","status","core","collection1");
+    while (timeSlept < timeout) {
+      QueryRequest req=new QueryRequest(p);
+      req.setPath("/admin/cores");
+      try {
+        NamedList data=adminClient.request(req);
+        for (        String k : new String[]{"status","collection1"}) {
+          Object o=data.get(k);
+          assertNotNull("core status rsp missing key: " + k,o);
+          data=(NamedList)o;
+        }
+        Date startTime=(Date)data.get("startTime");
+        assertNotNull("core has null startTime",startTime);
+        if (null == min || startTime.after(min)) {
+          return startTime;
+        }
       }
-      Date startTime=(Date)data.get("startTime");
-      assertNotNull("core has null startTime",startTime);
-      if (null == min || startTime.after(min)) {
-        return startTime;
+ catch (      SolrException e) {
+        if (500 != e.code()) {
+          throw e;
+        }
       }
+      timeSlept+=sleepInterval;
+      Thread.sleep(sleepInterval);
     }
- catch (    SolrException e) {
-      if (500 != e.code()) {
-        throw e;
-      }
-    }
-    timeSlept+=sleepInterval;
-    Thread.sleep(sleepInterval);
+    fail("timed out waiting for collection1 startAt time to exceed: " + min);
+    return min;
   }
-  fail("timed out waiting for collection1 startAt time to exceed: " + min);
-  return min;
+  finally {
+    adminClient.shutdown();
+  }
 }
