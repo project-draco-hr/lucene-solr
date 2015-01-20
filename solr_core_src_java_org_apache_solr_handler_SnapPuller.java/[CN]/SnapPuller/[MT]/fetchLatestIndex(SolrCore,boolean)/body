@@ -71,6 +71,33 @@
         isFullCopyNeeded=true;
       }
       if (!isFullCopyNeeded) {
+        if (solrCore.getCoreDescriptor().getCoreContainer().isZooKeeperAware()) {
+          solrCore.closeSearcher();
+        }
+        solrCore.getUpdateHandler().newIndexWriter(true);
+        RefCounted<IndexWriter> writer=solrCore.getUpdateHandler().getSolrCoreState().getIndexWriter(null);
+        try {
+          IndexWriter indexWriter=writer.get();
+          int c=0;
+          indexWriter.deleteUnusedFiles();
+          while (hasUnusedFiles(indexDir,commit)) {
+            indexWriter.deleteUnusedFiles();
+            LOG.info("Sleeping for 1000ms to wait for unused lucene index files to be delete-able");
+            Thread.sleep(1000);
+            c++;
+            if (c >= 30) {
+              LOG.warn("SnapPuller unable to cleanup unused lucene index files so we must do a full copy instead");
+              isFullCopyNeeded=true;
+              break;
+            }
+          }
+          if (c > 0) {
+            LOG.info("SnapPuller slept for " + (c * 1000) + "ms for unused lucene index files to be delete-able");
+          }
+        }
+  finally {
+          writer.decref();
+        }
         solrCore.getUpdateHandler().getSolrCoreState().closeIndexWriter(core,true);
       }
       boolean reloadCore=false;
