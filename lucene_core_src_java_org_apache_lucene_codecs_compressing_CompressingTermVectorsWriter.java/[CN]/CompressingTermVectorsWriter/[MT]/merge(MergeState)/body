@@ -1,2 +1,77 @@
 {
+  int docCount=0;
+  int numReaders=mergeState.maxDocs.length;
+  MatchingReaders matching=new MatchingReaders(mergeState);
+  for (int readerIndex=0; readerIndex < numReaders; readerIndex++) {
+    CompressingTermVectorsReader matchingVectorsReader=null;
+    final TermVectorsReader vectorsReader=mergeState.termVectorsReaders[readerIndex];
+    if (matching.matchingReaders[readerIndex]) {
+      if (vectorsReader != null && vectorsReader instanceof CompressingTermVectorsReader) {
+        matchingVectorsReader=(CompressingTermVectorsReader)vectorsReader;
+      }
+    }
+    final int maxDoc=mergeState.maxDocs[readerIndex];
+    final Bits liveDocs=mergeState.liveDocs[readerIndex];
+    if (matchingVectorsReader != null && matchingVectorsReader.getCompressionMode() == compressionMode && matchingVectorsReader.getChunkSize() == chunkSize && matchingVectorsReader.getVersion() == VERSION_CURRENT && matchingVectorsReader.getPackedIntsVersion() == PackedInts.VERSION_CURRENT && BULK_MERGE_ENABLED && liveDocs == null && !tooDirty(matchingVectorsReader)) {
+      matchingVectorsReader.checkIntegrity();
+      if (!pendingDocs.isEmpty()) {
+        flush();
+        numDirtyChunks++;
+      }
+      IndexInput rawDocs=matchingVectorsReader.getVectorsStream();
+      CompressingStoredFieldsIndexReader index=matchingVectorsReader.getIndexReader();
+      rawDocs.seek(index.getStartPointer(0));
+      int docID=0;
+      while (docID < maxDoc) {
+        int base=rawDocs.readVInt();
+        if (base != docID) {
+          throw new CorruptIndexException("invalid state: base=" + base + ", docID="+ docID,rawDocs);
+        }
+        int bufferedDocs=rawDocs.readVInt();
+        indexWriter.writeIndex(bufferedDocs,vectorsStream.getFilePointer());
+        vectorsStream.writeVInt(docCount);
+        vectorsStream.writeVInt(bufferedDocs);
+        docID+=bufferedDocs;
+        docCount+=bufferedDocs;
+        numDocs+=bufferedDocs;
+        if (docID > maxDoc) {
+          throw new CorruptIndexException("invalid state: base=" + base + ", count="+ bufferedDocs+ ", maxDoc="+ maxDoc,rawDocs);
+        }
+        final long end;
+        if (docID == maxDoc) {
+          end=matchingVectorsReader.getMaxPointer();
+        }
+ else {
+          end=index.getStartPointer(docID);
+        }
+        vectorsStream.copyBytes(rawDocs,end - rawDocs.getFilePointer());
+      }
+      if (rawDocs.getFilePointer() != matchingVectorsReader.getMaxPointer()) {
+        throw new CorruptIndexException("invalid state: pos=" + rawDocs.getFilePointer() + ", max="+ matchingVectorsReader.getMaxPointer(),rawDocs);
+      }
+      numChunks+=matchingVectorsReader.getNumChunks();
+      numDirtyChunks+=matchingVectorsReader.getNumDirtyChunks();
+    }
+ else {
+      if (vectorsReader != null) {
+        vectorsReader.checkIntegrity();
+      }
+      for (int i=0; i < maxDoc; i++) {
+        if (liveDocs != null && liveDocs.get(i) == false) {
+          continue;
+        }
+        Fields vectors;
+        if (vectorsReader == null) {
+          vectors=null;
+        }
+ else {
+          vectors=vectorsReader.get(i);
+        }
+        addAllDocVectors(vectors,mergeState);
+        ++docCount;
+      }
+    }
+  }
+  finish(mergeState.mergeFieldInfos,docCount);
+  return docCount;
 }

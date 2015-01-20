@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwConf=newIndexWriterConfig(new MockAnalyzer(random()));
+  iwConf.setMergePolicy(NoMergePolicy.INSTANCE);
+  iwConf.setCodec(CompressingCodec.randomInstance(random(),4 * 1024,100,false,8));
+  IndexWriter iw=new IndexWriter(dir,iwConf);
+  DirectoryReader ir=DirectoryReader.open(iw,true);
+  for (int i=0; i < 5; i++) {
+    Document doc=new Document();
+    FieldType ft=new FieldType(TextField.TYPE_NOT_STORED);
+    ft.setStoreTermVectors(true);
+    doc.add(new Field("text","not very long at all",ft));
+    iw.addDocument(doc);
+    DirectoryReader ir2=DirectoryReader.openIfChanged(ir);
+    assertNotNull(ir2);
+    ir.close();
+    ir=ir2;
+    for (    LeafReaderContext leaf : ir2.leaves()) {
+      CodecReader sr=(CodecReader)leaf.reader();
+      CompressingTermVectorsReader reader=(CompressingTermVectorsReader)sr.getTermVectorsReader();
+      assertEquals(1,reader.getNumChunks());
+      assertEquals(1,reader.getNumDirtyChunks());
+    }
+  }
+  iw.getConfig().setMergePolicy(newLogMergePolicy());
+  iw.forceMerge(1);
+  DirectoryReader ir2=DirectoryReader.openIfChanged(ir);
+  assertNotNull(ir2);
+  ir.close();
+  ir=ir2;
+  CodecReader sr=getOnlySegmentReader(ir);
+  CompressingTermVectorsReader reader=(CompressingTermVectorsReader)sr.getTermVectorsReader();
+  assertTrue(reader.getNumDirtyChunks() <= 1);
+  ir.close();
+  iw.close();
+  dir.close();
+}
