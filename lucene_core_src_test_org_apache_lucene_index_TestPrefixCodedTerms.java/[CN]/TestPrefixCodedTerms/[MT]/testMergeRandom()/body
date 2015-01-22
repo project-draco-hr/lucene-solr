@@ -5,7 +5,8 @@
     Set<Term> terms=new TreeSet<>();
     int nterms=TestUtil.nextInt(random(),0,10000);
     for (int j=0; j < nterms; j++) {
-      Term term=new Term(TestUtil.randomUnicodeString(random(),2),TestUtil.randomUnicodeString(random(),4));
+      String field=TestUtil.randomUnicodeString(random(),2);
+      Term term=new Term(field,TestUtil.randomUnicodeString(random(),4));
       terms.add(term);
     }
     superSet.addAll(terms);
@@ -15,15 +16,25 @@
     }
     pb[i]=b.finish();
   }
-  List<Iterator<Term>> subs=new ArrayList<>();
-  for (int i=0; i < pb.length; i++) {
-    subs.add(pb[i].iterator());
-  }
   Iterator<Term> expected=superSet.iterator();
-  Iterator<Term> actual=new MergedIterator<Term>(subs.toArray(new Iterator[0]));
-  while (actual.hasNext()) {
+  MergedPrefixCodedTermsIterator actual=new MergedPrefixCodedTermsIterator(Arrays.asList(pb));
+  String field="";
+  BytesRef lastTerm=null;
+  while (true) {
+    if (actual.next()) {
+      field=actual.field();
+      if (field == null) {
+        break;
+      }
+      lastTerm=null;
+    }
+    if (lastTerm != null && lastTerm.equals(actual.term())) {
+      continue;
+    }
+    lastTerm=BytesRef.deepCopyOf(actual.term());
     assertTrue(expected.hasNext());
-    assertEquals(expected.next(),actual.next());
+    Term expectedTerm=expected.next();
+    assertEquals(expectedTerm,new Term(field,actual.term()));
   }
   assertFalse(expected.hasNext());
 }
