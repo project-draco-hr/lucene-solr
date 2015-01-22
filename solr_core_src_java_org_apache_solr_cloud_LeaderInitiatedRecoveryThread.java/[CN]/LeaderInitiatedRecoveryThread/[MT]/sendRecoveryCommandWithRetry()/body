@@ -77,7 +77,7 @@
           break;
         }
       }
-      if (continueTrying && collection != null && shardId != null) {
+      if (collection != null && shardId != null) {
         try {
           String lirState=zkController.getLeaderInitiatedRecoveryState(collection,shardId,replicaCoreNodeName);
           if (lirState == null) {
@@ -93,11 +93,16 @@
             String leaderCoreNodeName=zkStateReader.getLeaderRetry(collection,shardId,5000).getName();
             List<ZkCoreNodeProps> replicaProps=zkStateReader.getReplicaProps(collection,shardId,leaderCoreNodeName);
             if (replicaProps != null && replicaProps.size() > 0) {
-              String replicaState=replicaProps.get(0).getState();
-              if (ZkStateReader.ACTIVE.equals(replicaState)) {
-                if (ZkStateReader.DOWN.equals(lirState)) {
-                  log.warn("Replica core={} coreNodeName={} set to active but the leader thinks it should be in recovery;" + " forcing it back to down state to re-run the leader-initiated recovery process; props: " + replicaProps.get(0),coreNeedingRecovery,replicaCoreNodeName);
-                  zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaUrl,nodeProps,true);
+              for (              ZkCoreNodeProps prop : replicaProps) {
+                if (replicaCoreNodeName.equals(((Replica)prop.getNodeProps()).getName())) {
+                  String replicaState=prop.getState();
+                  if (ZkStateReader.ACTIVE.equals(replicaState)) {
+                    if (ZkStateReader.DOWN.equals(lirState)) {
+                      log.warn("Replica core={} coreNodeName={} set to active but the leader thinks it should be in recovery;" + " forcing it back to down state to re-run the leader-initiated recovery process; props: " + replicaProps.get(0),coreNeedingRecovery,replicaCoreNodeName);
+                      zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,replicaUrl,nodeProps,true);
+                    }
+                  }
+                  break;
                 }
               }
             }
