@@ -8,37 +8,36 @@
   createCmd.setNumShards(2);
   SolrClient client=clients.get(0);
   String url1=getBaseUrl(client);
-  HttpSolrClient adminClient=new HttpSolrClient(url1);
-  adminClient.setConnectionTimeout(15000);
-  adminClient.setSoTimeout(60000);
-  adminClient.request(createCmd);
-  createCmd=new Create();
-  createCmd.setCoreName("test_unload_shard_and_collection_2");
-  collection="test_unload_shard_and_collection";
-  createCmd.setCollection(collection);
-  coreDataDir=createTempDir().toFile().getAbsolutePath();
-  createCmd.setDataDir(getDataDir(coreDataDir));
-  adminClient.request(createCmd);
-  waitForRecoveriesToFinish(collection,false);
-  Unload unloadCmd=new Unload(false);
-  unloadCmd.setCoreName("test_unload_shard_and_collection_2");
-  adminClient.request(unloadCmd);
-  int slices=getCommonCloudSolrClient().getZkStateReader().getClusterState().getSlices(collection).size();
-  long timeoutAt=System.currentTimeMillis() + 45000;
-  while (slices != 1) {
-    if (System.currentTimeMillis() > timeoutAt) {
-      printLayout();
-      fail("Expected to find only one slice in " + collection);
+  try (HttpSolrClient adminClient=new HttpSolrClient(url1)){
+    adminClient.setConnectionTimeout(15000);
+    adminClient.setSoTimeout(60000);
+    adminClient.request(createCmd);
+    createCmd=new Create();
+    createCmd.setCoreName("test_unload_shard_and_collection_2");
+    collection="test_unload_shard_and_collection";
+    createCmd.setCollection(collection);
+    coreDataDir=createTempDir().toFile().getAbsolutePath();
+    createCmd.setDataDir(getDataDir(coreDataDir));
+    adminClient.request(createCmd);
+    waitForRecoveriesToFinish(collection,false);
+    Unload unloadCmd=new Unload(false);
+    unloadCmd.setCoreName("test_unload_shard_and_collection_2");
+    adminClient.request(unloadCmd);
+    int slices=getCommonCloudSolrClient().getZkStateReader().getClusterState().getSlices(collection).size();
+    long timeoutAt=System.currentTimeMillis() + 45000;
+    while (slices != 1) {
+      if (System.currentTimeMillis() > timeoutAt) {
+        printLayout();
+        fail("Expected to find only one slice in " + collection);
+      }
+      Thread.sleep(1000);
+      slices=getCommonCloudSolrClient().getZkStateReader().getClusterState().getSlices(collection).size();
     }
-    Thread.sleep(1000);
-    slices=getCommonCloudSolrClient().getZkStateReader().getClusterState().getSlices(collection).size();
+    unloadCmd=new Unload(false);
+    unloadCmd.setCoreName("test_unload_shard_and_collection_1");
+    adminClient.request(unloadCmd);
   }
-  unloadCmd=new Unload(false);
-  unloadCmd.setCoreName("test_unload_shard_and_collection_1");
-  adminClient.request(unloadCmd);
-  adminClient.shutdown();
-  adminClient=null;
-  timeoutAt=System.currentTimeMillis() + 30000;
+   long timeoutAt=System.currentTimeMillis() + 30000;
   while (getCommonCloudSolrClient().getZkStateReader().getClusterState().hasCollection(collection)) {
     if (System.currentTimeMillis() > timeoutAt) {
       printLayout();

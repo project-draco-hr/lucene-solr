@@ -28,7 +28,7 @@
       }
     }
   finally {
-      if (client != null)       client.shutdown();
+      if (client != null)       client.close();
     }
   }
   Set<Entry<String,List<Integer>>> collectionInfosEntrySet=collectionInfos.entrySet();
@@ -37,10 +37,10 @@
     List<Integer> list=entry.getValue();
     checkForCollection(collection,list,null);
     String url=getUrlFromZk(collection);
-    HttpSolrClient collectionClient=new HttpSolrClient(url);
-    waitForNon403or404or503(collectionClient);
-    collectionClient.shutdown();
-  }
+    try (HttpSolrClient collectionClient=new HttpSolrClient(url)){
+      waitForNon403or404or503(collectionClient);
+    }
+   }
   if (random().nextBoolean()) {
     JettySolrRunner jetty=jettys.get(random().nextInt(jettys.size()));
     ChaosMonkey.stop(jetty);
@@ -50,10 +50,10 @@
       List<Integer> list=entry.getValue();
       checkForCollection(collection,list,null);
       String url=getUrlFromZk(collection);
-      HttpSolrClient collectionClient=new HttpSolrClient(url);
-      waitForNon403or404or503(collectionClient);
-      collectionClient.shutdown();
-    }
+      try (HttpSolrClient collectionClient=new HttpSolrClient(url)){
+        waitForNon403or404or503(collectionClient);
+      }
+     }
   }
   if (random().nextBoolean()) {
     zkServer.shutdown();
@@ -80,18 +80,17 @@
   collectionNameList.addAll(collectionInfos.keySet());
   String collectionName=collectionNameList.get(random().nextInt(collectionNameList.size()));
   String url=getUrlFromZk(collectionName);
-  HttpSolrClient collectionClient=new HttpSolrClient(url);
-  SolrInputDocument doc1=getDoc(id,6,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
-  SolrInputDocument doc2=getDoc(id,7,i1,-600,tlong,600,t1,"humpty dumpy3 sat on a walls");
-  SolrInputDocument doc3=getDoc(id,8,i1,-600,tlong,600,t1,"humpty dumpy2 sat on a walled");
-  collectionClient.add(doc1);
-  collectionClient.add(doc2);
-  collectionClient.add(doc3);
-  collectionClient.commit();
-  assertEquals(3,collectionClient.query(new SolrQuery("*:*")).getResults().getNumFound());
-  collectionClient.shutdown();
-  collectionClient=null;
-  Map<String,Long> urlToTimeBefore=new HashMap<>();
+  try (HttpSolrClient collectionClient=new HttpSolrClient(url)){
+    SolrInputDocument doc1=getDoc(id,6,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
+    SolrInputDocument doc2=getDoc(id,7,i1,-600,tlong,600,t1,"humpty dumpy3 sat on a walls");
+    SolrInputDocument doc3=getDoc(id,8,i1,-600,tlong,600,t1,"humpty dumpy2 sat on a walled");
+    collectionClient.add(doc1);
+    collectionClient.add(doc2);
+    collectionClient.add(doc3);
+    collectionClient.commit();
+    assertEquals(3,collectionClient.query(new SolrQuery("*:*")).getResults().getNumFound());
+  }
+   Map<String,Long> urlToTimeBefore=new HashMap<>();
   collectStartTimes(collectionName,urlToTimeBefore);
   assertTrue(urlToTimeBefore.size() > 0);
   ModifiableSolrParams params=new ModifiableSolrParams();
@@ -141,11 +140,10 @@
   list.add(2);
   checkForCollection(collectionName,list,null);
   url=getUrlFromZk(collectionName);
-  collectionClient=new HttpSolrClient(url);
-  waitForNon403or404or503(collectionClient);
-  collectionClient.shutdown();
-  collectionClient=null;
-  for (int j=0; j < cnt; j++) {
+  try (HttpSolrClient collectionClient=new HttpSolrClient(url)){
+    waitForNon403or404or503(collectionClient);
+  }
+   for (int j=0; j < cnt; j++) {
     waitForRecoveriesToFinish(collectionName,zkStateReader,false);
   }
   int numLiveNodes=getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size();
@@ -153,8 +151,7 @@
   int replicationFactor=2;
   int maxShardsPerNode=1;
   collectionInfos=new HashMap<>();
-  CloudSolrClient client=createCloudClient("awholynewcollection_" + cnt);
-  try {
+  try (CloudSolrClient client=createCloudClient("awholynewcollection_" + cnt)){
     exp=false;
     try {
       createCollection(collectionInfos,"awholynewcollection_" + cnt,numShards,replicationFactor,maxShardsPerNode,client,null,"conf1");
@@ -164,10 +161,7 @@
     }
     assertTrue("expected exception",exp);
   }
-  finally {
-    client.shutdown();
-  }
-  numLiveNodes=getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size();
+   numLiveNodes=getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size();
   List<String> createNodeList=new ArrayList<>();
   int numOfCreateNodes=numLiveNodes / 2;
   assertFalse("createNodeSet test is pointless with only " + numLiveNodes + " nodes running",numOfCreateNodes == 0);
@@ -185,18 +179,14 @@
   numShards=createNodeList.size() * maxShardsPerNode;
   replicationFactor=1;
   collectionInfos=new HashMap<>();
-  client=createCloudClient("awholynewcollection_" + (cnt + 1));
-  try {
+  try (SolrClient client=createCloudClient("awholynewcollection_" + (cnt + 1))){
     CollectionAdminResponse res=createCollection(collectionInfos,"awholynewcollection_" + (cnt + 1),numShards,replicationFactor,maxShardsPerNode,client,StrUtils.join(createNodeList,','),"conf1");
     assertTrue(res.isSuccess());
   }
-  finally {
-    client.shutdown();
-  }
-  checkForCollection(collectionInfos.keySet().iterator().next(),collectionInfos.entrySet().iterator().next().getValue(),createNodeList);
+   checkForCollection(collectionInfos.keySet().iterator().next(),collectionInfos.entrySet().iterator().next().getValue(),createNodeList);
   checkNoTwoShardsUseTheSameIndexDir();
   if (disableLegacy) {
     setClusterProp(client1,ZkStateReader.LEGACY_CLOUD,null);
-    client1.shutdown();
+    client1.close();
   }
 }

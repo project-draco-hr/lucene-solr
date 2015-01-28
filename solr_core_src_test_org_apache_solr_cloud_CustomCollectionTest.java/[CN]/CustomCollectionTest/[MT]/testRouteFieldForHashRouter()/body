@@ -4,29 +4,18 @@
   int replicationFactor=2;
   int maxShardsPerNode=(((numShards * replicationFactor) / getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size())) + 1;
   HashMap<String,List<Integer>> collectionInfos=new HashMap<>();
-  CloudSolrClient client=null;
   String shard_fld="shard_s";
-  try {
-    client=createCloudClient(null);
+  try (CloudSolrClient client=createCloudClient(null)){
     Map<String,Object> props=ZkNodeProps.makeMap(REPLICATION_FACTOR,replicationFactor,MAX_SHARDS_PER_NODE,maxShardsPerNode,NUM_SLICES,numShards,"router.field",shard_fld);
     createCollection(collectionInfos,collectionName,props,client);
   }
-  finally {
-    if (client != null)     client.shutdown();
-  }
-  List<Integer> list=collectionInfos.get(collectionName);
+   List<Integer> list=collectionInfos.get(collectionName);
   checkForCollection(collectionName,list,null);
   String url=getUrlFromZk(getCommonCloudSolrClient().getZkStateReader().getClusterState(),collectionName);
-  HttpSolrClient collectionClient=new HttpSolrClient(url);
-  try {
+  try (HttpSolrClient collectionClient=new HttpSolrClient(url)){
     waitForNon403or404or503(collectionClient);
-    collectionClient.shutdown();
   }
-  finally {
-    collectionClient.shutdown();
-  }
-  collectionClient=new HttpSolrClient(url);
-  try {
+   try (HttpSolrClient collectionClient=new HttpSolrClient(url)){
     collectionClient.add(getDoc(id,6,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall",shard_fld,"a"));
     collectionClient.add(getDoc(id,7,i1,-600,tlong,600,t1,"humpty dumpy3 sat on a walls",shard_fld,"a"));
     collectionClient.add(getDoc(id,8,i1,-600,tlong,600,t1,"humpty dumpy2 sat on a walled",shard_fld,"a"));
@@ -39,7 +28,4 @@
     collectionClient.commit();
     assertEquals(1,collectionClient.query(new SolrQuery("*:*").setParam(_ROUTE_,"b!")).getResults().getNumFound());
   }
-  finally {
-    collectionClient.shutdown();
-  }
-}
+ }

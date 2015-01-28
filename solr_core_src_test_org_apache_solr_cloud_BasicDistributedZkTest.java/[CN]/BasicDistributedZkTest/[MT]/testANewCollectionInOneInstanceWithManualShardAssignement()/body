@@ -39,22 +39,20 @@
   String roles=slices.get("slice1").getReplicasMap().values().iterator().next().getStr(ZkStateReader.ROLES_PROP);
   assertEquals("none",roles);
   ZkCoreNodeProps props=new ZkCoreNodeProps(getCommonCloudSolrClient().getZkStateReader().getClusterState().getLeader(oneInstanceCollection2,"slice1"));
-  HttpSolrClient unloadClient=new HttpSolrClient(baseUrl);
-  unloadClient.setConnectionTimeout(15000);
-  unloadClient.setSoTimeout(60000);
-  Unload unloadCmd=new Unload(true);
-  unloadCmd.setCoreName(props.getCoreName());
-  String leader=props.getCoreUrl();
-  unloadClient.request(unloadCmd);
-  unloadClient.shutdown();
-  int tries=50;
-  while (leader.equals(zkStateReader.getLeaderUrl(oneInstanceCollection2,"slice1",10000))) {
-    Thread.sleep(100);
-    if (tries-- == 0) {
-      fail("Leader never changed");
+  try (HttpSolrClient unloadClient=new HttpSolrClient(baseUrl)){
+    unloadClient.setConnectionTimeout(15000);
+    unloadClient.setSoTimeout(60000);
+    Unload unloadCmd=new Unload(true);
+    unloadCmd.setCoreName(props.getCoreName());
+    String leader=props.getCoreUrl();
+    unloadClient.request(unloadCmd);
+    int tries=50;
+    while (leader.equals(zkStateReader.getLeaderUrl(oneInstanceCollection2,"slice1",10000))) {
+      Thread.sleep(100);
+      if (tries-- == 0) {
+        fail("Leader never changed");
+      }
     }
   }
-  for (  SolrClient aClient : collectionClients) {
-    aClient.shutdown();
-  }
+   IOUtils.close(collectionClients);
 }

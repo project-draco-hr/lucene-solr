@@ -1,29 +1,28 @@
 {
-  CloudSolrClient client=createCloudClient(null);
-  try {
+  try (CloudSolrClient client=createCloudClient(null)){
     String collectionName="checkStateVerCol";
     createCollection(collectionName,client,2,2);
     waitForRecoveriesToFinish(collectionName,false);
     DocCollection coll=client.getZkStateReader().getClusterState().getCollection(collectionName);
     Replica r=coll.getSlices().iterator().next().getReplicas().iterator().next();
-    HttpSolrClient solrClient=new HttpSolrClient(r.getStr(ZkStateReader.BASE_URL_PROP) + "/" + collectionName);
     SolrQuery q=new SolrQuery().setQuery("*:*");
-    log.info("should work query, result {}",solrClient.query(q));
-    q.setParam(CloudSolrClient.STATE_VERSION,collectionName + ":" + coll.getZNodeVersion());
-    log.info("2nd query , result {}",solrClient.query(q));
-    q.setParam(CloudSolrClient.STATE_VERSION,collectionName + ":" + (coll.getZNodeVersion() - 1));
     HttpSolrClient.RemoteSolrException sse=null;
-    try {
-      solrClient.query(q);
-      log.info("expected query error");
+    try (HttpSolrClient solrClient=new HttpSolrClient(r.getStr(ZkStateReader.BASE_URL_PROP) + "/" + collectionName)){
+      log.info("should work query, result {}",solrClient.query(q));
+      q.setParam(CloudSolrClient.STATE_VERSION,collectionName + ":" + coll.getZNodeVersion());
+      log.info("2nd query , result {}",solrClient.query(q));
+      q.setParam(CloudSolrClient.STATE_VERSION,collectionName + ":" + (coll.getZNodeVersion() - 1));
+      try {
+        solrClient.query(q);
+        log.info("expected query error");
+      }
+ catch (      HttpSolrClient.RemoteSolrException e) {
+        sse=e;
+      }
+      assertNotNull(sse);
+      assertEquals(" Error code should be ",sse.code(),SolrException.ErrorCode.INVALID_STATE.code);
     }
- catch (    HttpSolrClient.RemoteSolrException e) {
-      sse=e;
-    }
-    solrClient.shutdown();
-    assertNotNull(sse);
-    assertEquals(" Error code should be ",sse.code(),SolrException.ErrorCode.INVALID_STATE.code);
-    Set<String> allNodesOfColl=new HashSet<>();
+     Set<String> allNodesOfColl=new HashSet<>();
     for (    Slice slice : coll.getSlices()) {
       for (      Replica replica : slice.getReplicas()) {
         allNodesOfColl.add(replica.getStr(ZkStateReader.BASE_URL_PROP));
@@ -39,20 +38,17 @@
     }
     log.info("thenode which does not serve this collection{} ",theNode);
     assertNotNull(theNode);
-    solrClient=new HttpSolrClient(theNode + "/" + collectionName);
-    q.setParam(CloudSolrClient.STATE_VERSION,collectionName + ":" + coll.getZNodeVersion());
-    try {
-      solrClient.query(q);
-      log.info("error was expected");
+    try (SolrClient solrClient=new HttpSolrClient(theNode + "/" + collectionName)){
+      q.setParam(CloudSolrClient.STATE_VERSION,collectionName + ":" + coll.getZNodeVersion());
+      try {
+        solrClient.query(q);
+        log.info("error was expected");
+      }
+ catch (      HttpSolrClient.RemoteSolrException e) {
+        sse=e;
+      }
+      assertNotNull(sse);
+      assertEquals(" Error code should be ",sse.code(),SolrException.ErrorCode.INVALID_STATE.code);
     }
- catch (    HttpSolrClient.RemoteSolrException e) {
-      sse=e;
-    }
-    solrClient.shutdown();
-    assertNotNull(sse);
-    assertEquals(" Error code should be ",sse.code(),SolrException.ErrorCode.INVALID_STATE.code);
-  }
-  finally {
-    client.shutdown();
-  }
-}
+   }
+ }

@@ -1,84 +1,77 @@
 {
   File tmpDir=createTempDir().toFile();
+  String core1DataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection1"+ "_1n";
   SolrClient client=clients.get(0);
   String url1=getBaseUrl(client);
-  HttpSolrClient adminClient=new HttpSolrClient(url1);
-  adminClient.setConnectionTimeout(15000);
-  adminClient.setSoTimeout(60000);
-  Create createCmd=new Create();
-  createCmd.setCoreName("unloadcollection1");
-  createCmd.setCollection("unloadcollection");
-  createCmd.setNumShards(1);
-  String core1DataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection1"+ "_1n";
-  createCmd.setDataDir(getDataDir(core1DataDir));
-  adminClient.request(createCmd);
-  adminClient.shutdown();
-  adminClient=null;
-  ZkStateReader zkStateReader=getCommonCloudSolrClient().getZkStateReader();
+  try (HttpSolrClient adminClient=new HttpSolrClient(url1)){
+    adminClient.setConnectionTimeout(15000);
+    adminClient.setSoTimeout(60000);
+    Create createCmd=new Create();
+    createCmd.setCoreName("unloadcollection1");
+    createCmd.setCollection("unloadcollection");
+    createCmd.setNumShards(1);
+    createCmd.setDataDir(getDataDir(core1DataDir));
+    adminClient.request(createCmd);
+  }
+   ZkStateReader zkStateReader=getCommonCloudSolrClient().getZkStateReader();
   zkStateReader.updateClusterState(true);
   int slices=zkStateReader.getClusterState().getCollection("unloadcollection").getSlices().size();
   assertEquals(1,slices);
   client=clients.get(1);
   String url2=getBaseUrl(client);
-  adminClient=new HttpSolrClient(url2);
-  createCmd=new Create();
-  createCmd.setCoreName("unloadcollection2");
-  createCmd.setCollection("unloadcollection");
-  String core2dataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection1"+ "_2n";
-  createCmd.setDataDir(getDataDir(core2dataDir));
-  adminClient.request(createCmd);
-  adminClient.shutdown();
-  adminClient=null;
-  zkStateReader.updateClusterState(true);
+  try (HttpSolrClient adminClient=new HttpSolrClient(url2)){
+    Create createCmd=new Create();
+    createCmd.setCoreName("unloadcollection2");
+    createCmd.setCollection("unloadcollection");
+    String core2dataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection1"+ "_2n";
+    createCmd.setDataDir(getDataDir(core2dataDir));
+    adminClient.request(createCmd);
+  }
+   zkStateReader.updateClusterState(true);
   slices=zkStateReader.getClusterState().getCollection("unloadcollection").getSlices().size();
   assertEquals(1,slices);
   waitForRecoveriesToFinish("unloadcollection",zkStateReader,false);
   ZkCoreNodeProps leaderProps=getLeaderUrlFromZk("unloadcollection","shard1");
   Random random=random();
-  HttpSolrClient collectionClient;
   if (random.nextBoolean()) {
-    collectionClient=new HttpSolrClient(leaderProps.getCoreUrl());
-    SolrInputDocument doc1=getDoc(id,6,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
-    SolrInputDocument doc2=getDoc(id,7,i1,-600,tlong,600,t1,"humpty dumpy3 sat on a walls");
-    SolrInputDocument doc3=getDoc(id,8,i1,-600,tlong,600,t1,"humpty dumpy2 sat on a walled");
-    collectionClient.add(doc1);
-    collectionClient.add(doc2);
-    collectionClient.add(doc3);
-    collectionClient.commit();
-    collectionClient.shutdown();
-    collectionClient=null;
-  }
+    try (HttpSolrClient collectionClient=new HttpSolrClient(leaderProps.getCoreUrl())){
+      SolrInputDocument doc1=getDoc(id,6,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
+      SolrInputDocument doc2=getDoc(id,7,i1,-600,tlong,600,t1,"humpty dumpy3 sat on a walls");
+      SolrInputDocument doc3=getDoc(id,8,i1,-600,tlong,600,t1,"humpty dumpy2 sat on a walled");
+      collectionClient.add(doc1);
+      collectionClient.add(doc2);
+      collectionClient.add(doc3);
+      collectionClient.commit();
+    }
+   }
   client=clients.get(2);
   String url3=getBaseUrl(client);
-  adminClient=new HttpSolrClient(url3);
-  createCmd=new Create();
-  createCmd.setCoreName("unloadcollection3");
-  createCmd.setCollection("unloadcollection");
-  String core3dataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection"+ "_3n";
-  createCmd.setDataDir(getDataDir(core3dataDir));
-  adminClient.request(createCmd);
-  adminClient.shutdown();
-  adminClient=null;
-  waitForRecoveriesToFinish("unloadcollection",zkStateReader,false);
-  DirectUpdateHandler2.commitOnClose=false;
-  HttpSolrClient addClient=new HttpSolrClient(url3 + "/unloadcollection3");
-  addClient.setConnectionTimeout(30000);
-  for (int x=20; x < 100; x++) {
-    SolrInputDocument doc1=getDoc(id,x,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
-    addClient.add(doc1);
+  try (HttpSolrClient adminClient=new HttpSolrClient(url3)){
+    Create createCmd=new Create();
+    createCmd.setCoreName("unloadcollection3");
+    createCmd.setCollection("unloadcollection");
+    String core3dataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection"+ "_3n";
+    createCmd.setDataDir(getDataDir(core3dataDir));
+    adminClient.request(createCmd);
   }
-  addClient.shutdown();
-  addClient=null;
-  collectionClient=new HttpSolrClient(leaderProps.getBaseUrl());
-  collectionClient.setConnectionTimeout(15000);
-  collectionClient.setSoTimeout(30000);
-  Unload unloadCmd=new Unload(false);
-  unloadCmd.setCoreName(leaderProps.getCoreName());
-  ModifiableSolrParams p=(ModifiableSolrParams)unloadCmd.getParams();
-  collectionClient.request(unloadCmd);
-  collectionClient.shutdown();
-  collectionClient=null;
-  int tries=50;
+   waitForRecoveriesToFinish("unloadcollection",zkStateReader,false);
+  DirectUpdateHandler2.commitOnClose=false;
+  try (HttpSolrClient addClient=new HttpSolrClient(url3 + "/unloadcollection3")){
+    addClient.setConnectionTimeout(30000);
+    for (int x=20; x < 100; x++) {
+      SolrInputDocument doc1=getDoc(id,x,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
+      addClient.add(doc1);
+    }
+  }
+   try (HttpSolrClient collectionClient=new HttpSolrClient(leaderProps.getBaseUrl())){
+    collectionClient.setConnectionTimeout(15000);
+    collectionClient.setSoTimeout(30000);
+    Unload unloadCmd=new Unload(false);
+    unloadCmd.setCoreName(leaderProps.getCoreName());
+    ModifiableSolrParams p=(ModifiableSolrParams)unloadCmd.getParams();
+    collectionClient.request(unloadCmd);
+  }
+   int tries=50;
   while (leaderProps.getCoreUrl().equals(zkStateReader.getLeaderUrl("unloadcollection","shard1",15000))) {
     Thread.sleep(100);
     if (tries-- == 0) {
@@ -86,40 +79,37 @@
     }
   }
   zkStateReader.getLeaderRetry("unloadcollection","shard1",15000);
-  addClient=new HttpSolrClient(url2 + "/unloadcollection2");
-  addClient.setConnectionTimeout(30000);
-  addClient.setSoTimeout(90000);
-  for (int x=101; x < 200; x++) {
-    SolrInputDocument doc1=getDoc(id,x,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
-    addClient.add(doc1);
+  try (HttpSolrClient addClient=new HttpSolrClient(url2 + "/unloadcollection2")){
+    addClient.setConnectionTimeout(30000);
+    addClient.setSoTimeout(90000);
+    for (int x=101; x < 200; x++) {
+      SolrInputDocument doc1=getDoc(id,x,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
+      addClient.add(doc1);
+    }
   }
-  addClient.shutdown();
-  addClient=null;
-  client=clients.get(3);
+   client=clients.get(3);
   String url4=getBaseUrl(client);
-  adminClient=new HttpSolrClient(url4);
-  adminClient.setConnectionTimeout(15000);
-  adminClient.setSoTimeout(30000);
-  createCmd=new Create();
-  createCmd.setCoreName("unloadcollection4");
-  createCmd.setCollection("unloadcollection");
-  String core4dataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection"+ "_4n";
-  createCmd.setDataDir(getDataDir(core4dataDir));
-  adminClient.request(createCmd);
-  adminClient.shutdown();
-  adminClient=null;
-  waitForRecoveriesToFinish("unloadcollection",zkStateReader,false);
+  try (HttpSolrClient adminClient=new HttpSolrClient(url4)){
+    adminClient.setConnectionTimeout(15000);
+    adminClient.setSoTimeout(30000);
+    Create createCmd=new Create();
+    createCmd.setCoreName("unloadcollection4");
+    createCmd.setCollection("unloadcollection");
+    String core4dataDir=tmpDir.getAbsolutePath() + File.separator + System.currentTimeMillis()+ "unloadcollection"+ "_4n";
+    createCmd.setDataDir(getDataDir(core4dataDir));
+    adminClient.request(createCmd);
+  }
+   waitForRecoveriesToFinish("unloadcollection",zkStateReader,false);
   leaderProps=getLeaderUrlFromZk("unloadcollection","shard1");
-  collectionClient=new HttpSolrClient(leaderProps.getBaseUrl());
-  collectionClient.setConnectionTimeout(15000);
-  collectionClient.setSoTimeout(30000);
-  unloadCmd=new Unload(false);
-  unloadCmd.setCoreName(leaderProps.getCoreName());
-  p=(ModifiableSolrParams)unloadCmd.getParams();
-  collectionClient.request(unloadCmd);
-  collectionClient.shutdown();
-  collectionClient=null;
-  tries=50;
+  try (HttpSolrClient collectionClient=new HttpSolrClient(leaderProps.getBaseUrl())){
+    collectionClient.setConnectionTimeout(15000);
+    collectionClient.setSoTimeout(30000);
+    Unload unloadCmd=new Unload(false);
+    unloadCmd.setCoreName(leaderProps.getCoreName());
+    SolrParams p=(ModifiableSolrParams)unloadCmd.getParams();
+    collectionClient.request(unloadCmd);
+  }
+   tries=50;
   while (leaderProps.getCoreUrl().equals(zkStateReader.getLeaderUrl("unloadcollection","shard1",15000))) {
     Thread.sleep(100);
     if (tries-- == 0) {
@@ -128,41 +118,41 @@
   }
   zkStateReader.getLeaderRetry("unloadcollection","shard1",15000);
   DirectUpdateHandler2.commitOnClose=true;
-  adminClient=new HttpSolrClient(leaderProps.getBaseUrl());
-  adminClient.setConnectionTimeout(15000);
-  adminClient.setSoTimeout(30000);
-  createCmd=new Create();
-  createCmd.setCoreName(leaderProps.getCoreName());
-  createCmd.setCollection("unloadcollection");
-  createCmd.setDataDir(getDataDir(core1DataDir));
-  adminClient.request(createCmd);
-  adminClient.shutdown();
-  adminClient=null;
-  waitForRecoveriesToFinish("unloadcollection",zkStateReader,false);
-  adminClient=new HttpSolrClient(url2 + "/unloadcollection");
-  adminClient.setConnectionTimeout(15000);
-  adminClient.setSoTimeout(30000);
-  adminClient.commit();
-  SolrQuery q=new SolrQuery("*:*");
-  q.set("distrib",false);
-  long found1=adminClient.query(q).getResults().getNumFound();
-  adminClient.shutdown();
-  adminClient=new HttpSolrClient(url3 + "/unloadcollection");
-  adminClient.setConnectionTimeout(15000);
-  adminClient.setSoTimeout(30000);
-  adminClient.commit();
-  q=new SolrQuery("*:*");
-  q.set("distrib",false);
-  long found3=adminClient.query(q).getResults().getNumFound();
-  adminClient.shutdown();
-  adminClient=new HttpSolrClient(url4 + "/unloadcollection");
-  adminClient.setConnectionTimeout(15000);
-  adminClient.setSoTimeout(30000);
-  adminClient.commit();
-  q=new SolrQuery("*:*");
-  q.set("distrib",false);
-  long found4=adminClient.query(q).getResults().getNumFound();
-  assertEquals(found1,found3);
-  assertEquals(found3,found4);
-  adminClient.shutdown();
-}
+  try (HttpSolrClient adminClient=new HttpSolrClient(leaderProps.getBaseUrl())){
+    adminClient.setConnectionTimeout(15000);
+    adminClient.setSoTimeout(30000);
+    Create createCmd=new Create();
+    createCmd.setCoreName(leaderProps.getCoreName());
+    createCmd.setCollection("unloadcollection");
+    createCmd.setDataDir(getDataDir(core1DataDir));
+    adminClient.request(createCmd);
+  }
+   waitForRecoveriesToFinish("unloadcollection",zkStateReader,false);
+  long found1, found3;
+  try (HttpSolrClient adminClient=new HttpSolrClient(url2 + "/unloadcollection")){
+    adminClient.setConnectionTimeout(15000);
+    adminClient.setSoTimeout(30000);
+    adminClient.commit();
+    SolrQuery q=new SolrQuery("*:*");
+    q.set("distrib",false);
+    found1=adminClient.query(q).getResults().getNumFound();
+  }
+   try (HttpSolrClient adminClient=new HttpSolrClient(url3 + "/unloadcollection")){
+    adminClient.setConnectionTimeout(15000);
+    adminClient.setSoTimeout(30000);
+    adminClient.commit();
+    SolrQuery q=new SolrQuery("*:*");
+    q.set("distrib",false);
+    found3=adminClient.query(q).getResults().getNumFound();
+  }
+   try (HttpSolrClient adminClient=new HttpSolrClient(url4 + "/unloadcollection")){
+    adminClient.setConnectionTimeout(15000);
+    adminClient.setSoTimeout(30000);
+    adminClient.commit();
+    SolrQuery q=new SolrQuery("*:*");
+    q.set("distrib",false);
+    long found4=adminClient.query(q).getResults().getNumFound();
+    assertEquals(found1,found3);
+    assertEquals(found3,found4);
+  }
+ }
