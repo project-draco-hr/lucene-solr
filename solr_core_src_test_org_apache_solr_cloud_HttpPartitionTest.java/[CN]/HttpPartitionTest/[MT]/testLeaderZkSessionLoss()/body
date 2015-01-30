@@ -1,6 +1,6 @@
 {
   String testCollectionName="c8n_1x2_leader_session_loss";
-  createCollection(testCollectionName,1,2,1);
+  createCollectionRetry(testCollectionName,1,2,1);
   cloudClient.setDefaultCollection(testCollectionName);
   sendDoc(1);
   List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",1,2,maxWaitSecsToSeeAllActive);
@@ -9,7 +9,6 @@
   String leaderNode=leader.getNodeName();
   assertNotNull("Could not find leader for shard1 of " + testCollectionName + "; clusterState: "+ printClusterStateInfo(testCollectionName),leader);
   JettySolrRunner leaderJetty=getJettyOnPort(getReplicaPort(leader));
-  HttpSolrClient leaderSolr=getHttpSolrClient(leader,testCollectionName);
   SolrInputDocument doc=new SolrInputDocument();
   doc.addField(id,String.valueOf(2));
   doc.addField("a_t","hello" + 2);
@@ -30,7 +29,7 @@
   Replica currentLeader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
   assertEquals(expectedNewLeaderCoreNodeName,currentLeader.getName());
   log.info("Sending doc 2 to old leader " + leader.getName());
-  try {
+  try (HttpSolrClient leaderSolr=getHttpSolrClient(leader,testCollectionName)){
     leaderSolr.add(doc);
     leaderSolr.close();
     try (HttpSolrClient newLeaderSolr=getHttpSolrClient(currentLeader,testCollectionName)){

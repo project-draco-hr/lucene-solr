@@ -5,7 +5,16 @@
   String testCollectionName="repfacttest_c8n_2x2";
   String shardId="shard1";
   int minRf=2;
-  createCollection(testCollectionName,numShards,replicationFactor,maxShardsPerNode);
+  CollectionAdminResponse resp=createCollection(testCollectionName,numShards,replicationFactor,maxShardsPerNode);
+  if (resp.getResponse().get("failure") != null) {
+    CollectionAdminRequest.Delete req=new CollectionAdminRequest.Delete();
+    req.setCollectionName(testCollectionName);
+    req.process(cloudClient);
+    resp=createCollection(testCollectionName,numShards,replicationFactor,maxShardsPerNode);
+    if (resp.getResponse().get("failure") != null) {
+      fail("Could not create " + testCollectionName);
+    }
+  }
   cloudClient.setDefaultCollection(testCollectionName);
   List<Replica> replicas=ensureAllReplicasAreActive(testCollectionName,shardId,numShards,replicationFactor,30);
   assertTrue("Expected active 1 replicas for " + testCollectionName,replicas.size() == 1);
@@ -20,14 +29,14 @@
   up.setParam(UpdateRequest.MIN_REPFACT,String.valueOf(minRf));
   up.add(batch);
   Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,shardId);
-  sendNonDirectUpdateRequestReplica(leader,up,2,testCollectionName);
-  sendNonDirectUpdateRequestReplica(replicas.get(0),up,2,testCollectionName);
+  sendNonDirectUpdateRequestReplicaWithRetry(leader,up,2,testCollectionName);
+  sendNonDirectUpdateRequestReplicaWithRetry(replicas.get(0),up,2,testCollectionName);
   List<Replica> shard2Replicas=ensureAllReplicasAreActive(testCollectionName,"shard2",numShards,replicationFactor,30);
   assertTrue("Expected active 1 replicas for " + testCollectionName,replicas.size() == 1);
   getProxyForReplica(shard2Replicas.get(0)).close();
   Thread.sleep(2000);
-  sendNonDirectUpdateRequestReplica(leader,up,1,testCollectionName);
-  sendNonDirectUpdateRequestReplica(replicas.get(0),up,1,testCollectionName);
+  sendNonDirectUpdateRequestReplicaWithRetry(leader,up,1,testCollectionName);
+  sendNonDirectUpdateRequestReplicaWithRetry(replicas.get(0),up,1,testCollectionName);
   getProxyForReplica(shard2Replicas.get(0)).reopen();
   Thread.sleep(2000);
 }
