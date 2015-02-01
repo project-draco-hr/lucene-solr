@@ -10,14 +10,13 @@
   boolean anyChanges=false;
   boolean success2=false;
   try {
+    boolean success=false;
 synchronized (fullFlushLock) {
-      boolean success=false;
       try {
         anyChanges=docWriter.flushAllThreads();
         if (!anyChanges) {
           flushCount.incrementAndGet();
         }
-        success=true;
 synchronized (this) {
           anyChanges|=maybeApplyDeletes(applyAllDeletes);
           r=StandardDirectoryReader.open(this,segmentInfos,applyAllDeletes);
@@ -25,21 +24,18 @@ synchronized (this) {
             infoStream.message("IW","return reader version=" + r.getVersion() + " reader="+ r);
           }
         }
+        success=true;
       }
- catch (      AbortingException|OutOfMemoryError tragedy) {
-        tragicEvent(tragedy,"getReader");
-        return null;
-      }
- finally {
-        if (!success) {
+  finally {
+        docWriter.finishFullFlush(this,success);
+        if (success) {
+          processEvents(false,true);
+          doAfterFlush();
+        }
+ else {
           if (infoStream.isEnabled("IW")) {
             infoStream.message("IW","hit exception during NRT reader");
           }
-        }
-        if (tragedy == null) {
-          docWriter.finishFullFlush(success);
-          processEvents(false,true);
-          doAfterFlush();
         }
       }
     }
@@ -51,7 +47,11 @@ synchronized (this) {
     }
     success2=true;
   }
-  finally {
+ catch (  AbortingException|OutOfMemoryError tragedy) {
+    tragicEvent(tragedy,"getReader");
+    return null;
+  }
+ finally {
     if (!success2) {
       IOUtils.closeWhileHandlingException(r);
     }
