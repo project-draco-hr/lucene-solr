@@ -9,6 +9,7 @@
   Map<String,Shape> indexedShapesGS=new LinkedHashMap<>();
   final int numIndexedShapes=randomIntBetween(1,6);
   boolean indexedAtLeastOneShapePair=false;
+  final boolean pointsOnly=((PrefixTreeStrategy)strategy).isPointsOnly();
   for (int i=0; i < numIndexedShapes; i++) {
     String id="" + i;
     Shape indexedShape;
@@ -16,7 +17,7 @@
     if (R == 0) {
       indexedShape=null;
     }
- else     if (R == 1) {
+ else     if (R == 1 || pointsOnly) {
       indexedShape=randomPoint();
     }
  else     if (R <= 4) {
@@ -50,8 +51,16 @@ switch (randomInt(10)) {
 case 0:
       queryShape=randomPoint();
     break;
+case 4:
+  if (!indexedShapes.isEmpty()) {
+    Shape tmp=indexedShapes.values().iterator().next();
+    if (tmp instanceof Point || tmp instanceof Rectangle) {
+      queryShape=tmp;
+      break;
+    }
+  }
 default :
-  queryShape=randomRectangle();
+queryShape=randomRectangle();
 }
 final Shape queryShapeGS=gridSnap(queryShape);
 final boolean opIsDisjoint=operation == SpatialOperation.IsDisjointTo;
@@ -63,25 +72,25 @@ Shape indexedShapeCompare=entry.getValue();
 if (indexedShapeCompare == null) continue;
 Shape queryShapeCompare=queryShape;
 if (operation.evaluate(indexedShapeCompare,queryShapeCompare)) {
-  expectedIds.add(id);
-  if (opIsDisjoint) {
-    indexedShapeCompare=indexedShapesGS.get(id);
-    queryShapeCompare=queryShapeGS;
-    if (!operation.evaluate(indexedShapeCompare,queryShapeCompare))     secondaryIds.add(id);
-  }
+expectedIds.add(id);
+if (opIsDisjoint) {
+  indexedShapeCompare=indexedShapesGS.get(id);
+  queryShapeCompare=queryShapeGS;
+  if (!operation.evaluate(indexedShapeCompare,queryShapeCompare))   secondaryIds.add(id);
+}
 }
  else if (!opIsDisjoint) {
-  if (operation == SpatialOperation.Intersects) {
-    indexedShapeCompare=indexedShapesGS.get(id);
-    queryShapeCompare=queryShapeGS;
-  }
- else   if (operation == SpatialOperation.Contains) {
-    indexedShapeCompare=indexedShapesGS.get(id);
-  }
- else   if (operation == SpatialOperation.IsWithin) {
-    queryShapeCompare=queryShapeGS;
-  }
-  if (operation.evaluate(indexedShapeCompare,queryShapeCompare))   secondaryIds.add(id);
+if (operation == SpatialOperation.Intersects) {
+  indexedShapeCompare=indexedShapesGS.get(id);
+  queryShapeCompare=queryShapeGS;
+}
+ else if (operation == SpatialOperation.Contains) {
+  indexedShapeCompare=indexedShapesGS.get(id);
+}
+ else if (operation == SpatialOperation.IsWithin) {
+  queryShapeCompare=queryShapeGS;
+}
+if (operation.evaluate(indexedShapeCompare,queryShapeCompare)) secondaryIds.add(id);
 }
 }
 SpatialArgs args=new SpatialArgs(operation,queryShape);
@@ -93,7 +102,7 @@ for (SearchResult result : got.results) {
 String id=result.getId();
 boolean removed=remainingExpectedIds.remove(id);
 if (!removed && (!opIsDisjoint && !secondaryIds.contains(id))) {
-  fail("Shouldn't match",id,indexedShapes,indexedShapesGS,queryShape);
+fail("Shouldn't match",id,indexedShapes,indexedShapesGS,queryShape);
 }
 }
 if (opIsDisjoint) remainingExpectedIds.removeAll(secondaryIds);
