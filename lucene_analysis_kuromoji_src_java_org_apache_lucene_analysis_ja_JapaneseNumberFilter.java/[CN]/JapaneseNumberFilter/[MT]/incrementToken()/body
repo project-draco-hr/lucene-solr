@@ -1,0 +1,59 @@
+{
+  if (state != null) {
+    restoreState(state);
+    state=null;
+    return true;
+  }
+  if (!input.incrementToken()) {
+    return false;
+  }
+  if (keywordAttr.isKeyword()) {
+    return true;
+  }
+  if (fallThroughTokens > 0) {
+    fallThroughTokens--;
+    return true;
+  }
+  if (posIncrAttr.getPositionIncrement() == 0) {
+    fallThroughTokens=posLengthAttr.getPositionLength() - 1;
+    return true;
+  }
+  boolean moreTokens=true;
+  boolean composedNumberToken=false;
+  int startOffset=0;
+  int endOffset=0;
+  State preCompositionState=captureState();
+  String term=termAttr.toString();
+  boolean numeralTerm=isNumeral(term);
+  while (moreTokens && numeralTerm) {
+    if (!composedNumberToken) {
+      startOffset=offsetAttr.startOffset();
+      composedNumberToken=true;
+    }
+    endOffset=offsetAttr.endOffset();
+    moreTokens=input.incrementToken();
+    if (posIncrAttr.getPositionIncrement() == 0) {
+      fallThroughTokens=posLengthAttr.getPositionLength() - 1;
+      state=captureState();
+      restoreState(preCompositionState);
+      return moreTokens;
+    }
+    numeral.append(term);
+    if (moreTokens) {
+      term=termAttr.toString();
+      numeralTerm=isNumeral(term) || isNumeralPunctuation(term);
+    }
+  }
+  if (composedNumberToken) {
+    if (moreTokens) {
+      state=captureState();
+    }
+    String normalizedNumber=normalizeNumber(numeral.toString());
+    termAttr.setEmpty();
+    termAttr.append(normalizedNumber);
+    offsetAttr.setOffset(startOffset,endOffset);
+    numeral=new StringBuilder();
+    return true;
+  }
+  return moreTokens;
+}
