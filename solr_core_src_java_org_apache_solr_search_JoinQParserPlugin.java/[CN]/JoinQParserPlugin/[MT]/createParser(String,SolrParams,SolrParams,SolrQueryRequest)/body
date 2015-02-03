@@ -9,11 +9,26 @@
       long fromCoreOpenTime=0;
       if (fromIndex != null && !fromIndex.equals(req.getCore().getCoreDescriptor().getName())) {
         CoreContainer container=req.getCore().getCoreDescriptor().getCoreContainer();
-        final SolrCore fromCore=container.getCore(fromIndex);
-        RefCounted<SolrIndexSearcher> fromHolder=null;
-        if (fromCore == null) {
-          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cross-core join: no such core " + fromIndex);
+        if (container.isZooKeeperAware()) {
+          ZkController zkController=container.getZkController();
+          if (!zkController.getClusterState().hasCollection(fromIndex)) {
+            String resolved=null;
+            Aliases aliases=zkController.getZkStateReader().getAliases();
+            if (aliases != null) {
+              Map<String,String> collectionAliases=aliases.getCollectionAliasMap();
+              resolved=(collectionAliases != null) ? collectionAliases.get(fromIndex) : null;
+              if (resolved != null) {
+                if (resolved.split(",").length > 1)                 throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"SolrCloud join: Collection alias '" + fromIndex + "' maps to multiple collections ("+ resolved+ "), which is not currently supported for joins.");
+              }
+            }
+            if (resolved == null)             throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"SolrCloud join: Collection '" + fromIndex + "' not found!");
+            fromIndex=resolved;
+          }
+          fromIndex=findLocalReplicaForFromIndex(zkController,fromIndex);
         }
+        final SolrCore fromCore=container.getCore(fromIndex);
+        if (fromCore == null)         throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cross-core join: no such core " + fromIndex);
+        RefCounted<SolrIndexSearcher> fromHolder=null;
         LocalSolrQueryRequest otherReq=new LocalSolrQueryRequest(fromCore,params);
         try {
           QParser parser=QParser.getParser(v,"lucene",otherReq);

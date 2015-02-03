@@ -1,0 +1,54 @@
+{
+  String toColl="to_2x2";
+  createCollection(toColl,2,2,2);
+  ensureAllReplicasAreActive(toColl,"shard1",2,2,30);
+  ensureAllReplicasAreActive(toColl,"shard2",2,2,30);
+  Set<String> nodeSet=new HashSet<>();
+  ClusterState cs=cloudClient.getZkStateReader().getClusterState();
+  for (  Slice slice : cs.getActiveSlices(toColl))   for (  Replica replica : slice.getReplicas())   nodeSet.add(replica.getNodeName());
+  assertTrue(nodeSet.size() > 0);
+  String fromColl="from_1x2";
+  createCollection(null,fromColl,1,nodeSet.size(),1,null,StringUtils.join(nodeSet,","));
+  ensureAllReplicasAreActive(fromColl,"shard1",1,nodeSet.size(),30);
+  Integer toDocId=indexDoc(toColl,1001,"a",null,"b");
+  indexDoc(fromColl,2001,"a","c",null);
+  Thread.sleep(1000);
+  String joinQ="{!join from=join_s fromIndex=" + fromColl + " to=join_s}match_s:c";
+  QueryRequest qr=new QueryRequest(params("collection",toColl,"q",joinQ,"fl","id,get_s"));
+  QueryResponse rsp=new QueryResponse(cloudClient.request(qr),cloudClient);
+  SolrDocumentList hits=rsp.getResults();
+  assertTrue("Expected 1 doc",hits.getNumFound() == 1);
+  SolrDocument doc=hits.get(0);
+  assertEquals(toDocId,doc.getFirstValue("id"));
+  assertEquals("b",doc.getFirstValue("get_s"));
+  String alias=fromColl + "Alias";
+  CollectionAdminRequest.CreateAlias request=new CollectionAdminRequest.CreateAlias();
+  request.setAliasName(alias);
+  request.setAliasedCollections(fromColl);
+  request.process(cloudClient);
+  joinQ="{!join from=join_s fromIndex=" + alias + " to=join_s}match_s:c";
+  qr=new QueryRequest(params("collection",toColl,"q",joinQ,"fl","id,get_s"));
+  rsp=new QueryResponse(cloudClient.request(qr),cloudClient);
+  hits=rsp.getResults();
+  assertTrue("Expected 1 doc",hits.getNumFound() == 1);
+  doc=hits.get(0);
+  assertEquals(toDocId,doc.getFirstValue("id"));
+  assertEquals("b",doc.getFirstValue("get_s"));
+  joinQ="{!join from=join_s fromIndex=" + fromColl + " to=join_s}match_s:d";
+  qr=new QueryRequest(params("collection",toColl,"q",joinQ,"fl","id,get_s"));
+  rsp=new QueryResponse(cloudClient.request(qr),cloudClient);
+  hits=rsp.getResults();
+  assertTrue("Expected no hits",hits.getNumFound() == 0);
+  log.info("DistribJoinFromCollectionTest logic complete ... deleting the " + toColl + " and "+ fromColl+ " collections");
+  for (  String c : new String[]{toColl,fromColl}) {
+    try {
+      CollectionAdminRequest.Delete req=new CollectionAdminRequest.Delete();
+      req.setCollectionName(c);
+      req.process(cloudClient);
+    }
+ catch (    Exception e) {
+      log.warn("Could not delete collection {} after test completed due to: " + e,c);
+    }
+  }
+  log.info("DistribJoinFromCollectionTest succeeded ... shutting down now!");
+}
