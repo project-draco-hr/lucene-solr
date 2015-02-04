@@ -1,29 +1,16 @@
 {
-  if (minNrShouldMatch > 1) {
-    return super.bulkScorer(context,acceptDocs);
-  }
-  List<BulkScorer> optional=new ArrayList<BulkScorer>();
-  Iterator<BooleanClause> cIter=clauses.iterator();
-  for (  Weight w : weights) {
-    BooleanClause c=cIter.next();
-    BulkScorer subScorer=w.bulkScorer(context,acceptDocs);
-    if (subScorer == null) {
-      if (c.isRequired()) {
-        return null;
-      }
-    }
- else     if (c.isRequired()) {
-      return super.bulkScorer(context,acceptDocs);
-    }
- else     if (c.isProhibited()) {
-      return super.bulkScorer(context,acceptDocs);
+  final BooleanScorer bulkScorer=booleanScorer(context,acceptDocs);
+  if (bulkScorer != null) {
+    final long costThreshold;
+    if (minNrShouldMatch <= 1) {
+      costThreshold=-1;
     }
  else {
-      optional.add(subScorer);
+      costThreshold=context.reader().maxDoc() / 3;
+    }
+    if (bulkScorer.cost() > costThreshold) {
+      return bulkScorer;
     }
   }
-  if (optional.size() == 0) {
-    return null;
-  }
-  return new BooleanScorer(this,disableCoord,maxCoord,optional);
+  return super.bulkScorer(context,acceptDocs);
 }
