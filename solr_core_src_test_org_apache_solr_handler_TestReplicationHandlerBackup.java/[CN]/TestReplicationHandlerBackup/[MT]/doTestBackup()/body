@@ -1,14 +1,6 @@
 {
-  int nDocs=TestUtil.nextInt(random(),1,100);
-  masterClient.deleteByQuery("*:*");
-  for (int i=0; i < nDocs; i++) {
-    SolrInputDocument doc=new SolrInputDocument();
-    doc.addField("id",i);
-    doc.addField("name","name = " + i);
-    masterClient.add(doc);
-  }
-  masterClient.commit();
-  File[] snapDir=new File[2];
+  int nDocs=indexDocs();
+  Path[] snapDir=new Path[2];
   boolean namedBackup=random().nextBoolean();
   try {
     String firstBackupTimestamp=null;
@@ -27,56 +19,26 @@
         backupNames[i]=backupName;
       }
       backupCommand.runCommand();
-      File dataDir=new File(master.getDataDir());
-      CheckBackupStatus checkBackupStatus=new CheckBackupStatus(firstBackupTimestamp);
-      while (true) {
-        checkBackupStatus.fetchStatus();
-        if (checkBackupStatus.success) {
-          if (i == 0) {
-            firstBackupTimestamp=checkBackupStatus.backupTimestamp;
-            Thread.sleep(1000);
-          }
-          break;
-        }
-        Thread.sleep(200);
-      }
       if (backupCommand.fail != null) {
         fail(backupCommand.fail);
       }
-      File[] files=null;
+      CheckBackupStatus checkBackupStatus=new CheckBackupStatus((HttpSolrClient)masterClient,firstBackupTimestamp);
+      while (!checkBackupStatus.success) {
+        checkBackupStatus.fetchStatus();
+        Thread.sleep(1000);
+      }
+      if (i == 0) {
+        firstBackupTimestamp=checkBackupStatus.backupTimestamp;
+      }
       if (!namedBackup) {
-        files=dataDir.listFiles(new FilenameFilter(){
-          @Override public boolean accept(          File dir,          String name){
-            if (name.startsWith("snapshot")) {
-              return true;
-            }
-            return false;
-          }
-        }
-);
+        snapDir[i]=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot*").iterator().next();
       }
  else {
-        files=dataDir.listFiles(new FilenameFilter(){
-          @Override public boolean accept(          File dir,          String name){
-            if (name.equals("snapshot." + backupName)) {
-              return true;
-            }
-            return false;
-          }
-        }
-);
+        snapDir[i]=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot." + backupName).iterator().next();
       }
-      assertEquals(1,files.length);
-      snapDir[i]=files[0];
-      Directory dir=new SimpleFSDirectory(snapDir[i].getAbsoluteFile().toPath());
-      IndexReader reader=DirectoryReader.open(dir);
-      IndexSearcher searcher=new IndexSearcher(reader);
-      TopDocs hits=searcher.search(new MatchAllDocsQuery(),1);
-      assertEquals(nDocs,hits.totalHits);
-      reader.close();
-      dir.close();
+      verify(snapDir[i],nDocs);
     }
-    if (!namedBackup && snapDir[0].exists()) {
+    if (!namedBackup && Files.exists(snapDir[0])) {
       fail("The first backup should have been cleaned up because " + backupKeepParamName + " was set to 1.");
     }
     if (namedBackup) {
@@ -85,11 +47,9 @@
   }
   finally {
     if (!namedBackup) {
-      Path toDelete[]=new Path[snapDir.length];
       for (int i=0; i < snapDir.length; i++) {
-        toDelete[i]=snapDir[i].toPath();
+        org.apache.lucene.util.IOUtils.rm(snapDir[i]);
       }
-      org.apache.lucene.util.IOUtils.rm(toDelete);
     }
   }
 }
