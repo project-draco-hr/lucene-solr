@@ -1,0 +1,73 @@
+{
+  int minShouldMatch=minNrShouldMatch;
+  List<Scorer> required=new ArrayList<>();
+  List<Scorer> prohibited=new ArrayList<>();
+  List<Scorer> optional=new ArrayList<>();
+  Iterator<BooleanClause> cIter=clauses.iterator();
+  for (  Weight w : weights) {
+    BooleanClause c=cIter.next();
+    Scorer subScorer=w.scorer(context,acceptDocs);
+    if (subScorer == null) {
+      if (c.isRequired()) {
+        return null;
+      }
+    }
+ else     if (c.isRequired()) {
+      required.add(subScorer);
+    }
+ else     if (c.isProhibited()) {
+      prohibited.add(subScorer);
+    }
+ else {
+      optional.add(subScorer);
+    }
+  }
+  if (optional.size() == minShouldMatch) {
+    required.addAll(optional);
+    optional.clear();
+    minShouldMatch=0;
+  }
+  if (required.isEmpty() && optional.isEmpty()) {
+    return null;
+  }
+ else   if (optional.size() < minShouldMatch) {
+    return null;
+  }
+  if (!needsScores && minShouldMatch == 0 && required.size() > 0) {
+    optional.clear();
+  }
+  if (optional.isEmpty()) {
+    return excl(req(required,disableCoord),prohibited);
+  }
+  if (required.isEmpty()) {
+    return excl(opt(optional,minShouldMatch,disableCoord),prohibited);
+  }
+  Scorer req=excl(req(required,true),prohibited);
+  Scorer opt=opt(optional,minShouldMatch,true);
+  if (disableCoord) {
+    if (minShouldMatch > 0) {
+      return new ConjunctionScorer(this,new Scorer[]{req,opt},1F);
+    }
+ else {
+      return new ReqOptSumScorer(req,opt);
+    }
+  }
+ else   if (optional.size() == 1) {
+    if (minShouldMatch > 0) {
+      return new ConjunctionScorer(this,new Scorer[]{req,opt},coord(required.size() + 1,maxCoord));
+    }
+ else {
+      float coordReq=coord(required.size(),maxCoord);
+      float coordBoth=coord(required.size() + 1,maxCoord);
+      return new BooleanTopLevelScorers.ReqSingleOptScorer(req,opt,coordReq,coordBoth);
+    }
+  }
+ else {
+    if (minShouldMatch > 0) {
+      return new BooleanTopLevelScorers.CoordinatingConjunctionScorer(this,coords(),req,required.size(),opt);
+    }
+ else {
+      return new BooleanTopLevelScorers.ReqMultiOptScorer(req,opt,required.size(),coords());
+    }
+  }
+}
