@@ -27,70 +27,66 @@
   boolean allowOffsets=fieldInfo.getIndexOptions().compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS) >= 0 && maxTestOptions.compareTo(IndexOptions.DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS) >= 0;
   boolean doCheckOffsets=allowOffsets && (alwaysTestMax || random().nextInt(3) <= 2);
   boolean doCheckPayloads=options.contains(Option.PAYLOADS) && allowPositions && fieldInfo.hasPayloads()&& (alwaysTestMax || random().nextInt(3) <= 2);
-  DocsEnum prevDocsEnum=null;
-  DocsEnum docsEnum;
-  DocsAndPositionsEnum docsAndPositionsEnum;
+  PostingsEnum prevPostingsEnum=null;
+  PostingsEnum postingsEnum;
   if (!doCheckPositions) {
     if (allowPositions && random().nextInt(10) == 7) {
       if (options.contains(Option.REUSE_ENUMS) && random().nextInt(10) < 9) {
-        prevDocsEnum=threadState.reuseDocsAndPositionsEnum;
+        prevPostingsEnum=threadState.reusePostingsEnum;
       }
-      int flags=0;
+      int flags=PostingsEnum.FLAG_POSITIONS;
       if (alwaysTestMax || random().nextBoolean()) {
-        flags|=DocsAndPositionsEnum.FLAG_OFFSETS;
+        flags|=PostingsEnum.FLAG_OFFSETS;
       }
       if (alwaysTestMax || random().nextBoolean()) {
-        flags|=DocsAndPositionsEnum.FLAG_PAYLOADS;
+        flags|=PostingsEnum.FLAG_PAYLOADS;
       }
       if (VERBOSE) {
-        System.out.println("  get DocsAndPositionsEnum (but we won't check positions) flags=" + flags);
+        System.out.println("  get DocsEnum (but we won't check positions) flags=" + flags);
       }
-      threadState.reuseDocsAndPositionsEnum=termsEnum.docsAndPositions(liveDocs,(DocsAndPositionsEnum)prevDocsEnum,flags);
-      docsEnum=threadState.reuseDocsAndPositionsEnum;
-      docsAndPositionsEnum=threadState.reuseDocsAndPositionsEnum;
+      threadState.reusePostingsEnum=termsEnum.postings(liveDocs,prevPostingsEnum,flags);
+      postingsEnum=threadState.reusePostingsEnum;
     }
  else {
       if (VERBOSE) {
         System.out.println("  get DocsEnum");
       }
       if (options.contains(Option.REUSE_ENUMS) && random().nextInt(10) < 9) {
-        prevDocsEnum=threadState.reuseDocsEnum;
+        prevPostingsEnum=threadState.reusePostingsEnum;
       }
-      threadState.reuseDocsEnum=termsEnum.docs(liveDocs,prevDocsEnum,doCheckFreqs ? DocsEnum.FLAG_FREQS : DocsEnum.FLAG_NONE);
-      docsEnum=threadState.reuseDocsEnum;
-      docsAndPositionsEnum=null;
+      threadState.reusePostingsEnum=termsEnum.postings(liveDocs,prevPostingsEnum,doCheckFreqs ? PostingsEnum.FLAG_FREQS : PostingsEnum.FLAG_NONE);
+      postingsEnum=threadState.reusePostingsEnum;
     }
   }
  else {
     if (options.contains(Option.REUSE_ENUMS) && random().nextInt(10) < 9) {
-      prevDocsEnum=threadState.reuseDocsAndPositionsEnum;
+      prevPostingsEnum=threadState.reusePostingsEnum;
     }
-    int flags=0;
+    int flags=PostingsEnum.FLAG_POSITIONS;
     if (alwaysTestMax || doCheckOffsets || random().nextInt(3) == 1) {
-      flags|=DocsAndPositionsEnum.FLAG_OFFSETS;
+      flags|=PostingsEnum.FLAG_OFFSETS;
     }
     if (alwaysTestMax || doCheckPayloads || random().nextInt(3) == 1) {
-      flags|=DocsAndPositionsEnum.FLAG_PAYLOADS;
+      flags|=PostingsEnum.FLAG_PAYLOADS;
     }
     if (VERBOSE) {
-      System.out.println("  get DocsAndPositionsEnum flags=" + flags);
+      System.out.println("  get DocsEnum flags=" + flags);
     }
-    threadState.reuseDocsAndPositionsEnum=termsEnum.docsAndPositions(liveDocs,(DocsAndPositionsEnum)prevDocsEnum,flags);
-    docsEnum=threadState.reuseDocsAndPositionsEnum;
-    docsAndPositionsEnum=threadState.reuseDocsAndPositionsEnum;
+    threadState.reusePostingsEnum=termsEnum.postings(liveDocs,prevPostingsEnum,flags);
+    postingsEnum=threadState.reusePostingsEnum;
   }
-  assertNotNull("null DocsEnum",docsEnum);
-  int initialDocID=docsEnum.docID();
-  assertEquals("inital docID should be -1" + docsEnum,-1,initialDocID);
+  assertNotNull("null DocsEnum",postingsEnum);
+  int initialDocID=postingsEnum.docID();
+  assertEquals("inital docID should be -1" + postingsEnum,-1,initialDocID);
   if (VERBOSE) {
-    if (prevDocsEnum == null) {
-      System.out.println("  got enum=" + docsEnum);
+    if (prevPostingsEnum == null) {
+      System.out.println("  got enum=" + postingsEnum);
     }
- else     if (prevDocsEnum == docsEnum) {
-      System.out.println("  got reuse enum=" + docsEnum);
+ else     if (prevPostingsEnum == postingsEnum) {
+      System.out.println("  got reuse enum=" + postingsEnum);
     }
  else {
-      System.out.println("  got enum=" + docsEnum + " (reuse of "+ prevDocsEnum+ " failed)");
+      System.out.println("  got enum=" + postingsEnum + " (reuse of "+ prevPostingsEnum+ " failed)");
     }
   }
   int stopAt;
@@ -134,8 +130,8 @@
   while (expected.upto <= stopAt) {
     if (expected.upto == stopAt) {
       if (stopAt == expected.docFreq) {
-        assertEquals("DocsEnum should have ended but didn't",DocsEnum.NO_MORE_DOCS,docsEnum.nextDoc());
-        assertEquals("DocsEnum should have ended but didn't",DocsEnum.NO_MORE_DOCS,docsEnum.docID());
+        assertEquals("DocsEnum should have ended but didn't",PostingsEnum.NO_MORE_DOCS,postingsEnum.nextDoc());
+        assertEquals("DocsEnum should have ended but didn't",PostingsEnum.NO_MORE_DOCS,postingsEnum.docID());
       }
       break;
     }
@@ -144,7 +140,7 @@
       if (expected.upto < stopAt && random().nextBoolean()) {
         final int skipCount=TestUtil.nextInt(random(),1,skipInc);
         for (int skip=0; skip < skipCount; skip++) {
-          if (expected.nextDoc() == DocsEnum.NO_MORE_DOCS) {
+          if (expected.nextDoc() == PostingsEnum.NO_MORE_DOCS) {
             break;
           }
         }
@@ -157,23 +153,23 @@
         }
       }
       if (expected.upto >= stopAt) {
-        int target=random().nextBoolean() ? maxDoc : DocsEnum.NO_MORE_DOCS;
+        int target=random().nextBoolean() ? maxDoc : PostingsEnum.NO_MORE_DOCS;
         if (VERBOSE) {
           System.out.println("  now advance to end (target=" + target + ")");
         }
-        assertEquals("DocsEnum should have ended but didn't",DocsEnum.NO_MORE_DOCS,docsEnum.advance(target));
+        assertEquals("DocsEnum should have ended but didn't",PostingsEnum.NO_MORE_DOCS,postingsEnum.advance(target));
         break;
       }
  else {
         if (VERBOSE) {
           if (targetDocID != -1) {
-            System.out.println("  now advance to random target=" + targetDocID + " ("+ expected.upto+ " of "+ stopAt+ ") current="+ docsEnum.docID());
+            System.out.println("  now advance to random target=" + targetDocID + " ("+ expected.upto+ " of "+ stopAt+ ") current="+ postingsEnum.docID());
           }
  else {
-            System.out.println("  now advance to known-exists target=" + expected.docID() + " ("+ expected.upto+ " of "+ stopAt+ ") current="+ docsEnum.docID());
+            System.out.println("  now advance to known-exists target=" + expected.docID() + " ("+ expected.upto+ " of "+ stopAt+ ") current="+ postingsEnum.docID());
           }
         }
-        int docID=docsEnum.advance(targetDocID != -1 ? targetDocID : expected.docID());
+        int docID=postingsEnum.advance(targetDocID != -1 ? targetDocID : expected.docID());
         assertEquals("docID is wrong",expected.docID(),docID);
       }
     }
@@ -182,9 +178,9 @@
       if (VERBOSE) {
         System.out.println("  now nextDoc to " + expected.docID() + " ("+ expected.upto+ " of "+ stopAt+ ")");
       }
-      int docID=docsEnum.nextDoc();
+      int docID=postingsEnum.nextDoc();
       assertEquals("docID is wrong",expected.docID(),docID);
-      if (docID == DocsEnum.NO_MORE_DOCS) {
+      if (docID == PostingsEnum.NO_MORE_DOCS) {
         break;
       }
     }
@@ -192,11 +188,11 @@
       if (VERBOSE) {
         System.out.println("    now freq()=" + expected.freq());
       }
-      int freq=docsEnum.freq();
+      int freq=postingsEnum.freq();
       assertEquals("freq is wrong",expected.freq(),freq);
     }
     if (doCheckPositions) {
-      int freq=docsEnum.freq();
+      int freq=postingsEnum.freq();
       int numPosToConsume;
       if (!alwaysTestMax && options.contains(Option.PARTIAL_POS_CONSUME) && random().nextInt(5) == 1) {
         numPosToConsume=random().nextInt(freq);
@@ -209,7 +205,7 @@
         if (VERBOSE) {
           System.out.println("    now nextPosition to " + pos);
         }
-        assertEquals("position is wrong",pos,docsAndPositionsEnum.nextPosition());
+        assertEquals("position is wrong",pos,postingsEnum.nextPosition());
         if (doCheckPayloads) {
           BytesRef expectedPayload=expected.getPayload();
           if (random().nextDouble() <= payloadCheckChance) {
@@ -217,17 +213,17 @@
               System.out.println("      now check expectedPayload length=" + (expectedPayload == null ? 0 : expectedPayload.length));
             }
             if (expectedPayload == null || expectedPayload.length == 0) {
-              assertNull("should not have payload",docsAndPositionsEnum.getPayload());
+              assertNull("should not have payload",postingsEnum.getPayload());
             }
  else {
-              BytesRef payload=docsAndPositionsEnum.getPayload();
+              BytesRef payload=postingsEnum.getPayload();
               assertNotNull("should have payload but doesn't",payload);
               assertEquals("payload length is wrong",expectedPayload.length,payload.length);
               for (int byteUpto=0; byteUpto < expectedPayload.length; byteUpto++) {
                 assertEquals("payload bytes are wrong",expectedPayload.bytes[expectedPayload.offset + byteUpto],payload.bytes[payload.offset + byteUpto]);
               }
               payload=BytesRef.deepCopyOf(payload);
-              assertEquals("2nd call to getPayload returns something different!",payload,docsAndPositionsEnum.getPayload());
+              assertEquals("2nd call to getPayload returns something different!",payload,postingsEnum.getPayload());
             }
           }
  else {
@@ -241,8 +237,8 @@
             if (VERBOSE) {
               System.out.println("      now check offsets: startOff=" + expected.startOffset() + " endOffset="+ expected.endOffset());
             }
-            assertEquals("startOffset is wrong",expected.startOffset(),docsAndPositionsEnum.startOffset());
-            assertEquals("endOffset is wrong",expected.endOffset(),docsAndPositionsEnum.endOffset());
+            assertEquals("startOffset is wrong",expected.startOffset(),postingsEnum.startOffset());
+            assertEquals("endOffset is wrong",expected.endOffset(),postingsEnum.endOffset());
           }
  else {
             if (VERBOSE) {
@@ -254,8 +250,8 @@
           if (VERBOSE) {
             System.out.println("      now check offsets are -1");
           }
-          assertEquals("startOffset isn't -1",-1,docsAndPositionsEnum.startOffset());
-          assertEquals("endOffset isn't -1",-1,docsAndPositionsEnum.endOffset());
+          assertEquals("startOffset isn't -1",-1,postingsEnum.startOffset());
+          assertEquals("endOffset isn't -1",-1,postingsEnum.endOffset());
         }
       }
     }
