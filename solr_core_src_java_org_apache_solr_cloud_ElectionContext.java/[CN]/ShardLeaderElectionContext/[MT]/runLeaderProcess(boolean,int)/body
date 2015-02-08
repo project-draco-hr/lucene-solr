@@ -1,6 +1,16 @@
 {
   log.info("Running the leader process for shard " + shardId);
   String coreName=leaderProps.getStr(ZkStateReader.CORE_NAME_PROP);
+  ActionThrottle lt;
+  try (SolrCore core=cc.getCore(coreName)){
+    if (core == null) {
+      cancelElection();
+      throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+    }
+    lt=core.getUpdateHandler().getSolrCoreState().getLeaderThrottle();
+  }
+   lt.minimumWaitBetweenActions();
+  lt.markAttemptingAction();
   ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.LEADER.toLower(),ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
   Overseer.getInQueue(zkClient).offer(ZkStateReader.toJSON(m));
   int leaderVoteWait=cc.getZkController().getLeaderVoteWait();
@@ -10,7 +20,7 @@
   try (SolrCore core=cc.getCore(coreName)){
     if (core == null) {
       cancelElection();
-      throw new SolrException(ErrorCode.SERVER_ERROR,"Fatal Error, SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+      throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
     }
     if (weAreReplacement && !shouldIBeLeader(leaderProps,core,weAreReplacement)) {
       rejoinLeaderElection(core);
