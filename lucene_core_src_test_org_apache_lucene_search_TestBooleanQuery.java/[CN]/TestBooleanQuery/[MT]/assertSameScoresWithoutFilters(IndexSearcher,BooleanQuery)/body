@@ -1,0 +1,33 @@
+{
+  final BooleanQuery bq2=new BooleanQuery();
+  for (  BooleanClause c : bq.getClauses()) {
+    if (c.getOccur() != Occur.FILTER) {
+      bq2.add(c);
+    }
+  }
+  bq2.setMinimumNumberShouldMatch(bq.getMinimumNumberShouldMatch());
+  bq2.setBoost(bq.getBoost());
+  final AtomicBoolean matched=new AtomicBoolean();
+  searcher.search(bq,new SimpleCollector(){
+    int docBase;
+    Scorer scorer;
+    @Override protected void doSetNextReader(    LeafReaderContext context) throws IOException {
+      super.doSetNextReader(context);
+      docBase=context.docBase;
+    }
+    @Override public boolean needsScores(){
+      return true;
+    }
+    @Override public void setScorer(    Scorer scorer) throws IOException {
+      this.scorer=scorer;
+    }
+    @Override public void collect(    int doc) throws IOException {
+      final float actualScore=scorer.score();
+      final float expectedScore=searcher.explain(bq2,docBase + doc).getValue();
+      assertEquals(expectedScore,actualScore,10e-5);
+      matched.set(true);
+    }
+  }
+);
+  assertTrue(matched.get());
+}
