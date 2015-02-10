@@ -1,0 +1,51 @@
+{
+  handle.clear();
+  handle.put("QTime",SKIPVAL);
+  handle.put("timestamp",SKIPVAL);
+  handle.put("maxScore",SKIPVAL);
+  SolrParams baseParams=params("q","*:*","rows","0","facet","true",FacetParams.FACET_HEATMAP,FIELD);
+  final String testBox="[\"50 50\" TO \"180 90\"]";
+  try {
+    getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,testBox,FacetParams.FACET_HEATMAP_DIST_ERR,"0"))).get("gridLevel");
+    fail();
+  }
+ catch (  SolrException e) {
+    assertEquals(SolrException.ErrorCode.BAD_REQUEST.code,e.code());
+  }
+  try {
+    getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,testBox,FacetParams.FACET_HEATMAP_DIST_ERR_PCT,"0"))).get("gridLevel");
+    fail();
+  }
+ catch (  SolrException e) {
+    assertEquals(SolrException.ErrorCode.BAD_REQUEST.code,e.code());
+  }
+  assertEquals(7,getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,testBox))).get("gridLevel"));
+  assertEquals(3,getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,testBox,FacetParams.FACET_HEATMAP_LEVEL,"3"))).get("gridLevel"));
+  assertEquals(2,getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,testBox,FacetParams.FACET_HEATMAP_DIST_ERR,"100"))).get("gridLevel"));
+  assertEquals(9,getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,testBox,FacetParams.FACET_HEATMAP_DIST_ERR_PCT,"0.05"))).get("gridLevel"));
+  assertEquals(6,getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_DIST_ERR_PCT,"0.10"))).get("gridLevel"));
+{
+    final ModifiableSolrParams params=params(baseParams,FacetParams.FACET_HEATMAP_DIST_ERR_PCT,"0.10");
+    String courseFormat=random().nextBoolean() ? "png" : "ints2D";
+    params.add(FacetParams.FACET_HEATMAP,"{!key=course " + FacetParams.FACET_HEATMAP_LEVEL + "=2 "+ FacetParams.FACET_HEATMAP_FORMAT+ "="+ courseFormat+ "}"+ FIELD);
+    final QueryResponse response=query(params);
+    assertEquals(6,getHmObj(response).get("gridLevel"));
+    assertEquals(2,response.getResponse().findRecursive("facet_counts","facet_heatmaps","course","gridLevel"));
+    assertTrue(((NamedList<Object>)response.getResponse().findRecursive("facet_counts","facet_heatmaps","course")).asMap(0).containsKey("counts_" + courseFormat));
+  }
+  index("id","0",FIELD,"ENVELOPE(100, 120, 80, 40)");
+  index("id","1",FIELD,"ENVELOPE(-120, -110, 80, 20)");
+  index("id","3",FIELD,"POINT(70 60)");
+  index("id","4",FIELD,"POINT(91 89)");
+  commit();
+  NamedList hmObj=getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,"[\"50 20\" TO \"180 90\"]",FacetParams.FACET_HEATMAP_LEVEL,"4")));
+  List<List<Integer>> counts=(List<List<Integer>>)hmObj.get("counts_ints2D");
+  assertEquals(Arrays.asList(Arrays.asList(0,0,2,1,0,0),Arrays.asList(0,0,1,1,0,0),Arrays.asList(0,1,1,1,0,0),Arrays.asList(0,0,1,1,0,0),Arrays.asList(0,0,1,1,0,0),null,null),counts);
+  hmObj=getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,"BUFFER(POINT(110 40), 7)",FacetParams.FACET_HEATMAP_LEVEL,"7")));
+  counts=(List<List<Integer>>)hmObj.get("counts_ints2D");
+  assertEquals(Arrays.asList(Arrays.asList(0,1,1,1,1,1,1,0),Arrays.asList(0,1,1,1,1,1,1,0),Arrays.asList(0,1,1,1,1,1,1,0),Arrays.asList(1,1,1,1,1,1,1,1),Arrays.asList(1,1,1,1,1,1,1,1),Arrays.asList(1,1,1,1,1,1,1,1),null,null,null,null,null),counts);
+  assertNull(getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_GEOM,"ENVELOPE(0, 10, -80, -90)"))).get("counts_ints2D"));
+  Object v=getHmObj(query(params(baseParams,FacetParams.FACET_HEATMAP_FORMAT,"png"))).get("counts_png");
+  assertTrue(v instanceof byte[]);
+  assertNotNull(SpatialHeatmapFacets.PngHelper.readImage((byte[])v));
+}
