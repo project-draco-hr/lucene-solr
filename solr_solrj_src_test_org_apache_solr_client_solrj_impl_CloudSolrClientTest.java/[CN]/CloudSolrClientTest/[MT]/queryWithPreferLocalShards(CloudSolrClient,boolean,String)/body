@@ -1,0 +1,30 @@
+{
+  SolrQuery qRequest=new SolrQuery();
+  qRequest.setQuery("*:*");
+  ModifiableSolrParams qParams=new ModifiableSolrParams();
+  qParams.add("preferLocalShards",Boolean.toString(preferLocalShards));
+  qParams.add("shards.info","true");
+  qRequest.add(qParams);
+  QueryResponse qResponse=cloudClient.query(qRequest);
+  Object shardsInfo=qResponse.getResponse().get("shards.info");
+  assertNotNull("Unable to obtain shards.info",shardsInfo);
+  SimpleOrderedMap<?> shardsInfoMap=(SimpleOrderedMap<?>)shardsInfo;
+  Iterator<Map.Entry<String,?>> itr=shardsInfoMap.asMap(100).entrySet().iterator();
+  List<String> shardAddresses=new ArrayList<String>();
+  while (itr.hasNext()) {
+    Map.Entry<String,?> e=itr.next();
+    assertTrue("Did not find map-type value in shards.info",e.getValue() instanceof Map);
+    String shardAddress=(String)((Map)e.getValue()).get("shardAddress");
+    assertNotNull("shards.info did not return 'shardAddress' parameter",shardAddress);
+    shardAddresses.add(shardAddress);
+  }
+  log.info("Shards giving the response: " + Arrays.toString(shardAddresses.toArray()));
+  if (preferLocalShards) {
+    Set<Integer> ports=new HashSet<Integer>();
+    for (    String shardAddr : shardAddresses) {
+      URL url=new URL(shardAddr);
+      ports.add(url.getPort());
+    }
+    assertTrue("Response was not received from shards on a single node",shardAddresses.size() > 1 && ports.size() == 1);
+  }
+}

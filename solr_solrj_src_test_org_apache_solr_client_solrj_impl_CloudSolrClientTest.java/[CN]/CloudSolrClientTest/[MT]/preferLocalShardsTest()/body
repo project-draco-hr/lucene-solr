@@ -1,0 +1,37 @@
+{
+  String collectionName="localShardsTestColl";
+  int liveNodes=getCommonCloudSolrClient().getZkStateReader().getClusterState().getLiveNodes().size();
+  Map<String,Object> props=makeMap(REPLICATION_FACTOR,liveNodes,MAX_SHARDS_PER_NODE,liveNodes,NUM_SLICES,liveNodes);
+  Map<String,List<Integer>> collectionInfos=new HashMap<String,List<Integer>>();
+  createCollection(collectionInfos,collectionName,props,controlClientCloud);
+  waitForRecoveriesToFinish(collectionName,false);
+  CloudSolrClient cloudClient=createCloudClient(collectionName);
+  assertNotNull(cloudClient);
+  handle.clear();
+  handle.put("timestamp",SKIPVAL);
+  waitForThingsToLevelOut(30);
+  controlClient.deleteByQuery("*:*");
+  cloudClient.deleteByQuery("*:*");
+  controlClient.commit();
+  cloudClient.commit();
+  SolrInputDocument doc1=new SolrInputDocument();
+  doc1.addField(id,"0");
+  doc1.addField("a_t","hello1");
+  SolrInputDocument doc2=new SolrInputDocument();
+  doc2.addField(id,"2");
+  doc2.addField("a_t","hello2");
+  SolrInputDocument doc3=new SolrInputDocument();
+  doc3.addField(id,"3");
+  doc3.addField("a_t","hello2");
+  UpdateRequest request=new UpdateRequest();
+  request.add(doc1);
+  request.add(doc2);
+  request.add(doc3);
+  request.setAction(AbstractUpdateRequest.ACTION.COMMIT,false,false);
+  queryWithPreferLocalShards(cloudClient,true,collectionName);
+  controlClient.deleteByQuery("*:*");
+  cloudClient.deleteByQuery("*:*");
+  controlClient.commit();
+  cloudClient.commit();
+  cloudClient.close();
+}
