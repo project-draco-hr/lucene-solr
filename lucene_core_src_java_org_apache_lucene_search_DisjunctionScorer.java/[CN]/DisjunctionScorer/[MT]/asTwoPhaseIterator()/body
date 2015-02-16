@@ -1,0 +1,40 @@
+{
+  boolean hasApproximation=false;
+  for (  ScorerWrapper w : subScorers) {
+    if (w.twoPhaseView != null) {
+      hasApproximation=true;
+      break;
+    }
+  }
+  if (hasApproximation == false) {
+    return null;
+  }
+  return new TwoPhaseDocIdSetIterator(){
+    @Override public DocIdSetIterator approximation(){
+      return new DisjunctionDISIApproximation(subScorers);
+    }
+    @Override public boolean matches() throws IOException {
+      ScorerWrapper topScorers=subScorers.topList();
+      while (topScorers.twoPhaseView != null && topScorers.twoPhaseView.matches() == false) {
+        topScorers=topScorers.next;
+        if (topScorers == null) {
+          return false;
+        }
+      }
+      if (needsScores) {
+        ScorerWrapper previous=topScorers;
+        for (ScorerWrapper w=topScorers.next; w != null; w=w.next) {
+          if (w.twoPhaseView != null && w.twoPhaseView.matches() == false) {
+            previous.next=w.next;
+          }
+ else {
+            previous=w;
+          }
+        }
+        DisjunctionScorer.this.topScorers=topScorers;
+      }
+      return true;
+    }
+  }
+;
+}
