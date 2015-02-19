@@ -1,0 +1,36 @@
+{
+  zkServer.ensurePathExists("/solr");
+  try (SolrZkClient zkClient=new SolrZkClient(zkServer.getZkAddress("/solr"),10000)){
+    ZkConfigManager configManager=new ZkConfigManager(zkClient);
+    assertEquals(0,configManager.listConfigs().size());
+    byte[] testdata="test data".getBytes(Charsets.UTF_8);
+    Path tempConfig=createTempDir("config");
+    Files.createFile(tempConfig.resolve("file1"));
+    Files.write(tempConfig.resolve("file1"),testdata);
+    Files.createFile(tempConfig.resolve("file2"));
+    Files.createDirectory(tempConfig.resolve("subdir"));
+    Files.createFile(tempConfig.resolve("subdir").resolve("file3"));
+    configManager.uploadConfigDir(tempConfig,"testconfig");
+    List<String> configs=configManager.listConfigs();
+    assertEquals(1,configs.size());
+    assertEquals("testconfig",configs.get(0));
+    Path downloadPath=createTempDir("download");
+    configManager.downloadConfigDir("testconfig",downloadPath);
+    assertTrue(Files.exists(downloadPath.resolve("file1")));
+    assertTrue(Files.exists(downloadPath.resolve("file2")));
+    assertTrue(Files.isDirectory(downloadPath.resolve("subdir")));
+    assertTrue(Files.exists(downloadPath.resolve("subdir/file3")));
+    byte[] checkdata=Files.readAllBytes(downloadPath.resolve("file1"));
+    assertArrayEquals(testdata,checkdata);
+    byte[] overwritten="new test data".getBytes(Charsets.UTF_8);
+    Files.write(tempConfig.resolve("file1"),overwritten);
+    configManager.uploadConfigDir(tempConfig,"testconfig");
+    assertEquals(1,configManager.listConfigs().size());
+    Path download2=createTempDir("download2");
+    configManager.downloadConfigDir("testconfig",download2);
+    byte[] checkdata2=Files.readAllBytes(download2.resolve("file1"));
+    assertArrayEquals(overwritten,checkdata2);
+    configManager.uploadConfigDir(tempConfig,"config2");
+    assertEquals(2,configManager.listConfigs().size());
+  }
+ }
