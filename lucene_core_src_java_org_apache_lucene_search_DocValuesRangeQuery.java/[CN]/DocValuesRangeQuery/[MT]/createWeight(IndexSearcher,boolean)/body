@@ -1,0 +1,114 @@
+{
+  if (lowerVal == null && upperVal == null) {
+    throw new IllegalStateException("Both min and max values cannot be null, call rewrite first");
+  }
+  return new Weight(DocValuesRangeQuery.this){
+    private float queryNorm;
+    private float queryWeight;
+    @Override public float getValueForNormalization() throws IOException {
+      queryWeight=getBoost();
+      return queryWeight * queryWeight;
+    }
+    @Override public void normalize(    float norm,    float topLevelBoost){
+      queryNorm=norm * topLevelBoost;
+      queryWeight*=queryNorm;
+    }
+    @Override public Explanation explain(    LeafReaderContext context,    int doc) throws IOException {
+      final Scorer s=scorer(context,context.reader().getLiveDocs());
+      final boolean exists=(s != null && s.advance(doc) == doc);
+      final ComplexExplanation result=new ComplexExplanation();
+      if (exists) {
+        result.setDescription(DocValuesRangeQuery.this.toString() + ", product of:");
+        result.setValue(queryWeight);
+        result.setMatch(Boolean.TRUE);
+        result.addDetail(new Explanation(getBoost(),"boost"));
+        result.addDetail(new Explanation(queryNorm,"queryNorm"));
+      }
+ else {
+        result.setDescription(DocValuesRangeQuery.this.toString() + " doesn't match id " + doc);
+        result.setValue(0);
+        result.setMatch(Boolean.FALSE);
+      }
+      return result;
+    }
+    @Override public Scorer scorer(    LeafReaderContext context,    Bits acceptDocs) throws IOException {
+      final Bits docsWithField=context.reader().getDocsWithField(field);
+      if (docsWithField == null || docsWithField instanceof MatchNoBits) {
+        return null;
+      }
+      final DocIdSetIterator approximation=DocIdSetIterator.all(context.reader().maxDoc());
+      final TwoPhaseDocIdSetIterator twoPhaseRange;
+      if (lowerVal instanceof Long || upperVal instanceof Long) {
+        final SortedNumericDocValues values=DocValues.getSortedNumeric(context.reader(),field);
+        final long min;
+        if (lowerVal == null) {
+          min=Long.MIN_VALUE;
+        }
+ else         if (includeLower) {
+          min=(long)lowerVal;
+        }
+ else {
+          min=1 + (long)lowerVal;
+        }
+        final long max;
+        if (upperVal == null) {
+          max=Long.MAX_VALUE;
+        }
+ else         if (includeUpper) {
+          max=(long)upperVal;
+        }
+ else {
+          max=-1 + (long)upperVal;
+        }
+        if (min > max) {
+          return null;
+        }
+        twoPhaseRange=new TwoPhaseNumericRange(values,min,max,approximation,acceptDocs);
+      }
+ else       if (lowerVal instanceof BytesRef || upperVal instanceof BytesRef) {
+        final SortedSetDocValues values=DocValues.getSortedSet(context.reader(),field);
+        final long minOrd;
+        if (lowerVal == null) {
+          minOrd=0;
+        }
+ else {
+          final long ord=values.lookupTerm((BytesRef)lowerVal);
+          if (ord < 0) {
+            minOrd=-1 - ord;
+          }
+ else           if (includeLower) {
+            minOrd=ord;
+          }
+ else {
+            minOrd=ord + 1;
+          }
+        }
+        final long maxOrd;
+        if (upperVal == null) {
+          maxOrd=values.getValueCount() - 1;
+        }
+ else {
+          final long ord=values.lookupTerm((BytesRef)upperVal);
+          if (ord < 0) {
+            maxOrd=-2 - ord;
+          }
+ else           if (includeUpper) {
+            maxOrd=ord;
+          }
+ else {
+            maxOrd=ord - 1;
+          }
+        }
+        if (minOrd > maxOrd) {
+          return null;
+        }
+        twoPhaseRange=new TwoPhaseOrdRange(values,minOrd,maxOrd,approximation,acceptDocs);
+      }
+ else {
+        throw new AssertionError();
+      }
+      return new RangeScorer(this,twoPhaseRange,queryWeight);
+    }
+  }
+;
+}
