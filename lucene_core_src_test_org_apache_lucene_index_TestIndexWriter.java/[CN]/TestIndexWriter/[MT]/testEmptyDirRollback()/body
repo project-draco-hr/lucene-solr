@@ -4,16 +4,17 @@
   if (dir instanceof MockDirectoryWrapper) {
     ((MockDirectoryWrapper)dir).setEnableVirusScanner(false);
   }
+  String[] origFiles=dir.listAll();
   IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(new MockAnalyzer(random())).setMaxBufferedDocs(2).setMergePolicy(newLogMergePolicy()).setUseCompoundFile(false));
   String[] files=dir.listAll();
-  final int extraFileCount;
-  if (files.length == 1) {
-    assertTrue(files[0].endsWith("write.lock"));
-    extraFileCount=1;
+  final int extraFileCount=files.length - origFiles.length;
+  if (extraFileCount == 1) {
+    assertTrue(Arrays.asList(files).contains(IndexWriter.WRITE_LOCK_NAME));
   }
  else {
-    assertEquals(0,files.length);
-    extraFileCount=0;
+    Arrays.sort(origFiles);
+    Arrays.sort(files);
+    assertArrayEquals(origFiles,files);
   }
   Document doc=new Document();
   FieldType customType=new FieldType(TextField.TYPE_STORED);
@@ -24,8 +25,10 @@
   writer.addDocument(doc);
   int computedExtraFileCount=0;
   for (  String file : dir.listAll()) {
-    if (file.lastIndexOf('.') < 0 || !Arrays.asList("fdx","fdt","tvx","tvd","tvf").contains(file.substring(file.lastIndexOf('.') + 1))) {
-      ++computedExtraFileCount;
+    if (IndexWriter.WRITE_LOCK_NAME.equals(file) || file.startsWith(IndexFileNames.SEGMENTS) || IndexFileNames.CODEC_FILE_PATTERN.matcher(file).matches()) {
+      if (file.lastIndexOf('.') < 0 || !Arrays.asList("fdx","fdt","tvx","tvd","tvf").contains(file.substring(file.lastIndexOf('.') + 1))) {
+        ++computedExtraFileCount;
+      }
     }
   }
   assertEquals("only the stored and term vector files should exist in the directory",extraFileCount,computedExtraFileCount);
@@ -35,9 +38,9 @@
   assertTrue("flush should have occurred and files should have been created",dir.listAll().length > 5 + extraFileCount);
   writer.rollback();
   String allFiles[]=dir.listAll();
-  assertTrue("no files should exist in the directory after rollback",allFiles.length == 0 || Arrays.equals(allFiles,new String[]{IndexWriter.WRITE_LOCK_NAME}));
+  assertEquals("no files should exist in the directory after rollback",origFiles.length + extraFileCount,allFiles.length);
   writer.close();
   allFiles=dir.listAll();
-  assertTrue("expected a no-op close after IW.rollback()",allFiles.length == 0 || Arrays.equals(allFiles,new String[]{IndexWriter.WRITE_LOCK_NAME}));
+  assertEquals("expected a no-op close after IW.rollback()",origFiles.length + extraFileCount,allFiles.length);
   dir.close();
 }
