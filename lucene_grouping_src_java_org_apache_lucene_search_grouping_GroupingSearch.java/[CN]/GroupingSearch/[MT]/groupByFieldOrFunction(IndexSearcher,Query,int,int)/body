@@ -1,0 +1,100 @@
+{
+  int topN=groupOffset + groupLimit;
+  final AbstractFirstPassGroupingCollector firstPassCollector;
+  final AbstractAllGroupsCollector allGroupsCollector;
+  final AbstractAllGroupHeadsCollector allGroupHeadsCollector;
+  if (groupFunction != null) {
+    firstPassCollector=new FunctionFirstPassGroupingCollector(groupFunction,valueSourceContext,groupSort,topN);
+    if (allGroups) {
+      allGroupsCollector=new FunctionAllGroupsCollector(groupFunction,valueSourceContext);
+    }
+ else {
+      allGroupsCollector=null;
+    }
+    if (allGroupHeads) {
+      allGroupHeadsCollector=new FunctionAllGroupHeadsCollector(groupFunction,valueSourceContext,sortWithinGroup);
+    }
+ else {
+      allGroupHeadsCollector=null;
+    }
+  }
+ else {
+    firstPassCollector=new TermFirstPassGroupingCollector(groupField,groupSort,topN);
+    if (allGroups) {
+      allGroupsCollector=new TermAllGroupsCollector(groupField,initialSize);
+    }
+ else {
+      allGroupsCollector=null;
+    }
+    if (allGroupHeads) {
+      allGroupHeadsCollector=TermAllGroupHeadsCollector.create(groupField,sortWithinGroup,initialSize);
+    }
+ else {
+      allGroupHeadsCollector=null;
+    }
+  }
+  final Collector firstRound;
+  if (allGroupHeads || allGroups) {
+    List<Collector> collectors=new ArrayList<>();
+    collectors.add(firstPassCollector);
+    if (allGroups) {
+      collectors.add(allGroupsCollector);
+    }
+    if (allGroupHeads) {
+      collectors.add(allGroupHeadsCollector);
+    }
+    firstRound=MultiCollector.wrap(collectors.toArray(new Collector[collectors.size()]));
+  }
+ else {
+    firstRound=firstPassCollector;
+  }
+  CachingCollector cachedCollector=null;
+  if (maxCacheRAMMB != null || maxDocsToCache != null) {
+    if (maxCacheRAMMB != null) {
+      cachedCollector=CachingCollector.create(firstRound,cacheScores,maxCacheRAMMB);
+    }
+ else {
+      cachedCollector=CachingCollector.create(firstRound,cacheScores,maxDocsToCache);
+    }
+    searcher.search(query,cachedCollector);
+  }
+ else {
+    searcher.search(query,firstRound);
+  }
+  if (allGroups) {
+    matchingGroups=allGroupsCollector.getGroups();
+  }
+ else {
+    matchingGroups=Collections.emptyList();
+  }
+  if (allGroupHeads) {
+    matchingGroupHeads=allGroupHeadsCollector.retrieveGroupHeads(searcher.getIndexReader().maxDoc());
+  }
+ else {
+    matchingGroupHeads=new Bits.MatchNoBits(searcher.getIndexReader().maxDoc());
+  }
+  Collection<SearchGroup> topSearchGroups=firstPassCollector.getTopGroups(groupOffset,fillSortFields);
+  if (topSearchGroups == null) {
+    return new TopGroups(new SortField[0],new SortField[0],0,0,new GroupDocs[0],Float.NaN);
+  }
+  int topNInsideGroup=groupDocsOffset + groupDocsLimit;
+  AbstractSecondPassGroupingCollector secondPassCollector;
+  if (groupFunction != null) {
+    secondPassCollector=new FunctionSecondPassGroupingCollector((Collection)topSearchGroups,groupSort,sortWithinGroup,topNInsideGroup,includeScores,includeMaxScore,fillSortFields,groupFunction,valueSourceContext);
+  }
+ else {
+    secondPassCollector=new TermSecondPassGroupingCollector(groupField,(Collection)topSearchGroups,groupSort,sortWithinGroup,topNInsideGroup,includeScores,includeMaxScore,fillSortFields);
+  }
+  if (cachedCollector != null && cachedCollector.isCached()) {
+    cachedCollector.replay(secondPassCollector);
+  }
+ else {
+    searcher.search(query,secondPassCollector);
+  }
+  if (allGroups) {
+    return new TopGroups(secondPassCollector.getTopGroups(groupDocsOffset),matchingGroups.size());
+  }
+ else {
+    return secondPassCollector.getTopGroups(groupDocsOffset);
+  }
+}
