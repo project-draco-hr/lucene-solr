@@ -1,0 +1,53 @@
+{
+  TrackingShardHandlerFactory.RequestTrackingQueue trackingQueue=new TrackingShardHandlerFactory.RequestTrackingQueue();
+  TrackingShardHandlerFactory.setTrackingQueue(jettys,trackingQueue);
+  Object[] qq=new Object[q.length + 2];
+  System.arraycopy(q,0,qq,0,q.length);
+  qq[qq.length - 2]="debug";
+  qq[qq.length - 1]="track";
+  handle.put("debug",SKIPVAL);
+  QueryResponse response=query(qq);
+  Map<String,List<TrackingShardHandlerFactory.ShardRequestAndParams>> requests=trackingQueue.getAllRequests();
+  int numRequests=getNumRequests(requests);
+  boolean distribSinglePass=false;
+  Set<String> fls=new HashSet<>();
+  Set<String> sortFields=new HashSet<>();
+  for (int i=0; i < q.length; i+=2) {
+    if (ShardParams.DISTRIB_SINGLE_PASS.equals(q[i].toString()) && Boolean.parseBoolean(q[i + 1].toString())) {
+      assertTrue("distrib.singlePass=true made more requests than number of shards",numRequests == sliceCount);
+      distribSinglePass=true;
+    }
+    if (CommonParams.FL.equals(q[i].toString())) {
+      fls.addAll(StrUtils.splitSmart(q[i + 1].toString(),','));
+    }
+    if (CommonParams.SORT.equals(q[i].toString())) {
+      String val=q[i + 1].toString().trim();
+      sortFields.addAll(StrUtils.splitSmart(StrUtils.splitSmart(val,' ').get(0),','));
+    }
+  }
+  Set<String> idScoreFields=new HashSet<>(2);
+  idScoreFields.add("id");
+  if (fls.contains("score") || sortFields.contains("score"))   idScoreFields.add("score");
+  if (idScoreFields.containsAll(fls)) {
+    distribSinglePass=true;
+  }
+  if (distribSinglePass) {
+    Map<String,Object> debugMap=response.getDebugMap();
+    SimpleOrderedMap<Object> track=(SimpleOrderedMap<Object>)debugMap.get("track");
+    assertNotNull(track);
+    assertNotNull(track.get("EXECUTE_QUERY"));
+    assertNull("A single pass request should not have a GET_FIELDS phase",track.get("GET_FIELDS"));
+    Set<String> reqAndIdScoreFields=new HashSet<>(fls);
+    reqAndIdScoreFields.addAll(idScoreFields);
+    assertParamsEquals(trackingQueue,DEFAULT_COLLECTION,SHARD1,CommonParams.FL,ShardRequest.PURPOSE_GET_TOP_IDS,reqAndIdScoreFields.toArray(new String[reqAndIdScoreFields.size()]));
+    assertParamsEquals(trackingQueue,DEFAULT_COLLECTION,SHARD2,CommonParams.FL,ShardRequest.PURPOSE_GET_TOP_IDS,reqAndIdScoreFields.toArray(new String[reqAndIdScoreFields.size()]));
+  }
+ else {
+    assertTrue("distrib.singlePass=false made more requests than 2 * number of shards." + " Actual: " + numRequests + " but expected <= "+ sliceCount * 2,numRequests <= sliceCount * 2);
+    assertParamsEquals(trackingQueue,DEFAULT_COLLECTION,SHARD1,CommonParams.FL,ShardRequest.PURPOSE_GET_TOP_IDS,idScoreFields.toArray(new String[idScoreFields.size()]));
+    assertParamsEquals(trackingQueue,DEFAULT_COLLECTION,SHARD2,CommonParams.FL,ShardRequest.PURPOSE_GET_TOP_IDS,idScoreFields.toArray(new String[idScoreFields.size()]));
+    assertParamsEquals(trackingQueue,DEFAULT_COLLECTION,SHARD1,CommonParams.FL,ShardRequest.PURPOSE_GET_FIELDS,fls.toArray(new String[fls.size()]));
+    assertParamsEquals(trackingQueue,DEFAULT_COLLECTION,SHARD2,CommonParams.FL,ShardRequest.PURPOSE_GET_FIELDS,fls.toArray(new String[fls.size()]));
+  }
+  return response;
+}
