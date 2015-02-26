@@ -1,0 +1,41 @@
+{
+  Directory dir=newDirectory(random(),NoLockFactory.INSTANCE);
+  Document doc=new Document();
+  IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(null));
+  for (int i=0; i < 100000; i++) {
+    w.addDocument(doc);
+  }
+  w.forceMerge(1);
+  w.commit();
+  w.close();
+  MockDirectoryWrapper dir2=newMockDirectory();
+  w=new IndexWriter(dir2,new IndexWriterConfig(null));
+  w.commit();
+  dir2.setMaxSizeInBytes(dir2.sizeInBytes() + 65536);
+  Directory dirs[]=new Directory[1 + (IndexWriter.MAX_DOCS / 100000)];
+  for (int i=0; i < dirs.length; i++) {
+    dirs[i]=new FilterDirectory(dir){
+    }
+;
+  }
+  try {
+    w.addIndexes(dirs);
+    fail("didn't get expected exception");
+  }
+ catch (  IllegalArgumentException expected) {
+  }
+catch (  IOException fakeDiskFull) {
+    final Exception e;
+    if (fakeDiskFull.getMessage() != null && fakeDiskFull.getMessage().startsWith("fake disk full")) {
+      e=new RuntimeException("test failed: IW checks aren't working and we are executing addIndexes");
+      e.addSuppressed(fakeDiskFull);
+    }
+ else {
+      e=fakeDiskFull;
+    }
+    throw e;
+  }
+  w.close();
+  dir.close();
+  dir2.close();
+}
