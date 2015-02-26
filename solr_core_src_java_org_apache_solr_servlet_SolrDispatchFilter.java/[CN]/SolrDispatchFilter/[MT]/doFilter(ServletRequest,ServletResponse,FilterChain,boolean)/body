@@ -11,6 +11,7 @@
   SolrCore core=null;
   SolrQueryRequest solrReq=null;
   Aliases aliases=null;
+  Map<String,Integer> invalidStates=null;
   if (request instanceof HttpServletRequest) {
     HttpServletRequest req=(HttpServletRequest)request;
     HttpServletResponse resp=(HttpServletResponse)response;
@@ -78,9 +79,12 @@
         if (core == null && idx > 0) {
           String coreUrl=getRemotCoreUrl(cores,corename,origCorename);
           SolrParams queryParams=SolrRequestParsers.parseQueryString(req.getQueryString());
-          checkStateIsValid(cores,queryParams.get(CloudSolrClient.STATE_VERSION));
+          invalidStates=checkStateIsValid(cores,queryParams.get(CloudSolrClient.STATE_VERSION));
           if (coreUrl != null && queryParams.get(DistributingUpdateProcessorFactory.DISTRIB_UPDATE_PARAM) == null) {
             path=path.substring(idx);
+            if (invalidStates != null) {
+              throw new SolrException(ErrorCode.INVALID_STATE,new String(ZkStateReader.toJSON(invalidStates),org.apache.lucene.util.IOUtils.UTF_8));
+            }
             remoteQuery(coreUrl + path,req,solrReq,resp);
             return;
           }
@@ -118,7 +122,7 @@
           if (handler == null && parser.isHandleSelect()) {
             if ("/select".equals(path) || "/select/".equals(path)) {
               solrReq=parser.parse(core,path,req);
-              checkStateIsValid(cores,solrReq.getParams().get(CloudSolrClient.STATE_VERSION));
+              invalidStates=checkStateIsValid(cores,solrReq.getParams().get(CloudSolrClient.STATE_VERSION));
               String qt=solrReq.getParams().get(CommonParams.QT);
               handler=core.getRequestHandler(qt);
               if (handler == null) {
@@ -150,6 +154,7 @@
               resp.addHeader(entry.getKey(),entry.getValue());
             }
             QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
+            if (invalidStates != null)             solrReq.getContext().put(CloudSolrClient.STATE_VERSION,invalidStates);
             writeResponse(solrRsp,response,responseWriter,solrReq,reqMethod);
           }
           return;
