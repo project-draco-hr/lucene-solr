@@ -1,0 +1,78 @@
+{
+  System.setProperty("solr.solr.home",solrHome);
+  QueuedThreadPool qtp=new QueuedThreadPool();
+  qtp.setMaxThreads(10000);
+  qtp.setIdleTimeout((int)TimeUnit.SECONDS.toMillis(5));
+  qtp.setStopTimeout((int)TimeUnit.MINUTES.toMillis(1));
+  server=new Server(qtp);
+  server.manage(qtp);
+  server.setStopAtShutdown(config.stopAtShutdown);
+  if (System.getProperty("jetty.testMode") != null) {
+    final SslContextFactory sslcontext=SSLConfig.createContextFactory(config.sslConfig);
+    ServerConnector connector;
+    if (sslcontext != null) {
+      HttpConfiguration configuration=new HttpConfiguration();
+      configuration.setSecureScheme("https");
+      configuration.addCustomizer(new SecureRequestCustomizer());
+      connector=new ServerConnector(server,new SslConnectionFactory(sslcontext,"http/1.1"),new HttpConnectionFactory(configuration));
+    }
+ else {
+      connector=new ServerConnector(server,new HttpConnectionFactory());
+    }
+    connector.setReuseAddress(true);
+    connector.setSoLingerTime(0);
+    connector.setPort(port);
+    connector.setHost("127.0.0.1");
+    LowResourceMonitor lowResources=new LowResourceMonitor(server);
+    lowResources.setLowResourcesIdleTimeout(1500);
+    lowResources.setMaxConnections(10000);
+    server.addBean(lowResources);
+    server.setConnectors(new Connector[]{connector});
+    server.setSessionIdManager(new HashSessionIdManager(new Random()));
+  }
+ else {
+    ServerConnector connector=new ServerConnector(server,new HttpConnectionFactory());
+    connector.setPort(port);
+    server.setConnectors(new Connector[]{connector});
+  }
+  final ServletContextHandler root=new ServletContextHandler(server,config.context,ServletContextHandler.SESSIONS);
+  root.addFilter(GzipFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
+  server.addLifeCycleListener(new LifeCycle.Listener(){
+    @Override public void lifeCycleStopping(    LifeCycle arg0){
+      System.clearProperty("hostPort");
+    }
+    @Override public void lifeCycleStopped(    LifeCycle arg0){
+    }
+    @Override public void lifeCycleStarting(    LifeCycle arg0){
+synchronized (JettySolrRunner.this) {
+        waitOnSolr=true;
+        JettySolrRunner.this.notify();
+      }
+    }
+    @Override public void lifeCycleStarted(    LifeCycle arg0){
+      lastPort=getFirstConnectorPort();
+      System.setProperty("hostPort",Integer.toString(lastPort));
+      if (solrConfigFilename != null)       System.setProperty("solrconfig",solrConfigFilename);
+      if (schemaFilename != null)       System.setProperty("schema",schemaFilename);
+      if (coreRootDirectory != null)       System.setProperty("coreRootDirectory",coreRootDirectory);
+      debugFilter=root.addFilter(DebugFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
+      extraFilters=new LinkedList<>();
+      for (      Class<? extends Filter> filterClass : config.extraFilters.keySet()) {
+        extraFilters.add(root.addFilter(filterClass,config.extraFilters.get(filterClass),EnumSet.of(DispatcherType.REQUEST)));
+      }
+      for (      ServletHolder servletHolder : config.extraServlets.keySet()) {
+        String pathSpec=config.extraServlets.get(servletHolder);
+        root.addServlet(servletHolder,pathSpec);
+      }
+      dispatchFilter=root.addFilter(SolrDispatchFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
+      if (solrConfigFilename != null)       System.clearProperty("solrconfig");
+      if (schemaFilename != null)       System.clearProperty("schema");
+      System.clearProperty("solr.solr.home");
+    }
+    @Override public void lifeCycleFailure(    LifeCycle arg0,    Throwable arg1){
+      System.clearProperty("hostPort");
+    }
+  }
+);
+  root.addServlet(Servlet404.class,"/*");
+}
