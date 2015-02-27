@@ -3,45 +3,21 @@
   if (after != null && after.doc >= limit) {
     throw new IllegalArgumentException("after.doc exceeds the number of documents in the reader: after.doc=" + after.doc + " limit="+ limit);
   }
-  numHits=Math.min(numHits,limit);
-  final boolean fillFields=true;
-  if (executor == null) {
-    final TopFieldCollector collector=TopFieldCollector.create(sort,numHits,after,fillFields,doDocScores,doMaxScore);
-    search(query,collector);
-    return collector.topDocs();
+  final int cappedNumHits=Math.min(numHits,limit);
+  final CollectorManager<TopFieldCollector,TopFieldDocs> manager=new CollectorManager<TopFieldCollector,TopFieldDocs>(){
+    @Override public TopFieldCollector newCollector() throws IOException {
+      final boolean fillFields=true;
+      return TopFieldCollector.create(sort,cappedNumHits,after,fillFields,doDocScores,doMaxScore);
+    }
+    @Override public TopFieldDocs reduce(    Collection<TopFieldCollector> collectors) throws IOException {
+      final TopFieldDocs[] topDocs=new TopFieldDocs[collectors.size()];
+      int i=0;
+      for (      TopFieldCollector collector : collectors) {
+        topDocs[i++]=collector.topDocs();
+      }
+      return TopDocs.merge(sort,cappedNumHits,topDocs);
+    }
   }
- else {
-    final TopFieldCollector[] collectors=new TopFieldCollector[leafSlices.length];
-    boolean needsScores=false;
-    for (int i=0; i < leafSlices.length; ++i) {
-      collectors[i]=TopFieldCollector.create(sort,numHits,after,fillFields,doDocScores,doMaxScore);
-      needsScores|=collectors[i].needsScores();
-    }
-    final Weight weight=createNormalizedWeight(query,needsScores);
-    final List<Future<TopFieldDocs>> topDocsFutures=new ArrayList<>(leafSlices.length);
-    for (int i=0; i < leafSlices.length; ++i) {
-      final LeafReaderContext[] leaves=leafSlices[i].leaves;
-      final TopFieldCollector collector=collectors[i];
-      topDocsFutures.add(executor.submit(new Callable<TopFieldDocs>(){
-        @Override public TopFieldDocs call() throws Exception {
-          search(Arrays.asList(leaves),weight,collector);
-          return collector.topDocs();
-        }
-      }
-));
-    }
-    final TopFieldDocs[] topDocs=new TopFieldDocs[leafSlices.length];
-    for (int i=0; i < topDocs.length; ++i) {
-      try {
-        topDocs[i]=topDocsFutures.get(i).get();
-      }
- catch (      InterruptedException e) {
-        throw new ThreadInterruptedException(e);
-      }
-catch (      ExecutionException e) {
-        throw new RuntimeException(e);
-      }
-    }
-    return TopDocs.merge(sort,numHits,topDocs);
-  }
+;
+  return search(query,manager);
 }
