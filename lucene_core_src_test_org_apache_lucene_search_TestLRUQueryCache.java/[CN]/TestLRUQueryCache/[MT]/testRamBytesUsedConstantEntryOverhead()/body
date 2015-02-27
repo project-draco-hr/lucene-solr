@@ -1,0 +1,41 @@
+{
+  final LRUQueryCache queryCache=new LRUQueryCache(1000000,10000000);
+  final RamUsageTester.Accumulator acc=new RamUsageTester.Accumulator(){
+    @Override public long accumulateObject(    Object o,    long shallowSize,    Map<Field,Object> fieldValues,    Collection<Object> queue){
+      if (o instanceof DocIdSet) {
+        return ((DocIdSet)o).ramBytesUsed();
+      }
+      if (o instanceof Query) {
+        return queryCache.ramBytesUsed((Query)o);
+      }
+      if (o.getClass().getSimpleName().equals("SegmentCoreReaders")) {
+        return 0;
+      }
+      return super.accumulateObject(o,shallowSize,fieldValues,queue);
+    }
+  }
+;
+  Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  final int numDocs=atLeast(100);
+  for (int i=0; i < numDocs; ++i) {
+    w.addDocument(doc);
+  }
+  final DirectoryReader reader=w.getReader();
+  final IndexSearcher searcher=new IndexSearcher(reader);
+  searcher.setQueryCache(queryCache);
+  searcher.setQueryCachingPolicy(QueryCachingPolicy.ALWAYS_CACHE);
+  final int numQueries=atLeast(1000);
+  for (int i=0; i < numQueries; ++i) {
+    final Query query=new DummyQuery();
+    searcher.search(new ConstantScoreQuery(query),1);
+  }
+  assertTrue(queryCache.getCacheCount() > 0);
+  final long actualRamBytesUsed=RamUsageTester.sizeOf(queryCache,acc);
+  final long expectedRamBytesUsed=queryCache.ramBytesUsed();
+  assertEquals(actualRamBytesUsed,expectedRamBytesUsed,30 * actualRamBytesUsed / 100);
+  reader.close();
+  w.close();
+  dir.close();
+}

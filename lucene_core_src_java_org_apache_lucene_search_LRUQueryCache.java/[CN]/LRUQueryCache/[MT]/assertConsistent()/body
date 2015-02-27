@@ -1,0 +1,33 @@
+{
+  if (requiresEviction()) {
+    throw new AssertionError("requires evictions: size=" + mostRecentlyUsedQueries.size() + ", maxSize="+ maxSize+ ", ramBytesUsed="+ ramBytesUsed()+ ", maxRamBytesUsed="+ maxRamBytesUsed);
+  }
+  for (  LeafCache leafCache : cache.values()) {
+    Set<Query> keys=Collections.newSetFromMap(new IdentityHashMap<>());
+    keys.addAll(leafCache.cache.keySet());
+    keys.removeAll(mostRecentlyUsedQueries);
+    if (!keys.isEmpty()) {
+      throw new AssertionError("One leaf cache contains more keys than the top-level cache: " + keys);
+    }
+  }
+  long recomputedRamBytesUsed=HASHTABLE_RAM_BYTES_PER_ENTRY * cache.size() + LINKED_HASHTABLE_RAM_BYTES_PER_ENTRY * uniqueQueries.size();
+  for (  Query query : mostRecentlyUsedQueries) {
+    recomputedRamBytesUsed+=ramBytesUsed(query);
+  }
+  for (  LeafCache leafCache : cache.values()) {
+    recomputedRamBytesUsed+=HASHTABLE_RAM_BYTES_PER_ENTRY * leafCache.cache.size();
+    for (    DocIdSet set : leafCache.cache.values()) {
+      recomputedRamBytesUsed+=set.ramBytesUsed();
+    }
+  }
+  if (recomputedRamBytesUsed != ramBytesUsed) {
+    throw new AssertionError("ramBytesUsed mismatch : " + ramBytesUsed + " != "+ recomputedRamBytesUsed);
+  }
+  long recomputedCacheSize=0;
+  for (  LeafCache leafCache : cache.values()) {
+    recomputedCacheSize+=leafCache.cache.size();
+  }
+  if (recomputedCacheSize != getCacheSize()) {
+    throw new AssertionError("cacheSize mismatch : " + getCacheSize() + " != "+ recomputedCacheSize);
+  }
+}
