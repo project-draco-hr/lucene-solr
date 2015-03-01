@@ -4,7 +4,7 @@
     Throwable priorE=null;
     FieldInfo infos[]=null;
     try {
-      CodecUtil.checkIndexHeader(input,Lucene50FieldInfosFormat.CODEC_NAME,Lucene50FieldInfosFormat.FORMAT_START,Lucene50FieldInfosFormat.FORMAT_CURRENT,segmentInfo.getId(),segmentSuffix);
+      int format=CodecUtil.checkIndexHeader(input,Lucene50FieldInfosFormat.CODEC_NAME,Lucene50FieldInfosFormat.FORMAT_START,Lucene50FieldInfosFormat.FORMAT_CURRENT,segmentInfo.getId(),segmentSuffix);
       final int size=input.readVInt();
       infos=new FieldInfo[size];
       for (int i=0; i < size; i++) {
@@ -20,9 +20,15 @@
         final IndexOptions indexOptions=getIndexOptions(input,input.readByte());
         final DocValuesType docValuesType=getDocValuesType(input,input.readByte());
         final long dvGen=input.readLong();
-        final Map<String,String> attributes=input.readStringStringMap();
+        final Map<String,String> attributes;
+        if (format >= FORMAT_SAFE_MAPS) {
+          attributes=input.readMapOfStrings();
+        }
+ else {
+          attributes=Collections.unmodifiableMap(input.readStringStringMap());
+        }
         try {
-          infos[i]=new FieldInfo(name,fieldNumber,storeTermVector,omitNorms,storePayloads,indexOptions,docValuesType,dvGen,Collections.unmodifiableMap(attributes));
+          infos[i]=new FieldInfo(name,fieldNumber,storeTermVector,omitNorms,storePayloads,indexOptions,docValuesType,dvGen,attributes);
           infos[i].checkConsistency();
         }
  catch (        IllegalStateException e) {

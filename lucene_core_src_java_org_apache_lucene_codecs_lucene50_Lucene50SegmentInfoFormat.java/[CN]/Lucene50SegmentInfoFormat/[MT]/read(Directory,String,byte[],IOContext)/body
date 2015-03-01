@@ -4,17 +4,27 @@
     Throwable priorE=null;
     SegmentInfo si=null;
     try {
-      CodecUtil.checkIndexHeader(input,Lucene50SegmentInfoFormat.CODEC_NAME,Lucene50SegmentInfoFormat.VERSION_START,Lucene50SegmentInfoFormat.VERSION_CURRENT,segmentID,"");
+      int format=CodecUtil.checkIndexHeader(input,Lucene50SegmentInfoFormat.CODEC_NAME,Lucene50SegmentInfoFormat.VERSION_START,Lucene50SegmentInfoFormat.VERSION_CURRENT,segmentID,"");
       final Version version=Version.fromBits(input.readInt(),input.readInt(),input.readInt());
       final int docCount=input.readInt();
       if (docCount < 0) {
         throw new CorruptIndexException("invalid docCount: " + docCount,input);
       }
       final boolean isCompoundFile=input.readByte() == SegmentInfo.YES;
-      final Map<String,String> diagnostics=input.readStringStringMap();
-      final Set<String> files=input.readStringSet();
-      final Map<String,String> attributes=input.readStringStringMap();
-      si=new SegmentInfo(dir,version,segment,docCount,isCompoundFile,null,diagnostics,segmentID,Collections.unmodifiableMap(attributes));
+      final Map<String,String> diagnostics;
+      final Set<String> files;
+      final Map<String,String> attributes;
+      if (format >= VERSION_SAFE_MAPS) {
+        diagnostics=input.readMapOfStrings();
+        files=input.readSetOfStrings();
+        attributes=input.readMapOfStrings();
+      }
+ else {
+        diagnostics=Collections.unmodifiableMap(input.readStringStringMap());
+        files=Collections.unmodifiableSet(input.readStringSet());
+        attributes=Collections.unmodifiableMap(input.readStringStringMap());
+      }
+      si=new SegmentInfo(dir,version,segment,docCount,isCompoundFile,null,diagnostics,segmentID,attributes);
       si.setFiles(files);
     }
  catch (    Throwable exception) {
