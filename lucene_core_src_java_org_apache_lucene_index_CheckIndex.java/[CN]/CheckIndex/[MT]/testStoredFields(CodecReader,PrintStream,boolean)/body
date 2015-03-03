@@ -1,0 +1,35 @@
+{
+  long startNS=System.nanoTime();
+  final Status.StoredFieldStatus status=new Status.StoredFieldStatus();
+  try {
+    if (infoStream != null) {
+      infoStream.print("    test: stored fields.......");
+    }
+    final Bits liveDocs=reader.getLiveDocs();
+    StoredFieldsReader storedFields=reader.getFieldsReader().getMergeInstance();
+    for (int j=0; j < reader.maxDoc(); ++j) {
+      DocumentStoredFieldVisitor visitor=new DocumentStoredFieldVisitor();
+      storedFields.visitDocument(j,visitor);
+      StoredDocument doc=visitor.getDocument();
+      if (liveDocs == null || liveDocs.get(j)) {
+        status.docCount++;
+        status.totFields+=doc.getFields().size();
+      }
+    }
+    if (status.docCount != reader.numDocs()) {
+      throw new RuntimeException("docCount=" + status.docCount + " but saw "+ status.docCount+ " undeleted docs");
+    }
+    msg(infoStream,String.format(Locale.ROOT,"OK [%d total field count; avg %.1f fields per doc] [took %.3f sec]",status.totFields,(((float)status.totFields) / status.docCount),nsToSec(System.nanoTime() - startNS)));
+  }
+ catch (  Throwable e) {
+    if (failFast) {
+      IOUtils.reThrow(e);
+    }
+    msg(infoStream,"ERROR [" + String.valueOf(e.getMessage()) + "]");
+    status.error=e;
+    if (infoStream != null) {
+      e.printStackTrace(infoStream);
+    }
+  }
+  return status;
+}
