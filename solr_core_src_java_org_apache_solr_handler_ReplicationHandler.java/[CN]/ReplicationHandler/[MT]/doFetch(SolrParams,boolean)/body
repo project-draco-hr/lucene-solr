@@ -1,28 +1,26 @@
 {
   String masterUrl=solrParams == null ? null : solrParams.get(MASTER_URL);
-  if (!snapPullLock.tryLock())   return false;
+  if (!indexFetchLock.tryLock())   return false;
   try {
     if (masterUrl != null) {
-      if (tempSnapPuller != null && tempSnapPuller != snapPuller) {
-        tempSnapPuller.destroy();
+      if (currentIndexFetcher != null && currentIndexFetcher != pollingIndexFetcher) {
+        currentIndexFetcher.destroy();
       }
-      NamedList<Object> nl=solrParams.toNamedList();
-      nl.remove(SnapPuller.POLL_INTERVAL);
-      tempSnapPuller=new SnapPuller(nl,this,core);
+      currentIndexFetcher=new IndexFetcher(solrParams.toNamedList(),this,core);
     }
  else {
-      tempSnapPuller=snapPuller;
+      currentIndexFetcher=pollingIndexFetcher;
     }
-    return tempSnapPuller.fetchLatestIndex(core,forceReplication);
+    return currentIndexFetcher.fetchLatestIndex(core,forceReplication);
   }
  catch (  Exception e) {
-    SolrException.log(LOG,"SnapPull failed ",e);
+    SolrException.log(LOG,"Index fetch failed ",e);
   }
  finally {
-    if (snapPuller != null) {
-      tempSnapPuller=snapPuller;
+    if (pollingIndexFetcher != null) {
+      currentIndexFetcher=pollingIndexFetcher;
     }
-    snapPullLock.unlock();
+    indexFetchLock.unlock();
   }
   return false;
 }
