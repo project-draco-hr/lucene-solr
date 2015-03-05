@@ -1,5 +1,4 @@
 {
-  System.setProperty("solr.solr.home",solrHome);
   QueuedThreadPool qtp=new QueuedThreadPool();
   qtp.setMaxThreads(10000);
   qtp.setIdleTimeout((int)TimeUnit.SECONDS.toMillis(5));
@@ -39,7 +38,6 @@
   root.addFilter(GzipFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
   server.addLifeCycleListener(new LifeCycle.Listener(){
     @Override public void lifeCycleStopping(    LifeCycle arg0){
-      System.clearProperty("hostPort");
     }
     @Override public void lifeCycleStopped(    LifeCycle arg0){
     }
@@ -51,10 +49,11 @@ synchronized (JettySolrRunner.this) {
     }
     @Override public void lifeCycleStarted(    LifeCycle arg0){
       lastPort=getFirstConnectorPort();
-      System.setProperty("hostPort",Integer.toString(lastPort));
-      if (solrConfigFilename != null)       System.setProperty("solrconfig",solrConfigFilename);
-      if (schemaFilename != null)       System.setProperty("schema",schemaFilename);
-      if (coreRootDirectory != null)       System.setProperty("coreRootDirectory",coreRootDirectory);
+      nodeProperties.setProperty("hostPort",Integer.toString(lastPort));
+      nodeProperties.setProperty("hostContext",config.context);
+      root.getServletContext().setAttribute(SolrDispatchFilter.PROPERTIES_ATTRIBUTE,nodeProperties);
+      root.getServletContext().setAttribute(SolrDispatchFilter.SOLRHOME_ATTRIBUTE,solrHome);
+      logger.info("Jetty properties: {}",nodeProperties);
       debugFilter=root.addFilter(DebugFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
       extraFilters=new LinkedList<>();
       for (      Class<? extends Filter> filterClass : config.extraFilters.keySet()) {
@@ -65,9 +64,6 @@ synchronized (JettySolrRunner.this) {
         root.addServlet(servletHolder,pathSpec);
       }
       dispatchFilter=root.addFilter(SolrDispatchFilter.class,"*",EnumSet.of(DispatcherType.REQUEST));
-      if (solrConfigFilename != null)       System.clearProperty("solrconfig");
-      if (schemaFilename != null)       System.clearProperty("schema");
-      System.clearProperty("solr.solr.home");
     }
     @Override public void lifeCycleFailure(    LifeCycle arg0,    Throwable arg1){
       System.clearProperty("hostPort");
