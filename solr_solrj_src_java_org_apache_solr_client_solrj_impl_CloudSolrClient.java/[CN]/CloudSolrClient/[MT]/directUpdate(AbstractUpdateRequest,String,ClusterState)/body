@@ -1,0 +1,114 @@
+{
+  UpdateRequest updateRequest=(UpdateRequest)request;
+  ModifiableSolrParams params=(ModifiableSolrParams)request.getParams();
+  ModifiableSolrParams routableParams=new ModifiableSolrParams();
+  ModifiableSolrParams nonRoutableParams=new ModifiableSolrParams();
+  if (params != null) {
+    nonRoutableParams.add(params);
+    routableParams.add(params);
+    for (    String param : NON_ROUTABLE_PARAMS) {
+      routableParams.remove(param);
+    }
+  }
+  if (collection == null) {
+    throw new SolrServerException("No collection param specified on request and no default collection has been set.");
+  }
+  Aliases aliases=zkStateReader.getAliases();
+  if (aliases != null) {
+    Map<String,String> collectionAliases=aliases.getCollectionAliasMap();
+    if (collectionAliases != null && collectionAliases.containsKey(collection)) {
+      collection=collectionAliases.get(collection);
+    }
+  }
+  DocCollection col=getDocCollection(clusterState,collection,null);
+  DocRouter router=col.getRouter();
+  if (router instanceof ImplicitDocRouter) {
+    return null;
+  }
+  Map<String,List<String>> urlMap=buildUrlMap(col);
+  if (urlMap == null) {
+    return null;
+  }
+  NamedList<Throwable> exceptions=new NamedList<>();
+  NamedList<NamedList> shardResponses=new NamedList<>();
+  Map<String,LBHttpSolrClient.Req> routes=updateRequest.getRoutes(router,col,urlMap,routableParams,this.idField);
+  if (routes == null) {
+    return null;
+  }
+  long start=System.nanoTime();
+  if (parallelUpdates) {
+    final Map<String,Future<NamedList<?>>> responseFutures=new HashMap<>(routes.size());
+    for (    final Map.Entry<String,LBHttpSolrClient.Req> entry : routes.entrySet()) {
+      final String url=entry.getKey();
+      final LBHttpSolrClient.Req lbRequest=entry.getValue();
+      responseFutures.put(url,threadPool.submit(new Callable<NamedList<?>>(){
+        @Override public NamedList<?> call() throws Exception {
+          return lbClient.request(lbRequest).getResponse();
+        }
+      }
+));
+    }
+    for (    final Map.Entry<String,Future<NamedList<?>>> entry : responseFutures.entrySet()) {
+      final String url=entry.getKey();
+      final Future<NamedList<?>> responseFuture=entry.getValue();
+      try {
+        shardResponses.add(url,responseFuture.get());
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RuntimeException(e);
+      }
+catch (      ExecutionException e) {
+        exceptions.add(url,e.getCause());
+      }
+    }
+    if (exceptions.size() > 0) {
+      throw new RouteException(ErrorCode.SERVER_ERROR,exceptions,routes);
+    }
+  }
+ else {
+    for (    Map.Entry<String,LBHttpSolrClient.Req> entry : routes.entrySet()) {
+      String url=entry.getKey();
+      LBHttpSolrClient.Req lbRequest=entry.getValue();
+      try {
+        NamedList<Object> rsp=lbClient.request(lbRequest).getResponse();
+        shardResponses.add(url,rsp);
+      }
+ catch (      Exception e) {
+        throw new SolrServerException(e);
+      }
+    }
+  }
+  UpdateRequest nonRoutableRequest=null;
+  List<String> deleteQuery=updateRequest.getDeleteQuery();
+  if (deleteQuery != null && deleteQuery.size() > 0) {
+    UpdateRequest deleteQueryRequest=new UpdateRequest();
+    deleteQueryRequest.setDeleteQuery(deleteQuery);
+    nonRoutableRequest=deleteQueryRequest;
+  }
+  Set<String> paramNames=nonRoutableParams.getParameterNames();
+  Set<String> intersection=new HashSet<>(paramNames);
+  intersection.retainAll(NON_ROUTABLE_PARAMS);
+  if (nonRoutableRequest != null || intersection.size() > 0) {
+    if (nonRoutableRequest == null) {
+      nonRoutableRequest=new UpdateRequest();
+    }
+    nonRoutableRequest.setParams(nonRoutableParams);
+    List<String> urlList=new ArrayList<>();
+    urlList.addAll(routes.keySet());
+    Collections.shuffle(urlList,rand);
+    LBHttpSolrClient.Req req=new LBHttpSolrClient.Req(nonRoutableRequest,urlList);
+    try {
+      LBHttpSolrClient.Rsp rsp=lbClient.request(req);
+      shardResponses.add(urlList.get(0),rsp.getResponse());
+    }
+ catch (    Exception e) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,urlList.get(0),e);
+    }
+  }
+  long end=System.nanoTime();
+  RouteResponse rr=condenseResponse(shardResponses,(long)((end - start) / 1000000));
+  rr.setRouteResponses(shardResponses);
+  rr.setRoutes(routes);
+  return rr;
+}
