@@ -1,58 +1,19 @@
 {
-  List<PluginInfo> implicits=PluginsRegistry.getHandlers(core);
-  Map<PluginInfo,SolrRequestHandler> handlers=new LinkedHashMap<>();
+  List<PluginInfo> implicits=ImplicitPlugins.getHandlers(core);
   Map<String,PluginInfo> infoMap=new LinkedHashMap<>();
   for (  PluginInfo info : implicits)   infoMap.put(info.name,info);
   for (  PluginInfo info : config.getPluginInfos(SolrRequestHandler.class.getName()))   infoMap.put(info.name,info);
   ArrayList<PluginInfo> infos=new ArrayList<>(infoMap.values());
+  List<PluginInfo> modifiedInfos=new ArrayList<>();
   for (  PluginInfo info : infos) {
-    try {
-      SolrRequestHandler requestHandler;
-      String startup=info.attributes.get("startup");
-      String lib=info.attributes.get("lib");
-      if (lib != null) {
-        requestHandler=new DynamicLazyRequestHandlerWrapper(core);
-      }
- else       if (startup != null) {
-        if ("lazy".equals(startup)) {
-          log.info("adding lazy requestHandler: " + info.className);
-          requestHandler=new LazyRequestHandlerWrapper(core);
-        }
- else {
-          throw new Exception("Unknown startup value: '" + startup + "' for: "+ info.className);
-        }
-      }
- else {
-        requestHandler=core.createRequestHandler(info.className);
-      }
-      if (requestHandler instanceof RequestHandlerBase)       ((RequestHandlerBase)requestHandler).setPluginInfo(info);
-      handlers.put(info,requestHandler);
-      SolrRequestHandler old=register(info.name,requestHandler);
-      if (old != null) {
-        log.warn("Multiple requestHandler registered to the same name: " + info.name + " ignoring: "+ old.getClass().getName());
-      }
-      if (info.isDefault()) {
-        old=register("",requestHandler);
-        if (old != null)         log.warn("Multiple default requestHandler registered" + " ignoring: " + old.getClass().getName());
-      }
-      log.info("created " + info.name + ": "+ info.className);
-    }
- catch (    Exception ex) {
-      throw new SolrException(ErrorCode.SERVER_ERROR,"RequestHandler init failure",ex);
+    modifiedInfos.add(applyInitParams(config,info));
+  }
+  handlers.init(Collections.emptyMap(),core,modifiedInfos);
+  handlers.alias(handlers.getDefault(),"");
+  log.info("Registered paths: {}",StrUtils.join(new ArrayList<>(handlers.keySet()),','));
+  if (!handlers.alias("/select","")) {
+    if (!handlers.alias("standard","")) {
+      log.warn("no default request handler is registered (either '/select' or 'standard')");
     }
   }
-  for (  Map.Entry<PluginInfo,SolrRequestHandler> entry : handlers.entrySet()) {
-    PluginInfo info=entry.getKey();
-    SolrRequestHandler requestHandler=entry.getValue();
-    info=applyInitParams(config,info);
-    if (requestHandler instanceof PluginInfoInitialized) {
-      ((PluginInfoInitialized)requestHandler).init(info);
-    }
- else {
-      requestHandler.init(info.initArgs);
-    }
-  }
-  if (get("") == null)   register("",get("/select"));
-  if (get("") == null)   register("",get("standard"));
-  if (get("") == null)   log.warn("no default request handler is registered (either '/select' or 'standard')");
 }
