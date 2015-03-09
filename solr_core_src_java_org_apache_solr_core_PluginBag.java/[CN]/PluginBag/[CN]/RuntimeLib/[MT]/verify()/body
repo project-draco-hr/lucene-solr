@@ -1,0 +1,31 @@
+{
+  if (verified)   return;
+  if (jarContent == null) {
+    log.error("Calling verify before loading the jar");
+    return;
+  }
+  if (!coreContainer.isZooKeeperAware())   throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Signing jar is possible only in cloud");
+  Map<String,byte[]> keys=CloudUtil.getTrustedKeys(coreContainer.getZkController().getZkClient(),"exe");
+  if (keys.isEmpty()) {
+    if (sig == null) {
+      verified=true;
+      log.info("A run time lib {} is loaded  without verification ",name);
+      return;
+    }
+ else {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No public keys are available in ZK to verify signature for runtime lib  " + name);
+    }
+  }
+ else   if (sig == null) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,MessageFormat.format("runtimelib {0} should be signed with one of the keys in ZK /keys/exe ",name));
+  }
+  try {
+    String matchedKey=jarContent.jar.checkSignature(sig,new CryptoKeys(keys));
+    if (matchedKey == null)     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No key matched signature for jar : " + name + " version: "+ version);
+    log.info("Jar {} signed with {} successfully verified",name,matchedKey);
+  }
+ catch (  Exception e) {
+    if (e instanceof SolrException)     throw e;
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error verifying key ",e);
+  }
+}
