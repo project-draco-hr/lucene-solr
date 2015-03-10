@@ -2,18 +2,18 @@
   QueryResponse rsp=null;
   int backupStress=stress;
   del("*:*");
-  indexr(id,1,i1,100,tlong,100,t1,"now is the time for all good men",tdate_a,"2010-04-20T11:00:00Z",tdate_b,"2009-08-20T11:00:00Z","foo_f",1.414f,"foo_b","true","foo_d",1.414d);
-  indexr(id,2,i1,50,tlong,50,t1,"to come to the aid of their country.",tdate_a,"2010-05-02T11:00:00Z",tdate_b,"2009-11-02T11:00:00Z");
+  indexr(id,1,i1,100,tlong,100,t1,"now is the time for all good men","foo_sev_enum","Medium",tdate_a,"2010-04-20T11:00:00Z",tdate_b,"2009-08-20T11:00:00Z","foo_f",1.414f,"foo_b","true","foo_d",1.414d);
+  indexr(id,2,i1,50,tlong,50,t1,"to come to the aid of their country.","foo_sev_enum","Medium","foo_sev_enum","High",tdate_a,"2010-05-02T11:00:00Z",tdate_b,"2009-11-02T11:00:00Z");
   indexr(id,3,i1,2,tlong,2,t1,"how now brown cow",tdate_a,"2010-05-03T11:00:00Z");
   indexr(id,4,i1,-100,tlong,101,t1,"the quick fox jumped over the lazy dog",tdate_a,"2010-05-03T11:00:00Z",tdate_b,"2010-05-03T11:00:00Z");
   indexr(id,5,i1,500,tlong,500,t1,"the quick fox jumped way over the lazy dog",tdate_a,"2010-05-05T11:00:00Z");
   indexr(id,6,i1,-600,tlong,600,t1,"humpty dumpy sat on a wall");
   indexr(id,7,i1,123,tlong,123,t1,"humpty dumpy had a great fall");
-  indexr(id,8,i1,876,tlong,876,tdate_b,"2010-01-05T11:00:00Z",t1,"all the kings horses and all the kings men");
+  indexr(id,8,i1,876,tlong,876,tdate_b,"2010-01-05T11:00:00Z","foo_sev_enum","High",t1,"all the kings horses and all the kings men");
   indexr(id,9,i1,7,tlong,7,t1,"couldn't put humpty together again");
   commit();
   indexr(id,10,i1,4321,tlong,4321,t1,"this too shall pass");
-  indexr(id,11,i1,-987,tlong,987,t1,"An eye for eye only ends up making the whole world blind.");
+  indexr(id,11,i1,-987,tlong,987,"foo_sev_enum","Medium",t1,"An eye for eye only ends up making the whole world blind.");
   indexr(id,12,i1,379,tlong,379,t1,"Great works are performed, not by strength, but by perseverance.");
   indexr(id,13,i1,232,tlong,232,t1,"no eggs on wall, lesson learned",oddField,"odd man out");
   indexr(id,"1001","lowerfilt","toyota");
@@ -167,6 +167,157 @@
   query("q","*:*","sort",i1 + " desc","stats","true","f.stats_dt.stats.calcdistinct","true","fq","{!tag=xxx}id:[3 TO 9]","stats.field","{!key=special_key}stats_dt","stats.field","{!ex=xxx}stats_dt");
   query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!lucene key=q_key}" + i1 + "foo_b:true","stats.field","{!func key=f_key}sum(" + tlong + ","+ i1+ ")");
   query("q","*:*","sort",i1 + " desc","stats","true","stats.field","stats_dt","stats.field",i1,"stats.field",tdate_a,"stats.field",tdate_b);
+  try {
+    RequestTrackingQueue trackingQueue=new RequestTrackingQueue();
+    TrackingShardHandlerFactory.setTrackingQueue(jettys,trackingQueue);
+    rsp=query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!min=true sum=false mean=true count=false}" + i1);
+    FieldStatsInfo s=rsp.getFieldStatsInfo().get(i1);
+    assertNotNull("no stats for " + i1,s);
+    assertEquals("wrong min",-987.0D,(Double)s.getMin(),0.0001D);
+    assertEquals("wrong mean",377.153846D,(Double)s.getMean(),0.0001D);
+    assertNull("expected null for count",s.getCount());
+    assertNull("expected null for calcDistinct",s.getCountDistinct());
+    assertNull("expected null for distinct vals",s.getDistinctValues());
+    assertNull("expected null for max",s.getMax());
+    assertNull("expected null for missing",s.getMissing());
+    assertNull("expected null for stddev",s.getStddev());
+    assertNull("expected null for sum",s.getSum());
+    for (    Stat dep : EnumSet.of(Stat.sum,Stat.count)) {
+      assertTrue("Purpose of this test is to ensure that asking for some stats works even when the deps " + "of those stats are explicitly excluded -- but the expected dep relationshp is no longer valid. " + "ie: who changed the code and didn't change this test?, expected: "+ dep,Stat.mean.getDistribDeps().contains(dep));
+    }
+    int numStatsShardRequests=0;
+    EnumSet<Stat> shardStatsExpected=EnumSet.of(Stat.min,Stat.sum,Stat.count);
+    for (    List<ShardRequestAndParams> shard : trackingQueue.getAllRequests().values()) {
+      for (      ShardRequestAndParams shardReq : shard) {
+        if (shardReq.params.getBool(StatsParams.STATS,false)) {
+          numStatsShardRequests++;
+          for (          ShardResponse shardRsp : shardReq.sreq.responses) {
+            NamedList<Object> shardStats=((NamedList<NamedList<NamedList<Object>>>)shardRsp.getSolrResponse().getResponse().get("stats")).get("stats_fields").get(i1);
+            assertNotNull("no stard stats for " + i1,shardStats);
+            for (            Map.Entry<String,Object> entry : shardStats) {
+              Stat found=Stat.forName(entry.getKey());
+              assertNotNull("found shardRsp stat key we were not expecting: " + entry,found);
+              assertTrue("found stat we were not expecting: " + entry,shardStatsExpected.contains(found));
+            }
+          }
+        }
+      }
+    }
+    assertTrue("did't see any stats=true shard requests",0 < numStatsShardRequests);
+  }
+  finally {
+    TrackingShardHandlerFactory.setTrackingQueue(jettys,null);
+  }
+  rsp=query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!min=true mean=true stddev=true}" + i1);
+{
+    FieldStatsInfo s=rsp.getFieldStatsInfo().get(i1);
+    assertNotNull("no stats for " + i1,s);
+    assertEquals("wrong min",-987.0D,(Double)s.getMin(),0.0001D);
+    assertEquals("wrong mean",377.153846D,(Double)s.getMean(),0.0001D);
+    assertEquals("wrong stddev",1271.76215D,(Double)s.getStddev(),0.0001D);
+    assertNull("expected null for count",s.getCount());
+    assertNull("expected null for calcDistinct",s.getCountDistinct());
+    assertNull("expected null for distinct vals",s.getDistinctValues());
+    assertNull("expected null for max",s.getMax());
+    assertNull("expected null for missing",s.getMissing());
+    assertNull("expected null for sum",s.getSum());
+  }
+  final String[] stats=new String[]{"min","max","sum","sumOfSquares","stddev","mean","missing","count"};
+  for (  String stat1 : stats) {
+    for (    String stat2 : stats) {
+      rsp=query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!" + stat1 + "=true "+ stat2+ "=true}"+ i1);
+      final List<String> statsExpected=new ArrayList<String>(2);
+      statsExpected.add(stat1);
+      if (!stat1.equals(stat2)) {
+        statsExpected.add(stat2);
+      }
+      NamedList<Object> svals=((NamedList<NamedList<NamedList<Object>>>)rsp.getResponse().get("stats")).get("stats_fields").get(i1);
+      assertNotNull("no stats for field " + i1,svals);
+      assertEquals("wrong quantity of stats",statsExpected.size(),svals.size());
+      for (      String s : statsExpected) {
+        assertNotNull("stat shouldn't be null: " + s,svals.get(s));
+        assertTrue("stat should be a Number: " + s + " -> "+ svals.get(s).getClass(),svals.get(s) instanceof Number);
+        if (svals.get(s) instanceof Double) {
+          Double val=(Double)svals.get(s);
+          assertFalse("stat shouldn't be NaN: " + s,val.isNaN());
+          assertFalse("stat shouldn't be Inf: " + s,val.isInfinite());
+          assertFalse("stat shouldn't be 0: " + s,val.equals(0.0D));
+        }
+ else {
+          assertTrue("stat should be count of missing: " + s,("count".equals(s) || "missing".equals(s)));
+          assertTrue("stat should be a Long: " + s + " -> "+ svals.get(s).getClass(),svals.get(s) instanceof Long);
+          Long val=(Long)svals.get(s);
+          assertFalse("stat shouldn't be 0: " + s,val.equals(0L));
+        }
+      }
+    }
+  }
+  for (  SolrParams p : new SolrParams[]{params("stats.field","{!min=true calcdistinct=true}" + i1),params("stats.calcdistinct","true","stats.field","{!min=true}" + i1),params("f." + i1 + ".stats.calcdistinct","true","stats.field","{!min=true}" + i1),params("stats.calcdistinct","false","f." + i1 + ".stats.calcdistinct","true","stats.field","{!min=true}" + i1),params("stats.calcdistinct","false","f." + i1 + ".stats.calcdistinct","false","stats.field","{!min=true calcdistinct=true}" + i1)}) {
+    rsp=query(SolrParams.wrapDefaults(p,params("q","*:*","sort",i1 + " desc","stats","true")));
+    FieldStatsInfo s=rsp.getFieldStatsInfo().get(i1);
+    assertNotNull(p + " no stats for " + i1,s);
+    assertEquals(p + " wrong min",-987.0D,(Double)s.getMin(),0.0001D);
+    assertEquals(p + " wrong calcDistinct",new Long(13),s.getCountDistinct());
+    assertNotNull(p + " expected non-null list for distinct vals",s.getDistinctValues());
+    assertEquals(p + " expected list for distinct vals",13,s.getDistinctValues().size());
+    assertNull(p + " expected null for mean",s.getMean());
+    assertNull(p + " expected null for count",s.getCount());
+    assertNull(p + " expected null for max",s.getMax());
+    assertNull(p + " expected null for missing",s.getMissing());
+    assertNull(p + " expected null for stddev",s.getStddev());
+    assertNull(p + " expected null for sum",s.getSum());
+  }
+  for (  SolrParams p : new SolrParams[]{params("stats.field","{!min=true calcdistinct=false}" + i1),params("stats.calcdistinct","false","stats.field","{!min=true}" + i1),params("f." + i1 + ".stats.calcdistinct","false","stats.field","{!min=true}" + i1),params("stats.calcdistinct","true","f." + i1 + ".stats.calcdistinct","false","stats.field","{!min=true}" + i1),params("stats.calcdistinct","true","f." + i1 + ".stats.calcdistinct","true","stats.field","{!min=true calcdistinct=false}" + i1)}) {
+    rsp=query(SolrParams.wrapDefaults(p,params("q","*:*","sort",i1 + " desc","stats","true")));
+    FieldStatsInfo s=rsp.getFieldStatsInfo().get(i1);
+    assertNotNull(p + " no stats for " + i1,s);
+    assertEquals(p + " wrong min",-987.0D,(Double)s.getMin(),0.0001D);
+    assertNull(p + " expected null for calcDistinct",s.getCountDistinct());
+    assertNull(p + " expected null for distinct vals",s.getDistinctValues());
+    assertNull(p + " expected null for mean",s.getMean());
+    assertNull(p + " expected null for count",s.getCount());
+    assertNull(p + " expected null for max",s.getMax());
+    assertNull(p + " expected null for missing",s.getMissing());
+    assertNull(p + " expected null for stddev",s.getStddev());
+    assertNull(p + " expected null for sum",s.getSum());
+  }
+  rsp=query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!min=true mean=true stddev=true}does_not_exist_i");
+{
+    FieldStatsInfo s=rsp.getFieldStatsInfo().get("does_not_exist_i");
+    assertNotNull("no stats for bogus field",s);
+    assertEquals("wrong min",null,s.getMin());
+    assertTrue("mean should be NaN",((Double)s.getMean()).isNaN());
+    assertEquals("wrong stddev",0.0D,(Double)s.getStddev(),0.0D);
+    assertNull("expected null for count",s.getCount());
+    assertNull("expected null for calcDistinct",s.getCountDistinct());
+    assertNull("expected null for distinct vals",s.getDistinctValues());
+    assertNull("expected null for max",s.getMax());
+    assertNull("expected null for missing",s.getMissing());
+    assertNull("expected null for sum",s.getSum());
+  }
+  EnumSet<Stat> allStats=EnumSet.allOf(Stat.class);
+  int numTotalStatQueries=0;
+  final int numStatParamsAtOnce=2;
+  for (int numParams=1; numParams <= numStatParamsAtOnce; numParams++) {
+    for (    EnumSet<Stat> set : new StatSetCombinations(numParams,allStats)) {
+      for (      String field : new String[]{"foo_f",i1,tlong,tdate_a,oddField,"foo_sev_enum","bogus___s","bogus___f","bogus___i","bogus___tdt","bogus___sev_enum"}) {
+        for (        String q : new String[]{"*:*","bogus___s:bogus","id:" + random().nextInt(50),"id:" + random().nextInt(50),"id:" + random().nextInt(100),"id:" + random().nextInt(100),"id:" + random().nextInt(200)}) {
+          List<Stat> combo=new ArrayList<Stat>(set);
+          Collections.shuffle(combo,random());
+          StringBuilder paras=new StringBuilder("{!key=k ");
+          for (          Stat stat : combo) {
+            paras.append(stat + "=true ");
+          }
+          paras.append("}").append(field);
+          numTotalStatQueries++;
+          rsp=query("q","*:*","rows","0","stats","true","stats.field",paras.toString());
+          FieldStatsInfo s=rsp.getFieldStatsInfo().get("k");
+          assertNotNull(s);
+        }
+      }
+    }
+  }
+  assertEquals("Sanity check failed: either test broke, or test changed, or you adjusted Stat enum" + " (adjust constant accordingly if intentional)",3465,numTotalStatQueries);
   handle.put("facet_fields",SKIPVAL);
   query("q","*:*","rows",0,"facet","true","facet.field",t1,"facet.limit",5,"facet.shard.limit",5);
   query("q","*:*","rows",0,"facet","true","facet.field","{!key='$a b/c \\' \\} foo'}" + t1,"facet.limit",5,"facet.shard.limit",5);
@@ -248,4 +399,16 @@
       throw e;
     }
   }
+  String fieldName="severity";
+  indexr("id","1",fieldName,"Not Available");
+  indexr("id","2",fieldName,"Low");
+  indexr("id","3",fieldName,"Medium");
+  indexr("id","4",fieldName,"High");
+  indexr("id","5",fieldName,"Critical");
+  commit();
+  rsp=query("q","*:*","stats","true","stats.field",fieldName);
+  assertEquals(new EnumFieldValue(0,"Not Available"),rsp.getFieldStatsInfo().get(fieldName).getMin());
+  query("q","*:*","stats","true","stats.field",fieldName,StatsParams.STATS_CALC_DISTINCT,"true");
+  assertEquals(new EnumFieldValue(4,"Critical"),rsp.getFieldStatsInfo().get(fieldName).getMax());
+  query("q","*:*","stats","true","stats.field",fieldName,"stats.facet",fieldName);
 }

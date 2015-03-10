@@ -1,5 +1,6 @@
 {
-  ModifiableSolrParams coreParams=params("q","*:*","rows","0","stats","true","stats.field","{!tag=s1}foo_i");
+  String stat_param=allStats ? "{!tag=s1}foo_i" : "{!tag=s1 min=true max=true count=true missing=true}foo_i";
+  ModifiableSolrParams coreParams=params("q","*:*","rows","0","stats","true","stats.field",stat_param);
   ModifiableSolrParams facetParams=new ModifiableSolrParams(coreParams);
   facetParams.add(params("facet","true","facet.limit","1","facet.pivot","{!stats=s1}place_t,company_t"));
   ModifiableSolrParams facetForceRefineParams=new ModifiableSolrParams(facetParams);
@@ -14,10 +15,18 @@
     assertEquals(msg,91.0,fieldStatsInfo.getMax());
     assertEquals(msg,10,(long)fieldStatsInfo.getCount());
     assertEquals(msg,0,(long)fieldStatsInfo.getMissing());
-    assertEquals(msg,248.0,fieldStatsInfo.getSum());
-    assertEquals(msg,15294.0,fieldStatsInfo.getSumOfSquares(),0.1E-7);
-    assertEquals(msg,24.8,(double)fieldStatsInfo.getMean(),0.1E-7);
-    assertEquals(msg,31.87405772027709,fieldStatsInfo.getStddev(),0.1E-7);
+    if (allStats) {
+      assertEquals(msg,248.0,fieldStatsInfo.getSum());
+      assertEquals(msg,15294.0,fieldStatsInfo.getSumOfSquares(),0.1E-7);
+      assertEquals(msg,24.8,(double)fieldStatsInfo.getMean(),0.1E-7);
+      assertEquals(msg,31.87405772027709,fieldStatsInfo.getStddev(),0.1E-7);
+    }
+ else {
+      assertNull(msg,fieldStatsInfo.getSum());
+      assertNull(msg,fieldStatsInfo.getSumOfSquares());
+      assertNull(msg,fieldStatsInfo.getMean());
+      assertNull(msg,fieldStatsInfo.getStddev());
+    }
     if (params.getBool("facet",false)) {
       List<PivotField> placePivots=rsp.getFacetPivot().get("place_t,company_t");
       assertEquals(1,placePivots.size());
@@ -33,6 +42,12 @@
       assertEquals(91.0D,dublinMicrosoftStatsInfo.getMax());
       assertEquals(4,(long)dublinMicrosoftStatsInfo.getCount());
       assertEquals(0,(long)dublinMicrosoftStatsInfo.getMissing());
+      if (!allStats) {
+        assertNull(msg,dublinMicrosoftStatsInfo.getSum());
+        assertNull(msg,dublinMicrosoftStatsInfo.getSumOfSquares());
+        assertNull(msg,dublinMicrosoftStatsInfo.getMean());
+        assertNull(msg,dublinMicrosoftStatsInfo.getStddev());
+      }
     }
   }
   Object s0pivValue=clients.get(0).query(facetParams).getFacetPivot().get("place_t,company_t").get(0).getValue();

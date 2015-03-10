@@ -1,0 +1,24 @@
+{
+  final String kpre=XPRE + "lst[@name='stats_fields']/lst[@name='k']/";
+  final String min="count(" + kpre + "/double[@name='min'])";
+  final String countDistinct="count(" + kpre + "/long[@name='countDistinct'])";
+  final String distinctValues="count(" + kpre + "/arr[@name='distinctValues'])";
+  final int count=20;
+  for (int i=0; i < count; i++) {
+    assertU(adoc("id",String.valueOf(i),"a_f","2.3","b_f","9.7","a_i",String.valueOf(i % 10),"foo_t","how now brown cow"));
+  }
+  assertU(commit());
+  String[] baseParams=new String[]{"q","*:*","stats","true","indent","true"};
+  for (  SolrParams p : new SolrParams[]{params("stats.field","{!key=k}a_i"),params(StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k}a_i"),params("f.a_i." + StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k}a_i"),params(StatsParams.STATS_CALC_DISTINCT,"true","f.a_i." + StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k}a_i"),params("stats.field","{!key=k min='true'}a_i"),params(StatsParams.STATS_CALC_DISTINCT,"true","f.a_i." + StatsParams.STATS_CALC_DISTINCT,"true","stats.field","{!key=k min='true' calcdistinct='false'}a_i")}) {
+    assertQ("min is either default or explicitly requested; " + "countDistinct & distinctValues either default or explicitly prevented",req(p,baseParams),min + "=1",countDistinct + "=0",distinctValues + "=0");
+  }
+  for (  SolrParams p : new SolrParams[]{params("stats.calcdistinct","true","stats.field","{!key=k}a_i"),params("f.a_i." + StatsParams.STATS_CALC_DISTINCT,"true","stats.field","{!key=k}a_i"),params("stats.calcdistinct","false","f.a_i." + StatsParams.STATS_CALC_DISTINCT,"true","stats.field","{!key=k}a_i"),params("stats.calcdistinct","false ","stats.field","{!key=k min=true calcdistinct=true}a_i"),params("f.a_i." + StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k min=true calcdistinct=true}a_i"),params("stats.calcdistinct","false ","f.a_i." + StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k min=true calcdistinct=true}a_i")}) {
+    assertQ("min is either default or explicitly requested; " + "countDistinct & distinctValues explicitly requested",req(p,baseParams),min + "=1",countDistinct + "=1",distinctValues + "=1");
+  }
+  for (  SolrParams p : new SolrParams[]{params("stats.field","{!key=k calcdistinct=true}a_i"),params("stats.calcdistinct","true","stats.field","{!key=k min='false'}a_i"),params("stats.calcdistinct","true","stats.field","{!key=k max='true' min='false'}a_i"),params("stats.calcdistinct","false","stats.field","{!key=k calcdistinct=true}a_i"),params("f.a_i." + StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k calcdistinct=true}a_i"),params("stats.calcdistinct","false","f.a_i." + StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k calcdistinct=true}a_i"),params("stats.calcdistinct","false","f.a_i." + StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k min='false' calcdistinct=true}a_i")}) {
+    assertQ("min is explicitly excluded; " + "countDistinct & distinctValues explicitly requested",req(p,baseParams),min + "=0",countDistinct + "=1",distinctValues + "=1");
+  }
+  for (  SolrParams p : new SolrParams[]{params(StatsParams.STATS_CALC_DISTINCT,"true","stats.field","{!key=k min=true}a_i"),params("f.a_i.stats.calcdistinct","true","stats.field","{!key=k min=true}a_i"),params(StatsParams.STATS_CALC_DISTINCT,"false","f.a_i.stats.calcdistinct","true","stats.field","{!key=k min=true}a_i"),params("f.a_i.stats.calcdistinct","false","stats.field","{!key=k min=true calcdistinct=true}a_i"),params(StatsParams.STATS_CALC_DISTINCT,"false","stats.field","{!key=k min=true calcdistinct=true}a_i"),params(StatsParams.STATS_CALC_DISTINCT,"false","f.a_i.stats.calcdistinct","false","stats.field","{!key=k min=true calcdistinct=true}a_i")}) {
+    assertQ("min is explicitly requested; " + "countDistinct & distinctValues explicitly requested",req(p,baseParams),min + "=1",countDistinct + "=1",distinctValues + "=1");
+  }
+}

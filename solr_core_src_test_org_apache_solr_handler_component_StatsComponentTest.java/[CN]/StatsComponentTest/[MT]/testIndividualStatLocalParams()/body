@@ -1,0 +1,80 @@
+{
+  final String kpre=XPRE + "lst[@name='stats_fields']/lst[@name='k']/";
+  assertU(adoc("id","1","a_f","2.3","b_f","9.7","a_i","9","foo_t","how now brown cow"));
+  assertU(commit());
+  assertQ("ask for and get only 2 stats",req("q","*:*","stats","true","stats.field","{!key=k mean=true min=true}a_i"),kpre + "double[@name='mean'][.='9.0']",kpre + "double[@name='min'][.='9.0']","count(" + kpre + "*)=2");
+  assertQ("min=true & max=false: only min should come back",req("q","*:*","stats","true","stats.field","{!key=k max=false min=true}a_i"),kpre + "double[@name='min'][.='9.0']","count(" + kpre + "*)=1");
+  assertQ("min=false: localparam stat means ignore default set, " + "but since only local param is false no stats should be returned",req("q","*:*","stats","true","stats.field","{!key=k min=false}a_i"),"count(" + kpre + "*)=0");
+  double sum=0;
+  double sumOfSquares=0;
+  final int count=20;
+  for (int i=0; i < count; i++) {
+    assertU(adoc("id",String.valueOf(i),"a_f","2.3","b_f","9.7","a_i",String.valueOf(i % 10),"foo_t","how now brown cow"));
+    sum+=i % 10;
+    sumOfSquares+=(i % 10) * (i % 10);
+  }
+  assertU(commit());
+  EnumSet<Stat> allStats=EnumSet.allOf(Stat.class);
+  Map<Stat,String> expectedStats=new HashMap<>();
+  expectedStats.put(Stat.min,"0.0");
+  expectedStats.put(Stat.max,"9.0");
+  expectedStats.put(Stat.missing,"0");
+  expectedStats.put(Stat.sum,String.valueOf(sum));
+  expectedStats.put(Stat.count,String.valueOf(count));
+  expectedStats.put(Stat.mean,String.valueOf(sum / count));
+  expectedStats.put(Stat.sumOfSquares,String.valueOf(sumOfSquares));
+  expectedStats.put(Stat.stddev,String.valueOf(Math.sqrt(((count * sumOfSquares) - (sum * sum)) / (20 * (count - 1.0D)))));
+  expectedStats.put(Stat.calcdistinct,"10");
+  Map<Stat,String> expectedType=new HashMap<>();
+  expectedType.put(Stat.min,"double");
+  expectedType.put(Stat.max,"double");
+  expectedType.put(Stat.missing,"long");
+  expectedType.put(Stat.sum,"double");
+  expectedType.put(Stat.count,"long");
+  expectedType.put(Stat.mean,"double");
+  expectedType.put(Stat.sumOfSquares,"double");
+  expectedType.put(Stat.stddev,"double");
+  expectedType.put(Stat.calcdistinct,"long");
+  assertEquals("size of expectedStats doesn't match all known stats; " + "enum was updated w/o updating test?",expectedStats.size(),allStats.size());
+  assertEquals("size of expectedType doesn't match all known stats; " + "enum was updated w/o updating test?",expectedType.size(),allStats.size());
+  for (  Stat stat : expectedStats.keySet()) {
+    EnumSet<Stat> distribDeps=stat.getDistribDeps();
+    StringBuilder exclude=new StringBuilder();
+    List<String> testParas=new ArrayList<String>(distribDeps.size() + 2);
+    int calcdistinctFudge=0;
+    for (    Stat perShardStat : distribDeps) {
+      String key=perShardStat.toString();
+      if (perShardStat.equals(Stat.calcdistinct)) {
+        key="countDistinct";
+        calcdistinctFudge++;
+        testParas.add("count(" + kpre + "arr[@name='distinctValues']/*)=10");
+      }
+      testParas.add(kpre + expectedType.get(perShardStat) + "[@name='"+ key+ "'][.='"+ expectedStats.get(perShardStat)+ "']");
+      exclude.append(perShardStat + "=false ");
+    }
+    testParas.add("count(" + kpre + "*)="+ (distribDeps.size() + calcdistinctFudge));
+    assertQ("ask for only " + stat + ", with isShard=true, and expect only deps: "+ distribDeps,req("q","*:*","isShard","true","stats","true","stats.field","{!key=k " + exclude + stat+ "=true}a_i"),testParas.toArray(new String[testParas.size()]));
+  }
+  for (int numParams=1; numParams <= allStats.size(); numParams++) {
+    for (    EnumSet<Stat> set : new StatSetCombinations(numParams,allStats)) {
+      List<Stat> combo=new ArrayList<Stat>(set);
+      Collections.shuffle(combo,random());
+      StringBuilder paras=new StringBuilder("{!key=k ");
+      List<String> testParas=new ArrayList<String>(numParams + 2);
+      int calcdistinctFudge=0;
+      for (      Stat stat : combo) {
+        String key=stat.toString();
+        if (stat.equals(Stat.calcdistinct)) {
+          key="countDistinct";
+          calcdistinctFudge++;
+          testParas.add("count(" + kpre + "arr[@name='distinctValues']/*)=10");
+        }
+        paras.append(stat + "=true ");
+        testParas.add(kpre + expectedType.get(stat) + "[@name='"+ key+ "'][.='"+ expectedStats.get(stat)+ "']");
+      }
+      paras.append("}a_i");
+      testParas.add("count(" + kpre + "*)="+ (combo.size() + calcdistinctFudge));
+      assertQ("ask for an get only: " + combo,req("q","*:*","stats","true","stats.field",paras.toString()),testParas.toArray(new String[testParas.size()]));
+    }
+  }
+}
