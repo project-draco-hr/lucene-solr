@@ -1,0 +1,49 @@
+{
+  Map<HashKey,Metric[]> bucketAccumulator=new HashMap();
+  for (  Map top : all) {
+    List<String> ks=(List<String>)top.get("buckets");
+    List<List<Map<String,Double>>> ms=(List<List<Map<String,Double>>>)top.get("metrics");
+    for (int i=0; i < ks.size(); i++) {
+      String key=ks.get(i);
+      List<Map<String,Double>> bucketMs=ms.get(i);
+      HashKey hashKey=new HashKey(key);
+      if (bucketAccumulator.containsKey(hashKey)) {
+        Metric[] mergeMetrics=bucketAccumulator.get(hashKey);
+        for (int m=0; m < mergeMetrics.length; m++) {
+          mergeMetrics[m].update(bucketMs.get(m));
+        }
+      }
+ else {
+        Metric[] mergedMetrics=new Metric[metrics.length];
+        for (int m=0; m < metrics.length; m++) {
+          mergedMetrics[m]=metrics[m].newInstance();
+          mergedMetrics[m].update(bucketMs.get(m));
+        }
+        bucketAccumulator.put(hashKey,mergedMetrics);
+      }
+    }
+  }
+  Iterator<Map.Entry<HashKey,Metric[]>> it=bucketAccumulator.entrySet().iterator();
+  PriorityQueue<BucketMetrics> priorityQueue=new PriorityQueue(topN,rcomp);
+  while (it.hasNext()) {
+    Map.Entry<HashKey,Metric[]> entry=it.next();
+    BucketMetrics bms=new BucketMetrics(entry.getKey(),entry.getValue());
+    if (priorityQueue.size() < topN) {
+      priorityQueue.add(bms);
+    }
+ else {
+      BucketMetrics peek=priorityQueue.peek();
+      if (comp.compare(bms,peek) < 0) {
+        priorityQueue.poll();
+        priorityQueue.add(bms);
+      }
+    }
+  }
+  int s=priorityQueue.size();
+  BucketMetrics[] bucketMetrics=new BucketMetrics[s];
+  for (int i=bucketMetrics.length - 1; i >= 0; i--) {
+    BucketMetrics b=priorityQueue.poll();
+    bucketMetrics[i]=b;
+  }
+  return bucketMetrics;
+}
