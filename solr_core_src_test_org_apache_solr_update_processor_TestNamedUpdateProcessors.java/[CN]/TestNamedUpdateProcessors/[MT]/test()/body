@@ -1,0 +1,46 @@
+{
+  System.setProperty("enable.runtime.lib","true");
+  setupHarnesses();
+  String blobName="colltest";
+  HttpSolrClient randomClient=(HttpSolrClient)clients.get(random().nextInt(clients.size()));
+  String baseURL=randomClient.getBaseURL();
+  TestBlobHandler.createSystemCollection(new HttpSolrClient(baseURL.substring(0,baseURL.lastIndexOf('/')),randomClient.getHttpClient()));
+  waitForRecoveriesToFinish(".system",true);
+  TestBlobHandler.postAndCheck(cloudClient,baseURL.substring(0,baseURL.lastIndexOf('/')),blobName,TestDynamicLoading.generateZip(RuntimeUrp.class),1);
+  String payload="{\n" + "'add-runtimelib' : { 'name' : 'colltest' ,'version':1}\n" + "}";
+  RestTestHarness client=restTestHarnesses.get(random().nextInt(restTestHarnesses.size()));
+  TestSolrConfigHandler.runConfigCommand(client,"/config?wt=json",payload);
+  TestSolrConfigHandler.testForResponseElement(client,null,"/config/overlay?wt=json",null,Arrays.asList("overlay","runtimeLib",blobName,"version"),1l,10);
+  payload="{\n" + "'create-updateprocessor' : { 'name' : 'firstFld', 'class': 'solr.FirstFieldValueUpdateProcessorFactory', 'fieldName':'test_s'}, \n" + "'create-updateprocessor' : { 'name' : 'test', 'class': 'org.apache.solr.update.processor.RuntimeUrp', 'runtimeLib':true }, \n"+ "'create-updateprocessor' : { 'name' : 'maxFld', 'class': 'solr.MaxFieldValueUpdateProcessorFactory', 'fieldName':'mul_s'} \n"+ "}";
+  client=restTestHarnesses.get(random().nextInt(restTestHarnesses.size()));
+  TestSolrConfigHandler.runConfigCommand(client,"/config?wt=json",payload);
+  for (  RestTestHarness restTestHarness : restTestHarnesses) {
+    TestSolrConfigHandler.testForResponseElement(restTestHarness,null,"/config/overlay?wt=json",null,Arrays.asList("overlay","updateProcessor","firstFld","fieldName"),"test_s",10);
+  }
+  SolrInputDocument doc=new SolrInputDocument();
+  doc.addField("id","123");
+  doc.addField("test_s",Arrays.asList("one","two"));
+  doc.addField("mul_s",Arrays.asList("aaa","bbb"));
+  randomClient.add(doc);
+  randomClient.commit(true,true);
+  QueryResponse result=randomClient.query(new SolrQuery("id:123"));
+  assertEquals(2,((Collection)result.getResults().get(0).getFieldValues("test_s")).size());
+  assertEquals(2,((Collection)result.getResults().get(0).getFieldValues("mul_s")).size());
+  doc=new SolrInputDocument();
+  doc.addField("id","456");
+  doc.addField("test_s",Arrays.asList("three","four"));
+  doc.addField("mul_s",Arrays.asList("aaa","bbb"));
+  UpdateRequest ur=new UpdateRequest();
+  ur.add(doc).setParam("processor","firstFld,maxFld,test");
+  randomClient.request(ur);
+  randomClient.commit(true,true);
+  result=randomClient.query(new SolrQuery("id:456"));
+  SolrDocument d=result.getResults().get(0);
+  assertEquals(1,d.getFieldValues("test_s").size());
+  assertEquals(1,d.getFieldValues("mul_s").size());
+  assertEquals("three",d.getFieldValues("test_s").iterator().next());
+  assertEquals("bbb",d.getFieldValues("mul_s").iterator().next());
+  String processors=(String)d.getFirstValue("processors_s");
+  assertNotNull(processors);
+  assertEquals(StrUtils.splitSmart(processors,'>'),Arrays.asList("FirstFieldValueUpdateProcessorFactory","MaxFieldValueUpdateProcessorFactory","RuntimeUrp","LogUpdateProcessorFactory","DistributedUpdateProcessorFactory","RunUpdateProcessorFactory"));
+}
