@@ -9,7 +9,7 @@
       zkClient.delete(znodePath,-1,false);
     }
  catch (    Exception justLogIt) {
-      log.warn("Failed to delete znode " + znodePath + " due to: "+ justLogIt);
+      log.warn("Failed to delete znode " + znodePath,justLogIt);
     }
     return;
   }
@@ -24,13 +24,17 @@
   stateObj.put("state",state);
   if (stateObj.get("createdByNodeName") == null)   stateObj.put("createdByNodeName",String.valueOf(this.nodeName));
   byte[] znodeData=ZkStateReader.toJSON(stateObj);
-  boolean retryOnConnLoss=true;
   try {
-    if (zkClient.exists(znodePath,retryOnConnLoss)) {
-      zkClient.setData(znodePath,znodeData,retryOnConnLoss);
+    if (ZkStateReader.DOWN.equals(state)) {
+      markShardAsDownIfLeader(collection,shardId,leaderCoreNodeName,znodePath,znodeData);
     }
  else {
-      zkClient.makePath(znodePath,znodeData,retryOnConnLoss);
+      if (zkClient.exists(znodePath,true)) {
+        zkClient.setData(znodePath,znodeData,true);
+      }
+ else {
+        zkClient.makePath(znodePath,znodeData,true);
+      }
     }
     log.info("Wrote " + state + " to "+ znodePath);
   }
