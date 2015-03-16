@@ -1,0 +1,38 @@
+{
+  Map<String,Object> json=rb.req.getJSON();
+  Map<String,Object> jsonFacet=null;
+  if (json == null) {
+    int version=rb.req.getParams().getInt("facet.version",1);
+    if (version <= 1)     return;
+    boolean facetsEnabled=rb.req.getParams().getBool(FacetParams.FACET,false);
+    if (!facetsEnabled)     return;
+    jsonFacet=new LegacyFacet(rb.req.getParams()).getLegacy();
+  }
+ else {
+    jsonFacet=(Map<String,Object>)json.get("facet");
+  }
+  if (jsonFacet == null)   return;
+  SolrParams params=rb.req.getParams();
+  boolean isShard=params.getBool(ShardParams.IS_SHARD,false);
+  if (isShard) {
+    String jfacet=params.get(FACET_STATE);
+    if (jfacet == null) {
+      return;
+    }
+  }
+  rb.setNeedDocSet(true);
+  FacetParser parser=new FacetTopParser(rb.req);
+  FacetRequest facetRequest=null;
+  try {
+    facetRequest=parser.parse(jsonFacet);
+  }
+ catch (  SyntaxError syntaxError) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,syntaxError);
+  }
+  FacetComponentState fcState=new FacetComponentState();
+  fcState.rb=rb;
+  fcState.isShard=isShard;
+  fcState.facetCommands=jsonFacet;
+  fcState.facetRequest=facetRequest;
+  rb.req.getContext().put(FacetComponentState.class,fcState);
+}
