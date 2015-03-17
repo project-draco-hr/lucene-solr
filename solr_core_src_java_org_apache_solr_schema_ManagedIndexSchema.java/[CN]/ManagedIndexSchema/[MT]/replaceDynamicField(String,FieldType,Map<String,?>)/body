@@ -1,0 +1,54 @@
+{
+  ManagedIndexSchema newSchema;
+  if (isMutable) {
+    DynamicField oldDynamicField=null;
+    int dfPos=0;
+    for (; dfPos < dynamicFields.length; ++dfPos) {
+      DynamicField dynamicField=dynamicFields[dfPos];
+      if (dynamicField.getRegex().equals(fieldNamePattern)) {
+        oldDynamicField=dynamicField;
+        break;
+      }
+    }
+    if (null == oldDynamicField) {
+      String msg="The dynamic field '" + fieldNamePattern + "' is not present in this schema, and so cannot be replaced.";
+      throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+    }
+    newSchema=shallowCopy(true);
+    newSchema.copyFieldTargetCounts=(Map<SchemaField,Integer>)((HashMap<SchemaField,Integer>)copyFieldTargetCounts).clone();
+    newSchema.dynamicCopyFields=new DynamicCopy[dynamicCopyFields.length];
+    System.arraycopy(dynamicCopyFields,0,newSchema.dynamicCopyFields,0,dynamicCopyFields.length);
+    SchemaField prototype=SchemaField.create(fieldNamePattern,replacementFieldType,replacementArgs);
+    newSchema.dynamicFields[dfPos]=new DynamicField(prototype);
+    List<DynamicCopy> dynamicCopyFieldsToRebuild=new ArrayList<>();
+    List<DynamicCopy> newDynamicCopyFields=new ArrayList<>();
+    for (int i=0; i < newSchema.dynamicCopyFields.length; ++i) {
+      DynamicCopy dynamicCopy=newSchema.dynamicCopyFields[i];
+      DynamicField destDynamicBase=dynamicCopy.getDestDynamicBase();
+      DynamicField sourceDynamicBase=dynamicCopy.getSourceDynamicBase();
+      if (fieldNamePattern.equals(dynamicCopy.getRegex()) || fieldNamePattern.equals(dynamicCopy.getDestFieldName()) || (null != destDynamicBase && fieldNamePattern.equals(destDynamicBase.getRegex()))|| (null != sourceDynamicBase && fieldNamePattern.equals(sourceDynamicBase.getRegex()))) {
+        dynamicCopyFieldsToRebuild.add(dynamicCopy);
+        newSchema.decrementCopyFieldTargetCount(dynamicCopy.getDestination().getPrototype());
+      }
+ else {
+        newDynamicCopyFields.add(dynamicCopy);
+      }
+    }
+    if (dynamicCopyFieldsToRebuild.size() > 0) {
+      newSchema.dynamicCopyFields=newDynamicCopyFields.toArray(new DynamicCopy[newDynamicCopyFields.size()]);
+      for (      DynamicCopy dynamicCopy : dynamicCopyFieldsToRebuild) {
+        newSchema.registerCopyField(dynamicCopy.getRegex(),dynamicCopy.getDestFieldName(),dynamicCopy.getMaxChars());
+      }
+    }
+    for (    SchemaAware aware : newSchema.schemaAware) {
+      aware.inform(newSchema);
+    }
+    newSchema.refreshAnalyzers();
+  }
+ else {
+    String msg="This ManagedIndexSchema is not mutable.";
+    log.error(msg);
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+  }
+  return newSchema;
+}

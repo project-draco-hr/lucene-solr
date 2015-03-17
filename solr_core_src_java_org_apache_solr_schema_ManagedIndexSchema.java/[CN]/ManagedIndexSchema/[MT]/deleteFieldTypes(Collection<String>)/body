@@ -1,0 +1,38 @@
+{
+  ManagedIndexSchema newSchema;
+  if (isMutable) {
+    for (    String name : names) {
+      if (!fieldTypes.containsKey(name)) {
+        String msg="The field type '" + name + "' is not present in this schema, and so cannot be deleted.";
+        throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+      }
+      for (      SchemaField field : fields.values()) {
+        if (field.getType().getTypeName().equals(name)) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Can't delete '" + name + "' because it's the field type of field '"+ field.getName()+ "'.");
+        }
+      }
+      for (      DynamicField dynamicField : dynamicFields) {
+        if (dynamicField.getPrototype().getType().getTypeName().equals(name)) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Can't delete '" + name + "' because it's the field type of dynamic field '"+ dynamicField.getRegex()+ "'.");
+        }
+      }
+    }
+    newSchema=shallowCopy(true);
+    for (    String name : names) {
+      newSchema.fieldTypes.remove(name);
+    }
+    for (    SchemaAware aware : newSchema.schemaAware) {
+      aware.inform(newSchema);
+    }
+    for (    FieldType fieldType : newSchema.fieldTypes.values()) {
+      informResourceLoaderAwareObjectsForFieldType(fieldType);
+    }
+    newSchema.refreshAnalyzers();
+  }
+ else {
+    String msg="This ManagedIndexSchema is not mutable.";
+    log.error(msg);
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+  }
+  return newSchema;
+}

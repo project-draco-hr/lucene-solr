@@ -1,0 +1,71 @@
+{
+  ManagedIndexSchema newSchema;
+  if (isMutable) {
+    SchemaField oldField=fields.get(fieldName);
+    if (null == oldField) {
+      String msg="The field '" + fieldName + "' is not present in this schema, and so cannot be replaced.";
+      throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+    }
+    newSchema=shallowCopy(true);
+    newSchema.copyFieldsMap=cloneCopyFieldsMap(copyFieldsMap);
+    newSchema.copyFieldTargetCounts=(Map<SchemaField,Integer>)((HashMap<SchemaField,Integer>)copyFieldTargetCounts).clone();
+    newSchema.dynamicCopyFields=new DynamicCopy[dynamicCopyFields.length];
+    System.arraycopy(dynamicCopyFields,0,newSchema.dynamicCopyFields,0,dynamicCopyFields.length);
+    newSchema.fields.remove(fieldName);
+    newSchema.fieldsWithDefaultValue.remove(oldField);
+    newSchema.requiredFields.remove(oldField);
+    SchemaField replacementField=SchemaField.create(fieldName,replacementFieldType,replacementArgs);
+    newSchema.fields.put(fieldName,replacementField);
+    if (null != replacementField.getDefaultValue()) {
+      log.debug(replacementField.getName() + " contains default value: " + replacementField.getDefaultValue());
+      newSchema.fieldsWithDefaultValue.add(replacementField);
+    }
+    if (replacementField.isRequired()) {
+      log.debug("{} is required in this schema",replacementField.getName());
+      newSchema.requiredFields.add(replacementField);
+    }
+    List<CopyField> copyFieldsToRebuild=new ArrayList<>();
+    newSchema.removeCopyFieldSource(fieldName,copyFieldsToRebuild);
+    newSchema.copyFieldTargetCounts.remove(oldField);
+    for (    Map.Entry<String,List<CopyField>> entry : newSchema.copyFieldsMap.entrySet()) {
+      List<CopyField> perSourceCopyFields=entry.getValue();
+      Iterator<CopyField> checkDestCopyFieldsIter=perSourceCopyFields.iterator();
+      while (checkDestCopyFieldsIter.hasNext()) {
+        CopyField checkDestCopyField=checkDestCopyFieldsIter.next();
+        if (fieldName.equals(checkDestCopyField.getDestination().getName())) {
+          checkDestCopyFieldsIter.remove();
+          copyFieldsToRebuild.add(checkDestCopyField);
+        }
+      }
+    }
+    newSchema.rebuildCopyFields(copyFieldsToRebuild);
+    List<DynamicCopy> dynamicCopyFieldsToRebuild=new ArrayList<>();
+    List<DynamicCopy> newDynamicCopyFields=new ArrayList<>();
+    for (int i=0; i < newSchema.dynamicCopyFields.length; ++i) {
+      DynamicCopy dynamicCopy=newSchema.dynamicCopyFields[i];
+      SchemaField destinationPrototype=dynamicCopy.getDestination().getPrototype();
+      if (fieldName.equals(dynamicCopy.getRegex()) || fieldName.equals(destinationPrototype.getName())) {
+        dynamicCopyFieldsToRebuild.add(dynamicCopy);
+      }
+ else {
+        newDynamicCopyFields.add(dynamicCopy);
+      }
+    }
+    if (dynamicCopyFieldsToRebuild.size() > 0) {
+      newSchema.dynamicCopyFields=newDynamicCopyFields.toArray(new DynamicCopy[newDynamicCopyFields.size()]);
+      for (      DynamicCopy dynamicCopy : dynamicCopyFieldsToRebuild) {
+        newSchema.registerCopyField(dynamicCopy.getRegex(),dynamicCopy.getDestFieldName(),dynamicCopy.getMaxChars());
+      }
+    }
+    for (    SchemaAware aware : newSchema.schemaAware) {
+      aware.inform(newSchema);
+    }
+    newSchema.refreshAnalyzers();
+  }
+ else {
+    String msg="This ManagedIndexSchema is not mutable.";
+    log.error(msg);
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+  }
+  return newSchema;
+}

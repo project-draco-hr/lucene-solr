@@ -3,17 +3,12 @@
   long startTime=System.nanoTime();
   long endTime=timeout > 0 ? System.nanoTime() + (timeout * 1000 * 1000) : Long.MAX_VALUE;
   SolrCore core=req.getCore();
-  for (; System.nanoTime() < endTime; ) {
+  while (System.nanoTime() < endTime) {
     managedIndexSchema=getFreshManagedSchema();
     for (    CommandOperation op : operations) {
-      if (ADD_FIELD.equals(op.name) || ADD_DYNAMIC_FIELD.equals(op.name)) {
-        applyAddField(op);
-      }
- else       if (ADD_COPY_FIELD.equals(op.name)) {
-        applyAddCopyField(op);
-      }
- else       if (ADD_FIELD_TYPE.equals(op.name)) {
-        applyAddType(op);
+      OpType opType=OpType.get(op.name);
+      if (opType != null) {
+        opType.perform(op,this);
       }
  else {
         op.addError("No such operation : " + op.name);
@@ -34,11 +29,10 @@
       }
       try {
         ZkController.persistConfigResourceToZooKeeper(zkLoader,managedIndexSchema.getSchemaZkVersion(),managedIndexSchema.getResourceName(),sw.toString().getBytes(StandardCharsets.UTF_8),true);
-        return EMPTY_LIST;
+        return Collections.emptyList();
       }
  catch (      ZkController.ResourceModifiedInZkException e) {
         log.info("Race condition schema modified by another node");
-        continue;
       }
 catch (      Exception e) {
         String s="Exception persisting schema";
@@ -51,12 +45,11 @@ catch (      Exception e) {
         managedIndexSchema.persistManagedSchema(false);
         core.setLatestSchema(managedIndexSchema);
         waitForOtherReplicasToUpdate(timeout,startTime);
-        return EMPTY_LIST;
+        return Collections.emptyList();
       }
  catch (      ManagedIndexSchema.SchemaChangedInZkException e) {
         String s="Failed to update schema because schema is modified";
         log.warn(s,e);
-        continue;
       }
 catch (      Exception e) {
         String s="Exception persisting schema";

@@ -1,0 +1,43 @@
+{
+  String payload="{\n" + "          'replace-field' : {\n" + "                       'name':'replaceFieldA',\n"+ "                       'type': 'text',\n"+ "                       'stored':true,\n"+ "                       'indexed':true\n"+ "                       },\n"+ "          'replace-dynamic-field' : {\n"+ "                       'name' :'replaceDynamicField',\n"+ "                        'type':'text',\n"+ "                        'stored':true,\n"+ "                        'indexed':true\n"+ "                        },\n"+ "          'replace-field-type' : {\n"+ "                       'name' :'myNewFieldTypeName',\n"+ "                       'class' : 'solr.TextField'\n"+ "                        }\n"+ " }";
+  String aField="a" + seed;
+  String dynamicFldName="*_lol" + seed;
+  String dynamicCopyFldDest="hello_lol" + seed;
+  String newFieldTypeName="mystr" + seed;
+  payload=payload.replace("replaceFieldA",aField);
+  payload=payload.replace("replaceDynamicField",dynamicFldName);
+  payload=payload.replace("myNewFieldTypeName",newFieldTypeName);
+  RestTestHarness publisher=restTestHarnesses.get(r.nextInt(restTestHarnesses.size()));
+  String response=publisher.post("/schema?wt=json",SolrTestCaseJ4.json(payload));
+  Map map=(Map)ObjectBuilder.getVal(new JSONParser(new StringReader(response)));
+  Object errors=map.get("errors");
+  if (errors != null) {
+    errs.add(new String(ZkStateReader.toJSON(errors),StandardCharsets.UTF_8));
+    return;
+  }
+  Set<String> errmessages=new HashSet<>();
+  RestTestHarness harness=restTestHarnesses.get(r.nextInt(restTestHarnesses.size()));
+  try {
+    long startTime=System.nanoTime();
+    long maxTimeoutMillis=100000;
+    while (TimeUnit.MILLISECONDS.convert(System.nanoTime() - startTime,TimeUnit.NANOSECONDS) < maxTimeoutMillis) {
+      errmessages.clear();
+      Map m=getObj(harness,aField,"fields");
+      if (m == null)       errmessages.add(format("field {0} no longer present",aField));
+      m=getObj(harness,dynamicFldName,"dynamicFields");
+      if (m == null)       errmessages.add(format("dynamic field {0} no longer present",dynamicFldName));
+      List l=getSourceCopyFields(harness,aField);
+      if (!checkCopyField(l,aField,dynamicCopyFldDest))       errmessages.add(format("CopyField source={0},dest={1} no longer present",aField,dynamicCopyFldDest));
+      m=getObj(harness,newFieldTypeName,"fieldTypes");
+      if (m == null)       errmessages.add(format("new type {0} no longer present",newFieldTypeName));
+      if (errmessages.isEmpty())       break;
+      Thread.sleep(10);
+    }
+  }
+  finally {
+    harness.close();
+  }
+  if (!errmessages.isEmpty()) {
+    errs.addAll(errmessages);
+  }
+}
