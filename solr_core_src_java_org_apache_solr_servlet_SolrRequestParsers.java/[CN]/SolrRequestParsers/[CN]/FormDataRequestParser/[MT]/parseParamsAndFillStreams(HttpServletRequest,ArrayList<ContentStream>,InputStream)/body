@@ -1,0 +1,31 @@
+{
+  final Map<String,String[]> map=new HashMap<>();
+  final String qs=req.getQueryString();
+  if (qs != null) {
+    parseQueryString(qs,map);
+  }
+  final long totalLength=req.getContentLength();
+  final long maxLength=((long)uploadLimitKB) * 1024L;
+  if (totalLength > maxLength) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"application/x-www-form-urlencoded content length (" + totalLength + " bytes) exceeds upload limit of "+ uploadLimitKB+ " KB");
+  }
+  final String cs=ContentStreamBase.getCharsetFromContentType(req.getContentType());
+  final Charset charset=(cs == null) ? StandardCharsets.UTF_8 : Charset.forName(cs);
+  try {
+    in=FastInputStream.wrap(in == null ? req.getInputStream() : in);
+    final long bytesRead=parseFormDataContent(in,maxLength,charset,map,false);
+    if (bytesRead == 0L && totalLength > 0L) {
+      throw getParameterIncompatibilityException();
+    }
+  }
+ catch (  IOException ioe) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,ioe);
+  }
+catch (  IllegalStateException ise) {
+    throw (SolrException)getParameterIncompatibilityException().initCause(ise);
+  }
+ finally {
+    IOUtils.closeWhileHandlingException(in);
+  }
+  return new MultiMapSolrParams(map);
+}
