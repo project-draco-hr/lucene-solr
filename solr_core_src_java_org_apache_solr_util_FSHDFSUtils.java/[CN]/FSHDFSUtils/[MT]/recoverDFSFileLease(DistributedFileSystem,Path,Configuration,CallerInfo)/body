@@ -5,31 +5,28 @@
   long firstPause=conf.getInt("solr.hdfs.lease.recovery.first.pause",4000);
   long subsequentPause=conf.getInt("solr.hdfs.lease.recovery.dfs.timeout",61 * 1000);
   Method isFileClosedMeth=null;
-  boolean findIsFileClosedMeth=true;
+  try {
+    isFileClosedMeth=dfs.getClass().getMethod("isFileClosed",new Class[]{Path.class});
+  }
+ catch (  NoSuchMethodException nsme) {
+    log.debug("isFileClosed not available");
+  }
+  if (isFileClosedMeth != null && isFileClosed(dfs,isFileClosedMeth,p)) {
+    return true;
+  }
   boolean recovered=false;
   for (int nbAttempt=0; !recovered; nbAttempt++) {
     recovered=recoverLease(dfs,nbAttempt,p,startWaiting);
     if (recovered)     break;
-    if (checkIfTimedout(conf,recoveryTimeout,nbAttempt,p,startWaiting))     break;
+    if (checkIfTimedout(conf,recoveryTimeout,nbAttempt,p,startWaiting) || callerInfo.isCallerClosed())     break;
     try {
       if (nbAttempt == 0) {
         Thread.sleep(firstPause);
       }
  else {
         long localStartWaiting=System.nanoTime();
-        while ((System.nanoTime() - localStartWaiting) < subsequentPause) {
+        while ((System.nanoTime() - localStartWaiting) < subsequentPause && !callerInfo.isCallerClosed()) {
           Thread.sleep(conf.getInt("solr.hdfs.lease.recovery.pause",1000));
-          if (findIsFileClosedMeth) {
-            try {
-              isFileClosedMeth=dfs.getClass().getMethod("isFileClosed",new Class[]{Path.class});
-            }
- catch (            NoSuchMethodException nsme) {
-              log.debug("isFileClosed not available");
-            }
- finally {
-              findIsFileClosedMeth=false;
-            }
-          }
           if (isFileClosedMeth != null && isFileClosed(dfs,isFileClosedMeth,p)) {
             recovered=true;
             break;
