@@ -28,8 +28,7 @@
   params.set(CoreAdminParams.ACTION,CoreAdminAction.REQUESTBUFFERUPDATES.toString());
   params.set(CoreAdminParams.NAME,targetLeader.getStr("core"));
   String nodeName=targetLeader.getNodeName();
-  setupAsyncRequest(asyncId,requestMap,params,nodeName);
-  sendShardRequest(targetLeader.getNodeName(),params,shardHandler);
+  sendShardRequest(targetLeader.getNodeName(),params,shardHandler,asyncId,requestMap);
   collectShardResponses(results,true,"MIGRATE failed to request node to buffer updates",shardHandler);
   completeAsyncRequest(asyncId,requestMap,results);
   ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.ADDROUTINGRULE.toLower(),COLLECTION_PROP,sourceCollection.getName(),SHARD_ID_PROP,sourceSlice.getName(),"routeKey",SolrIndexSplitter.getRouteKey(splitKey) + "!","range",splitRange.toString(),"targetCollection",targetCollection.getName(),"expireAt",String.valueOf(System.currentTimeMillis() + timeout));
@@ -75,7 +74,7 @@
   cmd.setState(ZkStateReader.ACTIVE);
   cmd.setCheckLive(true);
   cmd.setOnlyIfLeader(true);
-  sendShardRequest(tempSourceLeader.getNodeName(),new ModifiableSolrParams(cmd.getParams()),shardHandler);
+  sendShardRequest(tempSourceLeader.getNodeName(),new ModifiableSolrParams(cmd.getParams()),shardHandler,null,null);
   collectShardResponses(results,true,"MIGRATE failed to create temp collection leader or timed out waiting for it to come up",shardHandler);
   log.info("Asking source leader to split index");
   params=new ModifiableSolrParams();
@@ -85,8 +84,7 @@
   params.set(CoreAdminParams.RANGES,splitRange.toString());
   params.set("split.key",splitKey);
   String tempNodeName=sourceLeader.getNodeName();
-  setupAsyncRequest(asyncId,requestMap,params,tempNodeName);
-  sendShardRequest(tempNodeName,params,shardHandler);
+  sendShardRequest(tempNodeName,params,shardHandler,asyncId,requestMap);
   collectShardResponses(results,true,"MIGRATE failed to invoke SPLIT core admin command",shardHandler);
   completeAsyncRequest(asyncId,requestMap,results);
   log.info("Creating a replica of temporary collection: {} on the target leader node: {}",tempSourceCollectionName,targetLeader.getNodeName());
@@ -118,8 +116,7 @@
   cmd.setCheckLive(true);
   cmd.setOnlyIfLeader(true);
   params=new ModifiableSolrParams(cmd.getParams());
-  setupAsyncRequest(asyncId,requestMap,params,tempSourceLeader.getNodeName());
-  sendShardRequest(tempSourceLeader.getNodeName(),params,shardHandler);
+  sendShardRequest(tempSourceLeader.getNodeName(),params,shardHandler,asyncId,requestMap);
   collectShardResponses(results,true,"MIGRATE failed to create temp collection replica or timed out waiting for them to come up",shardHandler);
   completeAsyncRequest(asyncId,requestMap,results);
   log.info("Successfully created replica of temp source collection on target leader node");
@@ -128,16 +125,14 @@
   params.set(CoreAdminParams.ACTION,CoreAdminAction.MERGEINDEXES.toString());
   params.set(CoreAdminParams.CORE,targetLeader.getStr("core"));
   params.set(CoreAdminParams.SRC_CORE,tempCollectionReplica2);
-  setupAsyncRequest(asyncId,requestMap,params,sourceLeader.getNodeName());
-  sendShardRequest(targetLeader.getNodeName(),params,shardHandler);
+  sendShardRequest(targetLeader.getNodeName(),params,shardHandler,asyncId,requestMap);
   collectShardResponses(results,true,"MIGRATE failed to merge " + tempCollectionReplica2 + " to "+ targetLeader.getStr("core")+ " on node: "+ targetLeader.getNodeName(),shardHandler);
   completeAsyncRequest(asyncId,requestMap,results);
   log.info("Asking target leader to apply buffered updates");
   params=new ModifiableSolrParams();
   params.set(CoreAdminParams.ACTION,CoreAdminAction.REQUESTAPPLYUPDATES.toString());
   params.set(CoreAdminParams.NAME,targetLeader.getStr("core"));
-  setupAsyncRequest(asyncId,requestMap,params,targetLeader.getNodeName());
-  sendShardRequest(targetLeader.getNodeName(),params,shardHandler);
+  sendShardRequest(targetLeader.getNodeName(),params,shardHandler,asyncId,requestMap);
   collectShardResponses(results,true,"MIGRATE failed to request node to apply buffered updates",shardHandler);
   completeAsyncRequest(asyncId,requestMap,results);
   try {
