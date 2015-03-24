@@ -162,6 +162,35 @@
   query("q","*:*","sort",i1 + " desc","stats","true","stats.field",i1);
   query("q","*:*","sort",i1 + " desc","stats","true","stats.field",tdate_a);
   query("q","*:*","sort",i1 + " desc","stats","true","stats.field",tdate_b);
+  query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!percentiles='1,2,3,4,5'}" + i1);
+  query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!percentiles='1,20,30,40,98,99,99.9'}" + i1);
+  rsp=query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!percentiles='1.0,99.999,0.001'}" + tlong);
+{
+    Double[] expectedKeys=new Double[]{1.0D,99.999D,0.001D};
+    Double[] expectedVals=new Double[]{2.0D,4320.0D,2.0D};
+    FieldStatsInfo s=rsp.getFieldStatsInfo().get(tlong);
+    assertNotNull("no stats for " + tlong,s);
+    Map<Double,Double> p=s.getPercentiles();
+    assertNotNull("no percentils",p);
+    assertEquals("insufficient percentiles",expectedKeys.length,p.size());
+    Iterator<Double> actualKeys=p.keySet().iterator();
+    for (int i=0; i < expectedKeys.length; i++) {
+      Double expectedKey=expectedKeys[i];
+      assertTrue("Ran out of actual keys as of : " + i + "->"+ expectedKey,actualKeys.hasNext());
+      assertEquals(expectedKey,actualKeys.next());
+      assertEquals("percentiles are off: " + p.toString(),expectedVals[i],p.get(expectedKey),1.0D);
+    }
+    assertNull("expected null for count",s.getMin());
+    assertNull("expected null for count",s.getMean());
+    assertNull("expected null for count",s.getCount());
+    assertNull("expected null for calcDistinct",s.getCountDistinct());
+    assertNull("expected null for distinct vals",s.getDistinctValues());
+    assertNull("expected null for max",s.getMax());
+    assertNull("expected null for missing",s.getMissing());
+    assertNull("expected null for stddev",s.getStddev());
+    assertNull("expected null for sum",s.getSum());
+  }
+  query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!percentiles='1,20,50,80,99'}" + tdate_a);
   query("q","*:*","sort",i1 + " desc","stats","true","fq","{!tag=nothing}-*:*","stats.field","{!key=special_key ex=nothing}stats_dt");
   query("q","*:*","sort",i1 + " desc","stats","true","f.stats_dt.stats.calcdistinct","true","stats.field","{!key=special_key}stats_dt");
   query("q","*:*","sort",i1 + " desc","stats","true","f.stats_dt.stats.calcdistinct","true","fq","{!tag=xxx}id:[3 TO 9]","stats.field","{!key=special_key}stats_dt","stats.field","{!ex=xxx}stats_dt");
@@ -182,6 +211,7 @@
     assertNull("expected null for missing",s.getMissing());
     assertNull("expected null for stddev",s.getStddev());
     assertNull("expected null for sum",s.getSum());
+    assertNull("expected null for percentiles",s.getPercentiles());
     for (    Stat dep : EnumSet.of(Stat.sum,Stat.count)) {
       assertTrue("Purpose of this test is to ensure that asking for some stats works even when the deps " + "of those stats are explicitly excluded -- but the expected dep relationshp is no longer valid. " + "ie: who changed the code and didn't change this test?, expected: "+ dep,Stat.mean.getDistribDeps().contains(dep));
     }
@@ -221,6 +251,7 @@
     assertNull("expected null for max",s.getMax());
     assertNull("expected null for missing",s.getMissing());
     assertNull("expected null for sum",s.getSum());
+    assertNull("expected null for percentiles",s.getPercentiles());
   }
   rsp=query("q","*:*","sort",i1 + " desc","stats","true","doMin","false","stats.field","{!min=$doMin}" + i1);
 {
@@ -235,6 +266,7 @@
     assertNull("expected null for max",s.getMax());
     assertNull("expected null for missing",s.getMissing());
     assertNull("expected null for sum",s.getSum());
+    assertNull("expected null for percentiles",s.getPercentiles());
   }
   final String[] stats=new String[]{"min","max","sum","sumOfSquares","stddev","mean","missing","count"};
   for (  String stat1 : stats) {
@@ -280,6 +312,7 @@
     assertNull(p + " expected null for missing",s.getMissing());
     assertNull(p + " expected null for stddev",s.getStddev());
     assertNull(p + " expected null for sum",s.getSum());
+    assertNull(p + " expected null for percentiles",s.getPercentiles());
   }
   for (  SolrParams p : new SolrParams[]{params("stats.field","{!min=true calcdistinct=false}" + i1),params("stats.calcdistinct","false","stats.field","{!min=true}" + i1),params("f." + i1 + ".stats.calcdistinct","false","stats.field","{!min=true}" + i1),params("stats.calcdistinct","true","f." + i1 + ".stats.calcdistinct","false","stats.field","{!min=true}" + i1),params("stats.calcdistinct","true","f." + i1 + ".stats.calcdistinct","true","stats.field","{!min=true calcdistinct=false}" + i1)}) {
     rsp=query(SolrParams.wrapDefaults(p,params("q","*:*","sort",i1 + " desc","stats","true")));
@@ -294,6 +327,7 @@
     assertNull(p + " expected null for missing",s.getMissing());
     assertNull(p + " expected null for stddev",s.getStddev());
     assertNull(p + " expected null for sum",s.getSum());
+    assertNull(p + "expected null for percentiles",s.getPercentiles());
   }
   rsp=query("q","*:*","sort",i1 + " desc","stats","true","stats.field","{!min=true mean=true stddev=true}does_not_exist_i");
 {
@@ -308,8 +342,9 @@
     assertNull("expected null for max",s.getMax());
     assertNull("expected null for missing",s.getMissing());
     assertNull("expected null for sum",s.getSum());
+    assertNull("expected null for percentiles",s.getPercentiles());
   }
-  EnumSet<Stat> allStats=EnumSet.allOf(Stat.class);
+  EnumSet<Stat> allStats=EnumSet.complementOf(EnumSet.of(Stat.percentiles));
   int numTotalStatQueries=0;
   final int numStatParamsAtOnce=2;
   for (int numParams=1; numParams <= numStatParamsAtOnce; numParams++) {

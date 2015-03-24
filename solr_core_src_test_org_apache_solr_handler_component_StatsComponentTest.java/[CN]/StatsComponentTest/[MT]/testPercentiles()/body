@@ -1,0 +1,57 @@
+{
+  String percentiles="10.0,99.9,1.0,2.0,20.0,30.0,40.0,50.0,60.0,70.0,80.0,98.0,99.0";
+  List<String> percentilesList=StrUtils.splitSmart(percentiles,',');
+  SolrQueryRequest query=req("q","*:*","stats","true","stats.field","{!percentiles='" + percentiles + "'}stat_f");
+  try {
+    SolrQueryResponse rsp=h.queryAndResponse(null,query);
+    NamedList<Double> pout=extractPercentils(rsp,"stat_f");
+    for (int i=0; i < percentilesList.size(); i++) {
+      assertEquals(percentilesList.get(i),pout.getName(i));
+      assertEquals(null,pout.getVal(i));
+    }
+  }
+  finally {
+    query.close();
+  }
+  int id=0;
+  for (int i=0; i < 100; i++) {
+    for (int j=0; j < 5; j++) {
+      assertU(adoc("id",++id + "","stat_f","" + i));
+    }
+  }
+  assertU(commit());
+  query=req("q","*:*","stats","true","stats.field","{!percentiles='" + percentiles + "'}stat_f");
+  try {
+    SolrQueryResponse rsp=h.queryAndResponse(null,query);
+    NamedList<Double> pout=extractPercentils(rsp,"stat_f");
+    for (int i=0; i < percentilesList.size(); i++) {
+      String p=percentilesList.get(i);
+      assertEquals(p,pout.getName(i));
+      assertEquals(Double.parseDouble(p),pout.getVal(i),1.0D);
+    }
+  }
+  finally {
+    query.close();
+  }
+  query=req("q","*:*","stats","true","stats.field","{!percentiles=''}stat_f");
+  try {
+    SolrQueryResponse rsp=h.queryAndResponse(null,query);
+    NamedList<Double> pout=extractPercentils(rsp,"stat_f");
+    assertNull(pout);
+  }
+  finally {
+    query.close();
+  }
+  assertU(adoc("id",++id + "","stat_dt","1999-05-03T04:55:01Z"));
+  assertU(adoc("id",++id + "","stat_s","cow"));
+  assertU(commit());
+  query=req("q","*:*","stats","true","stats.field","{!percentiles='" + percentiles + "'}stat_dt","stats.field","{!percentiles='" + percentiles + "'}stat_s");
+  try {
+    SolrQueryResponse rsp=h.queryAndResponse(null,query);
+    assertNull(extractPercentils(rsp,"stat_dt"));
+    assertNull(extractPercentils(rsp,"stat_s"));
+  }
+  finally {
+    query.close();
+  }
+}
