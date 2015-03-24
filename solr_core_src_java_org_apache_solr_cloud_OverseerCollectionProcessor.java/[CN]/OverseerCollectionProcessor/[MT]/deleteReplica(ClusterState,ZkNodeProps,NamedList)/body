@@ -3,38 +3,45 @@
   String collectionName=message.getStr(COLLECTION_PROP);
   String shard=message.getStr(SHARD_ID_PROP);
   String replicaName=message.getStr(REPLICA_PROP);
-  DocCollection coll=clusterState.getCollection(collectionName);
-  Slice slice=coll.getSlice(shard);
-  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
-  if (slice == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid shard name : " + shard + " in collection : "+ collectionName);
-  }
-  Replica replica=slice.getReplica(replicaName);
-  if (replica == null) {
-    ArrayList<String> l=new ArrayList<>();
-    for (    Replica r : slice.getReplicas())     l.add(r.getName());
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid replica : " + replicaName + " in shard/collection : "+ shard+ "/"+ collectionName+ " available replicas are "+ StrUtils.join(l,','));
-  }
-  if (Boolean.parseBoolean(message.getStr(ONLY_IF_DOWN)) && ZkStateReader.DOWN.equals(replica.getStr(ZkStateReader.STATE_PROP)) == false) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Attempted to remove replica : " + collectionName + "/"+ shard+ "/"+ replicaName+ " with onlyIfDown='true', but state is '"+ replica.getStr(ZkStateReader.STATE_PROP)+ "'");
-  }
-  String baseUrl=replica.getStr(ZkStateReader.BASE_URL_PROP);
-  String core=replica.getStr(ZkStateReader.CORE_NAME_PROP);
-  Map m=ZkNodeProps.makeMap("qt",adminPath,CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString(),CoreAdminParams.CORE,core,CoreAdminParams.DELETE_INSTANCE_DIR,"true",CoreAdminParams.DELETE_DATA_DIR,"true");
-  ShardRequest sreq=new ShardRequest();
-  sreq.purpose=1;
-  sreq.shards=new String[]{baseUrl};
-  sreq.actualShards=sreq.shards;
-  sreq.params=new ModifiableSolrParams(new MapSolrParams(m));
+  Map previousMDCContext=MDC.getCopyOfContextMap();
+  MDCUtils.setMDC(collectionName,shard,replicaName,null);
   try {
-    shardHandler.submit(sreq,baseUrl,sreq.params);
+    DocCollection coll=clusterState.getCollection(collectionName);
+    Slice slice=coll.getSlice(shard);
+    ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
+    if (slice == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid shard name : " + shard + " in collection : "+ collectionName);
+    }
+    Replica replica=slice.getReplica(replicaName);
+    if (replica == null) {
+      ArrayList<String> l=new ArrayList<>();
+      for (      Replica r : slice.getReplicas())       l.add(r.getName());
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid replica : " + replicaName + " in shard/collection : "+ shard+ "/"+ collectionName+ " available replicas are "+ StrUtils.join(l,','));
+    }
+    if (Boolean.parseBoolean(message.getStr(ONLY_IF_DOWN)) && ZkStateReader.DOWN.equals(replica.getStr(ZkStateReader.STATE_PROP)) == false) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Attempted to remove replica : " + collectionName + "/"+ shard+ "/"+ replicaName+ " with onlyIfDown='true', but state is '"+ replica.getStr(ZkStateReader.STATE_PROP)+ "'");
+    }
+    String baseUrl=replica.getStr(ZkStateReader.BASE_URL_PROP);
+    String core=replica.getStr(ZkStateReader.CORE_NAME_PROP);
+    Map m=ZkNodeProps.makeMap("qt",adminPath,CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString(),CoreAdminParams.CORE,core,CoreAdminParams.DELETE_INSTANCE_DIR,"true",CoreAdminParams.DELETE_DATA_DIR,"true");
+    ShardRequest sreq=new ShardRequest();
+    sreq.purpose=1;
+    sreq.shards=new String[]{baseUrl};
+    sreq.actualShards=sreq.shards;
+    sreq.params=new ModifiableSolrParams(new MapSolrParams(m));
+    try {
+      shardHandler.submit(sreq,baseUrl,sreq.params);
+    }
+ catch (    Exception e) {
+      log.warn("Exception trying to unload core " + sreq,e);
+    }
+    collectShardResponses(!Slice.ACTIVE.equals(replica.getStr(Slice.STATE)) ? new NamedList() : results,false,null,shardHandler);
+    if (waitForCoreNodeGone(collectionName,shard,replicaName,5000))     return;
+    deleteCoreNode(collectionName,replicaName,replica,core);
+    if (waitForCoreNodeGone(collectionName,shard,replicaName,30000))     return;
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Could not  remove replica : " + collectionName + "/"+ shard+ "/"+ replicaName);
   }
- catch (  Exception e) {
-    log.warn("Exception trying to unload core " + sreq,e);
+  finally {
+    MDCUtils.cleanupMDC(previousMDCContext);
   }
-  collectShardResponses(!Slice.ACTIVE.equals(replica.getStr(Slice.STATE)) ? new NamedList() : results,false,null,shardHandler);
-  if (waitForCoreNodeGone(collectionName,shard,replicaName,5000))   return;
-  deleteCoreNode(collectionName,replicaName,replica,core);
-  if (waitForCoreNodeGone(collectionName,shard,replicaName,30000))   return;
-  throw new SolrException(ErrorCode.SERVER_ERROR,"Could not  remove replica : " + collectionName + "/"+ shard+ "/"+ replicaName);
 }
