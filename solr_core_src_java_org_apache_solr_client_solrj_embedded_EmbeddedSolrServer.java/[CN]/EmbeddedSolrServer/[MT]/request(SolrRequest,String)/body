@@ -3,45 +3,51 @@
   if (path == null || !path.startsWith("/")) {
     path="/select";
   }
+  SolrRequestHandler handler=coreContainer.getRequestHandler(path);
+  if (handler != null) {
+    try {
+      SolrQueryRequest req=_parser.buildRequestFrom(null,request.getParams(),request.getContentStreams());
+      SolrQueryResponse resp=new SolrQueryResponse();
+      handler.handleRequest(req,resp);
+      checkForExceptions(resp);
+      return BinaryResponseWriter.getParsedResponse(req,resp);
+    }
+ catch (    IOException|SolrException iox) {
+      throw iox;
+    }
+catch (    Exception ex) {
+      throw new SolrServerException(ex);
+    }
+  }
   if (coreName == null)   coreName=this.coreName;
-  SolrCore core=coreContainer.getCore(coreName);
-  if (core == null) {
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No such core: " + coreName);
-  }
-  SolrParams params=request.getParams();
-  if (params == null) {
-    params=new ModifiableSolrParams();
-  }
-  SolrRequestHandler handler=core.getRequestHandler(path);
-  if (handler == null) {
-    if ("/select".equals(path) || "/select/".equalsIgnoreCase(path)) {
-      String qt=params.get(CommonParams.QT);
-      handler=core.getRequestHandler(qt);
-      if (handler == null) {
-        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+  SolrQueryRequest req=null;
+  try (SolrCore core=coreContainer.getCore(coreName)){
+    if (core == null) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No such core: " + coreName);
+    }
+    SolrParams params=request.getParams();
+    if (params == null) {
+      params=new ModifiableSolrParams();
+    }
+    handler=core.getRequestHandler(path);
+    if (handler == null) {
+      if ("/select".equals(path) || "/select/".equalsIgnoreCase(path)) {
+        String qt=params.get(CommonParams.QT);
+        handler=core.getRequestHandler(qt);
+        if (handler == null) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+        }
       }
     }
     if (handler == null) {
-      handler=coreContainer.getRequestHandler(path);
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + path);
     }
-  }
-  if (handler == null) {
-    core.close();
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + path);
-  }
-  SolrQueryRequest req=null;
-  try {
     req=_parser.buildRequestFrom(core,params,request.getContentStreams());
     req.getContext().put("path",path);
     SolrQueryResponse rsp=new SolrQueryResponse();
     SolrRequestInfo.setRequestInfo(new SolrRequestInfo(req,rsp));
     core.execute(handler,req,rsp);
-    if (rsp.getException() != null) {
-      if (rsp.getException() instanceof SolrException) {
-        throw rsp.getException();
-      }
-      throw new SolrServerException(rsp.getException());
-    }
+    checkForExceptions(rsp);
     if (request.getStreamingResponseCallback() != null) {
       try {
         final StreamingResponseCallback callback=request.getStreamingResponseCallback();
@@ -92,7 +98,6 @@ catch (  Exception ex) {
   }
  finally {
     if (req != null)     req.close();
-    core.close();
     SolrRequestInfo.clearRequestInfo();
   }
 }
