@@ -1,0 +1,40 @@
+{
+  GroupingSpecification groupingSpecification=rb.getGroupingSpec();
+  final String groupField=groupingSpecification != null ? groupingSpecification.getFields()[0] : null;
+  if (groupField == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Specify the group.field as parameter or local parameter");
+  }
+  BytesRef prefixBytesRef=prefix != null ? new BytesRef(prefix) : null;
+  BytesRef containsRef=contains != null ? new BytesRef(contains) : null;
+  final TermGroupFacetCollector collector=TermGroupFacetCollector.createTermGroupFacetCollector(groupField,field,multiToken,prefixBytesRef,128);
+  SchemaField sf=searcher.getSchema().getFieldOrNull(groupField);
+  if (sf != null && sf.hasDocValues() == false && sf.multiValued() == false && sf.getType().getNumericType() != null) {
+    searcher.search(new FilteredQuery(new MatchAllDocsQuery(),base.getTopFilter()),new FilterCollector(collector){
+      @Override public LeafCollector getLeafCollector(      LeafReaderContext context) throws IOException {
+        LeafReader insane=Insanity.wrapInsanity(context.reader(),groupField);
+        return in.getLeafCollector(insane.getContext());
+      }
+    }
+);
+  }
+ else {
+    searcher.search(new FilteredQuery(new MatchAllDocsQuery(),base.getTopFilter()),collector);
+  }
+  boolean orderByCount=sort.equals(FacetParams.FACET_SORT_COUNT) || sort.equals(FacetParams.FACET_SORT_COUNT_LEGACY);
+  TermGroupFacetCollector.GroupedFacetResult result=collector.mergeSegmentResults(limit < 0 ? Integer.MAX_VALUE : (offset + limit),mincount,orderByCount);
+  CharsRefBuilder charsRef=new CharsRefBuilder();
+  FieldType facetFieldType=searcher.getSchema().getFieldType(field);
+  NamedList<Integer> facetCounts=new NamedList<>();
+  List<TermGroupFacetCollector.FacetEntry> scopedEntries=result.getFacetEntries(offset,limit < 0 ? Integer.MAX_VALUE : limit);
+  for (  TermGroupFacetCollector.FacetEntry facetEntry : scopedEntries) {
+    if (containsRef != null && !StringHelper.contains(facetEntry.getValue(),containsRef,ignoreCase)) {
+      continue;
+    }
+    facetFieldType.indexedToReadable(facetEntry.getValue(),charsRef);
+    facetCounts.add(charsRef.toString(),facetEntry.getCount());
+  }
+  if (missing) {
+    facetCounts.add(null,result.getTotalMissingCount());
+  }
+  return facetCounts;
+}
