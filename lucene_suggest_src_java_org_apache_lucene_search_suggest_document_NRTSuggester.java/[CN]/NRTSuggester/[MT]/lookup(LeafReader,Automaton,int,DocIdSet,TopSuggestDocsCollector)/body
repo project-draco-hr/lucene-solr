@@ -1,0 +1,62 @@
+{
+  final Bits filterDocs;
+  try {
+    if (filter != null) {
+      if (filter.iterator() == null) {
+        return;
+      }
+      if (filter.bits() == null) {
+        throw new IllegalArgumentException("DocIDSet does not provide random access interface");
+      }
+ else {
+        filterDocs=filter.bits();
+      }
+    }
+ else {
+      filterDocs=null;
+    }
+  }
+ catch (  IOException e) {
+    throw new RuntimeException(e);
+  }
+  int queueSize=getMaxTopNSearcherQueueSize(num,reader,filterDocs != null);
+  if (queueSize == -1) {
+    return;
+  }
+  final Bits liveDocs=reader.getLiveDocs();
+  try {
+    final List<FSTUtil.Path<Pair<Long,BytesRef>>> prefixPaths=FSTUtil.intersectPrefixPaths(automaton,fst);
+    Util.TopNSearcher<Pair<Long,BytesRef>> searcher=new Util.TopNSearcher<Pair<Long,BytesRef>>(fst,num,queueSize,getComparator()){
+      private final CharsRefBuilder spare=new CharsRefBuilder();
+      @Override protected boolean acceptResult(      IntsRef input,      Pair<Long,BytesRef> output){
+        int payloadSepIndex=parseSurfaceForm(output.output2,payloadSep,spare);
+        int docID=parseDocID(output.output2,payloadSepIndex);
+        if (filterDocs == null && liveDocs != null && !liveDocs.get(docID)) {
+          return false;
+        }
+        if (filterDocs != null && !filterDocs.get(docID)) {
+          return false;
+        }
+        try {
+          collector.collect(docID,spare.toCharsRef(),decode(output.output1));
+          return true;
+        }
+ catch (        IOException e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    for (    FSTUtil.Path<Pair<Long,BytesRef>> path : prefixPaths) {
+      searcher.addStartPaths(path.fstNode,path.output,false,path.input);
+    }
+    try {
+      Util.TopResults<Pair<Long,BytesRef>> search=searcher.search();
+    }
+ catch (    CollectionTerminatedException e) {
+    }
+  }
+ catch (  IOException bogus) {
+    throw new RuntimeException(bogus);
+  }
+}

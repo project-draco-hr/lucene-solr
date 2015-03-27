@@ -1,0 +1,26 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwcWithSuggestField(analyzer,"suggest_field"));
+  int num=atLeast(300);
+  long[] weights=new long[num];
+  for (int i=0; i < num; i++) {
+    Document document=new Document();
+    weights[i]=Math.abs(random().nextLong());
+    document.add(newSuggestField("suggest_field","abc",weights[i]));
+    iw.addDocument(document);
+  }
+  if (rarely()) {
+    iw.commit();
+  }
+  DirectoryReader reader=iw.getReader();
+  Entry[] expectedEntries=new Entry[num];
+  Arrays.sort(weights);
+  for (int i=1; i <= num; i++) {
+    expectedEntries[i - 1]=new Entry("abc",weights[num - i]);
+  }
+  SuggestIndexSearcher suggestIndexSearcher=new SuggestIndexSearcher(reader,analyzer);
+  TopSuggestDocs lookupDocs=suggestIndexSearcher.suggest("suggest_field","abc",num);
+  assertSuggestions(lookupDocs,expectedEntries);
+  reader.close();
+  iw.close();
+}

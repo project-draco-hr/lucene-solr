@@ -1,0 +1,29 @@
+{
+  String indexFile=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,INDEX_EXTENSION);
+  delegateFieldsProducer=null;
+  boolean success=false;
+  try (ChecksumIndexInput index=state.directory.openChecksumInput(indexFile,state.context)){
+    String dictFile=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,DICT_EXTENSION);
+    dictIn=state.directory.openInput(dictFile,state.context);
+    CodecUtil.checkIndexHeader(dictIn,CODEC_NAME,COMPLETION_CODEC_VERSION,COMPLETION_VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+    CodecUtil.retrieveChecksum(dictIn);
+    CodecUtil.checkIndexHeader(index,CODEC_NAME,COMPLETION_CODEC_VERSION,COMPLETION_VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+    PostingsFormat delegatePostingsFormat=PostingsFormat.forName(index.readString());
+    delegateFieldsProducer=delegatePostingsFormat.fieldsProducer(state);
+    int numFields=index.readVInt();
+    readers=new HashMap<>(numFields);
+    for (int i=0; i < numFields; i++) {
+      int fieldNumber=index.readVInt();
+      long offset=index.readVLong();
+      FieldInfo fieldInfo=state.fieldInfos.fieldInfo(fieldNumber);
+      readers.put(fieldInfo.name,new CompletionsTermsReader(offset));
+    }
+    CodecUtil.checkFooter(index);
+    success=true;
+  }
+  finally {
+    if (success == false) {
+      IOUtils.closeWhileHandlingException(delegateFieldsProducer,dictIn);
+    }
+  }
+}

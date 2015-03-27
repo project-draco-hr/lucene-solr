@@ -1,0 +1,39 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  IndexWriter iw=new IndexWriter(dir,iwcWithSuggestField(analyzer,"suggest_field"));
+  int num=atLeast(10);
+  Document document=new Document();
+  int numLive=0;
+  List<Entry> expectedEntries=new ArrayList<>();
+  for (int i=0; i < num; i++) {
+    document.add(newSuggestField("suggest_field","abc_" + i,num - i));
+    if (i % 2 == 0) {
+      document.add(newStringField("str_field","delete",Field.Store.YES));
+    }
+ else {
+      numLive++;
+      expectedEntries.add(new Entry("abc_" + i,num - i));
+      document.add(newStringField("str_field","no_delete",Field.Store.YES));
+    }
+    iw.addDocument(document);
+    document.clear();
+  }
+  DirectoryReader reader=DirectoryReader.open(iw,false);
+  List<Integer> docIdsToDelete=new ArrayList<>();
+  for (int i=0; i < reader.maxDoc(); i++) {
+    StoredDocument doc=reader.document(i);
+    if ("delete".equals(doc.get("str_field"))) {
+      docIdsToDelete.add(i);
+    }
+  }
+  for (  Integer docID : docIdsToDelete) {
+    assertTrue(iw.tryDeleteDocument(reader,docID));
+  }
+  reader.close();
+  reader=DirectoryReader.open(iw,false);
+  SuggestIndexSearcher indexSearcher=new SuggestIndexSearcher(reader,analyzer);
+  TopSuggestDocs suggest=indexSearcher.suggest("suggest_field","abc_",numLive);
+  assertSuggestions(suggest,expectedEntries.toArray(new Entry[expectedEntries.size()]));
+  reader.close();
+  iw.close();
+}
