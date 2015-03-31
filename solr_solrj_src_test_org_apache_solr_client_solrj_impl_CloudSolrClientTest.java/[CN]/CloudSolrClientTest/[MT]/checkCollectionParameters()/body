@@ -1,0 +1,27 @@
+{
+  try (CloudSolrClient client=createCloudClient("multicollection1")){
+    createCollection("multicollection1",client,2,2);
+    createCollection("multicollection2",client,2,2);
+    waitForRecoveriesToFinish("multicollection1",false);
+    waitForRecoveriesToFinish("multicollection2",false);
+    List<SolrInputDocument> docs=new ArrayList<>(3);
+    for (int i=0; i < 3; i++) {
+      SolrInputDocument doc=new SolrInputDocument();
+      doc.addField(id,Integer.toString(i));
+      doc.addField("a_t","hello");
+      docs.add(doc);
+    }
+    client.add(docs);
+    client.commit();
+    ModifiableSolrParams queryParams=new ModifiableSolrParams();
+    queryParams.add("q","*:*");
+    assertEquals(3,client.query(queryParams).getResults().size());
+    assertEquals(0,client.query("multicollection2",queryParams).getResults().size());
+    SolrQuery query=new SolrQuery("*:*");
+    query.set("collection","multicollection2");
+    assertEquals(0,client.query(query).getResults().size());
+    client.add("multicollection2",docs);
+    client.commit("multicollection2");
+    assertEquals(3,client.query("multicollection2",queryParams).getResults().size());
+  }
+ }

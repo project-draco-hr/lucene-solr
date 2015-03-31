@@ -1,0 +1,58 @@
+{
+  SchemaField destSchemaField=fields.get(dest);
+  SchemaField sourceSchemaField=fields.get(source);
+  final String invalidGlobMessage="is an invalid glob: either it contains more than one asterisk," + " or the asterisk occurs neither at the start nor at the end.";
+  if (source.contains("*") && !isValidFieldGlob(source)) {
+    String msg="copyField source '" + source + "' "+ invalidGlobMessage;
+    throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+  }
+  if (dest.contains("*") && !isValidFieldGlob(dest)) {
+    String msg="copyField dest '" + dest + "' "+ invalidGlobMessage;
+    throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+  }
+  boolean found=false;
+  if (null == destSchemaField || null == sourceSchemaField) {
+    if (dynamicCopyFields != null) {
+      for (int i=0; i < dynamicCopyFields.length; ++i) {
+        DynamicCopy dynamicCopy=dynamicCopyFields[i];
+        if (source.equals(dynamicCopy.getRegex()) && dest.equals(dynamicCopy.getDestFieldName())) {
+          found=true;
+          SchemaField destinationPrototype=dynamicCopy.getDestination().getPrototype();
+          if (copyFieldTargetCounts.containsKey(destinationPrototype)) {
+            decrementCopyFieldTargetCount(destinationPrototype);
+          }
+          if (dynamicCopyFields.length > 1) {
+            DynamicCopy[] temp=new DynamicCopy[dynamicCopyFields.length - 1];
+            System.arraycopy(dynamicCopyFields,0,temp,0,i);
+            System.arraycopy(dynamicCopyFields,i + 1,temp,i,dynamicCopyFields.length - i - 1);
+            dynamicCopyFields=temp;
+          }
+ else {
+            dynamicCopyFields=null;
+          }
+          break;
+        }
+      }
+    }
+  }
+ else {
+    List<CopyField> copyFieldList=copyFieldsMap.get(source);
+    if (copyFieldList != null) {
+      for (Iterator<CopyField> iter=copyFieldList.iterator(); iter.hasNext(); ) {
+        CopyField copyField=iter.next();
+        if (dest.equals(copyField.getDestination().getName())) {
+          found=true;
+          decrementCopyFieldTargetCount(copyField.getDestination());
+          iter.remove();
+          if (copyFieldList.isEmpty()) {
+            copyFieldsMap.remove(source);
+          }
+          break;
+        }
+      }
+    }
+  }
+  if (!found) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Copy field directive not found: '" + source + "' -> '"+ dest+ "'");
+  }
+}

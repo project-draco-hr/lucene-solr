@@ -1,0 +1,43 @@
+{
+  client.deleteByQuery("*:*",null);
+  client.add(sdoc("id","1","cat_s","A","where_s","NY"),null);
+  client.add(sdoc("id","2","cat_s","B","where_s","NJ"),null);
+  client.add(sdoc("id","3"),null);
+  client.commit();
+  client.add(sdoc("id","4","cat_s","A","where_s","NJ"),null);
+  client.add(sdoc("id","5","cat_s","B","where_s","NJ"),null);
+  client.commit();
+  client.add(sdoc("id","6","cat_s","B","where_s","NY"),null);
+  client.commit();
+  client.testJQ(params("json","{query:'cat_s:A'}"),"response/numFound==2");
+  client.testJQ(params("json","{query:'cat_s:A'}","json","{filter:'where_s:NY'}"),"response/numFound==1");
+  client.testJQ(params("json","{query:'*:*'}","json","{filter:'where_s:NY'}","json","{filter:'cat_s:A'}"),"response/numFound==1");
+  client.testJQ(params("json","{query:'*:*'}","json","{filter:'where_s:NY'}","json","{filter:['cat_s:A']}"),"response/numFound==1");
+  client.testJQ(params("json","{query:'*:*'}","json","{filter:['where_s:NY']}","json","{filter:'cat_s:A'}"),"response/numFound==1");
+  client.testJQ(params("json","{query:'*:*'}","json","{filter:['where_s:NY']}","json","{filter:['cat_s:A']}"),"response/numFound==1");
+  client.testJQ(params("json.query","'*:*'","json.filter","'where_s:NY'","json.filter","'cat_s:A'"),"response/numFound==1");
+  client.testJQ(params("json.query","'foo_s:NONE'","json.filter","'where_s:NY'","json.filter","'cat_s:A'","json.query","'*:*'"),"response/numFound==1");
+  client.testJQ(params("json","{params:{q:'*:*', fq:['cat_s:A','where_s:NY'], start:0, rows:5, fl:id}}"),"response/docs==[{id:'1'}]");
+  client.testJQ(params("json","{params:{q:'*:*', fq:['cat_s:A','where_s:(NY OR NJ)'], start:0, rows:1, fl:id, sort:'where_s asc'}}"),"response/numFound==2","response/docs==[{id:'4'}]");
+  client.testJQ(params("json","{params:{q:'*:*', fq:['cat_s:A','where_s:(NY OR NJ)'], start:0, rows:1, fl:[id,'x:5.5'], sort:'where_s asc'}}"),"response/numFound==2","response/docs==[{id:'4', x:5.5}]");
+  client.testJQ(params("json","{params:{q:'*:*'}}","json","{params:{fq:['cat_s:A','where_s:(NY OR NJ)'], start:0, rows:1, fl:[id,'x:5.5']}}","json","{params:{sort:'where_s asc'}}"),"response/numFound==2","response/docs==[{id:'4', x:5.5}]");
+  client.testJQ(params("json.query","'*:*'","json.offset","1","json.limit","2","json.sort","'id desc'","json.fields","'id'"),"response/docs==[{id:'5'},{id:'4'}]");
+  client.testJQ(params("json.query","'*:*'","json.offset","1","json.limit","2","json.sort","'id desc'","json.fields","'id'","json.fields","'x:5.5'"),"response/docs==[{id:'5', x:5.5},{id:'4', x:5.5}]");
+  client.testJQ(params("json.query","'*:*'","json.offset","17","json.offset","1","json.limit","42","json.limit","2","json.sort","'id asc'","json.sort","'id desc'","json.fields","'id'","json.fields","'x:5.5'"),"response/docs==[{id:'5', x:5.5},{id:'4', x:5.5}]");
+  client.testJQ(params("json","${OPENBRACE} query:'cat_s:A' ${CLOSEBRACE}","json","${OPENBRACE} filter:'where_s:NY'${CLOSEBRACE}","OPENBRACE","{","CLOSEBRACE","}"),"response/numFound==1");
+  client.testJQ(params("json","{params:{V1:A,V2:NY}, query:'cat_s:${V1}'}","json","{filter:'where_s:${V2}'}"),"response/numFound==1");
+  client.testJQ(params("stream.body","{query:'cat_s:A'}","stream.contentType","application/json"),"response/numFound==2");
+  client.testJQ(params("stream.body","{query:'cat_s:A'}","stream.contentType","application/json","json.filter","'where_s:NY'"),"response/numFound==1");
+  client.testJQ(params("stream.body","{query:'*:*', filter:'where_s:NY'}","stream.contentType","application/json","json","{query:'cat_s:A'}"),"response/numFound==1");
+  client.testJQ(params("stream.body","{query:'*:*', filter:'where_s:NY'}","stream.contentType","application/json","json.query","'cat_s:A'"),"response/numFound==1");
+  client.testJQ(params("stream.body","{query:'*:*', facet:{x:'unique(where_s)'}}","stream.contentType","application/json"),"facets=={count:6,x:2}");
+  client.testJQ(params("stream.body","{query:'*:*', facet:{x:'unique(where_s)'}}","stream.contentType","application/json","json.facet.y","{terms:{field:where_s}}","json.facet.z","'unique(where_s)'"),"facets=={count:6,x:2, y:{buckets:[{val:NJ,count:3},{val:NY,count:2}]}, z:2}");
+  client.testJQ(params("json","{query:'cat_s:A'}","json.filter","'where_s:NY'","debug","true"),"debug/json=={query:'cat_s:A', filter:'where_s:NY'}");
+  try {
+    client.testJQ(params("json","{query:'cat_s:A', foobar_ignore_exception:5}"),"response/numFound==2");
+    fail();
+  }
+ catch (  Exception e) {
+    assertTrue(e.getMessage().contains("foobar"));
+  }
+}

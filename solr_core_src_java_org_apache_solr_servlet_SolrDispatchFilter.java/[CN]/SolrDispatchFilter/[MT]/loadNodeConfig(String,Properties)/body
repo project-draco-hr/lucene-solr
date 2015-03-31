@@ -1,0 +1,19 @@
+{
+  SolrResourceLoader loader=new SolrResourceLoader(solrHome,null,nodeProperties);
+  String solrxmlLocation=System.getProperty("solr.solrxml.location","solrhome");
+  if (solrxmlLocation == null || "solrhome".equalsIgnoreCase(solrxmlLocation))   return SolrXmlConfig.fromSolrHome(loader,loader.getInstanceDir());
+  if ("zookeeper".equalsIgnoreCase(solrxmlLocation)) {
+    String zkHost=System.getProperty("zkHost");
+    log.info("Trying to read solr.xml from " + zkHost);
+    if (StringUtils.isEmpty(zkHost))     throw new SolrException(ErrorCode.SERVER_ERROR,"Could not load solr.xml from zookeeper: zkHost system property not set");
+    try (SolrZkClient zkClient=new SolrZkClient(zkHost,30000)){
+      if (!zkClient.exists("/solr.xml",true))       throw new SolrException(ErrorCode.SERVER_ERROR,"Could not load solr.xml from zookeeper: node not found");
+      byte[] data=zkClient.getData("/solr.xml",null,null,true);
+      return SolrXmlConfig.fromInputStream(loader,new ByteArrayInputStream(data));
+    }
+ catch (    Exception e) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Could not load solr.xml from zookeeper",e);
+    }
+  }
+  throw new SolrException(ErrorCode.SERVER_ERROR,"Bad solr.solrxml.location set: " + solrxmlLocation + " - should be 'solrhome' or 'zookeeper'");
+}

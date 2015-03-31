@@ -1,0 +1,45 @@
+{
+  final LRUQueryCache queryCache=new LRUQueryCache(1 + random().nextInt(5),1 + random().nextInt(1000));
+  Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  StringField f=new StringField("color","",Store.NO);
+  doc.add(f);
+  final int numDocs=atLeast(10);
+  for (int i=0; i < numDocs; ++i) {
+    f.setStringValue(RandomPicks.randomFrom(random(),Arrays.asList("red","blue","green","yellow")));
+    w.addDocument(doc);
+    if (random().nextBoolean()) {
+      w.getReader().close();
+    }
+  }
+  final DirectoryReader reader=w.getReader();
+  final IndexSearcher searcher=new IndexSearcher(reader);
+  final Map<Query,Integer> actualCounts=new HashMap<>();
+  final Map<Query,Integer> expectedCounts=new HashMap<>();
+  final QueryCachingPolicy countingPolicy=new QueryCachingPolicy(){
+    @Override public boolean shouldCache(    Query query,    LeafReaderContext context) throws IOException {
+      return random().nextBoolean();
+    }
+    @Override public void onUse(    Query query){
+      expectedCounts.put(query,1 + expectedCounts.getOrDefault(query,0));
+    }
+  }
+;
+  Query[] queries=new Query[10 + random().nextInt(10)];
+  for (int i=0; i < queries.length; ++i) {
+    queries[i]=new TermQuery(new Term("color",RandomPicks.randomFrom(random(),Arrays.asList("red","blue","green","yellow"))));
+    queries[i].setBoost(random().nextFloat());
+  }
+  searcher.setQueryCache(queryCache);
+  searcher.setQueryCachingPolicy(countingPolicy);
+  for (int i=0; i < 20; ++i) {
+    final int idx=random().nextInt(queries.length);
+    searcher.search(new ConstantScoreQuery(queries[idx]),1);
+    actualCounts.put(queries[idx],1 + actualCounts.getOrDefault(queries[idx],0));
+  }
+  assertEquals(actualCounts,expectedCounts);
+  reader.close();
+  w.close();
+  dir.close();
+}

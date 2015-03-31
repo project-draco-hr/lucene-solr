@@ -1,0 +1,62 @@
+{
+  ManagedIndexSchema newSchema;
+  if (isMutable) {
+    newSchema=shallowCopy(true);
+    newSchema.dynamicCopyFields=new DynamicCopy[dynamicCopyFields.length];
+    System.arraycopy(dynamicCopyFields,0,newSchema.dynamicCopyFields,0,dynamicCopyFields.length);
+    List<DynamicCopy> dynamicCopyFieldsToRebuild=new ArrayList<>();
+    List<DynamicCopy> newDynamicCopyFields=new ArrayList<>();
+    for (    String fieldNamePattern : fieldNamePatterns) {
+      DynamicField dynamicField=null;
+      int dfPos=0;
+      for (; dfPos < newSchema.dynamicFields.length; ++dfPos) {
+        DynamicField df=newSchema.dynamicFields[dfPos];
+        if (df.getRegex().equals(fieldNamePattern)) {
+          dynamicField=df;
+          break;
+        }
+      }
+      if (null == dynamicField) {
+        String msg="The dynamic field '" + fieldNamePattern + "' is not present in this schema, and so cannot be deleted.";
+        throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+      }
+      for (int i=0; i < newSchema.dynamicCopyFields.length; ++i) {
+        DynamicCopy dynamicCopy=newSchema.dynamicCopyFields[i];
+        DynamicField destDynamicBase=dynamicCopy.getDestDynamicBase();
+        DynamicField sourceDynamicBase=dynamicCopy.getSourceDynamicBase();
+        if ((null != destDynamicBase && fieldNamePattern.equals(destDynamicBase.getRegex())) || (null != sourceDynamicBase && fieldNamePattern.equals(sourceDynamicBase.getRegex())) || dynamicField.matches(dynamicCopy.getRegex())|| dynamicField.matches(dynamicCopy.getDestFieldName())) {
+          dynamicCopyFieldsToRebuild.add(dynamicCopy);
+          newSchema.decrementCopyFieldTargetCount(dynamicCopy.getDestination().getPrototype());
+        }
+ else {
+          newDynamicCopyFields.add(dynamicCopy);
+        }
+      }
+      if (newSchema.dynamicFields.length > 1) {
+        DynamicField[] temp=new DynamicField[newSchema.dynamicFields.length - 1];
+        System.arraycopy(newSchema.dynamicFields,0,temp,0,dfPos);
+        System.arraycopy(newSchema.dynamicFields,dfPos + 1,temp,dfPos,newSchema.dynamicFields.length - dfPos - 1);
+        newSchema.dynamicFields=temp;
+      }
+ else {
+        newSchema.dynamicFields=new DynamicField[0];
+      }
+    }
+    if (dynamicCopyFieldsToRebuild.size() > 0) {
+      newSchema.dynamicCopyFields=newDynamicCopyFields.toArray(new DynamicCopy[newDynamicCopyFields.size()]);
+      for (      DynamicCopy dynamicCopy : dynamicCopyFieldsToRebuild) {
+        newSchema.registerCopyField(dynamicCopy.getRegex(),dynamicCopy.getDestFieldName(),dynamicCopy.getMaxChars());
+      }
+    }
+    for (    SchemaAware aware : newSchema.schemaAware) {
+      aware.inform(newSchema);
+    }
+    newSchema.refreshAnalyzers();
+  }
+ else {
+    String msg="This ManagedIndexSchema is not mutable.";
+    log.error(msg);
+    throw new SolrException(ErrorCode.SERVER_ERROR,msg);
+  }
+  return newSchema;
+}

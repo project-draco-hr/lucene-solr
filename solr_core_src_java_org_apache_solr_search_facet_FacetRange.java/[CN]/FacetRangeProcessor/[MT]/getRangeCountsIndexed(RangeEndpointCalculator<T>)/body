@@ -1,0 +1,51 @@
+{
+  final SimpleOrderedMap<Object> res=new SimpleOrderedMap<>();
+  List<SimpleOrderedMap<Object>> buckets=null;
+  buckets=new ArrayList<>();
+  res.add("buckets",buckets);
+  T start=calc.getValue(freq.start.toString());
+  T end=calc.getValue(freq.end.toString());
+  EnumSet<FacetParams.FacetRangeInclude> include=freq.include;
+  String gap=freq.gap.toString();
+  final int minCount=0;
+  T low=start;
+  while (low.compareTo(end) < 0) {
+    T high=calc.addGap(low,gap);
+    if (end.compareTo(high) < 0) {
+      if (freq.hardend) {
+        high=end;
+      }
+ else {
+        end=high;
+      }
+    }
+    if (high.compareTo(low) < 0) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"range facet infinite loop (is gap negative? did the math overflow?)");
+    }
+    if (high.compareTo(low) == 0) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"range facet infinite loop: gap is either zero, or too small relative start/end and caused underflow: " + low + " + "+ gap+ " = "+ high);
+    }
+    final boolean includeLower=(include.contains(FacetParams.FacetRangeInclude.LOWER) || (include.contains(FacetParams.FacetRangeInclude.EDGE) && 0 == low.compareTo(start)));
+    final boolean includeUpper=(include.contains(FacetParams.FacetRangeInclude.UPPER) || (include.contains(FacetParams.FacetRangeInclude.EDGE) && 0 == high.compareTo(end)));
+    final String lowS=calc.formatValue(low);
+    final String highS=calc.formatValue(high);
+    Object label=low;
+    buckets.add(rangeStats(low,minCount,lowS,highS,includeLower,includeUpper));
+    low=high;
+  }
+  if (!freq.others.contains(FacetParams.FacetRangeOther.NONE)) {
+    boolean all=freq.others.contains(FacetParams.FacetRangeOther.ALL);
+    final String startS=calc.formatValue(start);
+    final String endS=calc.formatValue(end);
+    if (all || freq.others.contains(FacetParams.FacetRangeOther.BEFORE)) {
+      res.add(FacetParams.FacetRangeOther.BEFORE.toString(),rangeStats(null,0,null,startS,false,(include.contains(FacetParams.FacetRangeInclude.OUTER) || (!(include.contains(FacetParams.FacetRangeInclude.LOWER) || include.contains(FacetParams.FacetRangeInclude.EDGE))))));
+    }
+    if (all || freq.others.contains(FacetParams.FacetRangeOther.AFTER)) {
+      res.add(FacetParams.FacetRangeOther.AFTER.toString(),rangeStats(null,0,endS,null,(include.contains(FacetParams.FacetRangeInclude.OUTER) || (!(include.contains(FacetParams.FacetRangeInclude.UPPER) || include.contains(FacetParams.FacetRangeInclude.EDGE)))),false));
+    }
+    if (all || freq.others.contains(FacetParams.FacetRangeOther.BETWEEN)) {
+      res.add(FacetParams.FacetRangeOther.BETWEEN.toString(),rangeStats(null,0,startS,endS,(include.contains(FacetParams.FacetRangeInclude.LOWER) || include.contains(FacetParams.FacetRangeInclude.EDGE)),(include.contains(FacetParams.FacetRangeInclude.UPPER) || include.contains(FacetParams.FacetRangeInclude.EDGE))));
+    }
+  }
+  return res;
+}

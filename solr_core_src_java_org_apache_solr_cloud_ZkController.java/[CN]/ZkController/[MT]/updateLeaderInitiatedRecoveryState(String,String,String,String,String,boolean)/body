@@ -1,0 +1,49 @@
+{
+  if (collection == null || shardId == null || coreNodeName == null) {
+    log.warn("Cannot set leader-initiated recovery state znode to " + state + " using: collection="+ collection+ "; shardId="+ shardId+ "; coreNodeName="+ coreNodeName);
+    return;
+  }
+  String znodePath=getLeaderInitiatedRecoveryZnodePath(collection,shardId,coreNodeName);
+  if (ZkStateReader.ACTIVE.equals(state)) {
+    try {
+      zkClient.delete(znodePath,-1,false);
+    }
+ catch (    Exception justLogIt) {
+      log.warn("Failed to delete znode " + znodePath,justLogIt);
+    }
+    return;
+  }
+  Map<String,Object> stateObj=null;
+  try {
+    stateObj=getLeaderInitiatedRecoveryStateObject(collection,shardId,coreNodeName);
+  }
+ catch (  Exception exc) {
+    log.warn(exc.getMessage(),exc);
+  }
+  if (stateObj == null)   stateObj=ZkNodeProps.makeMap();
+  stateObj.put("state",state);
+  if (stateObj.get("createdByNodeName") == null)   stateObj.put("createdByNodeName",String.valueOf(this.nodeName));
+  byte[] znodeData=ZkStateReader.toJSON(stateObj);
+  try {
+    if (ZkStateReader.DOWN.equals(state)) {
+      markShardAsDownIfLeader(collection,shardId,leaderCoreNodeName,znodePath,znodeData);
+    }
+ else {
+      if (zkClient.exists(znodePath,true)) {
+        zkClient.setData(znodePath,znodeData,true);
+      }
+ else {
+        zkClient.makePath(znodePath,znodeData,true);
+      }
+    }
+    log.info("Wrote " + state + " to "+ znodePath);
+  }
+ catch (  Exception exc) {
+    if (exc instanceof SolrException) {
+      throw (SolrException)exc;
+    }
+ else {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to update data to " + state + " for znode: "+ znodePath,exc);
+    }
+  }
+}

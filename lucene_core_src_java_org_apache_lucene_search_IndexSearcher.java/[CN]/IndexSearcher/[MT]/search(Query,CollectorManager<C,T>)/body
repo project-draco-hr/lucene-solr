@@ -1,0 +1,42 @@
+{
+  if (executor == null) {
+    final C collector=collectorManager.newCollector();
+    search(query,collector);
+    return collectorManager.reduce(Collections.singletonList(collector));
+  }
+ else {
+    final List<C> collectors=new ArrayList<>(leafSlices.length);
+    boolean needsScores=false;
+    for (int i=0; i < leafSlices.length; ++i) {
+      final C collector=collectorManager.newCollector();
+      collectors.add(collector);
+      needsScores|=collector.needsScores();
+    }
+    final Weight weight=createNormalizedWeight(query,needsScores);
+    final List<Future<C>> topDocsFutures=new ArrayList<>(leafSlices.length);
+    for (int i=0; i < leafSlices.length; ++i) {
+      final LeafReaderContext[] leaves=leafSlices[i].leaves;
+      final C collector=collectors.get(i);
+      topDocsFutures.add(executor.submit(new Callable<C>(){
+        @Override public C call() throws Exception {
+          search(Arrays.asList(leaves),weight,collector);
+          return collector;
+        }
+      }
+));
+    }
+    final List<C> collectedCollectors=new ArrayList<>();
+    for (    Future<C> future : topDocsFutures) {
+      try {
+        collectedCollectors.add(future.get());
+      }
+ catch (      InterruptedException e) {
+        throw new ThreadInterruptedException(e);
+      }
+catch (      ExecutionException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    return collectorManager.reduce(collectors);
+  }
+}

@@ -23,25 +23,34 @@
     sreq.params.set(CommonParams.ROWS,rb.getSortSpec().getOffset() + rb.getSortSpec().getCount());
   }
   sreq.params.set(ResponseBuilder.FIELD_SORT_VALUES,"true");
-  if ((rb.getFieldFlags() & SolrIndexSearcher.GET_SCORES) != 0 || rb.getSortSpec().includesScore()) {
-    sreq.params.set(CommonParams.FL,rb.req.getSchema().getUniqueKeyField().getName() + ",score");
-    StatsCache statsCache=rb.req.getCore().getStatsCache();
-    statsCache.sendGlobalStats(rb,sreq);
-  }
   boolean shardQueryIncludeScore=(rb.getFieldFlags() & SolrIndexSearcher.GET_SCORES) != 0 || rb.getSortSpec().includesScore();
+  StringBuilder additionalFL=new StringBuilder();
+  boolean additionalAdded=false;
   if (distribSinglePass) {
     String[] fls=rb.req.getParams().getParams(CommonParams.FL);
     if (fls != null && fls.length > 0 && (fls.length != 1 || !fls[0].isEmpty())) {
       sreq.params.set(CommonParams.FL,fls);
+      if (!fields.wantsField(keyFieldName)) {
+        additionalAdded=addFL(additionalFL,keyFieldName,additionalAdded);
+      }
     }
  else {
       sreq.params.set(CommonParams.FL,"*");
     }
+    if (!fields.wantsScore() && shardQueryIncludeScore) {
+      additionalAdded=addFL(additionalFL,"score",additionalAdded);
+    }
   }
-  StringBuilder additionalFL=new StringBuilder();
-  boolean additionalAdded=false;
-  if (!distribSinglePass || !fields.wantsField(keyFieldName))   additionalAdded=addFL(additionalFL,keyFieldName,additionalAdded);
-  if ((!distribSinglePass || !fields.wantsScore()) && shardQueryIncludeScore)   additionalAdded=addFL(additionalFL,"score",additionalAdded);
+ else {
+    sreq.params.set(CommonParams.FL,rb.req.getSchema().getUniqueKeyField().getName());
+    if (shardQueryIncludeScore) {
+      additionalAdded=addFL(additionalFL,"score",additionalAdded);
+    }
+  }
+  if (shardQueryIncludeScore) {
+    StatsCache statsCache=rb.req.getCore().getStatsCache();
+    statsCache.sendGlobalStats(rb,sreq);
+  }
   if (additionalAdded)   sreq.params.add(CommonParams.FL,additionalFL.toString());
   rb.addRequest(this,sreq);
 }

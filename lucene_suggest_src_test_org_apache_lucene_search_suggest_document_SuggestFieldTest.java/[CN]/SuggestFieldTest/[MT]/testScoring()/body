@@ -1,0 +1,33 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwcWithSuggestField(analyzer,"suggest_field"));
+  int num=atLeast(100);
+  String[] prefixes={"abc","bac","cab"};
+  Map<String,Long> mappings=new HashMap<>();
+  for (int i=0; i < num; i++) {
+    Document document=new Document();
+    String suggest=prefixes[i % 3] + TestUtil.randomSimpleString(random(),10) + "_"+ String.valueOf(i);
+    long weight=Math.abs(random().nextLong());
+    document.add(newSuggestField("suggest_field",suggest,weight));
+    mappings.put(suggest,weight);
+    iw.addDocument(document);
+  }
+  DirectoryReader reader=iw.getReader();
+  SuggestIndexSearcher indexSearcher=new SuggestIndexSearcher(reader,analyzer);
+  for (  String prefix : prefixes) {
+    TopSuggestDocs suggest=indexSearcher.suggest("suggest_field",prefix,num);
+    assertTrue(suggest.totalHits > 0);
+    float topScore=-1;
+    for (    SuggestScoreDoc scoreDoc : suggest.scoreLookupDocs()) {
+      if (topScore != -1) {
+        assertTrue(topScore >= scoreDoc.score);
+      }
+      topScore=scoreDoc.score;
+      assertThat((float)mappings.get(scoreDoc.key.toString()),equalTo(scoreDoc.score));
+      assertNotNull(mappings.remove(scoreDoc.key.toString()));
+    }
+  }
+  assertThat(mappings.size(),equalTo(0));
+  reader.close();
+  iw.close();
+}

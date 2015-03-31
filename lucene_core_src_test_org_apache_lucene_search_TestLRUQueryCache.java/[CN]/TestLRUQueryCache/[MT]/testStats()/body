@@ -1,0 +1,71 @@
+{
+  final LRUQueryCache queryCache=new LRUQueryCache(1,10000000);
+  Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  final List<String> colors=Arrays.asList("blue","red","green","yellow");
+  Document doc=new Document();
+  StringField f=new StringField("color","",Store.NO);
+  doc.add(f);
+  for (int i=0; i < 10; ++i) {
+    f.setStringValue(RandomPicks.randomFrom(random(),colors));
+    w.addDocument(doc);
+    if (random().nextBoolean()) {
+      w.getReader().close();
+    }
+  }
+  final DirectoryReader reader=w.getReader();
+  final int segmentCount=reader.leaves().size();
+  final IndexSearcher searcher=new IndexSearcher(reader);
+  final Query query=new TermQuery(new Term("color","red"));
+  final Query query2=new TermQuery(new Term("color","blue"));
+  searcher.setQueryCache(queryCache);
+  searcher.setQueryCachingPolicy(NEVER_CACHE);
+  for (int i=0; i < 10; ++i) {
+    searcher.search(new ConstantScoreQuery(query),1);
+  }
+  assertEquals(10 * segmentCount,queryCache.getTotalCount());
+  assertEquals(0,queryCache.getHitCount());
+  assertEquals(10 * segmentCount,queryCache.getMissCount());
+  assertEquals(0,queryCache.getCacheCount());
+  assertEquals(0,queryCache.getEvictionCount());
+  assertEquals(0,queryCache.getCacheSize());
+  searcher.setQueryCachingPolicy(QueryCachingPolicy.ALWAYS_CACHE);
+  for (int i=0; i < 10; ++i) {
+    searcher.search(new ConstantScoreQuery(query),1);
+  }
+  assertEquals(20 * segmentCount,queryCache.getTotalCount());
+  assertEquals(9 * segmentCount,queryCache.getHitCount());
+  assertEquals(11 * segmentCount,queryCache.getMissCount());
+  assertEquals(1 * segmentCount,queryCache.getCacheCount());
+  assertEquals(0,queryCache.getEvictionCount());
+  assertEquals(1 * segmentCount,queryCache.getCacheSize());
+  searcher.setQueryCachingPolicy(NEVER_CACHE);
+  for (int i=0; i < 10; ++i) {
+    searcher.search(new ConstantScoreQuery(query),1);
+  }
+  assertEquals(30 * segmentCount,queryCache.getTotalCount());
+  assertEquals(19 * segmentCount,queryCache.getHitCount());
+  assertEquals(11 * segmentCount,queryCache.getMissCount());
+  assertEquals(1 * segmentCount,queryCache.getCacheCount());
+  assertEquals(0,queryCache.getEvictionCount());
+  assertEquals(1 * segmentCount,queryCache.getCacheSize());
+  searcher.setQueryCachingPolicy(QueryCachingPolicy.ALWAYS_CACHE);
+  for (int i=0; i < 10; ++i) {
+    searcher.search(new ConstantScoreQuery(query2),1);
+  }
+  assertEquals(40 * segmentCount,queryCache.getTotalCount());
+  assertEquals(28 * segmentCount,queryCache.getHitCount());
+  assertEquals(12 * segmentCount,queryCache.getMissCount());
+  assertEquals(2 * segmentCount,queryCache.getCacheCount());
+  assertEquals(1 * segmentCount,queryCache.getEvictionCount());
+  assertEquals(1 * segmentCount,queryCache.getCacheSize());
+  reader.close();
+  w.close();
+  assertEquals(40 * segmentCount,queryCache.getTotalCount());
+  assertEquals(28 * segmentCount,queryCache.getHitCount());
+  assertEquals(12 * segmentCount,queryCache.getMissCount());
+  assertEquals(2 * segmentCount,queryCache.getCacheCount());
+  assertEquals(2 * segmentCount,queryCache.getEvictionCount());
+  assertEquals(0,queryCache.getCacheSize());
+  dir.close();
+}

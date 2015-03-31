@@ -1,16 +1,40 @@
 {
-  String method=req.getMethod().toUpperCase(Locale.ROOT);
-  if ("GET".equals(method) || "HEAD".equals(method) || (("PUT".equals(method) || "DELETE".equals(method)) && (req.getRequestURI().contains("/schema") || req.getRequestURI().contains("/config")))) {
-    return parseQueryString(req.getQueryString());
-  }
-  if ("POST".equals(method)) {
-    if (formdata.isFormData(req)) {
-      return formdata.parseParamsAndFillStreams(req,streams);
+  String contentType=req.getContentType();
+  String method=req.getMethod();
+  String uri=req.getRequestURI();
+  boolean isPost="POST".equals(method);
+  if (!isPost) {
+    if (contentType == null) {
+      return parseQueryString(req.getQueryString());
     }
-    if (ServletFileUpload.isMultipartContent(req)) {
-      return multipart.parseParamsAndFillStreams(req,streams);
+    boolean restletPath=false;
+    int idx=uri.indexOf("/schema");
+    if (idx >= 0 && uri.endsWith("/schema") || uri.contains("/schema/")) {
+      restletPath=true;
     }
-    return raw.parseParamsAndFillStreams(req,streams);
+    idx=uri.indexOf("/config");
+    if (idx >= 0 && uri.endsWith("/config") || uri.contains("/config/")) {
+      restletPath=true;
+    }
+    if (restletPath) {
+      return parseQueryString(req.getQueryString());
+    }
+    if ("PUT".equals(method) || "DELETE".equals(method)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Unsupported method: " + method + " for request "+ req);
+    }
   }
-  throw new SolrException(ErrorCode.BAD_REQUEST,"Unsupported method: " + method + " for request "+ req);
+  if (formdata.isFormData(req)) {
+    String userAgent=req.getHeader("User-Agent");
+    boolean isCurl=userAgent != null && userAgent.startsWith("curl/");
+    FastInputStream input=FastInputStream.wrap(req.getInputStream());
+    if (isCurl) {
+      SolrParams params=autodetect(req,streams,input);
+      if (params != null)       return params;
+    }
+    return formdata.parseParamsAndFillStreams(req,streams,input);
+  }
+  if (ServletFileUpload.isMultipartContent(req)) {
+    return multipart.parseParamsAndFillStreams(req,streams);
+  }
+  return raw.parseParamsAndFillStreams(req,streams);
 }

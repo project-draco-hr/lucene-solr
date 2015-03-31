@@ -1,240 +1,169 @@
 {
-  log.info("Split shard invoked");
   String collectionName=message.getStr("collection");
   String slice=message.getStr(ZkStateReader.SHARD_ID_PROP);
-  String splitKey=message.getStr("split.key");
-  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
-  DocCollection collection=clusterState.getCollection(collectionName);
-  DocRouter router=collection.getRouter() != null ? collection.getRouter() : DocRouter.DEFAULT;
-  Slice parentSlice=null;
-  if (slice == null) {
-    if (router instanceof CompositeIdRouter) {
-      Collection<Slice> searchSlices=router.getSearchSlicesSingle(splitKey,new ModifiableSolrParams(),collection);
-      if (searchSlices.isEmpty()) {
-        throw new SolrException(ErrorCode.BAD_REQUEST,"Unable to find an active shard for split.key: " + splitKey);
-      }
-      if (searchSlices.size() > 1) {
-        throw new SolrException(ErrorCode.BAD_REQUEST,"Splitting a split.key: " + splitKey + " which spans multiple shards is not supported");
-      }
-      parentSlice=searchSlices.iterator().next();
-      slice=parentSlice.getName();
-      log.info("Split by route.key: {}, parent shard is: {} ",splitKey,slice);
-    }
- else {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"Split by route key can only be used with CompositeIdRouter or subclass. Found router: " + router.getClass().getName());
-    }
-  }
- else {
-    parentSlice=clusterState.getSlice(collectionName,slice);
-  }
-  if (parentSlice == null) {
-    if (clusterState.hasCollection(collectionName)) {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"No shard with the specified name exists: " + slice);
-    }
- else {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"No collection with the specified name exists: " + collectionName);
-    }
-  }
-  Replica parentShardLeader=null;
+  Map previousMDCContext=MDC.getCopyOfContextMap();
+  MDCUtils.setMDC(collectionName,slice,null,null);
   try {
-    parentShardLeader=zkStateReader.getLeaderRetry(collectionName,slice,10000);
-  }
- catch (  InterruptedException e) {
-    Thread.currentThread().interrupt();
-  }
-  DocRouter.Range range=parentSlice.getRange();
-  if (range == null) {
-    range=new PlainIdRouter().fullRange();
-  }
-  List<DocRouter.Range> subRanges=null;
-  String rangesStr=message.getStr(CoreAdminParams.RANGES);
-  if (rangesStr != null) {
-    String[] ranges=rangesStr.split(",");
-    if (ranges.length == 0 || ranges.length == 1) {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"There must be at least two ranges specified to split a shard");
+    log.info("Split shard invoked");
+    String splitKey=message.getStr("split.key");
+    ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
+    DocCollection collection=clusterState.getCollection(collectionName);
+    DocRouter router=collection.getRouter() != null ? collection.getRouter() : DocRouter.DEFAULT;
+    Slice parentSlice=null;
+    if (slice == null) {
+      if (router instanceof CompositeIdRouter) {
+        Collection<Slice> searchSlices=router.getSearchSlicesSingle(splitKey,new ModifiableSolrParams(),collection);
+        if (searchSlices.isEmpty()) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Unable to find an active shard for split.key: " + splitKey);
+        }
+        if (searchSlices.size() > 1) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Splitting a split.key: " + splitKey + " which spans multiple shards is not supported");
+        }
+        parentSlice=searchSlices.iterator().next();
+        slice=parentSlice.getName();
+        log.info("Split by route.key: {}, parent shard is: {} ",splitKey,slice);
+      }
+ else {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"Split by route key can only be used with CompositeIdRouter or subclass. Found router: " + router.getClass().getName());
+      }
     }
  else {
-      subRanges=new ArrayList<>(ranges.length);
-      for (int i=0; i < ranges.length; i++) {
-        String r=ranges[i];
-        try {
-          subRanges.add(DocRouter.DEFAULT.fromString(r));
-        }
- catch (        Exception e) {
-          throw new SolrException(ErrorCode.BAD_REQUEST,"Exception in parsing hexadecimal hash range: " + r,e);
-        }
-        if (!subRanges.get(i).isSubsetOf(range)) {
-          throw new SolrException(ErrorCode.BAD_REQUEST,"Specified hash range: " + r + " is not a subset of parent shard's range: "+ range.toString());
-        }
-      }
-      List<DocRouter.Range> temp=new ArrayList<>(subRanges);
-      Collections.sort(temp);
-      if (!range.equals(new DocRouter.Range(temp.get(0).min,temp.get(temp.size() - 1).max))) {
-        throw new SolrException(ErrorCode.BAD_REQUEST,"Specified hash ranges: " + rangesStr + " do not cover the entire range of parent shard: "+ range);
-      }
-      for (int i=1; i < temp.size(); i++) {
-        if (temp.get(i - 1).max + 1 != temp.get(i).min) {
-          throw new SolrException(ErrorCode.BAD_REQUEST,"Specified hash ranges: " + rangesStr + " either overlap with each other or "+ "do not cover the entire range of parent shard: "+ range);
-        }
-      }
+      parentSlice=clusterState.getSlice(collectionName,slice);
     }
-  }
- else   if (splitKey != null) {
-    if (router instanceof CompositeIdRouter) {
-      CompositeIdRouter compositeIdRouter=(CompositeIdRouter)router;
-      subRanges=compositeIdRouter.partitionRangeByKey(splitKey,range);
-      if (subRanges.size() == 1) {
-        throw new SolrException(ErrorCode.BAD_REQUEST,"The split.key: " + splitKey + " has a hash range that is exactly equal to hash range of shard: "+ slice);
+    if (parentSlice == null) {
+      if (clusterState.hasCollection(collectionName)) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"No shard with the specified name exists: " + slice);
       }
-      for (      DocRouter.Range subRange : subRanges) {
-        if (subRange.min == subRange.max) {
-          throw new SolrException(ErrorCode.BAD_REQUEST,"The split.key: " + splitKey + " must be a compositeId");
-        }
-      }
-      log.info("Partitioning parent shard " + slice + " range: "+ parentSlice.getRange()+ " yields: "+ subRanges);
-      rangesStr="";
-      for (int i=0; i < subRanges.size(); i++) {
-        DocRouter.Range subRange=subRanges.get(i);
-        rangesStr+=subRange.toString();
-        if (i < subRanges.size() - 1)         rangesStr+=',';
-      }
-    }
-  }
  else {
-    subRanges=router.partitionRange(2,range);
-  }
-  try {
-    List<String> subSlices=new ArrayList<>(subRanges.size());
-    List<String> subShardNames=new ArrayList<>(subRanges.size());
-    String nodeName=parentShardLeader.getNodeName();
-    for (int i=0; i < subRanges.size(); i++) {
-      String subSlice=slice + "_" + i;
-      subSlices.add(subSlice);
-      String subShardName=collectionName + "_" + subSlice+ "_replica1";
-      subShardNames.add(subShardName);
-      Slice oSlice=clusterState.getSlice(collectionName,subSlice);
-      if (oSlice != null) {
-        if (Slice.ACTIVE.equals(oSlice.getState())) {
-          throw new SolrException(ErrorCode.BAD_REQUEST,"Sub-shard: " + subSlice + " exists in active state. Aborting split shard.");
+        throw new SolrException(ErrorCode.BAD_REQUEST,"No collection with the specified name exists: " + collectionName);
+      }
+    }
+    Replica parentShardLeader=null;
+    try {
+      parentShardLeader=zkStateReader.getLeaderRetry(collectionName,slice,10000);
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    DocRouter.Range range=parentSlice.getRange();
+    if (range == null) {
+      range=new PlainIdRouter().fullRange();
+    }
+    List<DocRouter.Range> subRanges=null;
+    String rangesStr=message.getStr(CoreAdminParams.RANGES);
+    if (rangesStr != null) {
+      String[] ranges=rangesStr.split(",");
+      if (ranges.length == 0 || ranges.length == 1) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"There must be at least two ranges specified to split a shard");
+      }
+ else {
+        subRanges=new ArrayList<>(ranges.length);
+        for (int i=0; i < ranges.length; i++) {
+          String r=ranges[i];
+          try {
+            subRanges.add(DocRouter.DEFAULT.fromString(r));
+          }
+ catch (          Exception e) {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"Exception in parsing hexadecimal hash range: " + r,e);
+          }
+          if (!subRanges.get(i).isSubsetOf(range)) {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"Specified hash range: " + r + " is not a subset of parent shard's range: "+ range.toString());
+          }
         }
- else         if (Slice.CONSTRUCTION.equals(oSlice.getState()) || Slice.RECOVERY.equals(oSlice.getState())) {
-          for (          String sub : subSlices) {
-            log.info("Sub-shard: {} already exists therefore requesting its deletion",sub);
-            Map<String,Object> propMap=new HashMap<>();
-            propMap.put(Overseer.QUEUE_OPERATION,"deleteshard");
-            propMap.put(COLLECTION_PROP,collectionName);
-            propMap.put(SHARD_ID_PROP,sub);
-            ZkNodeProps m=new ZkNodeProps(propMap);
-            try {
-              deleteShard(clusterState,m,new NamedList());
-            }
- catch (            Exception e) {
-              throw new SolrException(ErrorCode.SERVER_ERROR,"Unable to delete already existing sub shard: " + sub,e);
-            }
+        List<DocRouter.Range> temp=new ArrayList<>(subRanges);
+        Collections.sort(temp);
+        if (!range.equals(new DocRouter.Range(temp.get(0).min,temp.get(temp.size() - 1).max))) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"Specified hash ranges: " + rangesStr + " do not cover the entire range of parent shard: "+ range);
+        }
+        for (int i=1; i < temp.size(); i++) {
+          if (temp.get(i - 1).max + 1 != temp.get(i).min) {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"Specified hash ranges: " + rangesStr + " either overlap with each other or "+ "do not cover the entire range of parent shard: "+ range);
           }
         }
       }
     }
-    collectShardResponses(results,false,null,shardHandler);
-    String asyncId=message.getStr(ASYNC);
-    HashMap<String,String> requestMap=new HashMap<String,String>();
-    for (int i=0; i < subRanges.size(); i++) {
-      String subSlice=subSlices.get(i);
-      String subShardName=subShardNames.get(i);
-      DocRouter.Range subRange=subRanges.get(i);
-      log.info("Creating slice " + subSlice + " of collection "+ collectionName+ " on "+ nodeName);
-      Map<String,Object> propMap=new HashMap<>();
-      propMap.put(Overseer.QUEUE_OPERATION,CREATESHARD.toLower());
-      propMap.put(ZkStateReader.SHARD_ID_PROP,subSlice);
-      propMap.put(ZkStateReader.COLLECTION_PROP,collectionName);
-      propMap.put(ZkStateReader.SHARD_RANGE_PROP,subRange.toString());
-      propMap.put(ZkStateReader.SHARD_STATE_PROP,Slice.CONSTRUCTION);
-      propMap.put(ZkStateReader.SHARD_PARENT_PROP,parentSlice.getName());
-      DistributedQueue inQueue=Overseer.getInQueue(zkStateReader.getZkClient());
-      inQueue.offer(ZkStateReader.toJSON(new ZkNodeProps(propMap)));
-      waitForNewShard(collectionName,subSlice);
-      clusterState=zkStateReader.getClusterState();
-      log.info("Adding replica " + subShardName + " as part of slice "+ subSlice+ " of collection "+ collectionName+ " on "+ nodeName);
-      propMap=new HashMap<>();
-      propMap.put(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower());
-      propMap.put(COLLECTION_PROP,collectionName);
-      propMap.put(SHARD_ID_PROP,subSlice);
-      propMap.put("node",nodeName);
-      propMap.put(CoreAdminParams.NAME,subShardName);
-      for (      String key : message.keySet()) {
-        if (key.startsWith(COLL_PROP_PREFIX)) {
-          propMap.put(key,message.getStr(key));
+ else     if (splitKey != null) {
+      if (router instanceof CompositeIdRouter) {
+        CompositeIdRouter compositeIdRouter=(CompositeIdRouter)router;
+        subRanges=compositeIdRouter.partitionRangeByKey(splitKey,range);
+        if (subRanges.size() == 1) {
+          throw new SolrException(ErrorCode.BAD_REQUEST,"The split.key: " + splitKey + " has a hash range that is exactly equal to hash range of shard: "+ slice);
+        }
+        for (        DocRouter.Range subRange : subRanges) {
+          if (subRange.min == subRange.max) {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"The split.key: " + splitKey + " must be a compositeId");
+          }
+        }
+        log.info("Partitioning parent shard " + slice + " range: "+ parentSlice.getRange()+ " yields: "+ subRanges);
+        rangesStr="";
+        for (int i=0; i < subRanges.size(); i++) {
+          DocRouter.Range subRange=subRanges.get(i);
+          rangesStr+=subRange.toString();
+          if (i < subRanges.size() - 1)           rangesStr+=',';
         }
       }
-      if (asyncId != null) {
-        propMap.put(ASYNC,asyncId);
+    }
+ else {
+      subRanges=router.partitionRange(2,range);
+    }
+    try {
+      List<String> subSlices=new ArrayList<>(subRanges.size());
+      List<String> subShardNames=new ArrayList<>(subRanges.size());
+      String nodeName=parentShardLeader.getNodeName();
+      for (int i=0; i < subRanges.size(); i++) {
+        String subSlice=slice + "_" + i;
+        subSlices.add(subSlice);
+        String subShardName=collectionName + "_" + subSlice+ "_replica1";
+        subShardNames.add(subShardName);
+        Slice oSlice=clusterState.getSlice(collectionName,subSlice);
+        if (oSlice != null) {
+          if (Slice.ACTIVE.equals(oSlice.getState())) {
+            throw new SolrException(ErrorCode.BAD_REQUEST,"Sub-shard: " + subSlice + " exists in active state. Aborting split shard.");
+          }
+ else           if (Slice.CONSTRUCTION.equals(oSlice.getState()) || Slice.RECOVERY.equals(oSlice.getState())) {
+            for (            String sub : subSlices) {
+              log.info("Sub-shard: {} already exists therefore requesting its deletion",sub);
+              Map<String,Object> propMap=new HashMap<>();
+              propMap.put(Overseer.QUEUE_OPERATION,"deleteshard");
+              propMap.put(COLLECTION_PROP,collectionName);
+              propMap.put(SHARD_ID_PROP,sub);
+              ZkNodeProps m=new ZkNodeProps(propMap);
+              try {
+                deleteShard(clusterState,m,new NamedList());
+              }
+ catch (              Exception e) {
+                throw new SolrException(ErrorCode.SERVER_ERROR,"Unable to delete already existing sub shard: " + sub,e);
+              }
+            }
+          }
+        }
       }
-      addReplica(clusterState,new ZkNodeProps(propMap),results);
-    }
-    collectShardResponses(results,true,"SPLITSHARD failed to create subshard leaders",shardHandler);
-    completeAsyncRequest(asyncId,requestMap,results);
-    for (    String subShardName : subShardNames) {
-      log.info("Asking parent leader to wait for: " + subShardName + " to be alive on: "+ nodeName);
-      String coreNodeName=waitForCoreNodeName(collectionName,nodeName,subShardName);
-      CoreAdminRequest.WaitForState cmd=new CoreAdminRequest.WaitForState();
-      cmd.setCoreName(subShardName);
-      cmd.setNodeName(nodeName);
-      cmd.setCoreNodeName(coreNodeName);
-      cmd.setState(ZkStateReader.ACTIVE);
-      cmd.setCheckLive(true);
-      cmd.setOnlyIfLeader(true);
-      ModifiableSolrParams p=new ModifiableSolrParams(cmd.getParams());
-      setupAsyncRequest(asyncId,requestMap,p,nodeName);
-      sendShardRequest(nodeName,p,shardHandler);
-    }
-    collectShardResponses(results,true,"SPLITSHARD timed out waiting for subshard leaders to come up",shardHandler);
-    completeAsyncRequest(asyncId,requestMap,results);
-    log.info("Successfully created all sub-shards for collection " + collectionName + " parent shard: "+ slice+ " on: "+ parentShardLeader);
-    log.info("Splitting shard " + parentShardLeader.getName() + " as part of slice "+ slice+ " of collection "+ collectionName+ " on "+ parentShardLeader);
-    ModifiableSolrParams params=new ModifiableSolrParams();
-    params.set(CoreAdminParams.ACTION,CoreAdminAction.SPLIT.toString());
-    params.set(CoreAdminParams.CORE,parentShardLeader.getStr("core"));
-    for (int i=0; i < subShardNames.size(); i++) {
-      String subShardName=subShardNames.get(i);
-      params.add(CoreAdminParams.TARGET_CORE,subShardName);
-    }
-    params.set(CoreAdminParams.RANGES,rangesStr);
-    setupAsyncRequest(asyncId,requestMap,params,parentShardLeader.getNodeName());
-    sendShardRequest(parentShardLeader.getNodeName(),params,shardHandler);
-    collectShardResponses(results,true,"SPLITSHARD failed to invoke SPLIT core admin command",shardHandler);
-    completeAsyncRequest(asyncId,requestMap,results);
-    log.info("Index on shard: " + nodeName + " split into two successfully");
-    for (int i=0; i < subShardNames.size(); i++) {
-      String subShardName=subShardNames.get(i);
-      log.info("Applying buffered updates on : " + subShardName);
-      params=new ModifiableSolrParams();
-      params.set(CoreAdminParams.ACTION,CoreAdminAction.REQUESTAPPLYUPDATES.toString());
-      params.set(CoreAdminParams.NAME,subShardName);
-      setupAsyncRequest(asyncId,requestMap,params,nodeName);
-      sendShardRequest(nodeName,params,shardHandler);
-    }
-    collectShardResponses(results,true,"SPLITSHARD failed while asking sub shard leaders to apply buffered updates",shardHandler);
-    completeAsyncRequest(asyncId,requestMap,results);
-    log.info("Successfully applied buffered updates on : " + subShardNames);
-    int repFactor=clusterState.getSlice(collectionName,slice).getReplicas().size();
-    Set<String> nodes=clusterState.getLiveNodes();
-    List<String> nodeList=new ArrayList<>(nodes.size());
-    nodeList.addAll(nodes);
-    Collections.shuffle(nodeList,RANDOM);
-    nodeList.remove(nodeName);
-    for (int i=1; i <= subSlices.size(); i++) {
-      Collections.shuffle(nodeList,RANDOM);
-      String sliceName=subSlices.get(i - 1);
-      for (int j=2; j <= repFactor; j++) {
-        String subShardNodeName=nodeList.get((repFactor * (i - 1) + (j - 2)) % nodeList.size());
-        String shardName=collectionName + "_" + sliceName+ "_replica"+ (j);
-        log.info("Creating replica shard " + shardName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ subShardNodeName);
-        HashMap<String,Object> propMap=new HashMap<>();
+      collectShardResponses(results,false,null,shardHandler);
+      String asyncId=message.getStr(ASYNC);
+      HashMap<String,String> requestMap=new HashMap<String,String>();
+      for (int i=0; i < subRanges.size(); i++) {
+        String subSlice=subSlices.get(i);
+        String subShardName=subShardNames.get(i);
+        DocRouter.Range subRange=subRanges.get(i);
+        log.info("Creating slice " + subSlice + " of collection "+ collectionName+ " on "+ nodeName);
+        Map<String,Object> propMap=new HashMap<>();
+        propMap.put(Overseer.QUEUE_OPERATION,CREATESHARD.toLower());
+        propMap.put(ZkStateReader.SHARD_ID_PROP,subSlice);
+        propMap.put(ZkStateReader.COLLECTION_PROP,collectionName);
+        propMap.put(ZkStateReader.SHARD_RANGE_PROP,subRange.toString());
+        propMap.put(ZkStateReader.SHARD_STATE_PROP,Slice.CONSTRUCTION);
+        propMap.put(ZkStateReader.SHARD_PARENT_PROP,parentSlice.getName());
+        DistributedQueue inQueue=Overseer.getInQueue(zkStateReader.getZkClient());
+        inQueue.offer(ZkStateReader.toJSON(new ZkNodeProps(propMap)));
+        waitForNewShard(collectionName,subSlice);
+        clusterState=zkStateReader.getClusterState();
+        log.info("Adding replica " + subShardName + " as part of slice "+ subSlice+ " of collection "+ collectionName+ " on "+ nodeName);
+        propMap=new HashMap<>();
         propMap.put(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower());
         propMap.put(COLLECTION_PROP,collectionName);
-        propMap.put(SHARD_ID_PROP,sliceName);
-        propMap.put("node",subShardNodeName);
-        propMap.put(CoreAdminParams.NAME,shardName);
+        propMap.put(SHARD_ID_PROP,subSlice);
+        propMap.put("node",nodeName);
+        propMap.put(CoreAdminParams.NAME,subShardName);
         for (        String key : message.keySet()) {
           if (key.startsWith(COLL_PROP_PREFIX)) {
             propMap.put(key,message.getStr(key));
@@ -244,56 +173,130 @@
           propMap.put(ASYNC,asyncId);
         }
         addReplica(clusterState,new ZkNodeProps(propMap),results);
-        String coreNodeName=waitForCoreNodeName(collectionName,subShardNodeName,shardName);
-        log.info("Asking sub shard leader to wait for: " + shardName + " to be alive on: "+ subShardNodeName);
+      }
+      collectShardResponses(results,true,"SPLITSHARD failed to create subshard leaders",shardHandler);
+      completeAsyncRequest(asyncId,requestMap,results);
+      for (      String subShardName : subShardNames) {
+        log.info("Asking parent leader to wait for: " + subShardName + " to be alive on: "+ nodeName);
+        String coreNodeName=waitForCoreNodeName(collectionName,nodeName,subShardName);
         CoreAdminRequest.WaitForState cmd=new CoreAdminRequest.WaitForState();
-        cmd.setCoreName(subShardNames.get(i - 1));
-        cmd.setNodeName(subShardNodeName);
+        cmd.setCoreName(subShardName);
+        cmd.setNodeName(nodeName);
         cmd.setCoreNodeName(coreNodeName);
-        cmd.setState(ZkStateReader.RECOVERING);
+        cmd.setState(ZkStateReader.ACTIVE);
         cmd.setCheckLive(true);
         cmd.setOnlyIfLeader(true);
         ModifiableSolrParams p=new ModifiableSolrParams(cmd.getParams());
-        setupAsyncRequest(asyncId,requestMap,p,nodeName);
-        sendShardRequest(nodeName,p,shardHandler);
+        sendShardRequest(nodeName,p,shardHandler,asyncId,requestMap);
       }
-    }
-    collectShardResponses(results,true,"SPLITSHARD failed to create subshard replicas or timed out waiting for them to come up",shardHandler);
-    completeAsyncRequest(asyncId,requestMap,results);
-    log.info("Successfully created all replica shards for all sub-slices " + subSlices);
-    commit(results,slice,parentShardLeader);
-    if (repFactor == 1) {
-      log.info("Replication factor is 1 so switching shard states");
-      DistributedQueue inQueue=Overseer.getInQueue(zkStateReader.getZkClient());
-      Map<String,Object> propMap=new HashMap<>();
-      propMap.put(Overseer.QUEUE_OPERATION,OverseerAction.UPDATESHARDSTATE.toLower());
-      propMap.put(slice,Slice.INACTIVE);
-      for (      String subSlice : subSlices) {
-        propMap.put(subSlice,Slice.ACTIVE);
+      collectShardResponses(results,true,"SPLITSHARD timed out waiting for subshard leaders to come up",shardHandler);
+      completeAsyncRequest(asyncId,requestMap,results);
+      log.info("Successfully created all sub-shards for collection " + collectionName + " parent shard: "+ slice+ " on: "+ parentShardLeader);
+      log.info("Splitting shard " + parentShardLeader.getName() + " as part of slice "+ slice+ " of collection "+ collectionName+ " on "+ parentShardLeader);
+      ModifiableSolrParams params=new ModifiableSolrParams();
+      params.set(CoreAdminParams.ACTION,CoreAdminAction.SPLIT.toString());
+      params.set(CoreAdminParams.CORE,parentShardLeader.getStr("core"));
+      for (int i=0; i < subShardNames.size(); i++) {
+        String subShardName=subShardNames.get(i);
+        params.add(CoreAdminParams.TARGET_CORE,subShardName);
       }
-      propMap.put(ZkStateReader.COLLECTION_PROP,collectionName);
-      ZkNodeProps m=new ZkNodeProps(propMap);
-      inQueue.offer(ZkStateReader.toJSON(m));
-    }
+      params.set(CoreAdminParams.RANGES,rangesStr);
+      sendShardRequest(parentShardLeader.getNodeName(),params,shardHandler,asyncId,requestMap);
+      collectShardResponses(results,true,"SPLITSHARD failed to invoke SPLIT core admin command",shardHandler);
+      completeAsyncRequest(asyncId,requestMap,results);
+      log.info("Index on shard: " + nodeName + " split into two successfully");
+      for (int i=0; i < subShardNames.size(); i++) {
+        String subShardName=subShardNames.get(i);
+        log.info("Applying buffered updates on : " + subShardName);
+        params=new ModifiableSolrParams();
+        params.set(CoreAdminParams.ACTION,CoreAdminAction.REQUESTAPPLYUPDATES.toString());
+        params.set(CoreAdminParams.NAME,subShardName);
+        sendShardRequest(nodeName,params,shardHandler,asyncId,requestMap);
+      }
+      collectShardResponses(results,true,"SPLITSHARD failed while asking sub shard leaders to apply buffered updates",shardHandler);
+      completeAsyncRequest(asyncId,requestMap,results);
+      log.info("Successfully applied buffered updates on : " + subShardNames);
+      int repFactor=clusterState.getSlice(collectionName,slice).getReplicas().size();
+      Set<String> nodes=clusterState.getLiveNodes();
+      List<String> nodeList=new ArrayList<>(nodes.size());
+      nodeList.addAll(nodes);
+      Collections.shuffle(nodeList,RANDOM);
+      nodeList.remove(nodeName);
+      for (int i=1; i <= subSlices.size(); i++) {
+        Collections.shuffle(nodeList,RANDOM);
+        String sliceName=subSlices.get(i - 1);
+        for (int j=2; j <= repFactor; j++) {
+          String subShardNodeName=nodeList.get((repFactor * (i - 1) + (j - 2)) % nodeList.size());
+          String shardName=collectionName + "_" + sliceName+ "_replica"+ (j);
+          log.info("Creating replica shard " + shardName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ subShardNodeName);
+          HashMap<String,Object> propMap=new HashMap<>();
+          propMap.put(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower());
+          propMap.put(COLLECTION_PROP,collectionName);
+          propMap.put(SHARD_ID_PROP,sliceName);
+          propMap.put("node",subShardNodeName);
+          propMap.put(CoreAdminParams.NAME,shardName);
+          for (          String key : message.keySet()) {
+            if (key.startsWith(COLL_PROP_PREFIX)) {
+              propMap.put(key,message.getStr(key));
+            }
+          }
+          if (asyncId != null) {
+            propMap.put(ASYNC,asyncId);
+          }
+          addReplica(clusterState,new ZkNodeProps(propMap),results);
+          String coreNodeName=waitForCoreNodeName(collectionName,subShardNodeName,shardName);
+          log.info("Asking sub shard leader to wait for: " + shardName + " to be alive on: "+ subShardNodeName);
+          CoreAdminRequest.WaitForState cmd=new CoreAdminRequest.WaitForState();
+          cmd.setCoreName(subShardNames.get(i - 1));
+          cmd.setNodeName(subShardNodeName);
+          cmd.setCoreNodeName(coreNodeName);
+          cmd.setState(ZkStateReader.RECOVERING);
+          cmd.setCheckLive(true);
+          cmd.setOnlyIfLeader(true);
+          ModifiableSolrParams p=new ModifiableSolrParams(cmd.getParams());
+          sendShardRequest(nodeName,p,shardHandler,asyncId,requestMap);
+        }
+      }
+      collectShardResponses(results,true,"SPLITSHARD failed to create subshard replicas or timed out waiting for them to come up",shardHandler);
+      completeAsyncRequest(asyncId,requestMap,results);
+      log.info("Successfully created all replica shards for all sub-slices " + subSlices);
+      commit(results,slice,parentShardLeader);
+      if (repFactor == 1) {
+        log.info("Replication factor is 1 so switching shard states");
+        DistributedQueue inQueue=Overseer.getInQueue(zkStateReader.getZkClient());
+        Map<String,Object> propMap=new HashMap<>();
+        propMap.put(Overseer.QUEUE_OPERATION,OverseerAction.UPDATESHARDSTATE.toLower());
+        propMap.put(slice,Slice.INACTIVE);
+        for (        String subSlice : subSlices) {
+          propMap.put(subSlice,Slice.ACTIVE);
+        }
+        propMap.put(ZkStateReader.COLLECTION_PROP,collectionName);
+        ZkNodeProps m=new ZkNodeProps(propMap);
+        inQueue.offer(ZkStateReader.toJSON(m));
+      }
  else {
-      log.info("Requesting shard state be set to 'recovery'");
-      DistributedQueue inQueue=Overseer.getInQueue(zkStateReader.getZkClient());
-      Map<String,Object> propMap=new HashMap<>();
-      propMap.put(Overseer.QUEUE_OPERATION,OverseerAction.UPDATESHARDSTATE.toLower());
-      for (      String subSlice : subSlices) {
-        propMap.put(subSlice,Slice.RECOVERY);
+        log.info("Requesting shard state be set to 'recovery'");
+        DistributedQueue inQueue=Overseer.getInQueue(zkStateReader.getZkClient());
+        Map<String,Object> propMap=new HashMap<>();
+        propMap.put(Overseer.QUEUE_OPERATION,OverseerAction.UPDATESHARDSTATE.toLower());
+        for (        String subSlice : subSlices) {
+          propMap.put(subSlice,Slice.RECOVERY);
+        }
+        propMap.put(ZkStateReader.COLLECTION_PROP,collectionName);
+        ZkNodeProps m=new ZkNodeProps(propMap);
+        inQueue.offer(ZkStateReader.toJSON(m));
       }
-      propMap.put(ZkStateReader.COLLECTION_PROP,collectionName);
-      ZkNodeProps m=new ZkNodeProps(propMap);
-      inQueue.offer(ZkStateReader.toJSON(m));
+      return true;
     }
-    return true;
+ catch (    SolrException e) {
+      throw e;
+    }
+catch (    Exception e) {
+      log.error("Error executing split operation for collection: " + collectionName + " parent shard: "+ slice,e);
+      throw new SolrException(ErrorCode.SERVER_ERROR,null,e);
+    }
   }
- catch (  SolrException e) {
-    throw e;
-  }
-catch (  Exception e) {
-    log.error("Error executing split operation for collection: " + collectionName + " parent shard: "+ slice,e);
-    throw new SolrException(ErrorCode.SERVER_ERROR,null,e);
+  finally {
+    MDCUtils.cleanupMDC(previousMDCContext);
   }
 }

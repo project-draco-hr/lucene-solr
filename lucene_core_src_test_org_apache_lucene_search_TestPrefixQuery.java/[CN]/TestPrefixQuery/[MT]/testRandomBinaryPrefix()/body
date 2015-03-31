@@ -1,0 +1,37 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  int numTerms=atLeast(10000);
+  Set<BytesRef> terms=new HashSet<>();
+  while (terms.size() < numTerms) {
+    byte[] bytes=new byte[TestUtil.nextInt(random(),1,10)];
+    random().nextBytes(bytes);
+    terms.add(new BytesRef(bytes));
+  }
+  List<BytesRef> termsList=new ArrayList<>(terms);
+  Collections.shuffle(termsList,random());
+  for (  BytesRef term : termsList) {
+    Document doc=new Document();
+    doc.add(new BinaryField("field",term));
+    w.addDocument(doc);
+  }
+  IndexReader r=w.getReader();
+  IndexSearcher s=newSearcher(r);
+  int iters=atLeast(100);
+  for (int iter=0; iter < iters; iter++) {
+    byte[] bytes=new byte[random().nextInt(3)];
+    random().nextBytes(bytes);
+    BytesRef prefix=new BytesRef(bytes);
+    PrefixQuery q=new PrefixQuery(new Term("field",prefix));
+    int count=0;
+    for (    BytesRef term : termsList) {
+      if (StringHelper.startsWith(term,prefix)) {
+        count++;
+      }
+    }
+    assertEquals(count,s.search(q,1).totalHits);
+  }
+  r.close();
+  w.close();
+  dir.close();
+}

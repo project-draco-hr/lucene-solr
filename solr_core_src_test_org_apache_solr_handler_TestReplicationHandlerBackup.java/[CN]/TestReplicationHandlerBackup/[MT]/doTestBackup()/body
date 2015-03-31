@@ -1,8 +1,10 @@
 {
   int nDocs=indexDocs();
   Path[] snapDir=new Path[5];
-  snapDir[0]=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot*").iterator().next();
-  boolean namedBackup=random().nextBoolean();
+  try (DirectoryStream<Path> stream=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot*")){
+    snapDir[0]=stream.iterator().next();
+  }
+   boolean namedBackup=random().nextBoolean();
   String firstBackupTimestamp=null;
   String[] backupNames=null;
   if (namedBackup) {
@@ -31,11 +33,15 @@
       firstBackupTimestamp=checkBackupStatus.backupTimestamp;
     }
     if (!namedBackup) {
-      snapDir[i + 1]=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot*").iterator().next();
-    }
+      try (DirectoryStream<Path> stream=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot*")){
+        snapDir[i + 1]=stream.iterator().next();
+      }
+     }
  else {
-      snapDir[i + 1]=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot." + backupName).iterator().next();
-    }
+      try (DirectoryStream<Path> stream=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot." + backupName)){
+        snapDir[i + 1]=stream.iterator().next();
+      }
+     }
     verify(snapDir[i + 1],nDocs);
   }
   if (namedBackup) {
@@ -43,12 +49,14 @@
   }
  else {
     int count=0;
-    Iterator<Path> iter=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot*").iterator();
-    while (iter.hasNext()) {
-      iter.next();
-      count++;
+    try (DirectoryStream<Path> stream=Files.newDirectoryStream(Paths.get(master.getDataDir()),"snapshot*")){
+      Iterator<Path> iter=stream.iterator();
+      while (iter.hasNext()) {
+        iter.next();
+        count++;
+      }
     }
-    if (backupKeepParamName.equals(ReplicationHandler.NUMBER_BACKUPS_TO_KEEP_REQUEST_PARAM)) {
+     if (backupKeepParamName.equals(ReplicationHandler.NUMBER_BACKUPS_TO_KEEP_REQUEST_PARAM)) {
       assertEquals(2,count);
       if (Files.exists(snapDir[0]) || Files.exists(snapDir[1]) || Files.exists(snapDir[2])) {
         fail("Backup should have been cleaned up because " + backupKeepParamName + " was set to 2.");

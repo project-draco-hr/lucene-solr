@@ -1,94 +1,72 @@
 {
   int numDocs=TestUtil.nextInt(random(),(10 * RANDOM_MULTIPLIER),(100 * RANDOM_MULTIPLIER));
-  Directory dir=null;
-  RandomIndexWriter writer=null;
   IndexReader ir=null;
-  try {
-    dir=newDirectory();
-    writer=new RandomIndexWriter(random(),dir,new MockAnalyzer(random(),MockTokenizer.WHITESPACE,false));
-    int maxLength=TestUtil.nextInt(random(),5,50);
-    List<String> originals=new ArrayList<>(numDocs);
-    List<String[]> breaks=new ArrayList<>(numDocs);
-    for (int i=0; i < numDocs; i++) {
-      String orig="";
-      if (random().nextBoolean()) {
-        while (!goodTestString(orig)) {
-          orig=TestUtil.randomSimpleString(random(),maxLength);
-        }
+  Directory dir=newDirectory();
+  Analyzer analyzer=new MockAnalyzer(random(),MockTokenizer.WHITESPACE,false);
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,analyzer);
+  int maxLength=TestUtil.nextInt(random(),5,50);
+  List<String> originals=new ArrayList<>(numDocs);
+  List<String[]> breaks=new ArrayList<>(numDocs);
+  for (int i=0; i < numDocs; i++) {
+    String orig="";
+    if (random().nextBoolean()) {
+      while (!goodTestString(orig)) {
+        orig=TestUtil.randomSimpleString(random(),maxLength);
       }
+    }
  else {
-        while (!goodTestString(orig)) {
-          orig=TestUtil.randomUnicodeString(random(),maxLength);
-        }
+      while (!goodTestString(orig)) {
+        orig=TestUtil.randomUnicodeString(random(),maxLength);
       }
-      originals.add(orig);
-      int totalLength=orig.codePointCount(0,orig.length());
-      int breakAt=orig.offsetByCodePoints(0,TestUtil.nextInt(random(),1,totalLength - 1));
-      String[] broken=new String[2];
-      broken[0]=orig.substring(0,breakAt);
-      broken[1]=orig.substring(breakAt);
-      breaks.add(broken);
-      Document doc=new Document();
-      doc.add(newTextField("random_break",broken[0] + " " + broken[1],Field.Store.NO));
-      doc.add(newTextField("random_combine",orig,Field.Store.NO));
-      writer.addDocument(doc);
     }
-    writer.commit();
-    writer.close();
-    ir=DirectoryReader.open(dir);
-    WordBreakSpellChecker wbsp=new WordBreakSpellChecker();
-    wbsp.setMaxChanges(1);
-    wbsp.setMinBreakWordLength(1);
-    wbsp.setMinSuggestionFrequency(1);
-    wbsp.setMaxCombineWordLength(maxLength);
-    for (int i=0; i < originals.size(); i++) {
-      String orig=originals.get(i);
-      String left=breaks.get(i)[0];
-      String right=breaks.get(i)[1];
+    originals.add(orig);
+    int totalLength=orig.codePointCount(0,orig.length());
+    int breakAt=orig.offsetByCodePoints(0,TestUtil.nextInt(random(),1,totalLength - 1));
+    String[] broken=new String[2];
+    broken[0]=orig.substring(0,breakAt);
+    broken[1]=orig.substring(breakAt);
+    breaks.add(broken);
+    Document doc=new Document();
+    doc.add(newTextField("random_break",broken[0] + " " + broken[1],Field.Store.NO));
+    doc.add(newTextField("random_combine",orig,Field.Store.NO));
+    writer.addDocument(doc);
+  }
+  writer.commit();
+  writer.close();
+  ir=DirectoryReader.open(dir);
+  WordBreakSpellChecker wbsp=new WordBreakSpellChecker();
+  wbsp.setMaxChanges(1);
+  wbsp.setMinBreakWordLength(1);
+  wbsp.setMinSuggestionFrequency(1);
+  wbsp.setMaxCombineWordLength(maxLength);
+  for (int i=0; i < originals.size(); i++) {
+    String orig=originals.get(i);
+    String left=breaks.get(i)[0];
+    String right=breaks.get(i)[1];
 {
-        Term term=new Term("random_break",orig);
-        SuggestWord[][] sw=wbsp.suggestWordBreaks(term,originals.size(),ir,SuggestMode.SUGGEST_ALWAYS,BreakSuggestionSortMethod.NUM_CHANGES_THEN_MAX_FREQUENCY);
-        boolean failed=true;
-        for (        SuggestWord[] sw1 : sw) {
-          Assert.assertTrue(sw1.length == 2);
-          if (sw1[0].string.equals(left) && sw1[1].string.equals(right)) {
-            failed=false;
-          }
+      Term term=new Term("random_break",orig);
+      SuggestWord[][] sw=wbsp.suggestWordBreaks(term,originals.size(),ir,SuggestMode.SUGGEST_ALWAYS,BreakSuggestionSortMethod.NUM_CHANGES_THEN_MAX_FREQUENCY);
+      boolean failed=true;
+      for (      SuggestWord[] sw1 : sw) {
+        Assert.assertTrue(sw1.length == 2);
+        if (sw1[0].string.equals(left) && sw1[1].string.equals(right)) {
+          failed=false;
         }
-        Assert.assertFalse("Failed getting break suggestions\n >Original: " + orig + "\n >Left: "+ left+ "\n >Right: "+ right,failed);
       }
+      Assert.assertFalse("Failed getting break suggestions\n >Original: " + orig + "\n >Left: "+ left+ "\n >Right: "+ right,failed);
+    }
 {
-        Term[] terms={new Term("random_combine",left),new Term("random_combine",right)};
-        CombineSuggestion[] cs=wbsp.suggestWordCombinations(terms,originals.size(),ir,SuggestMode.SUGGEST_ALWAYS);
-        boolean failed=true;
-        for (        CombineSuggestion cs1 : cs) {
-          Assert.assertTrue(cs1.originalTermIndexes.length == 2);
-          if (cs1.suggestion.string.equals(left + right)) {
-            failed=false;
-          }
+      Term[] terms={new Term("random_combine",left),new Term("random_combine",right)};
+      CombineSuggestion[] cs=wbsp.suggestWordCombinations(terms,originals.size(),ir,SuggestMode.SUGGEST_ALWAYS);
+      boolean failed=true;
+      for (      CombineSuggestion cs1 : cs) {
+        Assert.assertTrue(cs1.originalTermIndexes.length == 2);
+        if (cs1.suggestion.string.equals(left + right)) {
+          failed=false;
         }
-        Assert.assertFalse("Failed getting combine suggestions\n >Original: " + orig + "\n >Left: "+ left+ "\n >Right: "+ right,failed);
       }
+      Assert.assertFalse("Failed getting combine suggestions\n >Original: " + orig + "\n >Left: "+ left+ "\n >Right: "+ right,failed);
     }
   }
- catch (  Exception e) {
-    throw e;
-  }
- finally {
-    try {
-      ir.close();
-    }
- catch (    Exception e1) {
-    }
-    try {
-      writer.close();
-    }
- catch (    Exception e1) {
-    }
-    try {
-      dir.close();
-    }
- catch (    Exception e1) {
-    }
-  }
+  IOUtils.close(ir,dir,analyzer);
 }

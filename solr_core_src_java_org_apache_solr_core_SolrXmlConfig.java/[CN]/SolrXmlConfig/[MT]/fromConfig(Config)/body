@@ -1,0 +1,32 @@
+{
+  checkForIllegalConfig(config);
+  config.substituteProperties();
+  CloudConfig cloudConfig=null;
+  UpdateShardHandlerConfig deprecatedUpdateConfig=null;
+  if (config.getNodeList("solr/solrcloud",false).getLength() > 0) {
+    NamedList<Object> cloudSection=readNodeListAsNamedList(config,"solr/solrcloud/*[@name]","<solrcloud>");
+    deprecatedUpdateConfig=loadUpdateConfig(cloudSection,false);
+    cloudConfig=fillSolrCloudSection(cloudSection);
+  }
+  NamedList<Object> entries=readNodeListAsNamedList(config,"solr/*[@name]","<solr>");
+  String nodeName=(String)entries.remove("nodeName");
+  if (Strings.isNullOrEmpty(nodeName) && cloudConfig != null)   nodeName=cloudConfig.getHost();
+  UpdateShardHandlerConfig updateConfig;
+  if (deprecatedUpdateConfig == null) {
+    updateConfig=loadUpdateConfig(readNodeListAsNamedList(config,"solr/updateshardhandler/*[@name]","<updateshardhandler>"),true);
+  }
+ else {
+    updateConfig=loadUpdateConfig(readNodeListAsNamedList(config,"solr/updateshardhandler/*[@name]","<updateshardhandler>"),false);
+    if (updateConfig != null) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"UpdateShardHandler configuration defined twice in solr.xml");
+    }
+    updateConfig=deprecatedUpdateConfig;
+  }
+  NodeConfig.NodeConfigBuilder configBuilder=new NodeConfig.NodeConfigBuilder(nodeName,config.getResourceLoader());
+  configBuilder.setUpdateShardHandlerConfig(updateConfig);
+  configBuilder.setShardHandlerFactoryConfig(getShardHandlerFactoryPluginInfo(config));
+  configBuilder.setLogWatcherConfig(loadLogWatcherConfig(config,"solr/logging/*[@name]","solr/logging/watcher/*[@name]"));
+  configBuilder.setSolrProperties(loadProperties(config));
+  if (cloudConfig != null)   configBuilder.setCloudConfig(cloudConfig);
+  return fillSolrSection(configBuilder,entries);
+}

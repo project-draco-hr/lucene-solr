@@ -6,7 +6,7 @@
     Set<String> requestedCollectionNames=getCollectionNames(getZkStateReader().getClusterState(),collection);
     StringBuilder stateVerParamBuilder=null;
     for (    String requestedCollection : requestedCollectionNames) {
-      DocCollection coll=getDocCollection(getZkStateReader().getClusterState(),requestedCollection);
+      DocCollection coll=getDocCollection(getZkStateReader().getClusterState(),requestedCollection,null);
       int collVer=coll.getZNodeVersion();
       if (coll.getStateFormat() > 1) {
         if (requestedCollections == null)         requestedCollections=new ArrayList<>(requestedCollectionNames.size());
@@ -35,7 +35,16 @@
   }
   NamedList<Object> resp=null;
   try {
-    resp=sendRequest(request);
+    resp=sendRequest(request,collection);
+    Object o=resp.get(STATE_VERSION,resp.size() - 1);
+    if (o != null && o instanceof Map) {
+      resp.remove(resp.size() - 1);
+      Map invalidStates=(Map)o;
+      for (      Object invalidEntries : invalidStates.entrySet()) {
+        Map.Entry e=(Map.Entry)invalidEntries;
+        getDocCollection(getZkStateReader().getClusterState(),(String)e.getKey(),(Integer)e.getValue());
+      }
+    }
   }
  catch (  Exception exc) {
     Throwable rootCause=SolrException.getRootCause(exc);
@@ -65,7 +74,7 @@
     }
     if (retryCount < MAX_STALE_RETRIES && !stateWasStale && requestedCollections != null && !requestedCollections.isEmpty() && wasCommError) {
       for (      DocCollection ext : requestedCollections) {
-        DocCollection latestStateFromZk=getDocCollection(zkStateReader.getClusterState(),ext.getName());
+        DocCollection latestStateFromZk=getDocCollection(zkStateReader.getClusterState(),ext.getName(),null);
         if (latestStateFromZk.getZNodeVersion() != ext.getZNodeVersion()) {
           stateWasStale=true;
           collectionStateCache.put(ext.getName(),new ExpiringCachedDocCollection(latestStateFromZk));

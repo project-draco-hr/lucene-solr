@@ -1,11 +1,25 @@
 {
   try {
-    solrClient.close();
-    for (int i=jettys.size() - 1; i >= 0; --i) {
-      stopJettySolrRunner(i);
+    if (solrClient != null)     solrClient.close();
+    List<Callable<JettySolrRunner>> shutdowns=new ArrayList<>(jettys.size());
+    for (    final JettySolrRunner jetty : jettys) {
+      shutdowns.add(new Callable<JettySolrRunner>(){
+        @Override public JettySolrRunner call() throws Exception {
+          return stopJettySolrRunner(jetty);
+        }
+      }
+);
+    }
+    jettys.clear();
+    Collection<Future<JettySolrRunner>> futures=executor.invokeAll(shutdowns);
+    Exception shutdownError=checkForExceptions("Error shutting down MiniSolrCloudCluster",futures);
+    if (shutdownError != null) {
+      throw shutdownError;
     }
   }
   finally {
+    executor.shutdown();
+    executor.awaitTermination(2,TimeUnit.SECONDS);
     try {
       zkServer.shutdown();
     }

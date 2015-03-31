@@ -1,0 +1,27 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwcWithSuggestField(analyzer,"sug_field_1","sug_field_2"));
+  Document document=new Document();
+  document.add(newSuggestField("sug_field_1","apple",4));
+  document.add(newSuggestField("sug_field_2","april",3));
+  iw.addDocument(document);
+  document.clear();
+  document.add(newSuggestField("sug_field_1","aples",3));
+  document.add(newSuggestField("sug_field_2","apartment",2));
+  iw.addDocument(document);
+  if (rarely()) {
+    iw.commit();
+  }
+  DirectoryReader reader=iw.getReader();
+  SuggestIndexSearcher suggestIndexSearcher=new SuggestIndexSearcher(reader,analyzer);
+  TopSuggestDocs suggestDocs1=suggestIndexSearcher.suggest("sug_field_1","ap",4);
+  assertSuggestions(suggestDocs1,new Entry("apple",4),new Entry("aples",3));
+  TopSuggestDocs suggestDocs2=suggestIndexSearcher.suggest("sug_field_2","ap",4);
+  assertSuggestions(suggestDocs2,new Entry("april",3),new Entry("apartment",2));
+  for (int i=0; i < suggestDocs1.scoreDocs.length; i++) {
+    ScoreDoc suggestScoreDoc=suggestDocs1.scoreDocs[i];
+    assertThat(suggestScoreDoc.doc,equalTo(suggestDocs2.scoreDocs[i].doc));
+  }
+  reader.close();
+  iw.close();
+}

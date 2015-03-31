@@ -1,0 +1,122 @@
+{
+  DocSet termSet=null;
+  try {
+    while (term != null) {
+      if (startTermBytes != null && !StringHelper.startsWith(term,startTermBytes)) {
+        break;
+      }
+      int df=termsEnum.docFreq();
+      if (df < effectiveMincount) {
+        term=termsEnum.next();
+        continue;
+      }
+      if (termSet != null) {
+        termSet=null;
+      }
+      int c=0;
+      if (hasSubFacets || df >= minDfFilterCache) {
+        if (deState == null) {
+          deState=new SolrIndexSearcher.DocsEnumState();
+          deState.fieldName=sf.getName();
+          deState.liveDocs=fcontext.searcher.getLeafReader().getLiveDocs();
+          deState.termsEnum=termsEnum;
+          deState.postingsEnum=postingsEnum;
+          deState.minSetSizeCached=minDfFilterCache;
+        }
+        if (hasSubFacets || !countOnly) {
+          DocSet termsAll=fcontext.searcher.getDocSet(deState);
+          termSet=docs.intersection(termsAll);
+          c=termSet.size();
+        }
+ else {
+          c=fcontext.searcher.numDocs(docs,deState);
+        }
+        postingsEnum=deState.postingsEnum;
+        resetStats();
+        if (!countOnly) {
+          collect(termSet,0);
+        }
+      }
+ else {
+        resetStats();
+        if (fastForRandomSet == null) {
+          fastForRandomSet=docs;
+          if (docs instanceof SortedIntDocSet) {
+            SortedIntDocSet sset=(SortedIntDocSet)docs;
+            fastForRandomSet=new HashDocSet(sset.getDocs(),0,sset.size());
+          }
+        }
+        postingsEnum=termsEnum.postings(null,postingsEnum,PostingsEnum.NONE);
+        if (postingsEnum instanceof MultiPostingsEnum) {
+          MultiPostingsEnum.EnumWithSlice[] subs=((MultiPostingsEnum)postingsEnum).getSubs();
+          int numSubs=((MultiPostingsEnum)postingsEnum).getNumSubs();
+          for (int subindex=0; subindex < numSubs; subindex++) {
+            MultiPostingsEnum.EnumWithSlice sub=subs[subindex];
+            if (sub.postingsEnum == null)             continue;
+            int base=sub.slice.start;
+            int docid;
+            if (countOnly) {
+              while ((docid=sub.postingsEnum.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+                if (fastForRandomSet.exists(docid + base))                 c++;
+              }
+            }
+ else {
+              setNextReader(leaves[sub.slice.readerIndex]);
+              while ((docid=sub.postingsEnum.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+                if (fastForRandomSet.exists(docid + base)) {
+                  c++;
+                  collect(docid,0);
+                }
+              }
+            }
+          }
+        }
+ else {
+          int docid;
+          if (countOnly) {
+            while ((docid=postingsEnum.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+              if (fastForRandomSet.exists(docid))               c++;
+            }
+          }
+ else {
+            setNextReader(leaves[0]);
+            while ((docid=postingsEnum.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+              if (fastForRandomSet.exists(docid)) {
+                c++;
+                collect(docid,0);
+              }
+            }
+          }
+        }
+      }
+      if (c < effectiveMincount) {
+        term=termsEnum.next();
+        continue;
+      }
+      if (bucketsToSkip > 0) {
+        bucketsToSkip--;
+        term=termsEnum.next();
+        continue;
+      }
+      if (freq.limit >= 0 && ++bucketsReturned > freq.limit) {
+        return null;
+      }
+      countAcc.incrementCount(0,c);
+      Object bucketVal=sf.getType().toObject(sf,term);
+      term=termsEnum.next();
+      SimpleOrderedMap<Object> bucket=new SimpleOrderedMap<>();
+      bucket.add("val",bucketVal);
+      addStats(bucket,0);
+      if (hasSubFacets) {
+        processSubs(bucket,termSet);
+      }
+      return bucket;
+    }
+  }
+  finally {
+    if (termSet != null) {
+      termSet=null;
+    }
+  }
+  return null;
+}

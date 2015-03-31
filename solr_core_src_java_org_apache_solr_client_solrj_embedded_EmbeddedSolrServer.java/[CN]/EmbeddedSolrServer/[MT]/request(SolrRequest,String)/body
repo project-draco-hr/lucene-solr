@@ -1,0 +1,103 @@
+{
+  String path=request.getPath();
+  if (path == null || !path.startsWith("/")) {
+    path="/select";
+  }
+  SolrRequestHandler handler=coreContainer.getRequestHandler(path);
+  if (handler != null) {
+    try {
+      SolrQueryRequest req=_parser.buildRequestFrom(null,request.getParams(),request.getContentStreams());
+      SolrQueryResponse resp=new SolrQueryResponse();
+      handler.handleRequest(req,resp);
+      checkForExceptions(resp);
+      return BinaryResponseWriter.getParsedResponse(req,resp);
+    }
+ catch (    IOException|SolrException iox) {
+      throw iox;
+    }
+catch (    Exception ex) {
+      throw new SolrServerException(ex);
+    }
+  }
+  if (coreName == null)   coreName=this.coreName;
+  SolrQueryRequest req=null;
+  try (SolrCore core=coreContainer.getCore(coreName)){
+    if (core == null) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No such core: " + coreName);
+    }
+    SolrParams params=request.getParams();
+    if (params == null) {
+      params=new ModifiableSolrParams();
+    }
+    handler=core.getRequestHandler(path);
+    if (handler == null) {
+      if ("/select".equals(path) || "/select/".equalsIgnoreCase(path)) {
+        String qt=params.get(CommonParams.QT);
+        handler=core.getRequestHandler(qt);
+        if (handler == null) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+        }
+      }
+    }
+    if (handler == null) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + path);
+    }
+    req=_parser.buildRequestFrom(core,params,request.getContentStreams());
+    req.getContext().put("path",path);
+    SolrQueryResponse rsp=new SolrQueryResponse();
+    SolrRequestInfo.setRequestInfo(new SolrRequestInfo(req,rsp));
+    core.execute(handler,req,rsp);
+    checkForExceptions(rsp);
+    if (request.getStreamingResponseCallback() != null) {
+      try {
+        final StreamingResponseCallback callback=request.getStreamingResponseCallback();
+        BinaryResponseWriter.Resolver resolver=new BinaryResponseWriter.Resolver(req,rsp.getReturnFields()){
+          @Override public void writeResults(          ResultContext ctx,          JavaBinCodec codec) throws IOException {
+            SolrDocumentList docs=new SolrDocumentList();
+            docs.setNumFound(ctx.docs.matches());
+            docs.setStart(ctx.docs.offset());
+            docs.setMaxScore(ctx.docs.maxScore());
+            codec.writeSolrDocumentList(docs);
+            writeResultsBody(ctx,codec);
+          }
+        }
+;
+        ByteArrayOutputStream out=new ByteArrayOutputStream();
+        new JavaBinCodec(resolver){
+          @Override public void writeSolrDocument(          SolrDocument doc){
+            callback.streamSolrDocument(doc);
+          }
+          @Override public void writeSolrDocumentList(          SolrDocumentList docs) throws IOException {
+            if (docs.size() > 0) {
+              SolrDocumentList tmp=new SolrDocumentList();
+              tmp.setMaxScore(docs.getMaxScore());
+              tmp.setNumFound(docs.getNumFound());
+              tmp.setStart(docs.getStart());
+              docs=tmp;
+            }
+            callback.streamDocListInfo(docs.getNumFound(),docs.getStart(),docs.getMaxScore());
+            super.writeSolrDocumentList(docs);
+          }
+        }
+.marshal(rsp.getValues(),out);
+        InputStream in=new ByteArrayInputStream(out.toByteArray());
+        return (NamedList<Object>)new JavaBinCodec(resolver).unmarshal(in);
+      }
+ catch (      Exception ex) {
+        throw new RuntimeException(ex);
+      }
+    }
+    NamedList<Object> normalized=BinaryResponseWriter.getParsedResponse(req,rsp);
+    return normalized;
+  }
+ catch (  IOException|SolrException iox) {
+    throw iox;
+  }
+catch (  Exception ex) {
+    throw new SolrServerException(ex);
+  }
+ finally {
+    if (req != null)     req.close();
+    SolrRequestInfo.clearRequestInfo();
+  }
+}

@@ -11,38 +11,45 @@
     if (fieldOptions.termFreq == true) {
       termInfo.add("tf",freq);
     }
-    dpEnum=termsEnum.postings(null,dpEnum,PostingsEnum.ALL);
-    boolean useOffsets=false;
-    boolean usePositions=false;
+    int dpEnumFlags=0;
+    dpEnumFlags|=fieldOptions.positions ? PostingsEnum.POSITIONS : 0;
+    dpEnumFlags|=(fieldOptions.offsets || fieldOptions.payloads) ? PostingsEnum.OFFSETS : 0;
+    dpEnumFlags|=fieldOptions.payloads ? PostingsEnum.PAYLOADS : 0;
+    dpEnum=termsEnum.postings(null,dpEnum,dpEnumFlags);
+    boolean atNextDoc=false;
     if (dpEnum != null) {
       dpEnum.nextDoc();
-      usePositions=fieldOptions.positions;
-      useOffsets=fieldOptions.offsets;
+      atNextDoc=true;
     }
-    NamedList<Integer> positionsNL=null;
-    NamedList<Number> theOffsets=null;
-    if (usePositions || useOffsets) {
+    if (atNextDoc && dpEnumFlags != 0) {
+      NamedList<Integer> positionsNL=null;
+      NamedList<Number> theOffsets=null;
+      NamedList<String> thePayloads=null;
       for (int i=0; i < freq; i++) {
         final int pos=dpEnum.nextPosition();
-        if (usePositions && pos >= 0) {
+        if (fieldOptions.positions && pos >= 0) {
           if (positionsNL == null) {
             positionsNL=new NamedList<>();
             termInfo.add("positions",positionsNL);
           }
           positionsNL.add("position",pos);
         }
-        if (useOffsets && theOffsets == null) {
-          if (dpEnum.startOffset() == -1) {
-            useOffsets=false;
-          }
- else {
+        int startOffset=fieldOptions.offsets ? dpEnum.startOffset() : -1;
+        if (startOffset >= 0) {
+          if (theOffsets == null) {
             theOffsets=new NamedList<>();
             termInfo.add("offsets",theOffsets);
           }
-        }
-        if (theOffsets != null) {
           theOffsets.add("start",dpEnum.startOffset());
           theOffsets.add("end",dpEnum.endOffset());
+        }
+        BytesRef payload=fieldOptions.payloads ? dpEnum.getPayload() : null;
+        if (payload != null) {
+          if (thePayloads == null) {
+            thePayloads=new NamedList<>();
+            termInfo.add("payloads",thePayloads);
+          }
+          thePayloads.add("payload",Base64.byteArrayToBase64(payload.bytes,payload.offset,payload.length));
         }
       }
     }

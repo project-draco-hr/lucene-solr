@@ -1,0 +1,68 @@
+{
+  Exception ex=null;
+  ServerWrapper[] serverList=aliveServerList;
+  int maxTries=serverList.length;
+  Map<String,ServerWrapper> justFailed=null;
+  long timeAllowedNano=getTimeAllowedInNanos(request);
+  long timeOutTime=System.nanoTime() + timeAllowedNano;
+  for (int attempts=0; attempts < maxTries; attempts++) {
+    if (isTimeExceeded(timeAllowedNano,timeOutTime)) {
+      break;
+    }
+    int count=counter.incrementAndGet() & Integer.MAX_VALUE;
+    ServerWrapper wrapper=serverList[count % serverList.length];
+    wrapper.lastUsed=System.currentTimeMillis();
+    try {
+      return wrapper.client.request(request,collection);
+    }
+ catch (    SolrException e) {
+      throw e;
+    }
+catch (    SolrServerException e) {
+      if (e.getRootCause() instanceof IOException) {
+        ex=e;
+        moveAliveToDead(wrapper);
+        if (justFailed == null)         justFailed=new HashMap<>();
+        justFailed.put(wrapper.getKey(),wrapper);
+      }
+ else {
+        throw e;
+      }
+    }
+catch (    Exception e) {
+      throw new SolrServerException(e);
+    }
+  }
+  for (  ServerWrapper wrapper : zombieServers.values()) {
+    if (isTimeExceeded(timeAllowedNano,timeOutTime)) {
+      break;
+    }
+    if (wrapper.standard == false || justFailed != null && justFailed.containsKey(wrapper.getKey()))     continue;
+    try {
+      NamedList<Object> rsp=wrapper.client.request(request,collection);
+      zombieServers.remove(wrapper.getKey());
+      addToAlive(wrapper);
+      return rsp;
+    }
+ catch (    SolrException e) {
+      throw e;
+    }
+catch (    SolrServerException e) {
+      if (e.getRootCause() instanceof IOException) {
+        ex=e;
+      }
+ else {
+        throw e;
+      }
+    }
+catch (    Exception e) {
+      throw new SolrServerException(e);
+    }
+  }
+  if (ex == null) {
+    throw new SolrServerException("No live SolrServers available to handle this request");
+  }
+ else {
+    throw new SolrServerException("No live SolrServers available to handle this request",ex);
+  }
+}

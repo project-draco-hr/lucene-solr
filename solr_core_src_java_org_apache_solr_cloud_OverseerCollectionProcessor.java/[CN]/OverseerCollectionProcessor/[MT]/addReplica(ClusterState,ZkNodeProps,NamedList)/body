@@ -3,78 +3,84 @@
   String node=message.getStr("node");
   String shard=message.getStr(SHARD_ID_PROP);
   String coreName=message.getStr(CoreAdminParams.NAME);
-  String asyncId=message.getStr("async");
-  DocCollection coll=clusterState.getCollection(collection);
-  if (coll == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Collection: " + collection + " does not exist");
-  }
-  if (coll.getSlice(shard) == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Collection: " + collection + " shard: "+ shard+ " does not exist");
-  }
-  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
-  if (node == null) {
-    node=getNodesForNewShard(clusterState,collection,coll.getSlices().size(),coll.getInt(ZkStateReader.MAX_SHARDS_PER_NODE,1),coll.getInt(ZkStateReader.REPLICATION_FACTOR,1),null).get(0).nodeName;
-    log.info("Node not provided, Identified {} for creating new replica",node);
-  }
-  if (!clusterState.liveNodesContain(node)) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Node: " + node + " is not live");
-  }
-  if (coreName == null) {
-    Slice slice=coll.getSlice(shard);
-    int replicaNum=slice.getReplicas().size();
-    for (; ; ) {
-      String replicaName=collection + "_" + shard+ "_replica"+ replicaNum;
-      boolean exists=false;
-      for (      Replica replica : slice.getReplicas()) {
-        if (replicaName.equals(replica.getStr("core"))) {
-          exists=true;
-          break;
+  Map previousMDCContext=MDC.getCopyOfContextMap();
+  MDCUtils.setMDC(collection,shard,null,coreName);
+  try {
+    String asyncId=message.getStr("async");
+    DocCollection coll=clusterState.getCollection(collection);
+    if (coll == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Collection: " + collection + " does not exist");
+    }
+    if (coll.getSlice(shard) == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Collection: " + collection + " shard: "+ shard+ " does not exist");
+    }
+    ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
+    if (node == null) {
+      node=getNodesForNewShard(clusterState,collection,coll.getSlices().size(),coll.getInt(ZkStateReader.MAX_SHARDS_PER_NODE,1),coll.getInt(ZkStateReader.REPLICATION_FACTOR,1),null).get(0).nodeName;
+      log.info("Node not provided, Identified {} for creating new replica",node);
+    }
+    if (!clusterState.liveNodesContain(node)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Node: " + node + " is not live");
+    }
+    if (coreName == null) {
+      Slice slice=coll.getSlice(shard);
+      int replicaNum=slice.getReplicas().size();
+      for (; ; ) {
+        String replicaName=collection + "_" + shard+ "_replica"+ replicaNum;
+        boolean exists=false;
+        for (        Replica replica : slice.getReplicas()) {
+          if (replicaName.equals(replica.getStr("core"))) {
+            exists=true;
+            break;
+          }
         }
+        if (exists)         replicaNum++;
+ else         break;
       }
-      if (exists)       replicaNum++;
- else       break;
+      coreName=collection + "_" + shard+ "_replica"+ replicaNum;
     }
-    coreName=collection + "_" + shard+ "_replica"+ replicaNum;
-  }
-  ModifiableSolrParams params=new ModifiableSolrParams();
-  if (!Overseer.isLegacy(zkStateReader.getClusterProps())) {
-    ZkNodeProps props=new ZkNodeProps(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,shard,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.STATE_PROP,ZkStateReader.DOWN,ZkStateReader.BASE_URL_PROP,zkStateReader.getBaseUrlForNodeName(node));
-    Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(props));
-    params.set(CoreAdminParams.CORE_NODE_NAME,waitToSeeReplicasInState(collection,Collections.singletonList(coreName)).get(coreName).getName());
-  }
-  String configName=zkStateReader.readConfigName(collection);
-  String routeKey=message.getStr(ShardParams._ROUTE_);
-  String dataDir=message.getStr(CoreAdminParams.DATA_DIR);
-  String instanceDir=message.getStr(CoreAdminParams.INSTANCE_DIR);
-  params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
-  params.set(CoreAdminParams.NAME,coreName);
-  params.set(COLL_CONF,configName);
-  params.set(CoreAdminParams.COLLECTION,collection);
-  if (shard != null) {
-    params.set(CoreAdminParams.SHARD,shard);
-  }
- else   if (routeKey != null) {
-    Collection<Slice> slices=coll.getRouter().getSearchSlicesSingle(routeKey,null,coll);
-    if (slices.isEmpty()) {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"No active shard serving _route_=" + routeKey + " found");
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    if (!Overseer.isLegacy(zkStateReader.getClusterProps())) {
+      ZkNodeProps props=new ZkNodeProps(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,shard,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.STATE_PROP,ZkStateReader.DOWN,ZkStateReader.BASE_URL_PROP,zkStateReader.getBaseUrlForNodeName(node));
+      Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(props));
+      params.set(CoreAdminParams.CORE_NODE_NAME,waitToSeeReplicasInState(collection,Collections.singletonList(coreName)).get(coreName).getName());
+    }
+    String configName=zkStateReader.readConfigName(collection);
+    String routeKey=message.getStr(ShardParams._ROUTE_);
+    String dataDir=message.getStr(CoreAdminParams.DATA_DIR);
+    String instanceDir=message.getStr(CoreAdminParams.INSTANCE_DIR);
+    params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
+    params.set(CoreAdminParams.NAME,coreName);
+    params.set(COLL_CONF,configName);
+    params.set(CoreAdminParams.COLLECTION,collection);
+    if (shard != null) {
+      params.set(CoreAdminParams.SHARD,shard);
+    }
+ else     if (routeKey != null) {
+      Collection<Slice> slices=coll.getRouter().getSearchSlicesSingle(routeKey,null,coll);
+      if (slices.isEmpty()) {
+        throw new SolrException(ErrorCode.BAD_REQUEST,"No active shard serving _route_=" + routeKey + " found");
+      }
+ else {
+        params.set(CoreAdminParams.SHARD,slices.iterator().next().getName());
+      }
     }
  else {
-      params.set(CoreAdminParams.SHARD,slices.iterator().next().getName());
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Specify either 'shard' or _route_ param");
     }
+    if (dataDir != null) {
+      params.set(CoreAdminParams.DATA_DIR,dataDir);
+    }
+    if (instanceDir != null) {
+      params.set(CoreAdminParams.INSTANCE_DIR,instanceDir);
+    }
+    addPropertyParams(message,params);
+    HashMap<String,String> requestMap=new HashMap<>();
+    sendShardRequest(node,params,shardHandler,asyncId,requestMap);
+    collectShardResponses(results,true,"ADDREPLICA failed to create replica",shardHandler);
+    completeAsyncRequest(asyncId,requestMap,results);
   }
- else {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Specify either 'shard' or _route_ param");
+  finally {
+    MDCUtils.cleanupMDC(previousMDCContext);
   }
-  if (dataDir != null) {
-    params.set(CoreAdminParams.DATA_DIR,dataDir);
-  }
-  if (instanceDir != null) {
-    params.set(CoreAdminParams.INSTANCE_DIR,instanceDir);
-  }
-  addPropertyParams(message,params);
-  HashMap<String,String> requestMap=new HashMap<>();
-  setupAsyncRequest(asyncId,requestMap,params,node);
-  sendShardRequest(node,params,shardHandler);
-  collectShardResponses(results,true,"ADDREPLICA failed to create replica",shardHandler);
-  completeAsyncRequest(asyncId,requestMap,results);
 }

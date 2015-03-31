@@ -1,0 +1,50 @@
+{
+  String detectedContentType=null;
+  boolean shouldClose=true;
+  try {
+    in.peek();
+    byte[] arr=in.getBuffer();
+    int pos=in.getPositionInBuffer();
+    int end=in.getEndInBuffer();
+    for (int i=pos; i < end - 1; i++) {
+      int ch=arr[i];
+      boolean isWhitespace=((WS_MASK >> ch) & 0x01) != 0 && (ch <= ' ' || ch == 0xa0);
+      if (!isWhitespace) {
+        if (ch == '#' || (ch == '/' && (arr[i + 1] == '/' || arr[i + 1] == '*')) || (ch == '{' || ch == '[')) {
+          detectedContentType="application/json";
+        }
+        if (ch == '<') {
+          detectedContentType="text/xml";
+        }
+        break;
+      }
+    }
+    if (detectedContentType == null) {
+      shouldClose=false;
+      return null;
+    }
+    Long size=null;
+    String v=req.getHeader("Content-Length");
+    if (v != null) {
+      size=Long.valueOf(v);
+    }
+    streams.add(new InputStreamContentStream(in,detectedContentType,size));
+    final Map<String,String[]> map=new HashMap<>();
+    final String qs=req.getQueryString();
+    if (qs != null) {
+      parseQueryString(qs,map);
+    }
+    return new MultiMapSolrParams(map);
+  }
+ catch (  IOException ioe) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,ioe);
+  }
+catch (  IllegalStateException ise) {
+    throw (SolrException)FormDataRequestParser.getParameterIncompatibilityException().initCause(ise);
+  }
+ finally {
+    if (shouldClose) {
+      IOUtils.closeWhileHandlingException(in);
+    }
+  }
+}

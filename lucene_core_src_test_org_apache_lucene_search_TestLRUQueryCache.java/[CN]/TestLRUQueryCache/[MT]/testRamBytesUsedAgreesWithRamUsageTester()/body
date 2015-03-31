@@ -1,0 +1,58 @@
+{
+  final LRUQueryCache queryCache=new LRUQueryCache(1 + random().nextInt(5),1 + random().nextInt(10000));
+  final RamUsageTester.Accumulator acc=new RamUsageTester.Accumulator(){
+    @Override public long accumulateObject(    Object o,    long shallowSize,    Map<Field,Object> fieldValues,    Collection<Object> queue){
+      if (o instanceof DocIdSet) {
+        return ((DocIdSet)o).ramBytesUsed();
+      }
+      if (o instanceof Query) {
+        return queryCache.ramBytesUsed((Query)o);
+      }
+      if (o instanceof IndexReader || o.getClass().getSimpleName().equals("SegmentCoreReaders")) {
+        return 0;
+      }
+      if (o instanceof Map) {
+        Map<?,?> map=(Map<?,?>)o;
+        queue.addAll(map.keySet());
+        queue.addAll(map.values());
+        final long sizePerEntry=o instanceof LinkedHashMap ? LRUQueryCache.LINKED_HASHTABLE_RAM_BYTES_PER_ENTRY : LRUQueryCache.HASHTABLE_RAM_BYTES_PER_ENTRY;
+        return sizePerEntry * map.size();
+      }
+      super.accumulateObject(o,shallowSize,fieldValues,queue);
+      return 0;
+    }
+    @Override public long accumulateArray(    Object array,    long shallowSize,    List<Object> values,    Collection<Object> queue){
+      super.accumulateArray(array,shallowSize,values,queue);
+      return 0;
+    }
+  }
+;
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig().setMergeScheduler(new SerialMergeScheduler());
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+  final List<String> colors=Arrays.asList("blue","red","green","yellow");
+  Document doc=new Document();
+  StringField f=new StringField("color","",Store.NO);
+  doc.add(f);
+  final int iters=atLeast(5);
+  for (int iter=0; iter < iters; ++iter) {
+    final int numDocs=atLeast(10);
+    for (int i=0; i < numDocs; ++i) {
+      f.setStringValue(RandomPicks.randomFrom(random(),colors));
+      w.addDocument(doc);
+    }
+    try (final DirectoryReader reader=w.getReader()){
+      final IndexSearcher searcher=newSearcher(reader);
+      searcher.setQueryCache(queryCache);
+      searcher.setQueryCachingPolicy(MAYBE_CACHE_POLICY);
+      for (int i=0; i < 3; ++i) {
+        final Query query=new TermQuery(new Term("color",RandomPicks.randomFrom(random(),colors)));
+        searcher.search(new ConstantScoreQuery(query),1);
+      }
+    }
+     queryCache.assertConsistent();
+    assertEquals(RamUsageTester.sizeOf(queryCache,acc),queryCache.ramBytesUsed());
+  }
+  w.close();
+  dir.close();
+}

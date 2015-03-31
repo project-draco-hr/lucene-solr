@@ -1,0 +1,36 @@
+{
+  this.testDir=baseDir;
+  this.jettyConfig=jettyConfig;
+  String zkDir=testDir.getAbsolutePath() + File.separator + "zookeeper/server1/data";
+  zkServer=new ZkTestServer(zkDir);
+  zkServer.run();
+  try (SolrZkClient zkClient=new SolrZkClient(zkServer.getZkHost(),AbstractZkTestCase.TIMEOUT,45000,null)){
+    zkClient.makePath("/solr/solr.xml",solrXml,false,true);
+    if (jettyConfig.sslConfig != null && jettyConfig.sslConfig.isSSLMode()) {
+      zkClient.makePath("/solr" + ZkStateReader.CLUSTER_PROPS,"{'urlScheme':'https'}".getBytes(Charsets.UTF_8),true);
+    }
+  }
+   System.setProperty("solr.solrxml.location","zookeeper");
+  System.setProperty("zkHost",zkServer.getZkAddress());
+  List<Callable<JettySolrRunner>> startups=new ArrayList<>(numServers);
+  for (int i=0; i < numServers; ++i) {
+    startups.add(new Callable<JettySolrRunner>(){
+      @Override public JettySolrRunner call() throws Exception {
+        return startJettySolrRunner(jettyConfig);
+      }
+    }
+);
+  }
+  Collection<Future<JettySolrRunner>> futures=executor.invokeAll(startups);
+  Exception startupError=checkForExceptions("Error starting up MiniSolrCloudCluster",futures);
+  if (startupError != null) {
+    try {
+      this.shutdown();
+    }
+ catch (    Throwable t) {
+      startupError.addSuppressed(t);
+    }
+    throw startupError;
+  }
+  solrClient=buildSolrClient();
+}

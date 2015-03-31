@@ -2,35 +2,34 @@
   if (!rb.doFacets) {
     return ResponseBuilder.STAGE_DONE;
   }
-  if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
-    for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
-      List<String> distribFieldFacetRefinements=null;
-      for (      DistribFieldFacet dff : rb._facetInfo.facets.values()) {
-        if (!dff.needRefinements)         continue;
-        List<String> refList=dff._toRefine[shardNum];
-        if (refList == null || refList.size() == 0)         continue;
-        String key=dff.getKey();
-        String termsKey=key + "__terms";
-        String termsVal=StrUtils.join(refList,',');
-        String facetCommand;
-        String termsKeyEncoded=QueryParsing.encodeLocalParamVal(termsKey);
-        if (dff.localParams != null) {
-          facetCommand=commandPrefix + termsKeyEncoded + " "+ dff.facetStr.substring(2);
-        }
+  if (rb.stage != ResponseBuilder.STAGE_GET_FIELDS) {
+    return ResponseBuilder.STAGE_DONE;
+  }
+  for (int shardNum=0; shardNum < rb.shards.length; shardNum++) {
+    List<String> distribFieldFacetRefinements=null;
+    for (    DistribFieldFacet dff : rb._facetInfo.facets.values()) {
+      if (!dff.needRefinements)       continue;
+      List<String> refList=dff._toRefine[shardNum];
+      if (refList == null || refList.size() == 0)       continue;
+      String key=dff.getKey();
+      String termsKey=key + "__terms";
+      String termsVal=StrUtils.join(refList,',');
+      String facetCommand;
+      String termsKeyEncoded=QueryParsing.encodeLocalParamVal(termsKey);
+      if (dff.localParams != null) {
+        facetCommand=commandPrefix + termsKeyEncoded + " "+ dff.facetStr.substring(2);
+      }
  else {
-          facetCommand=commandPrefix + termsKeyEncoded + '}'+ dff.field;
-        }
-        if (distribFieldFacetRefinements == null) {
-          distribFieldFacetRefinements=new ArrayList<>();
-        }
-        distribFieldFacetRefinements.add(facetCommand);
-        distribFieldFacetRefinements.add(termsKey);
-        distribFieldFacetRefinements.add(termsVal);
+        facetCommand=commandPrefix + termsKeyEncoded + '}'+ dff.field;
       }
-      boolean pivotFacetRefinementRequestsExistForShard=doAnyPivotFacetRefinementRequestsExistForShard(rb._facetInfo,shardNum);
-      if (distribFieldFacetRefinements == null && !pivotFacetRefinementRequestsExistForShard) {
-        continue;
+      if (distribFieldFacetRefinements == null) {
+        distribFieldFacetRefinements=new ArrayList<>();
       }
+      distribFieldFacetRefinements.add(facetCommand);
+      distribFieldFacetRefinements.add(termsKey);
+      distribFieldFacetRefinements.add(termsVal);
+    }
+    if (distribFieldFacetRefinements != null) {
       String shard=rb.shards[shardNum];
       ShardRequest shardsRefineRequest=null;
       boolean newRequest=false;
@@ -48,29 +47,22 @@
         shardsRefineRequest.params.remove(CommonParams.START);
         shardsRefineRequest.params.set(CommonParams.ROWS,"0");
       }
-      if (distribFieldFacetRefinements != null) {
-        shardsRefineRequest.purpose|=ShardRequest.PURPOSE_REFINE_FACETS;
-        shardsRefineRequest.params.set(FacetParams.FACET,"true");
-        shardsRefineRequest.params.remove(FacetParams.FACET_FIELD);
-        shardsRefineRequest.params.remove(FacetParams.FACET_QUERY);
-        for (int i=0; i < distribFieldFacetRefinements.size(); ) {
-          String facetCommand=distribFieldFacetRefinements.get(i++);
-          String termsKey=distribFieldFacetRefinements.get(i++);
-          String termsVal=distribFieldFacetRefinements.get(i++);
-          shardsRefineRequest.params.add(FacetParams.FACET_FIELD,facetCommand);
-          shardsRefineRequest.params.set(termsKey,termsVal);
-        }
+      shardsRefineRequest.purpose|=ShardRequest.PURPOSE_REFINE_FACETS;
+      shardsRefineRequest.params.set(FacetParams.FACET,"true");
+      removeMainFacetTypeParams(shardsRefineRequest);
+      for (int i=0; i < distribFieldFacetRefinements.size(); ) {
+        String facetCommand=distribFieldFacetRefinements.get(i++);
+        String termsKey=distribFieldFacetRefinements.get(i++);
+        String termsVal=distribFieldFacetRefinements.get(i++);
+        shardsRefineRequest.params.add(FacetParams.FACET_FIELD,facetCommand);
+        shardsRefineRequest.params.set(termsKey,termsVal);
       }
       if (newRequest) {
         rb.addRequest(this,shardsRefineRequest);
       }
-      if (pivotFacetRefinementRequestsExistForShard) {
-        if (newRequest) {
-          shardsRefineRequest.params.remove(FacetParams.FACET_PIVOT);
-          shardsRefineRequest.params.remove(FacetParams.FACET_PIVOT_MINCOUNT);
-        }
-        enqueuePivotFacetShardRequests(rb,shardNum);
-      }
+    }
+    if (doAnyPivotFacetRefinementRequestsExistForShard(rb._facetInfo,shardNum)) {
+      enqueuePivotFacetShardRequests(rb,shardNum);
     }
   }
   return ResponseBuilder.STAGE_DONE;

@@ -1,5 +1,5 @@
 {
-  boolean testsSuccesful=false;
+  boolean testSuccessful=false;
   try {
     handle.clear();
     handle.put("timestamp",SKIPVAL);
@@ -9,12 +9,12 @@
     }
     waitForRecoveriesToFinish(false);
     del("*:*");
-    List<StopableThread> threads=new ArrayList<>();
-    List<StopableIndexingThread> indexTreads=new ArrayList<>();
+    List<StoppableThread> threads=new ArrayList<>();
+    List<StoppableIndexingThread> indexTreads=new ArrayList<>();
     int threadCount=TEST_NIGHTLY ? 3 : 1;
     int i=0;
     for (i=0; i < threadCount; i++) {
-      StopableIndexingThread indexThread=new StopableIndexingThread(controlClient,cloudClient,Integer.toString(i),true);
+      StoppableIndexingThread indexThread=new StoppableIndexingThread(controlClient,cloudClient,Integer.toString(i),true);
       threads.add(indexThread);
       indexTreads.add(indexThread);
       indexThread.start();
@@ -22,13 +22,13 @@
     threadCount=1;
     i=0;
     for (i=0; i < threadCount; i++) {
-      StopableSearchThread searchThread=new StopableSearchThread();
+      StoppableSearchThread searchThread=new StoppableSearchThread(cloudClient);
       threads.add(searchThread);
       searchThread.start();
     }
     boolean runFullThrottle=random().nextBoolean();
     if (runFullThrottle) {
-      FullThrottleStopableIndexingThread ftIndexThread=new FullThrottleStopableIndexingThread(clients,"ft1",true);
+      FullThrottleStoppableIndexingThread ftIndexThread=new FullThrottleStoppableIndexingThread(clients,"ft1",true);
       threads.add(ftIndexThread);
       ftIndexThread.start();
     }
@@ -53,10 +53,11 @@
   finally {
       chaosMonkey.stopTheMonkey();
     }
-    for (    StopableThread indexThread : threads) {
+    restartZk(1000 * (5 + random().nextInt(4)));
+    for (    StoppableThread indexThread : threads) {
       indexThread.safeStop();
     }
-    for (    StopableThread indexThread : threads) {
+    for (    StoppableThread indexThread : threads) {
       indexThread.join();
     }
     Thread.sleep(2000);
@@ -67,9 +68,10 @@
     commit();
     zkStateReader.updateClusterState(true);
     assertTrue(zkStateReader.getClusterState().getLiveNodes().size() > 0);
-    for (    StopableThread indexThread : threads) {
-      if (indexThread instanceof StopableIndexingThread && !(indexThread instanceof FullThrottleStopableIndexingThread)) {
-        assertFalse("There were too many update fails - we expect it can happen, but shouldn't easily",((StopableIndexingThread)indexThread).getFailCount() > FAIL_TOLERANCE);
+    for (    StoppableThread indexThread : threads) {
+      if (indexThread instanceof StoppableIndexingThread && !(indexThread instanceof FullThrottleStoppableIndexingThread)) {
+        int failCount=((StoppableIndexingThread)indexThread).getFailCount();
+        assertFalse("There were too many update fails (" + failCount + " > "+ FAIL_TOLERANCE+ ") - we expect it can happen, but shouldn't easily",failCount > FAIL_TOLERANCE);
       }
     }
     Set<String> addFails=getAddFails(indexTreads);
@@ -80,9 +82,7 @@
     assertTrue("Found " + ctrlDocs + " control docs",cloudClientDocs > 0);
     if (VERBOSE)     System.out.println("control docs:" + controlClient.query(new SolrQuery("*:*")).getResults().getNumFound() + "\n\n");
     if (random().nextBoolean()) {
-      zkServer.shutdown();
-      zkServer=new ZkTestServer(zkServer.getZkDir(),zkServer.getPort());
-      zkServer.run();
+      restartZk(1000 * (5 + random().nextInt(4)));
     }
     try (CloudSolrClient client=createCloudClient("collection1")){
       createCollection(null,"testcollection",1,1,1,client,null,"conf1");
@@ -91,10 +91,10 @@
     numShardsNumReplicas.add(1);
     numShardsNumReplicas.add(1);
     checkForCollection("testcollection",numShardsNumReplicas,null);
-    testsSuccesful=true;
+    testSuccessful=true;
   }
   finally {
-    if (!testsSuccesful) {
+    if (!testSuccessful) {
       printLayout();
     }
   }
