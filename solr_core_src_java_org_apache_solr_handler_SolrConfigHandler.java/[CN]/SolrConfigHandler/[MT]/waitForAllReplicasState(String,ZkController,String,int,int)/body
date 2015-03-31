@@ -1,0 +1,43 @@
+{
+  long startMs=System.currentTimeMillis();
+  List<PerReplicaCallable> concurrentTasks=new ArrayList<>();
+  for (  String coreUrl : getActiveReplicaCoreUrls(zkController,collection)) {
+    PerReplicaCallable e=new PerReplicaCallable(coreUrl,prop,expectedVersion,maxWaitSecs);
+    concurrentTasks.add(e);
+  }
+  if (concurrentTasks.isEmpty())   return;
+  log.info(formatString("Waiting up to {0} secs for {1} replicas to set the property {2} to be of version {3} for collection {4}",maxWaitSecs,concurrentTasks.size(),prop,expectedVersion,collection));
+  int poolSize=Math.min(concurrentTasks.size(),10);
+  ExecutorService parallelExecutor=Executors.newFixedThreadPool(poolSize,new DefaultSolrThreadFactory("solrHandlerExecutor"));
+  try {
+    List<Future<Boolean>> results=parallelExecutor.invokeAll(concurrentTasks,maxWaitSecs,TimeUnit.SECONDS);
+    List<String> failedList=null;
+    for (int f=0; f < results.size(); f++) {
+      Boolean success=false;
+      Future<Boolean> next=results.get(f);
+      if (next.isDone() && !next.isCancelled()) {
+        try {
+          success=next.get();
+        }
+ catch (        ExecutionException e) {
+        }
+      }
+      if (!success) {
+        String coreUrl=concurrentTasks.get(f).coreUrl;
+        log.warn("Core " + coreUrl + "could not get the expected version "+ expectedVersion);
+        if (failedList == null)         failedList=new ArrayList<>();
+        failedList.add(coreUrl);
+      }
+    }
+    if (failedList != null)     throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,formatString("{0} out of {1} the property {2} to be of version {3} within {4} seconds! Failed cores: {5}",failedList.size(),concurrentTasks.size() + 1,prop,expectedVersion,maxWaitSecs,failedList));
+  }
+ catch (  InterruptedException ie) {
+    log.warn(formatString("Core  was interrupted . trying to set the property {1} to version {2} to propagate to {3} replicas for collection {4}",prop,expectedVersion,concurrentTasks.size(),collection));
+    Thread.currentThread().interrupt();
+  }
+ finally {
+    if (!parallelExecutor.isShutdown())     parallelExecutor.shutdownNow();
+  }
+  long diffMs=(System.currentTimeMillis() - startMs);
+  log.info(formatString("Took {0} secs to set the property {1} to be of version {2} for collection {3}",Math.round(diffMs / 1000d),prop,expectedVersion,collection));
+}
