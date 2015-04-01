@@ -1,0 +1,35 @@
+{
+  long startTime=System.currentTimeMillis();
+  int attempts=0;
+  try (HttpSolrClient solr=new HttpSolrClient(coreUrl)){
+    while (true) {
+      try {
+        long timeElapsed=(System.currentTimeMillis() - startTime) / 1000;
+        if (timeElapsed >= maxWait) {
+          return false;
+        }
+        log.info("Time elapsed : {} secs, maxWait {}",timeElapsed,maxWait);
+        Thread.sleep(100);
+        NamedList<Object> resp=solr.httpUriRequest(this).future.get();
+        if (resp != null) {
+          Map m=(Map)resp.get(ZNODEVER);
+          if (m != null) {
+            remoteVersion=(Number)m.get(prop);
+            if (remoteVersion != null && remoteVersion.intValue() >= expectedZkVersion)             break;
+          }
+        }
+        attempts++;
+        log.info(formatString("Could not get expectedVersion {0} from {1} for prop {2}   after {3} attempts",expectedZkVersion,coreUrl,prop,attempts));
+      }
+ catch (      Exception e) {
+        if (e instanceof InterruptedException) {
+          break;
+        }
+ else {
+          log.warn("Failed to get /schema/zkversion from " + coreUrl + " due to: "+ e);
+        }
+      }
+    }
+  }
+   return true;
+}

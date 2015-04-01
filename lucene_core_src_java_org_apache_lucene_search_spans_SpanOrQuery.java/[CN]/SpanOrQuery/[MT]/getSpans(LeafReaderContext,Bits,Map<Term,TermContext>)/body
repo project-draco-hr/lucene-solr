@@ -1,64 +1,80 @@
 {
-  if (clauses.size() == 1)   return (clauses.get(0)).getSpans(context,acceptDocs,termContexts);
+  ArrayList<Spans> subSpans=new ArrayList<>(clauses.size());
+  for (  SpanQuery seq : clauses) {
+    Spans subSpan=seq.getSpans(context,acceptDocs,termContexts);
+    if (subSpan != null) {
+      subSpans.add(subSpan);
+    }
+  }
+  if (subSpans.size() == 0) {
+    return null;
+  }
+ else   if (subSpans.size() == 1) {
+    return subSpans.get(0);
+  }
+  SpanQueue queue=new SpanQueue(clauses.size());
+  for (  Spans spans : subSpans) {
+    queue.add(spans);
+  }
   return new Spans(){
-    private SpanQueue queue=null;
-    private long cost;
-    private boolean initSpanQueue(    int target) throws IOException {
-      queue=new SpanQueue(clauses.size());
-      Iterator<SpanQuery> i=clauses.iterator();
-      while (i.hasNext()) {
-        Spans spans=i.next().getSpans(context,acceptDocs,termContexts);
-        cost+=spans.cost();
-        if (((target == -1) && spans.next()) || ((target != -1) && spans.skipTo(target))) {
-          queue.add(spans);
+    @Override public int nextDoc() throws IOException {
+      if (queue.size() == 0) {
+        return NO_MORE_DOCS;
+      }
+      int currentDoc=top().docID();
+      if (currentDoc == -1) {
+        return advance(0);
+      }
+      do {
+        if (top().nextDoc() != NO_MORE_DOCS) {
+          queue.updateTop();
+        }
+ else {
+          queue.pop();
+          if (queue.size() == 0) {
+            return NO_MORE_DOCS;
+          }
+        }
+        int doc=top().docID();
+        if (doc > currentDoc) {
+          return doc;
         }
       }
-      return queue.size() != 0;
-    }
-    @Override public boolean next() throws IOException {
-      if (queue == null) {
-        return initSpanQueue(-1);
-      }
-      if (queue.size() == 0) {
-        return false;
-      }
-      if (top().next()) {
-        queue.updateTop();
-        return true;
-      }
-      queue.pop();
-      return queue.size() != 0;
+ while (true);
     }
     private Spans top(){
       return queue.top();
     }
-    @Override public boolean skipTo(    int target) throws IOException {
-      if (queue == null) {
-        return initSpanQueue(target);
-      }
-      boolean skipCalled=false;
-      while (queue.size() != 0 && top().doc() < target) {
-        if (top().skipTo(target)) {
+    @Override public int advance(    int target) throws IOException {
+      while ((queue.size() > 0) && (top().docID() < target)) {
+        if (top().advance(target) != NO_MORE_DOCS) {
           queue.updateTop();
         }
  else {
           queue.pop();
         }
-        skipCalled=true;
       }
-      if (skipCalled) {
-        return queue.size() != 0;
+      return (queue.size() > 0) ? top().docID() : NO_MORE_DOCS;
+    }
+    @Override public int docID(){
+      return (queue == null) ? -1 : (queue.size() > 0) ? top().docID() : NO_MORE_DOCS;
+    }
+    @Override public int nextStartPosition() throws IOException {
+      top().nextStartPosition();
+      queue.updateTop();
+      int startPos=top().startPosition();
+      while (startPos == -1) {
+        top().nextStartPosition();
+        queue.updateTop();
+        startPos=top().startPosition();
       }
-      return next();
+      return startPos;
     }
-    @Override public int doc(){
-      return top().doc();
+    @Override public int startPosition(){
+      return top().startPosition();
     }
-    @Override public int start(){
-      return top().start();
-    }
-    @Override public int end(){
-      return top().end();
+    @Override public int endPosition(){
+      return top().endPosition();
     }
     @Override public Collection<byte[]> getPayload() throws IOException {
       ArrayList<byte[]> result=null;
@@ -73,9 +89,16 @@
       return top != null && top.isPayloadAvailable();
     }
     @Override public String toString(){
-      return "spans(" + SpanOrQuery.this + ")@"+ ((queue == null) ? "START" : (queue.size() > 0 ? (doc() + ":" + start()+ "-"+ end()) : "END"));
+      return "spans(" + SpanOrQuery.this + ")@"+ ((queue == null) ? "START" : (queue.size() > 0 ? (docID() + ": " + top().startPosition()+ " - "+ top().endPosition()) : "END"));
     }
+    private long cost=-1;
     @Override public long cost(){
+      if (cost == -1) {
+        cost=0;
+        for (        Spans spans : subSpans) {
+          cost+=spans.cost();
+        }
+      }
       return cost;
     }
   }

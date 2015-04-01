@@ -11,9 +11,9 @@
         RequestParams params=req.getCore().getSolrConfig().getRequestParams();
         MapSolrParams p=params.getParams(parts.get(2));
         Map m=new LinkedHashMap<>();
-        m.put(ConfigOverlay.ZNODEVER,params.getZnodeVersion());
+        m.put(ZNODEVER,params.getZnodeVersion());
         if (p != null) {
-          m.put(RequestParams.NAME,ZkNodeProps.makeMap(parts.get(2),p.getMap()));
+          m.put(RequestParams.NAME,makeMap(parts.get(2),p.getMap()));
         }
         resp.add(SolrQueryResponse.NAME,m);
       }
@@ -22,8 +22,56 @@
       }
     }
  else {
-      Map<String,Object> m=getConfigDetails();
-      resp.add("config",ZkNodeProps.makeMap(parts.get(1),m.get(parts.get(1))));
+      if (ZNODEVER.equals(parts.get(1))) {
+        resp.add(ZNODEVER,ZkNodeProps.makeMap(ConfigOverlay.NAME,req.getCore().getSolrConfig().getOverlay().getZnodeVersion(),RequestParams.NAME,req.getCore().getSolrConfig().getRequestParams().getZnodeVersion()));
+        boolean checkStale=false;
+        int expectedVersion=req.getParams().getInt(ConfigOverlay.NAME,-1);
+        int actualVersion=req.getCore().getSolrConfig().getOverlay().getZnodeVersion();
+        if (expectedVersion > actualVersion) {
+          log.info("expecting overlay version {} but my version is {}",expectedVersion,actualVersion);
+          checkStale=true;
+        }
+ else         if (expectedVersion != -1) {
+          log.info("I already have the expected version {} of config",expectedVersion);
+        }
+        expectedVersion=req.getParams().getInt(RequestParams.NAME,-1);
+        actualVersion=req.getCore().getSolrConfig().getRequestParams().getZnodeVersion();
+        if (expectedVersion > actualVersion) {
+          log.info("expecting params version {} but my version is {}",expectedVersion,actualVersion);
+          checkStale=true;
+        }
+ else         if (expectedVersion != -1) {
+          log.info("I already have the expected version {} of params",expectedVersion);
+        }
+        if (checkStale && req.getCore().getResourceLoader() instanceof ZkSolrResourceLoader) {
+          new Thread(SolrConfigHandler.class.getSimpleName() + "-refreshconf"){
+            @Override public void run(){
+              if (!reloadLock.tryLock()) {
+                log.info("Another reload is in progress . Not doing anything");
+                return;
+              }
+              try {
+                log.info("Trying to update my configs");
+                SolrCore.getConfListener(req.getCore(),(ZkSolrResourceLoader)req.getCore().getResourceLoader()).run();
+              }
+ catch (              Exception e) {
+                log.error("Unable to refresh conf ",e);
+              }
+ finally {
+                reloadLock.unlock();
+              }
+            }
+          }
+.start();
+        }
+ else {
+          log.info("checkStale {} , resourceloader {}",checkStale,req.getCore().getResourceLoader().getClass().getName());
+        }
+      }
+ else {
+        Map<String,Object> m=getConfigDetails();
+        resp.add("config",makeMap(parts.get(1),m.get(parts.get(1))));
+      }
     }
   }
 }
