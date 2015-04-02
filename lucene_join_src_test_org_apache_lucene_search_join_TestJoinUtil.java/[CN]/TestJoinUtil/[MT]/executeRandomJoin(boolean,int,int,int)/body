@@ -5,7 +5,7 @@
     }
     Directory dir=newDirectory();
     RandomIndexWriter w=new RandomIndexWriter(random(),dir,newIndexWriterConfig(new MockAnalyzer(random(),MockTokenizer.KEYWORD,false)).setMergePolicy(newLogMergePolicy()));
-    IndexIterationContext context=createContext(numberOfDocumentsToIndex,w,multipleValuesPerDocument);
+    IndexIterationContext context=createContext(numberOfDocumentsToIndex,w,multipleValuesPerDocument,false);
     IndexReader topLevelReader=w.getReader();
     w.close();
     for (int searchIter=1; searchIter <= maxSearchIter; searchIter++) {
@@ -37,54 +37,11 @@
       }
       final BitSet actualResult=new FixedBitSet(indexSearcher.getIndexReader().maxDoc());
       final TopScoreDocCollector topScoreDocCollector=TopScoreDocCollector.create(10);
-      indexSearcher.search(joinQuery,new Collector(){
-        @Override public LeafCollector getLeafCollector(        LeafReaderContext context) throws IOException {
-          final int docBase=context.docBase;
-          final LeafCollector in=topScoreDocCollector.getLeafCollector(context);
-          return new FilterLeafCollector(in){
-            @Override public void collect(            int doc) throws IOException {
-              super.collect(doc);
-              actualResult.set(doc + docBase);
-            }
-          }
-;
-        }
-        @Override public boolean needsScores(){
-          return topScoreDocCollector.needsScores();
-        }
-      }
-);
-      if (VERBOSE) {
-        System.out.println("expected cardinality:" + expectedResult.cardinality());
-        DocIdSetIterator iterator=new BitSetIterator(expectedResult,expectedResult.cardinality());
-        for (int doc=iterator.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=iterator.nextDoc()) {
-          System.out.println(String.format(Locale.ROOT,"Expected doc[%d] with id value %s",doc,indexSearcher.doc(doc).get("id")));
-        }
-        System.out.println("actual cardinality:" + actualResult.cardinality());
-        iterator=new BitSetIterator(actualResult,actualResult.cardinality());
-        for (int doc=iterator.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=iterator.nextDoc()) {
-          System.out.println(String.format(Locale.ROOT,"Actual doc[%d] with id value %s",doc,indexSearcher.doc(doc).get("id")));
-        }
-      }
-      assertEquals(expectedResult,actualResult);
+      indexSearcher.search(joinQuery,MultiCollector.wrap(new BitSetCollector(actualResult),topScoreDocCollector));
+      assertBitSet(expectedResult,actualResult,indexSearcher);
       TopDocs expectedTopDocs=createExpectedTopDocs(randomValue,from,scoreMode,context);
       TopDocs actualTopDocs=topScoreDocCollector.topDocs();
-      assertEquals(expectedTopDocs.totalHits,actualTopDocs.totalHits);
-      assertEquals(expectedTopDocs.scoreDocs.length,actualTopDocs.scoreDocs.length);
-      if (scoreMode == ScoreMode.None) {
-        continue;
-      }
-      assertEquals(expectedTopDocs.getMaxScore(),actualTopDocs.getMaxScore(),0.0f);
-      for (int i=0; i < expectedTopDocs.scoreDocs.length; i++) {
-        if (VERBOSE) {
-          System.out.printf(Locale.ENGLISH,"Expected doc: %d | Actual doc: %d\n",expectedTopDocs.scoreDocs[i].doc,actualTopDocs.scoreDocs[i].doc);
-          System.out.printf(Locale.ENGLISH,"Expected score: %f | Actual score: %f\n",expectedTopDocs.scoreDocs[i].score,actualTopDocs.scoreDocs[i].score);
-        }
-        assertEquals(expectedTopDocs.scoreDocs[i].doc,actualTopDocs.scoreDocs[i].doc);
-        assertEquals(expectedTopDocs.scoreDocs[i].score,actualTopDocs.scoreDocs[i].score,0.0f);
-        Explanation explanation=indexSearcher.explain(joinQuery,expectedTopDocs.scoreDocs[i].doc);
-        assertEquals(expectedTopDocs.scoreDocs[i].score,explanation.getValue(),0.0f);
-      }
+      assertTopDocs(expectedTopDocs,actualTopDocs,scoreMode,indexSearcher,joinQuery);
     }
     topLevelReader.close();
     dir.close();
