@@ -1,0 +1,45 @@
+{
+  double currentInterval=numTerms;
+  FixedBitSet normalDocs=new FixedBitSet(maxDoc);
+  FixedBitSet intersectDocs=new FixedBitSet(maxDoc);
+  TermsEnum termsEnum=null;
+  while (currentInterval >= 10.0) {
+    termsEnum=terms.iterator(termsEnum);
+    long termCount=0;
+    Deque<BytesRef> termBounds=new LinkedList<>();
+    long lastTermAdded=Long.MIN_VALUE;
+    BytesRefBuilder lastTerm=null;
+    while (true) {
+      BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      if (termCount >= lastTermAdded + currentInterval / 4) {
+        termBounds.add(BytesRef.deepCopyOf(term));
+        lastTermAdded=termCount;
+        if (termBounds.size() == 5) {
+          BytesRef minTerm=termBounds.removeFirst();
+          BytesRef maxTerm=termBounds.getLast();
+          checkSingleTermRange(field,maxDoc,terms,minTerm,maxTerm,normalDocs,intersectDocs);
+        }
+      }
+      termCount++;
+      if (lastTerm == null) {
+        lastTerm=new BytesRefBuilder();
+        lastTerm.copyBytes(term);
+      }
+ else {
+        if (lastTerm.get().compareTo(term) >= 0) {
+          throw new RuntimeException("terms out of order: lastTerm=" + lastTerm + " term="+ term);
+        }
+        lastTerm.copyBytes(term);
+      }
+    }
+    if (lastTerm != null && termBounds.isEmpty() == false) {
+      BytesRef minTerm=termBounds.removeFirst();
+      BytesRef maxTerm=lastTerm.get();
+      checkSingleTermRange(field,maxDoc,terms,minTerm,maxTerm,normalDocs,intersectDocs);
+    }
+    currentInterval*=.75;
+  }
+}

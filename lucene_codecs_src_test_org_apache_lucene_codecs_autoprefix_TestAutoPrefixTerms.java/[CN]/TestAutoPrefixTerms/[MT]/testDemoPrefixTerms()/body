@@ -1,0 +1,46 @@
+{
+  if (VERBOSE) {
+    System.out.println("\nTEST: minTermsAutoPrefix=" + minTermsAutoPrefix + " maxTermsAutoPrefix="+ maxTermsAutoPrefix);
+    System.out.println("\nTEST: minItemsPerBlock=" + minItemsPerBlock + " maxItemsPerBlock="+ maxItemsPerBlock);
+  }
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setCodec(codec);
+  IndexWriter w=new IndexWriter(dir,iwc);
+  int numDocs=30;
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    doc.add(new StringField("field","" + (char)(97 + i),Field.Store.NO));
+    w.addDocument(doc);
+    doc=new Document();
+    doc.add(new StringField("field","a" + (char)(97 + i),Field.Store.NO));
+    w.addDocument(doc);
+  }
+  if (random().nextBoolean()) {
+    w.forceMerge(1);
+  }
+  IndexReader r=DirectoryReader.open(w,true);
+  Terms terms=MultiFields.getTerms(r,"field");
+  if (VERBOSE) {
+    System.out.println("\nTEST: now intersect");
+  }
+  CompiledAutomaton ca=new CompiledAutomaton(PrefixQuery.toAutomaton(new BytesRef("a")),false,false,Integer.MAX_VALUE,true);
+  TermsEnum te=ca.getTermsEnum(terms);
+  PostingsEnum postingsEnum=null;
+  VerifyAutoPrefixTerms verifier=new VerifyAutoPrefixTerms(r.maxDoc(),new BytesRef("a"));
+  while (te.next() != null) {
+    verifier.sawTerm(te.term());
+    postingsEnum=te.postings(null,postingsEnum);
+    int docID;
+    while ((docID=postingsEnum.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+      verifier.sawDoc(docID);
+    }
+  }
+  verifier.finish(31,maxTermsAutoPrefix);
+  PrefixQuery q=new PrefixQuery(new Term("field","a"));
+  q.setRewriteMethod(MultiTermQuery.CONSTANT_SCORE_BOOLEAN_REWRITE);
+  assertEquals(31,newSearcher(r).search(q,1).totalHits);
+  r.close();
+  w.close();
+  dir.close();
+}
