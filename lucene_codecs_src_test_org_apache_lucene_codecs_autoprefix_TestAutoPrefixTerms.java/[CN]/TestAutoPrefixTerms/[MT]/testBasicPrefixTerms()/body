@@ -1,0 +1,98 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setCodec(codec);
+  iwc.setMergeScheduler(new SerialMergeScheduler());
+  IndexWriter w=new IndexWriter(dir,iwc);
+  int numTerms=TestUtil.nextInt(random(),3000,50000);
+  Set<String> terms=new HashSet<>();
+  while (terms.size() < numTerms) {
+    terms.add(TestUtil.randomSimpleString(random()));
+  }
+  for (  String term : terms) {
+    Document doc=new Document();
+    doc.add(new StringField("field",term,Field.Store.NO));
+    doc.add(new BinaryDocValuesField("field",new BytesRef(term)));
+    w.addDocument(doc);
+  }
+  if (random().nextBoolean()) {
+    if (VERBOSE) {
+      System.out.println("TEST: now force merge");
+    }
+    w.forceMerge(1);
+  }
+  IndexReader r=DirectoryReader.open(w,true);
+  List<String> sortedTerms=new ArrayList<>(terms);
+  Collections.sort(sortedTerms);
+  if (VERBOSE) {
+    System.out.println("TEST: sorted terms:");
+    int idx=0;
+    for (    String term : sortedTerms) {
+      System.out.println(idx + ": " + term);
+      idx++;
+    }
+  }
+  if (VERBOSE) {
+    System.out.println("TEST: r=" + r);
+  }
+  int iters=atLeast(100);
+  for (int iter=0; iter < iters; iter++) {
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter=" + iter);
+    }
+    String prefix;
+    if (random().nextInt(100) == 42) {
+      prefix="";
+    }
+ else {
+      prefix=TestUtil.randomSimpleString(random(),1,4);
+    }
+    BytesRef prefixBR=new BytesRef(prefix);
+    if (VERBOSE) {
+      System.out.println("  prefix=" + prefix);
+    }
+    CompiledAutomaton ca=new CompiledAutomaton(PrefixQuery.toAutomaton(prefixBR),true,false,Integer.MAX_VALUE,true);
+    TermsEnum te=ca.getTermsEnum(MultiFields.getTerms(r,"field"));
+    BinaryDocValues docValues=MultiDocValues.getBinaryValues(r,"field");
+    PostingsEnum postingsEnum=null;
+    VerifyAutoPrefixTerms verifier=new VerifyAutoPrefixTerms(r.maxDoc(),prefixBR);
+    while (te.next() != null) {
+      if (VERBOSE) {
+        System.out.println("TEST: got term=" + te.term().utf8ToString() + " docFreq="+ te.docFreq());
+      }
+      verifier.sawTerm(te.term());
+      postingsEnum=te.postings(null,postingsEnum);
+      int docID;
+      while ((docID=postingsEnum.nextDoc()) != PostingsEnum.NO_MORE_DOCS) {
+        assertTrue("prefixBR=" + prefixBR + " docBR="+ docValues.get(docID),StringHelper.startsWith(docValues.get(docID),prefixBR));
+        verifier.sawDoc(docID);
+      }
+    }
+    int startLoc=Collections.binarySearch(sortedTerms,prefix);
+    if (startLoc < 0) {
+      startLoc=-startLoc - 1;
+    }
+    int endLoc=Collections.binarySearch(sortedTerms,prefix + (char)('z' + 1));
+    if (endLoc < 0) {
+      endLoc=-endLoc - 2;
+    }
+    int expectedHits=endLoc - startLoc + 1;
+    try {
+      verifier.finish(expectedHits,maxTermsAutoPrefix);
+    }
+ catch (    AssertionError ae) {
+      for (int i=0; i < numTerms; i++) {
+        if (verifier.allHits.get(i) == false) {
+          String s=docValues.get(i).utf8ToString();
+          if (s.startsWith(prefix)) {
+            System.out.println("MISSING: docID=" + i + " term="+ s);
+          }
+        }
+      }
+      throw ae;
+    }
+  }
+  r.close();
+  w.close();
+  dir.close();
+}

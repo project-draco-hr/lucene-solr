@@ -1,0 +1,85 @@
+{
+  List<String> prefixes=new ArrayList<>();
+  for (int i=1; i < 5; i++) {
+    char[] chars=new char[i];
+    Arrays.fill(chars,'a');
+    prefixes.add(new String(chars));
+  }
+  Set<String> randomTerms=new HashSet<>();
+  int numTerms=atLeast(10000);
+  while (randomTerms.size() < numTerms) {
+    for (    String prefix : prefixes) {
+      randomTerms.add(prefix + TestUtil.randomSimpleString(random()));
+    }
+  }
+  char start;
+  char end;
+  int actualCount;
+  boolean startInclusive=random().nextBoolean();
+  boolean endInclusive=random().nextBoolean();
+  String startTerm;
+  String endTerm;
+  while (true) {
+    start=(char)TestUtil.nextInt(random(),'a','m');
+    end=(char)TestUtil.nextInt(random(),start + 1,'z');
+    actualCount=0;
+    startTerm="aa" + start;
+    endTerm="aa" + end;
+    for (    String term : randomTerms) {
+      int cmpStart=startTerm.compareTo(term);
+      int cmpEnd=endTerm.compareTo(term);
+      if ((cmpStart < 0 || (startInclusive && cmpStart == 0)) && (cmpEnd > 0 || (endInclusive && cmpEnd == 0))) {
+        actualCount++;
+      }
+    }
+    if (actualCount > 2000) {
+      break;
+    }
+  }
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(new MockAnalyzer(random()));
+  int minTermsInBlock=TestUtil.nextInt(random(),2,100);
+  int maxTermsInBlock=Math.max(2,(minTermsInBlock - 1) * 2 + random().nextInt(100));
+  int minTermsAutoPrefix=TestUtil.nextInt(random(),2,100);
+  int maxTermsAutoPrefix=random().nextBoolean() ? Math.max(2,(minTermsAutoPrefix - 1) * 2 + random().nextInt(100)) : Integer.MAX_VALUE;
+  iwc.setCodec(TestUtil.alwaysPostingsFormat(new AutoPrefixPostingsFormat(minTermsInBlock,maxTermsInBlock,minTermsAutoPrefix,maxTermsAutoPrefix)));
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+  for (  String term : randomTerms) {
+    Document doc=new Document();
+    doc.add(new StringField("field",term,Field.Store.NO));
+    w.addDocument(doc);
+  }
+  w.forceMerge(1);
+  IndexReader r=w.getReader();
+  final Terms terms=MultiFields.getTerms(r,"field");
+  IndexSearcher s=new IndexSearcher(r);
+  final int finalActualCount=actualCount;
+  TermRangeQuery q=new TermRangeQuery("field",new BytesRef(startTerm),new BytesRef(endTerm),startInclusive,endInclusive){
+    public TermRangeQuery checkTerms() throws IOException {
+      TermsEnum termsEnum=getTermsEnum(terms,new AttributeSource());
+      int count=0;
+      while (termsEnum.next() != null) {
+        count++;
+      }
+      assertTrue(count < finalActualCount);
+      return this;
+    }
+  }
+.checkTerms();
+  if (random().nextBoolean()) {
+    q.setRewriteMethod(MultiTermQuery.SCORING_BOOLEAN_REWRITE);
+  }
+ else   if (random().nextBoolean()) {
+    q.setRewriteMethod(MultiTermQuery.CONSTANT_SCORE_BOOLEAN_REWRITE);
+  }
+  assertEquals(actualCount,s.search(q,1).totalHits);
+  List<String> randomTermsList=new ArrayList<>(randomTerms);
+  for (int iter=0; iter < 100 * RANDOM_MULTIPLIER; iter++) {
+    String term=randomTermsList.get(random().nextInt(randomTermsList.size()));
+    q=new TermRangeQuery("field",new BytesRef(term),new BytesRef(term),true,true);
+    assertEquals(1,s.search(q,1).totalHits);
+  }
+  r.close();
+  w.close();
+  dir.close();
+}
