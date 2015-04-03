@@ -1,0 +1,69 @@
+{
+  Path backupPath=Paths.get(backupLocation,backupName);
+  String restoreIndexName="restore." + backupName;
+  Path restoreIndexPath=Paths.get(core.getDataDir(),restoreIndexName);
+  Directory restoreIndexDir=null;
+  Directory indexDir=null;
+  try (Directory backupDir=FSDirectory.open(backupPath)){
+    restoreIndexDir=core.getDirectoryFactory().get(restoreIndexPath.toString(),DirectoryFactory.DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
+    indexDir=core.getDirectoryFactory().get(core.getIndexDir(),DirectoryFactory.DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
+    for (    String filename : backupDir.listAll()) {
+      checkInterrupted();
+      log.info("Copying over file to restore directory " + filename);
+      try (IndexInput indexInput=backupDir.openInput(filename,IOContext.READONCE)){
+        long checksum=CodecUtil.retrieveChecksum(indexInput);
+        long length=indexInput.length();
+        IndexFetcher.CompareResult compareResult=IndexFetcher.compareFile(indexDir,filename,length,checksum);
+        if (!compareResult.equal || (!compareResult.checkSummed && (filename.endsWith(".si") || filename.endsWith(".liv") || filename.startsWith("segments_")))) {
+          restoreIndexDir.copyFrom(backupDir,filename,filename,IOContext.READONCE);
+        }
+ else {
+          restoreIndexDir.copyFrom(indexDir,filename,filename,IOContext.READONCE);
+        }
+      }
+ catch (      Exception e) {
+        throw new SolrException(SolrException.ErrorCode.UNKNOWN,"Exception while restoring the backup index",e);
+      }
+    }
+    log.debug("Switching directories");
+    IndexFetcher.modifyIndexProps(core,restoreIndexName);
+    boolean success;
+    try {
+      core.getUpdateHandler().newIndexWriter(false);
+      openNewSearcher();
+      success=true;
+      log.info("Successfully restored to the backup index");
+    }
+ catch (    Exception e) {
+      log.info("Could not switch to restored index. Rolling back to the current index");
+      Directory dir=null;
+      try {
+        dir=core.getDirectoryFactory().get(core.getDataDir(),DirectoryFactory.DirContext.META_DATA,core.getSolrConfig().indexConfig.lockType);
+        dir.deleteFile(IndexFetcher.INDEX_PROPERTIES);
+      }
+  finally {
+        if (dir != null) {
+          core.getDirectoryFactory().release(dir);
+        }
+      }
+      core.getDirectoryFactory().doneWithDirectory(restoreIndexDir);
+      core.getDirectoryFactory().remove(restoreIndexDir);
+      core.getUpdateHandler().newIndexWriter(false);
+      openNewSearcher();
+      throw new SolrException(SolrException.ErrorCode.UNKNOWN,"Exception while restoring the backup index",e);
+    }
+    if (success) {
+      core.getDirectoryFactory().doneWithDirectory(indexDir);
+      core.getDirectoryFactory().remove(indexDir);
+    }
+    return true;
+  }
+  finally {
+    if (restoreIndexDir != null) {
+      core.getDirectoryFactory().release(restoreIndexDir);
+    }
+    if (indexDir != null) {
+      core.getDirectoryFactory().release(indexDir);
+    }
+  }
+}
