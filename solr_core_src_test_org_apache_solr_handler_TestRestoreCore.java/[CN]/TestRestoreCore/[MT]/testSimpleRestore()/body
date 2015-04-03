@@ -1,0 +1,40 @@
+{
+  int nDocs=TestReplicationHandlerBackup.indexDocs(masterClient);
+  String snapshotName;
+  String location;
+  String params="";
+  if (random().nextBoolean()) {
+    location=createTempDir().toFile().getAbsolutePath();
+    params+="&location=" + URLEncoder.encode(location,"UTF-8");
+  }
+  if (random().nextBoolean()) {
+    snapshotName=TestUtil.randomSimpleString(random(),1,5);
+    params+="&name=" + snapshotName;
+  }
+  TestReplicationHandlerBackup.runBackupCommand(masterJetty,ReplicationHandler.CMD_BACKUP,params);
+  CheckBackupStatus checkBackupStatus=new CheckBackupStatus((HttpSolrClient)masterClient,null);
+  while (!checkBackupStatus.success) {
+    checkBackupStatus.fetchStatus();
+    Thread.sleep(1000);
+  }
+  int numDeletes=TestUtil.nextInt(random(),1,nDocs);
+  for (int i=0; i < numDeletes; i++) {
+    masterClient.deleteByQuery("id:" + i);
+  }
+  masterClient.commit();
+  int moreAdds=TestUtil.nextInt(random(),1,100);
+  for (int i=0; i < moreAdds; i++) {
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField("id",i + nDocs);
+    doc.addField("name","name = " + (i + nDocs));
+    masterClient.add(doc);
+  }
+  if (usually()) {
+    masterClient.commit();
+  }
+  TestReplicationHandlerBackup.runBackupCommand(masterJetty,ReplicationHandler.CMD_RESTORE,params);
+  while (!fetchRestoreStatus()) {
+    Thread.sleep(1000);
+  }
+  verifyDocs(nDocs);
+}

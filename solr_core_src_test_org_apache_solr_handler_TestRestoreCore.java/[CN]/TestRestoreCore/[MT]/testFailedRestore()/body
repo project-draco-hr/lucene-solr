@@ -1,0 +1,27 @@
+{
+  int nDocs=TestReplicationHandlerBackup.indexDocs(masterClient);
+  String location=createTempDir().toFile().getAbsolutePath();
+  String snapshotName=TestUtil.randomSimpleString(random(),1,5);
+  String params="&name=" + snapshotName + "&location="+ URLEncoder.encode(location,"UTF-8");
+  TestReplicationHandlerBackup.runBackupCommand(masterJetty,ReplicationHandler.CMD_BACKUP,params);
+  CheckBackupStatus checkBackupStatus=new CheckBackupStatus((HttpSolrClient)masterClient,null);
+  while (!checkBackupStatus.success) {
+    checkBackupStatus.fetchStatus();
+    Thread.sleep(1000);
+  }
+  Path restoreIndexPath=Paths.get(location,"snapshot." + snapshotName);
+  Path segmentFileName=Files.newDirectoryStream(restoreIndexPath,IndexFileNames.SEGMENTS + "*").iterator().next();
+  Files.delete(segmentFileName);
+  TestReplicationHandlerBackup.runBackupCommand(masterJetty,ReplicationHandler.CMD_RESTORE,params);
+  try {
+    while (!fetchRestoreStatus()) {
+      Thread.sleep(1000);
+    }
+    fail("Should have thrown an error because restore could not have been successful");
+  }
+ catch (  AssertionError e) {
+  }
+  verifyDocs(nDocs);
+  nDocs=TestReplicationHandlerBackup.indexDocs(masterClient);
+  verifyDocs(nDocs);
+}

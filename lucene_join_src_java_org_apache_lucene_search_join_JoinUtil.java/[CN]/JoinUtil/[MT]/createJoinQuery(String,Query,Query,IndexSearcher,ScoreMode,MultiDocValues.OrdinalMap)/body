@@ -1,0 +1,47 @@
+{
+  IndexReader indexReader=searcher.getIndexReader();
+  int numSegments=indexReader.leaves().size();
+  final long valueCount;
+  if (numSegments == 0) {
+    return new MatchNoDocsQuery();
+  }
+ else   if (numSegments == 1) {
+    ordinalMap=null;
+    LeafReader leafReader=searcher.getIndexReader().leaves().get(0).reader();
+    SortedDocValues joinSortedDocValues=leafReader.getSortedDocValues(joinField);
+    if (joinSortedDocValues != null) {
+      valueCount=joinSortedDocValues.getValueCount();
+    }
+ else {
+      return new MatchNoDocsQuery();
+    }
+  }
+ else {
+    if (ordinalMap == null) {
+      throw new IllegalArgumentException("OrdinalMap is required, because there is more than 1 segment");
+    }
+    valueCount=ordinalMap.getValueCount();
+  }
+  Query rewrittenFromQuery=searcher.rewrite(fromQuery);
+  if (scoreMode == ScoreMode.None) {
+    GlobalOrdinalsCollector globalOrdinalsCollector=new GlobalOrdinalsCollector(joinField,ordinalMap,valueCount);
+    searcher.search(fromQuery,globalOrdinalsCollector);
+    return new GlobalOrdinalsQuery(globalOrdinalsCollector.getCollectorOrdinals(),joinField,ordinalMap,toQuery,rewrittenFromQuery,indexReader);
+  }
+  GlobalOrdinalsWithScoreCollector globalOrdinalsWithScoreCollector;
+switch (scoreMode) {
+case Total:
+    globalOrdinalsWithScoreCollector=new GlobalOrdinalsWithScoreCollector.Sum(joinField,ordinalMap,valueCount);
+  break;
+case Max:
+globalOrdinalsWithScoreCollector=new GlobalOrdinalsWithScoreCollector.Max(joinField,ordinalMap,valueCount);
+break;
+case Avg:
+globalOrdinalsWithScoreCollector=new GlobalOrdinalsWithScoreCollector.Avg(joinField,ordinalMap,valueCount);
+break;
+default :
+throw new IllegalArgumentException(String.format(Locale.ROOT,"Score mode %s isn't supported.",scoreMode));
+}
+searcher.search(fromQuery,globalOrdinalsWithScoreCollector);
+return new GlobalOrdinalsWithScoreQuery(globalOrdinalsWithScoreCollector,joinField,ordinalMap,toQuery,rewrittenFromQuery,indexReader);
+}
