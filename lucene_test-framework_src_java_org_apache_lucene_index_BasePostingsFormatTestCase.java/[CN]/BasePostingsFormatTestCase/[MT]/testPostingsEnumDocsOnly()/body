@@ -1,0 +1,40 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(null);
+  IndexWriter iw=new IndexWriter(dir,iwc);
+  Document doc=new Document();
+  doc.add(new StringField("foo","bar",Field.Store.NO));
+  iw.addDocument(doc);
+  DirectoryReader reader=DirectoryReader.open(iw,false);
+  PostingsEnum postings=getOnlySegmentReader(reader).postings(new Term("foo","bar"));
+  assertEquals(-1,postings.docID());
+  assertEquals(0,postings.nextDoc());
+  assertEquals(1,postings.freq());
+  assertEquals(DocIdSetIterator.NO_MORE_DOCS,postings.nextDoc());
+  TermsEnum termsEnum=getOnlySegmentReader(reader).terms("foo").iterator(null);
+  termsEnum.seekExact(new BytesRef("bar"));
+  PostingsEnum postings2=termsEnum.postings(null,postings);
+  assertNotNull(postings2);
+  assertReused("foo",postings,postings2);
+  assertEquals(-1,postings.docID());
+  assertEquals(0,postings.nextDoc());
+  assertEquals(1,postings.freq());
+  assertEquals(DocIdSetIterator.NO_MORE_DOCS,postings.nextDoc());
+  for (  int flag : new int[]{NONE,FREQS,POSITIONS,PAYLOADS,OFFSETS,ALL}) {
+    postings=termsEnum.postings(null,null,flag);
+    assertEquals(-1,postings.docID());
+    assertEquals(0,postings.nextDoc());
+    assertEquals(1,postings.freq());
+    assertEquals(DocIdSetIterator.NO_MORE_DOCS,postings.nextDoc());
+    postings2=termsEnum.postings(null,postings,flag);
+    assertNotNull(postings2);
+    assertReused("foo",postings,postings2);
+    assertEquals(-1,postings2.docID());
+    assertEquals(0,postings2.nextDoc());
+    assertEquals(1,postings2.freq());
+    assertEquals(DocIdSetIterator.NO_MORE_DOCS,postings2.nextDoc());
+  }
+  iw.close();
+  reader.close();
+  dir.close();
+}
