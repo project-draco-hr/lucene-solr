@@ -75,13 +75,13 @@
       }
       if (collection != null && shardId != null) {
         try {
-          String lirState=zkController.getLeaderInitiatedRecoveryState(collection,shardId,replicaCoreNodeName);
+          final Replica.State lirState=zkController.getLeaderInitiatedRecoveryState(collection,shardId,replicaCoreNodeName);
           if (lirState == null) {
             log.warn("Stop trying to send recovery command to downed replica core=" + coreNeedingRecovery + ",coreNodeName="+ replicaCoreNodeName+ " on "+ replicaNodeName+ " because the znode no longer exists.");
             continueTrying=false;
             break;
           }
-          if (ZkStateReader.RECOVERING.equals(lirState)) {
+          if (lirState == Replica.State.RECOVERING) {
             continueTrying=false;
             log.info("Replica " + coreNeedingRecovery + " on node "+ replicaNodeName+ " ack'd the leader initiated recovery state, "+ "no need to keep trying to send recovery command");
           }
@@ -90,10 +90,10 @@
             List<ZkCoreNodeProps> replicaProps=zkStateReader.getReplicaProps(collection,shardId,leaderCoreNodeName);
             if (replicaProps != null && replicaProps.size() > 0) {
               for (              ZkCoreNodeProps prop : replicaProps) {
-                if (replicaCoreNodeName.equals(((Replica)prop.getNodeProps()).getName())) {
-                  String replicaState=prop.getState();
-                  if (ZkStateReader.ACTIVE.equals(replicaState)) {
-                    if (ZkStateReader.DOWN.equals(lirState)) {
+                final Replica replica=(Replica)prop.getNodeProps();
+                if (replicaCoreNodeName.equals(replica.getName())) {
+                  if (replica.getState() == Replica.State.ACTIVE) {
+                    if (lirState == Replica.State.DOWN) {
                       log.warn("Replica core={} coreNodeName={} set to active but the leader thinks it should be in recovery;" + " forcing it back to down state to re-run the leader-initiated recovery process; props: " + replicaProps.get(0),coreNeedingRecovery,replicaCoreNodeName);
                       zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,nodeProps,leaderCoreNodeName,true,true);
                     }

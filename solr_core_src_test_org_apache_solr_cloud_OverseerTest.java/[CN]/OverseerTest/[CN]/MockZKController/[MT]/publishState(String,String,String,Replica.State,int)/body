@@ -1,0 +1,37 @@
+{
+  if (stateName == null) {
+    ElectionContext ec=electionContext.remove(coreName);
+    if (ec != null) {
+      ec.cancelElection();
+    }
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.DELETECORE.toLower(),ZkStateReader.NODE_NAME_PROP,nodeName,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.CORE_NODE_NAME_PROP,coreNodeName,ZkStateReader.COLLECTION_PROP,collection);
+    DistributedQueue q=Overseer.getInQueue(zkClient);
+    q.offer(ZkStateReader.toJSON(m));
+    return null;
+  }
+ else {
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.STATE_PROP,stateName.toString(),ZkStateReader.NODE_NAME_PROP,nodeName,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.CORE_NODE_NAME_PROP,coreNodeName,ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.NUM_SHARDS_PROP,Integer.toString(numShards),ZkStateReader.BASE_URL_PROP,"http://" + nodeName + "/solr/");
+    DistributedQueue q=Overseer.getInQueue(zkClient);
+    q.offer(ZkStateReader.toJSON(m));
+  }
+  if (collection.length() > 0) {
+    for (int i=0; i < 120; i++) {
+      String shardId=getShardId(collection,coreNodeName);
+      if (shardId != null) {
+        try {
+          zkClient.makePath("/collections/" + collection + "/leader_elect/"+ shardId+ "/election",true);
+        }
+ catch (        NodeExistsException nee) {
+        }
+        ZkNodeProps props=new ZkNodeProps(ZkStateReader.BASE_URL_PROP,"http://" + nodeName + "/solr/",ZkStateReader.NODE_NAME_PROP,nodeName,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.CORE_NODE_NAME_PROP,coreNodeName);
+        LeaderElector elector=new LeaderElector(zkClient);
+        ShardLeaderElectionContextBase ctx=new ShardLeaderElectionContextBase(elector,shardId,collection,nodeName + "_" + coreName,props,zkStateReader);
+        elector.setup(ctx);
+        elector.joinElection(ctx,false);
+        return shardId;
+      }
+      Thread.sleep(500);
+    }
+  }
+  return null;
+}
