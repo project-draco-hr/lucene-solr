@@ -1,0 +1,51 @@
+{
+  waitForThingsToLevelOut(30000);
+  log.info("testReloadedLeaderStateAfterZkSessionLoss initialized OK ... running test logic");
+  String testCollectionName="c8n_1x1";
+  String shardId="shard1";
+  createCollectionRetry(testCollectionName,1,1,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  Replica leader=null;
+  String replicaState=null;
+  int timeoutSecs=30;
+  long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(timeoutSecs,TimeUnit.SECONDS);
+  while (System.nanoTime() < timeout) {
+    Replica tmp=null;
+    try {
+      tmp=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,shardId);
+    }
+ catch (    Exception exc) {
+    }
+    if (tmp != null && "active".equals(tmp.getStr(ZkStateReader.STATE_PROP))) {
+      leader=tmp;
+      replicaState="active";
+      break;
+    }
+    Thread.sleep(1000);
+  }
+  assertNotNull("Could not find active leader for " + shardId + " of "+ testCollectionName+ " after "+ timeoutSecs+ " secs; clusterState: "+ printClusterStateInfo(testCollectionName),leader);
+  boolean wasReloaded=reloadCollection(leader,testCollectionName);
+  assertTrue("Collection '" + testCollectionName + "' failed to reload within a reasonable amount of time!",wasReloaded);
+  chaosMonkey.expireSession(getJettyOnPort(getReplicaPort(leader)));
+  Thread.sleep(15000);
+  timeoutSecs=15;
+  timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(timeoutSecs,TimeUnit.SECONDS);
+  while (System.nanoTime() < timeout) {
+    cloudClient.getZkStateReader().updateClusterState(true);
+    ClusterState cs=cloudClient.getZkStateReader().getClusterState();
+    Slice slice=cs.getSlice(testCollectionName,shardId);
+    replicaState=slice.getReplica(leader.getName()).getStr(ZkStateReader.STATE_PROP);
+    if ("active".equals(replicaState))     break;
+    Thread.sleep(1000);
+  }
+  assertEquals("Leader state should be active after recovering from ZK session loss, but after " + timeoutSecs + " seconds, it is "+ replicaState,"active",replicaState);
+  try {
+    CollectionAdminRequest.Delete req=new CollectionAdminRequest.Delete();
+    req.setCollectionName(testCollectionName);
+    req.process(cloudClient);
+  }
+ catch (  Exception e) {
+    log.warn("Could not delete collection {} after test completed",testCollectionName);
+  }
+  log.info("testReloadedLeaderStateAfterZkSessionLoss succeeded ... shutting down now!");
+}
