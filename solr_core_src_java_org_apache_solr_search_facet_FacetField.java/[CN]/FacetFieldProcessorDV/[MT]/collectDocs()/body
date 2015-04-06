@@ -1,0 +1,37 @@
+{
+  if (nTerms <= 0 || fcontext.base.size() < effectiveMincount) {
+    return;
+  }
+  final List<LeafReaderContext> leaves=fcontext.searcher.getIndexReader().leaves();
+  Filter filter=fcontext.base.getTopFilter();
+  for (int subIdx=0; subIdx < leaves.size(); subIdx++) {
+    LeafReaderContext subCtx=leaves.get(subIdx);
+    setNextReader(subCtx);
+    DocIdSet dis=filter.getDocIdSet(subCtx,null);
+    DocIdSetIterator disi=dis.iterator();
+    SortedDocValues singleDv=null;
+    SortedSetDocValues multiDv=null;
+    if (multiValuedField) {
+      multiDv=subCtx.reader().getSortedSetDocValues(sf.getName());
+      if (multiDv == null) {
+        multiDv=DocValues.emptySortedSet();
+      }
+      if (unwrap_singleValued_multiDv) {
+        singleDv=DocValues.unwrapSingleton(multiDv);
+      }
+    }
+ else {
+      singleDv=subCtx.reader().getSortedDocValues(sf.getName());
+      if (singleDv == null) {
+        singleDv=DocValues.emptySorted();
+      }
+    }
+    LongValues toGlobal=ordinalMap == null ? null : ordinalMap.getGlobalOrds(subIdx);
+    if (singleDv != null) {
+      collectDocs(singleDv,disi,toGlobal);
+    }
+ else {
+      collectDocs(multiDv,disi,toGlobal);
+    }
+  }
+}
