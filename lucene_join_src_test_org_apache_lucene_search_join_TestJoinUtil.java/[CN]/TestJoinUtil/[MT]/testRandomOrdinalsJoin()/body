@@ -1,53 +1,58 @@
 {
   Directory dir=newDirectory();
-  RandomIndexWriter w=new RandomIndexWriter(random(),dir,newIndexWriterConfig(new MockAnalyzer(random(),MockTokenizer.KEYWORD,false)).setMergePolicy(newLogMergePolicy()));
-  IndexIterationContext context=createContext(100,w,false,true);
-  w.forceMerge(1);
-  w.close();
-  IndexReader topLevelReader=DirectoryReader.open(dir);
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,newIndexWriterConfig(new MockAnalyzer(random(),MockTokenizer.KEYWORD,false)));
+  IndexIterationContext context=createContext(512,w,false,true);
+  IndexReader topLevelReader=w.getReader();
   SortedDocValues[] values=new SortedDocValues[topLevelReader.leaves().size()];
   for (  LeafReaderContext leadContext : topLevelReader.leaves()) {
     values[leadContext.ord]=DocValues.getSorted(leadContext.reader(),"join_field");
   }
   context.ordinalMap=MultiDocValues.OrdinalMap.build(topLevelReader.getCoreCacheKey(),values,PackedInts.DEFAULT);
+  int searchIters=10;
   IndexSearcher indexSearcher=newSearcher(topLevelReader);
-  int r=random().nextInt(context.randomUniqueValues.length);
-  boolean from=context.randomFrom[r];
-  String randomValue=context.randomUniqueValues[r];
-  BitSet expectedResult=createExpectedResult(randomValue,from,indexSearcher.getIndexReader(),context);
-  final Query actualQuery=new TermQuery(new Term("value",randomValue));
-  if (VERBOSE) {
-    System.out.println("actualQuery=" + actualQuery);
-  }
-  final ScoreMode scoreMode=ScoreMode.values()[random().nextInt(ScoreMode.values().length)];
-  if (VERBOSE) {
-    System.out.println("scoreMode=" + scoreMode);
-  }
-  final Query joinQuery;
-  if (from) {
-    BooleanQuery fromQuery=new BooleanQuery();
-    fromQuery.add(new TermQuery(new Term("type","from")),BooleanClause.Occur.FILTER);
-    fromQuery.add(actualQuery,BooleanClause.Occur.MUST);
-    Query toQuery=new TermQuery(new Term("type","to"));
-    joinQuery=JoinUtil.createJoinQuery("join_field",fromQuery,toQuery,indexSearcher,scoreMode,context.ordinalMap);
-  }
+  for (int i=0; i < searchIters; i++) {
+    if (VERBOSE) {
+      System.out.println("search iter=" + i);
+    }
+    int r=random().nextInt(context.randomUniqueValues.length);
+    boolean from=context.randomFrom[r];
+    String randomValue=context.randomUniqueValues[r];
+    BitSet expectedResult=createExpectedResult(randomValue,from,indexSearcher.getIndexReader(),context);
+    final Query actualQuery=new TermQuery(new Term("value",randomValue));
+    if (VERBOSE) {
+      System.out.println("actualQuery=" + actualQuery);
+    }
+    final ScoreMode scoreMode=ScoreMode.values()[random().nextInt(ScoreMode.values().length)];
+    if (VERBOSE) {
+      System.out.println("scoreMode=" + scoreMode);
+    }
+    final Query joinQuery;
+    if (from) {
+      BooleanQuery fromQuery=new BooleanQuery();
+      fromQuery.add(new TermQuery(new Term("type","from")),BooleanClause.Occur.FILTER);
+      fromQuery.add(actualQuery,BooleanClause.Occur.MUST);
+      Query toQuery=new TermQuery(new Term("type","to"));
+      joinQuery=JoinUtil.createJoinQuery("join_field",fromQuery,toQuery,indexSearcher,scoreMode,context.ordinalMap);
+    }
  else {
-    BooleanQuery fromQuery=new BooleanQuery();
-    fromQuery.add(new TermQuery(new Term("type","to")),BooleanClause.Occur.FILTER);
-    fromQuery.add(actualQuery,BooleanClause.Occur.MUST);
-    Query toQuery=new TermQuery(new Term("type","from"));
-    joinQuery=JoinUtil.createJoinQuery("join_field",fromQuery,toQuery,indexSearcher,scoreMode,context.ordinalMap);
+      BooleanQuery fromQuery=new BooleanQuery();
+      fromQuery.add(new TermQuery(new Term("type","to")),BooleanClause.Occur.FILTER);
+      fromQuery.add(actualQuery,BooleanClause.Occur.MUST);
+      Query toQuery=new TermQuery(new Term("type","from"));
+      joinQuery=JoinUtil.createJoinQuery("join_field",fromQuery,toQuery,indexSearcher,scoreMode,context.ordinalMap);
+    }
+    if (VERBOSE) {
+      System.out.println("joinQuery=" + joinQuery);
+    }
+    final BitSet actualResult=new FixedBitSet(indexSearcher.getIndexReader().maxDoc());
+    final TopScoreDocCollector topScoreDocCollector=TopScoreDocCollector.create(10);
+    indexSearcher.search(joinQuery,MultiCollector.wrap(new BitSetCollector(actualResult),topScoreDocCollector));
+    assertBitSet(expectedResult,actualResult,indexSearcher);
+    TopDocs expectedTopDocs=createExpectedTopDocs(randomValue,from,scoreMode,context);
+    TopDocs actualTopDocs=topScoreDocCollector.topDocs();
+    assertTopDocs(expectedTopDocs,actualTopDocs,scoreMode,indexSearcher,joinQuery);
   }
-  if (VERBOSE) {
-    System.out.println("joinQuery=" + joinQuery);
-  }
-  final BitSet actualResult=new FixedBitSet(indexSearcher.getIndexReader().maxDoc());
-  final TopScoreDocCollector topScoreDocCollector=TopScoreDocCollector.create(10);
-  indexSearcher.search(joinQuery,MultiCollector.wrap(new BitSetCollector(actualResult),topScoreDocCollector));
-  assertBitSet(expectedResult,actualResult,indexSearcher);
-  TopDocs expectedTopDocs=createExpectedTopDocs(randomValue,from,scoreMode,context);
-  TopDocs actualTopDocs=topScoreDocCollector.topDocs();
-  assertTopDocs(expectedTopDocs,actualTopDocs,scoreMode,indexSearcher,joinQuery);
+  w.close();
   topLevelReader.close();
   dir.close();
 }
