@@ -1,0 +1,120 @@
+{
+  MockDirectoryWrapper dir=newMockDirectory();
+  dir.setThrottling(MockDirectoryWrapper.Throttling.NEVER);
+  dir.setUseSlowOpenClosers(false);
+  dir.setPreventDoubleWrite(false);
+  dir.setRandomIOExceptionRate(0.001);
+  ByteArrayOutputStream exceptionLog=new ByteArrayOutputStream();
+  PrintStream exceptionStream=new PrintStream(exceptionLog,true,"UTF-8");
+  Analyzer analyzer=new MockAnalyzer(random());
+  IndexWriterConfig conf=newIndexWriterConfig(analyzer);
+  conf.setMergeScheduler(new SerialMergeScheduler());
+  conf.setCodec(getCodec());
+  int numDocs=atLeast(500);
+  IndexWriter iw=new IndexWriter(dir,conf);
+  try {
+    boolean allowAlreadyClosed=false;
+    for (int i=0; i < numDocs; i++) {
+      dir.setRandomIOExceptionRateOnOpen(0.02);
+      Document doc=new Document();
+      doc.add(newStringField("id",Integer.toString(i),Field.Store.NO));
+      addRandomFields(doc);
+      try {
+        iw.addDocument(doc);
+        iw.deleteDocuments(new Term("id",Integer.toString(i)));
+      }
+ catch (      AlreadyClosedException ace) {
+        dir.setRandomIOExceptionRateOnOpen(0.0);
+        assertTrue(iw.deleter.isClosed());
+        assertTrue(allowAlreadyClosed);
+        allowAlreadyClosed=false;
+        conf=newIndexWriterConfig(analyzer);
+        conf.setMergeScheduler(new SerialMergeScheduler());
+        conf.setCodec(getCodec());
+        iw=new IndexWriter(dir,conf);
+      }
+catch (      Exception e) {
+        if (e.getMessage() != null && e.getMessage().startsWith("a random IOException")) {
+          exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+          e.printStackTrace(exceptionStream);
+          allowAlreadyClosed=true;
+        }
+ else {
+          Rethrow.rethrow(e);
+        }
+      }
+      if (random().nextInt(10) == 0) {
+        try {
+          if (random().nextBoolean()) {
+            DirectoryReader ir=null;
+            try {
+              ir=DirectoryReader.open(iw,random().nextBoolean());
+              dir.setRandomIOExceptionRateOnOpen(0.0);
+              TestUtil.checkReader(ir);
+            }
+  finally {
+              IOUtils.closeWhileHandlingException(ir);
+            }
+          }
+ else {
+            dir.setRandomIOExceptionRateOnOpen(0.0);
+            iw.commit();
+          }
+          if (DirectoryReader.indexExists(dir)) {
+            TestUtil.checkIndex(dir);
+          }
+        }
+ catch (        AlreadyClosedException ace) {
+          dir.setRandomIOExceptionRateOnOpen(0.0);
+          assertTrue(iw.deleter.isClosed());
+          assertTrue(allowAlreadyClosed);
+          allowAlreadyClosed=false;
+          conf=newIndexWriterConfig(analyzer);
+          conf.setMergeScheduler(new SerialMergeScheduler());
+          conf.setCodec(getCodec());
+          iw=new IndexWriter(dir,conf);
+        }
+catch (        Exception e) {
+          if (e.getMessage() != null && e.getMessage().startsWith("a random IOException")) {
+            exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+            e.printStackTrace(exceptionStream);
+            allowAlreadyClosed=true;
+          }
+ else {
+            Rethrow.rethrow(e);
+          }
+        }
+      }
+    }
+    try {
+      dir.setRandomIOExceptionRateOnOpen(0.0);
+      iw.close();
+    }
+ catch (    Exception e) {
+      if (e.getMessage() != null && e.getMessage().startsWith("a random IOException")) {
+        exceptionStream.println("\nTEST: got expected fake exc:" + e.getMessage());
+        e.printStackTrace(exceptionStream);
+        try {
+          iw.rollback();
+        }
+ catch (        Throwable t) {
+        }
+      }
+ else {
+        Rethrow.rethrow(e);
+      }
+    }
+    dir.close();
+  }
+ catch (  Throwable t) {
+    System.out.println("Unexpected exception: dumping fake-exception-log:...");
+    exceptionStream.flush();
+    System.out.println(exceptionLog.toString("UTF-8"));
+    System.out.flush();
+    Rethrow.rethrow(t);
+  }
+  if (VERBOSE) {
+    System.out.println("TEST PASSED: dumping fake-exception-log:...");
+    System.out.println(exceptionLog.toString("UTF-8"));
+  }
+}
