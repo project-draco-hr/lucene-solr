@@ -1,20 +1,22 @@
 {
+  log.info("Running multiShardTest");
   String testCollectionName="c8n_2x2_commits";
   createCollection(testCollectionName,2,2,1);
   cloudClient.setDefaultCollection(testCollectionName);
   List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",2,2,30);
   assertTrue("Expected 1 replicas for collection " + testCollectionName + " but found "+ notLeaders.size()+ "; clusterState: "+ printClusterStateInfo(),notLeaders.size() == 1);
+  log.info("All replicas active for " + testCollectionName);
   Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
+  log.info("Creating partition to leader at " + leader.getCoreUrl());
   SocketProxy leaderProxy=getProxyForReplica(leader);
   leaderProxy.close();
   Replica shard2Leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard2");
-  try (HttpSolrClient server=new HttpSolrClient(ZkCoreNodeProps.getCoreUrl(shard2Leader.getStr("base_url"),shard2Leader.getStr("core")))){
-    server.commit();
-  }
-   Thread.sleep(sleepMsBeforeHealPartition);
+  sendCommitWithRetry(shard2Leader);
+  Thread.sleep(sleepMsBeforeHealPartition);
   cloudClient.getZkStateReader().updateClusterState(true);
   leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1");
   assertSame("Leader was not active",Replica.State.ACTIVE,leader.getState());
+  log.info("Healing partitioned replica at " + leader.getCoreUrl());
   leaderProxy.reopen();
   Thread.sleep(sleepMsBeforeHealPartition);
   try {
@@ -25,4 +27,5 @@
  catch (  Exception e) {
     log.warn("Could not delete collection {} after test completed",testCollectionName);
   }
+  log.info("multiShardTest completed OK");
 }
