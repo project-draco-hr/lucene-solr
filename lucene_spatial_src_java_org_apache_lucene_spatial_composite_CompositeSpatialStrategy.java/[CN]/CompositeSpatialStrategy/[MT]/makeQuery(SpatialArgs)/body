@@ -1,0 +1,31 @@
+{
+  final SpatialOperation pred=args.getOperation();
+  if (pred == SpatialOperation.BBoxIntersects || pred == SpatialOperation.BBoxWithin) {
+    throw new UnsupportedSpatialOperation(pred);
+  }
+  if (pred == SpatialOperation.IsDisjointTo) {
+    throw new UnsupportedSpatialOperation(pred);
+  }
+  final ShapePredicateValueSource predicateValueSource=new ShapePredicateValueSource(geometryStrategy.makeShapeValueSource(),pred,args.getShape());
+  if (pred == SpatialOperation.Intersects && optimizePredicates) {
+    final SpatialPrefixTree grid=indexStrategy.getGrid();
+    final int detailLevel=grid.getLevelForDistance(args.resolveDistErr(ctx,0.0));
+    return new IntersectsRPTVerifyQuery(args.getShape(),indexStrategy.getFieldName(),grid,detailLevel,indexStrategy.getPrefixGridScanLevel(),predicateValueSource);
+  }
+ else {
+    SpatialArgs indexArgs;
+    if (pred == SpatialOperation.Contains) {
+      indexArgs=args;
+    }
+ else {
+      indexArgs=new SpatialArgs(SpatialOperation.Intersects,args.getShape());
+      indexArgs.setDistErr(args.getDistErr());
+      indexArgs.setDistErrPct(args.getDistErrPct());
+    }
+    if (indexArgs.getDistErr() == null && indexArgs.getDistErrPct() == null) {
+      indexArgs.setDistErrPct(0.10);
+    }
+    final Query indexQuery=indexStrategy.makeQuery(indexArgs);
+    return new CompositeVerifyQuery(indexQuery,predicateValueSource);
+  }
+}

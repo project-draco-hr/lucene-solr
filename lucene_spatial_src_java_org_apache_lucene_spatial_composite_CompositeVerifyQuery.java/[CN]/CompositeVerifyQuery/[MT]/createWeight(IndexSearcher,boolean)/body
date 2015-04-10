@@ -1,0 +1,21 @@
+{
+  final Weight indexQueryWeight=indexQuery.createWeight(searcher,false);
+  final Map valueSourceContext=ValueSource.newContext(searcher);
+  return new ConstantScoreWeight(this){
+    @Override protected Scorer scorer(    LeafReaderContext context,    Bits acceptDocs,    float score) throws IOException {
+      final Scorer indexQueryScorer=indexQueryWeight.scorer(context,acceptDocs);
+      if (indexQueryScorer == null) {
+        return null;
+      }
+      final FunctionValues predFuncValues=predicateValueSource.getValues(valueSourceContext,context);
+      final TwoPhaseIterator twoPhaseIterator=new TwoPhaseIterator(indexQueryScorer){
+        @Override public boolean matches() throws IOException {
+          return predFuncValues.boolVal(indexQueryScorer.docID());
+        }
+      }
+;
+      return new ConstantScoreScorer(this,score,twoPhaseIterator);
+    }
+  }
+;
+}
