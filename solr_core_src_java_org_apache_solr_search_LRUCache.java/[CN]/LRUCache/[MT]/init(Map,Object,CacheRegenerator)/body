@@ -4,13 +4,44 @@
   final int limit=str == null ? 1024 : Integer.parseInt(str);
   str=(String)args.get("initialSize");
   final int initialSize=Math.min(str == null ? 1024 : Integer.parseInt(str),limit);
+  str=(String)args.get("maxRamMB");
+  final long maxRamBytes=this.maxRamBytes=str == null ? Long.MAX_VALUE : (long)(Double.parseDouble(str) * 1024L * 1024L);
   description=generateDescription(limit,initialSize);
   map=new LinkedHashMap<K,V>(initialSize,0.75f,true){
     @Override protected boolean removeEldestEntry(    Map.Entry eldest){
-      if (size() > limit) {
-        evictions++;
-        stats.evictions.incrementAndGet();
-        return true;
+      if (size() > limit || ramBytesUsed > maxRamBytes) {
+        if (maxRamBytes != Long.MAX_VALUE && ramBytesUsed > maxRamBytes) {
+          long bytesToDecrement=0;
+          Iterator<Map.Entry<K,V>> iterator=entrySet().iterator();
+          do {
+            Map.Entry<K,V> entry=iterator.next();
+            if (entry.getKey() != null) {
+              if (entry.getKey() instanceof Accountable) {
+                bytesToDecrement+=((Accountable)entry.getKey()).ramBytesUsed();
+              }
+ else {
+                bytesToDecrement+=DEFAULT_RAM_BYTES_USED;
+              }
+            }
+            if (entry.getValue() != null) {
+              bytesToDecrement+=((Accountable)entry.getValue()).ramBytesUsed();
+            }
+            bytesToDecrement+=LINKED_HASHTABLE_RAM_BYTES_PER_ENTRY;
+            ramBytesUsed-=bytesToDecrement;
+            iterator.remove();
+            evictions++;
+            evictionsRamUsage++;
+            stats.evictions.incrementAndGet();
+            stats.evictionsRamUsage.incrementAndGet();
+          }
+ while (iterator.hasNext() && ramBytesUsed > maxRamBytes);
+          return false;
+        }
+ else {
+          evictions++;
+          stats.evictions.incrementAndGet();
+          return true;
+        }
       }
       return false;
     }

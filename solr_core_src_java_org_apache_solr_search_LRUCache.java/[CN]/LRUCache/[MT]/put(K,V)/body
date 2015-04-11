@@ -4,6 +4,38 @@ synchronized (map) {
       stats.inserts.incrementAndGet();
     }
     inserts++;
-    return map.put(key,value);
+    long keySize=DEFAULT_RAM_BYTES_USED;
+    if (maxRamBytes != Long.MAX_VALUE) {
+      if (key != null && key instanceof Accountable) {
+        keySize=((Accountable)key).ramBytesUsed();
+      }
+      long valueSize=0;
+      if (value != null) {
+        if (value instanceof Accountable) {
+          Accountable accountable=(Accountable)value;
+          valueSize=accountable.ramBytesUsed();
+        }
+ else {
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Cache: " + getName() + " is configured with maxRamBytes="+ RamUsageEstimator.humanReadableUnits(maxRamBytes)+ " but its values do not implement org.apache.lucene.util.Accountable");
+        }
+      }
+      ramBytesUsed+=keySize + valueSize + LINKED_HASHTABLE_RAM_BYTES_PER_ENTRY;
+    }
+    V old=map.put(key,value);
+    if (maxRamBytes != Long.MAX_VALUE && old != null) {
+      long bytesToDecrement=((Accountable)old).ramBytesUsed();
+      bytesToDecrement+=LINKED_HASHTABLE_RAM_BYTES_PER_ENTRY;
+      if (key != null) {
+        if (key instanceof Accountable) {
+          Accountable aKey=(Accountable)key;
+          bytesToDecrement+=aKey.ramBytesUsed();
+        }
+ else {
+          bytesToDecrement+=DEFAULT_RAM_BYTES_USED;
+        }
+      }
+      ramBytesUsed-=bytesToDecrement;
+    }
+    return old;
   }
 }
