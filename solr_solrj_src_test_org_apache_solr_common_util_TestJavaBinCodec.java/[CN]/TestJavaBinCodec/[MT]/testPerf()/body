@@ -1,2 +1,67 @@
 {
+  final ArrayList<JavaBinCodec.StringBytes> l=new ArrayList<>();
+  Cache<JavaBinCodec.StringBytes,String> cache=null;
+  Runtime.getRuntime().gc();
+  printMem("before cache init");
+  Cache<JavaBinCodec.StringBytes,String> cache1=new Cache<JavaBinCodec.StringBytes,String>(){
+    private HashMap<JavaBinCodec.StringBytes,String> cache=new HashMap<>();
+    @Override public String put(    JavaBinCodec.StringBytes key,    String val){
+      l.add(key);
+      return cache.put(key,val);
+    }
+    @Override public String get(    JavaBinCodec.StringBytes key){
+      return cache.get(key);
+    }
+    @Override public String remove(    JavaBinCodec.StringBytes key){
+      return cache.remove(key);
+    }
+    @Override public void clear(){
+      cache.clear();
+    }
+  }
+;
+  final JavaBinCodec.StringCache STRING_CACHE=new JavaBinCodec.StringCache(cache1);
+  byte[] bytes=new byte[0];
+  JavaBinCodec.StringBytes stringBytes=new JavaBinCodec.StringBytes(null,0,0);
+  for (int i=0; i < 10000; i++) {
+    String s=String.valueOf(random().nextLong());
+    int end=s.length();
+    int maxSize=end * 4;
+    if (bytes == null || bytes.length < maxSize)     bytes=new byte[maxSize];
+    int sz=ByteUtils.UTF16toUTF8(s,0,end,bytes,0);
+    STRING_CACHE.get(stringBytes.reset(bytes,0,sz));
+  }
+  printMem("after cache init");
+  long ms=System.currentTimeMillis();
+  final int ITERS=1000000;
+  int THREADS=10;
+  runInThreads(THREADS,new Runnable(){
+    @Override public void run(){
+      JavaBinCodec.StringBytes stringBytes1=new JavaBinCodec.StringBytes(new byte[0],0,0);
+      for (int i=0; i < ITERS; i++) {
+        JavaBinCodec.StringBytes b=l.get(i % l.size());
+        stringBytes1.reset(b.bytes,0,b.bytes.length);
+        if (STRING_CACHE.get(stringBytes1) == null)         throw new RuntimeException("error");
+      }
+    }
+  }
+);
+  printMem("after cache test");
+  System.out.println("time taken by LRUCACHE " + (System.currentTimeMillis() - ms));
+  ms=System.currentTimeMillis();
+  runInThreads(THREADS,new Runnable(){
+    @Override public void run(){
+      String a=null;
+      CharArr arr=new CharArr();
+      for (int i=0; i < ITERS; i++) {
+        JavaBinCodec.StringBytes sb=l.get(i % l.size());
+        arr.reset();
+        ByteUtils.UTF8toUTF16(sb.bytes,0,sb.bytes.length,arr);
+        a=arr.toString();
+      }
+    }
+  }
+);
+  printMem("after new string test");
+  System.out.println("time taken by string creation " + (System.currentTimeMillis() - ms));
 }
