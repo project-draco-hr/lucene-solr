@@ -10,12 +10,18 @@
   if (dataDir != null) {
     final String coreName=badReplica.replica.getStr(ZkStateReader.CORE_NAME_PROP);
     log.debug("submit call to {}",createUrl);
-    updateExecutor.submit(new Callable<Boolean>(){
-      @Override public Boolean call(){
-        return createSolrCore(collection,createUrl,dataDir,ulogDir,coreNodeName,coreName);
+    MDC.put("OverseerAutoReplicaFailoverThread.createUrl",createUrl);
+    try {
+      updateExecutor.submit(new Callable<Boolean>(){
+        @Override public Boolean call(){
+          return createSolrCore(collection,createUrl,dataDir,ulogDir,coreNodeName,coreName);
+        }
       }
-    }
 );
+    }
+  finally {
+      MDC.remove("OverseerAutoReplicaFailoverThread.createUrl");
+    }
     boolean success=ClusterStateUtil.waitToSeeLiveReplica(zkStateReader,collection,coreNodeName,createUrl,30000);
     if (!success) {
       log.error("Creating new replica appears to have failed, timed out waiting to see created SolrCore register in the clusterstate.");
