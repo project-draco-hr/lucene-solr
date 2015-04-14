@@ -1,0 +1,25 @@
+{
+  Path path=createTempDir("maxposindex");
+  InputStream resource=getClass().getResourceAsStream("maxposindex.zip");
+  assertNotNull("maxposindex not found",resource);
+  TestUtil.unzip(resource,path);
+  BaseDirectoryWrapper dir=newFSDirectory(path);
+  dir.setCheckIndexOnClose(false);
+  try {
+    TestUtil.checkIndex(dir,false,true);
+    fail("corruption was not detected");
+  }
+ catch (  RuntimeException re) {
+    assertTrue(re.getMessage().contains("pos 2147483647 > IndexWriter.MAX_POSITION=2147483519"));
+  }
+  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig().setMergeScheduler(new SerialMergeScheduler()));
+  w.addDocument(new Document());
+  try {
+    w.forceMerge(1);
+  }
+ catch (  CorruptIndexException cie) {
+    assertTrue(cie.getMessage().contains("position=2147483647 is too large (> IndexWriter.MAX_POSITION=2147483519), field=\"foo\" doc=0 (resource=PerFieldPostings(segment=_0 formats=1)"));
+  }
+  w.close();
+  dir.close();
+}
