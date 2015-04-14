@@ -3,31 +3,37 @@
   if (!isHighlightingEnabled(params))   return null;
   SolrIndexSearcher searcher=req.getSearcher();
   IndexSchema schema=searcher.getSchema();
-  NamedList fragments=new SimpleOrderedMap();
-  String[] fieldNames=getHighlightFields(query,req,defaultFields);
-  Set<String> fset=new HashSet<>();
-{
-    for (    String f : fieldNames) {
-      fset.add(f);
-    }
-    SchemaField keyField=schema.getUniqueKeyField();
-    if (null != keyField)     fset.add(keyField.getName());
+  SchemaField keyField=schema.getUniqueKeyField();
+  if (keyField == null) {
+    return null;
   }
-  FastVectorHighlighter fvh=new FastVectorHighlighter(params.getBool(HighlightParams.USE_PHRASE_HIGHLIGHTER,true),params.getBool(HighlightParams.FIELD_MATCH,false));
-  fvh.setPhraseLimit(params.getInt(HighlightParams.PHRASE_LIMIT,SolrHighlighter.DEFAULT_PHRASE_LIMIT));
-  FieldQuery fieldQuery=fvh.getFieldQuery(query,searcher.getIndexReader());
+  String[] fieldNames=getHighlightFields(query,req,defaultFields);
+  Set<String> preFetchFieldNames=getDocPrefetchFieldNames(fieldNames,req);
+  if (preFetchFieldNames != null) {
+    preFetchFieldNames.add(keyField.getName());
+  }
+  FastVectorHighlighter fvh=null;
+  FieldQuery fvhFieldQuery=null;
+  NamedList fragments=new SimpleOrderedMap();
   DocIterator iterator=docs.iterator();
   for (int i=0; i < docs.size(); i++) {
     int docId=iterator.nextDoc();
-    StoredDocument doc=searcher.doc(docId,fset);
+    StoredDocument doc=searcher.doc(docId,preFetchFieldNames);
     NamedList docSummaries=new SimpleOrderedMap();
     for (    String fieldName : fieldNames) {
-      fieldName=fieldName.trim();
-      if (useFastVectorHighlighter(params,schema,fieldName))       doHighlightingByFastVectorHighlighter(fvh,fieldQuery,req,docSummaries,docId,doc,fieldName);
- else       doHighlightingByHighlighter(query,req,docSummaries,docId,doc,fieldName);
+      if (useFastVectorHighlighter(params,schema,fieldName)) {
+        if (fvhFieldQuery == null) {
+          fvh=new FastVectorHighlighter(params.getBool(HighlightParams.USE_PHRASE_HIGHLIGHTER,true),params.getBool(HighlightParams.FIELD_MATCH,false));
+          fvh.setPhraseLimit(params.getInt(HighlightParams.PHRASE_LIMIT,SolrHighlighter.DEFAULT_PHRASE_LIMIT));
+          fvhFieldQuery=fvh.getFieldQuery(query,searcher.getIndexReader());
+        }
+        doHighlightingByFastVectorHighlighter(fvh,fvhFieldQuery,req,docSummaries,docId,doc,fieldName);
+      }
+ else {
+        doHighlightingByHighlighter(query,req,docSummaries,docId,doc,fieldName);
+      }
     }
-    String printId=schema.printableUniqueKey(doc);
-    fragments.add(printId == null ? null : printId,docSummaries);
+    fragments.add(schema.printableUniqueKey(doc),docSummaries);
   }
   return fragments;
 }
