@@ -1,0 +1,50 @@
+{
+  String rawJson="{ \"raw\": 1.234, \"id\":\"111\" }";
+  String rawXml="<hello>this is <some/><xml/></hello>";
+  SolrClient client=getSolrClient();
+  client.deleteByQuery("*:*");
+  SolrInputDocument doc=new SolrInputDocument();
+  doc.addField("id","111",1.0f);
+  doc.addField("name","doc1",1.0f);
+  doc.addField("json_s",rawJson);
+  doc.addField("xml_s",rawXml);
+  client.add(doc);
+  client.commit();
+  SolrQuery query=new SolrQuery();
+  query.setQuery("*:*");
+  query.set(CommonParams.FL,"id,json_s:[json],xml_s:[xml]");
+  QueryRequest req=new QueryRequest(query);
+  req.setResponseParser(new BinaryResponseParser());
+  QueryResponse rsp=req.process(client);
+  SolrDocumentList out=rsp.getResults();
+  assertEquals(1,out.getNumFound());
+  SolrDocument out1=out.get(0);
+  assertEquals("111",out1.getFieldValue("id"));
+  assertEquals(rawJson,out1.get("json_s"));
+  assertEquals(rawXml,out1.get("xml_s"));
+  if (client instanceof EmbeddedSolrServer) {
+    return;
+  }
+  query.set("fl","id,json_s:[json],xml_s:[xml]");
+  query.set(CommonParams.WT,"json");
+  req=new QueryRequest(query);
+  req.setResponseParser(new NoOpResponseParser("json"));
+  NamedList<Object> resp=client.request(req);
+  String raw=(String)resp.get("response");
+  JSONParser parser=new JSONParser(raw);
+  int evt=parser.nextEvent();
+  while (evt != JSONParser.EOF) {
+    evt=parser.nextEvent();
+  }
+  assertTrue(raw.indexOf(rawJson) > 0);
+  assertTrue(raw.indexOf('"' + rawXml + '"') > 0);
+  req.setResponseParser(new NoOpResponseParser("xml"));
+  query.set("fl","id,json_s:[json],xml_s:[xml]");
+  query.set(CommonParams.WT,"xml");
+  req=new QueryRequest(query);
+  req.setResponseParser(new NoOpResponseParser("xml"));
+  resp=client.request(req);
+  raw=(String)resp.get("response");
+  assertTrue(raw.indexOf('>' + rawJson + '<') > 0);
+  assertTrue(raw.indexOf(rawXml) > 0);
+}
