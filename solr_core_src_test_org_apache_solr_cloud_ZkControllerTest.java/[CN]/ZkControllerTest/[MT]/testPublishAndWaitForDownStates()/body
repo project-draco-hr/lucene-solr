@@ -1,0 +1,50 @@
+{
+  String zkDir=createTempDir("testPublishAndWaitForDownStates").toFile().getAbsolutePath();
+  CoreContainer cc=null;
+  ZkTestServer server=new ZkTestServer(zkDir);
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    cc=getCoreContainer();
+    ZkController zkController=null;
+    try {
+      CloudConfig cloudConfig=new CloudConfig.CloudConfigBuilder("127.0.0.1",8983,"solr").build();
+      zkController=new ZkController(cc,server.getZkAddress(),TIMEOUT,cloudConfig,new CurrentCoreDescriptorProvider(){
+        @Override public List<CoreDescriptor> getCurrentDescriptors(){
+          return null;
+        }
+      }
+);
+      HashMap<String,DocCollection> collectionStates=new HashMap<>();
+      HashMap<String,Replica> replicas=new HashMap<>();
+      for (int i=1; i <= 2; i++) {
+        Replica r=new Replica("core_node" + i,map(ZkStateReader.STATE_PROP,i == 1 ? "active" : "down",ZkStateReader.NODE_NAME_PROP,i == 1 ? "127.0.0.1:8983_solr" : "non_existent_host",ZkStateReader.CORE_NAME_PROP,"collection1"));
+        replicas.put("core_node" + i,r);
+      }
+      HashMap<String,Object> sliceProps=new HashMap<>();
+      sliceProps.put("state",Slice.State.ACTIVE.toString());
+      Slice slice=new Slice("shard1",replicas,sliceProps);
+      DocCollection c=new DocCollection("testPublishAndWaitForDownStates",map("shard1",slice),Collections.emptyMap(),DocRouter.DEFAULT);
+      ClusterState state=new ClusterState(0,Collections.emptySet(),map("testPublishAndWaitForDownStates",c));
+      byte[] bytes=ZkStateReader.toJSON(state);
+      zkController.getZkClient().makePath(ZkStateReader.getCollectionPath("testPublishAndWaitForDownStates"),bytes,CreateMode.PERSISTENT,true);
+      zkController.getZkStateReader().updateClusterState(true);
+      assertTrue(zkController.getZkStateReader().getClusterState().hasCollection("testPublishAndWaitForDownStates"));
+      assertNotNull(zkController.getZkStateReader().getClusterState().getCollection("testPublishAndWaitForDownStates"));
+      long now=System.nanoTime();
+      long timeout=now + TimeUnit.NANOSECONDS.convert(ZkController.WAIT_DOWN_STATES_TIMEOUT_SECONDS,TimeUnit.SECONDS);
+      zkController.publishAndWaitForDownStates();
+      assertTrue("The ZkController.publishAndWaitForDownStates should have timed out but it didn't",System.nanoTime() >= timeout);
+    }
+  finally {
+      if (zkController != null)       zkController.close();
+    }
+  }
+  finally {
+    if (cc != null) {
+      cc.shutdown();
+    }
+    server.shutdown();
+  }
+}
