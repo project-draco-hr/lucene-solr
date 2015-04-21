@@ -4,30 +4,19 @@
     int newDoc=scorer.advance(doc);
     if (newDoc == doc) {
       float freq=scorer.sloppyFreq();
+      Explanation freqExplanation=Explanation.match(freq,"phraseFreq=" + freq);
       SimScorer docScorer=similarity.simScorer(stats,context);
-      Explanation expl=new Explanation();
-      expl.setDescription("weight(" + getQuery() + " in "+ doc+ ") ["+ similarity.getClass().getSimpleName()+ "], result of:");
-      Explanation scoreExplanation=docScorer.explain(doc,new Explanation(freq,"phraseFreq=" + freq));
-      expl.addDetail(scoreExplanation);
-      expl.setValue(scoreExplanation.getValue());
+      Explanation scoreExplanation=docScorer.explain(doc,freqExplanation);
+      Explanation expl=Explanation.match(scoreExplanation.getValue(),"weight(" + getQuery() + " in "+ doc+ ") ["+ similarity.getClass().getSimpleName()+ "], result of:",scoreExplanation);
       String field=((SpanQuery)getQuery()).getField();
       Explanation payloadExpl=function.explain(doc,field,scorer.payloadsSeen,scorer.payloadScore);
-      payloadExpl.setValue(scorer.getPayloadScore());
-      ComplexExplanation result=new ComplexExplanation();
       if (includeSpanScore) {
-        result.addDetail(expl);
-        result.addDetail(payloadExpl);
-        result.setValue(expl.getValue() * payloadExpl.getValue());
-        result.setDescription("btq, product of:");
+        return Explanation.match(expl.getValue() * payloadExpl.getValue(),"btq, product of:",expl,payloadExpl);
       }
  else {
-        result.addDetail(payloadExpl);
-        result.setValue(payloadExpl.getValue());
-        result.setDescription("btq(includeSpanScore=false), result of:");
+        return Explanation.match(payloadExpl.getValue(),"btq(includeSpanScore=false), result of:",payloadExpl);
       }
-      result.setMatch(true);
-      return result;
     }
   }
-  return new ComplexExplanation(false,0.0f,"no matching term");
+  return Explanation.noMatch("no matching term");
 }
