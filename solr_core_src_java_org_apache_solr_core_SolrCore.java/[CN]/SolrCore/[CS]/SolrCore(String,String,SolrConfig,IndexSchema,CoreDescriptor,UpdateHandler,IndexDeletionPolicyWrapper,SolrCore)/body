@@ -1,61 +1,26 @@
 {
-  coreDescriptor=cd;
-  this.setName(name);
+  checkNotNull(coreDescriptor,"coreDescriptor cannot be null");
+  this.coreDescriptor=coreDescriptor;
+  setName(name);
   MDCUtils.setCore(name);
   resourceLoader=config.getResourceLoader();
   this.solrConfig=config;
   if (updateHandler == null) {
-    initDirectoryFactory();
-  }
-  if (dataDir == null) {
-    if (cd.usingDefaultDataDir())     dataDir=config.getDataDir();
-    if (dataDir == null) {
-      try {
-        dataDir=cd.getDataDir();
-        if (!directoryFactory.isAbsolute(dataDir)) {
-          dataDir=directoryFactory.getDataHome(cd);
-        }
-      }
- catch (      IOException e) {
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,null,e);
-      }
-    }
-  }
-  dataDir=SolrResourceLoader.normalizeDir(dataDir);
-  String updateLogDir=cd.getUlogDir();
-  if (updateLogDir == null) {
-    updateLogDir=dataDir;
-    if (new File(updateLogDir).isAbsolute() == false) {
-      updateLogDir=SolrResourceLoader.normalizeDir(cd.getInstanceDir()) + updateLogDir;
-    }
-  }
-  ulogDir=updateLogDir;
-  log.info(logid + "Opening new SolrCore at " + resourceLoader.getInstanceDir()+ ", dataDir="+ dataDir);
-  if (null != cd && null != cd.getCloudDescriptor()) {
-    try {
-      VersionInfo.getAndCheckVersionField(schema);
-    }
- catch (    SolrException e) {
-      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Schema will not work with SolrCloud mode: " + e.getMessage(),e);
-    }
-  }
-  if (config.jmxConfig.enabled) {
-    infoRegistry=new JmxMonitoredMap<String,SolrInfoMBean>(name,String.valueOf(this.hashCode()),config.jmxConfig);
+    directoryFactory=initDirectoryFactory();
+    solrCoreState=new DefaultSolrCoreState(directoryFactory);
   }
  else {
-    log.info("JMX monitoring not detected for core: " + name);
-    infoRegistry=new ConcurrentHashMap<>();
+    solrCoreState=updateHandler.getSolrCoreState();
+    directoryFactory=solrCoreState.getDirectoryFactory();
+    isReloaded=true;
   }
+  this.dataDir=initDataDir(dataDir,config,coreDescriptor);
+  this.ulogDir=initUpdateLogDir(coreDescriptor);
+  log.info("[{}] Opening new SolrCore at [{}], dataDir=[{}]",logid,resourceLoader.getInstanceDir(),dataDir);
+  checkVersionFieldExistsInSchema(schema,coreDescriptor);
+  this.infoRegistry=initInfoRegistry(name,config);
   infoRegistry.put("fieldCache",new SolrFieldCacheMBean());
-  if (schema == null) {
-    schema=IndexSchemaFactory.buildIndexSchema(IndexSchema.DEFAULT_SCHEMA_FILE,config);
-  }
-  this.schema=schema;
-  final SimilarityFactory similarityFactory=schema.getSimilarityFactory();
-  if (similarityFactory instanceof SolrCoreAware) {
-    ((SolrCoreAware)similarityFactory).inform(this);
-  }
-  this.dataDir=dataDir;
+  this.schema=initSchema(config,schema);
   this.startTime=System.currentTimeMillis();
   this.maxWarmingSearchers=config.maxWarmingSearchers;
   this.slowQueryThresholdMillis=config.slowQueryThresholdMillis;
@@ -63,21 +28,8 @@
   final CountDownLatch latch=new CountDownLatch(1);
   try {
     initListeners();
-    if (delPolicy == null) {
-      initDeletionPolicy();
-    }
- else {
-      this.solrDelPolicy=delPolicy;
-    }
-    this.codec=initCodec(solrConfig,schema);
-    if (updateHandler == null) {
-      solrCoreState=new DefaultSolrCoreState(getDirectoryFactory());
-    }
- else {
-      solrCoreState=updateHandler.getSolrCoreState();
-      directoryFactory=solrCoreState.getDirectoryFactory();
-      this.isReloaded=true;
-    }
+    this.solrDelPolicy=initDeletionPolicy(delPolicy);
+    this.codec=initCodec(solrConfig,this.schema);
     memClassLoader=new MemClassLoader(PluginBag.RuntimeLib.getLibObjects(this,solrConfig.getPluginInfos(PluginBag.RuntimeLib.class.getName())),getResourceLoader());
     initIndex(prev != null);
     initWriters();
@@ -85,7 +37,7 @@
     valueSourceParsers.init(ValueSourceParser.standardValueSourceParsers,this);
     transformerFactories.init(TransformerFactory.defaultFactories,this);
     loadSearchComponents();
-    updateProcessors.init(Collections.EMPTY_MAP,this);
+    updateProcessors.init(Collections.emptyMap(),this);
     updateProcessorChains=loadUpdateProcessorChains();
     reqHandlers=new RequestHandlers(this);
     reqHandlers.initHandlersFromConfig(solrConfig);
@@ -98,35 +50,8 @@
       }
     }
 );
-    RefCounted<IndexWriter> iwRef=null;
-    if (prev != null) {
-      iwRef=prev.getUpdateHandler().getSolrCoreState().getIndexWriter(null);
-      if (iwRef != null) {
-        final IndexWriter iw=iwRef.get();
-        final SolrCore core=this;
-        newReaderCreator=new Callable<DirectoryReader>(){
-          @Override public DirectoryReader call() throws Exception {
-            return indexReaderFactory.newReader(iw,core);
-          }
-        }
-;
-      }
-    }
-    String updateHandlerClass=solrConfig.getUpdateHandlerInfo().className;
-    if (updateHandler == null) {
-      this.updateHandler=createUpdateHandler(updateHandlerClass == null ? DirectUpdateHandler2.class.getName() : updateHandlerClass);
-    }
- else {
-      this.updateHandler=createUpdateHandler(updateHandlerClass == null ? DirectUpdateHandler2.class.getName() : updateHandlerClass,updateHandler);
-    }
-    infoRegistry.put("updateHandler",this.updateHandler);
-    try {
-      getSearcher(false,false,null,true);
-    }
-  finally {
-      newReaderCreator=null;
-      if (iwRef != null)       iwRef.decref();
-    }
+    this.updateHandler=initUpdateHandler(updateHandler);
+    initSearcher(prev);
     restManager=initRestManager();
     resourceLoader.inform(resourceLoader);
     resourceLoader.inform(this);
@@ -137,7 +62,7 @@
       throw (OutOfMemoryError)e;
     }
     try {
-      this.close();
+      close();
     }
  catch (    Throwable t) {
       if (t instanceof OutOfMemoryError) {
@@ -152,18 +77,7 @@
   }
   infoRegistry.put("core",this);
   resourceLoader.inform(infoRegistry);
-  CoreContainer cc=cd.getCoreContainer();
-  if (cc != null && cc.isZooKeeperAware()) {
-    SolrRequestHandler realtimeGetHandler=reqHandlers.get("/get");
-    if (realtimeGetHandler == null) {
-      log.warn("WARNING: RealTimeGetHandler is not registered at /get. " + "SolrCloud will always use full index replication instead of the more efficient PeerSync method.");
-    }
-    ClusterState clusterState=cc.getZkController().getClusterState();
-    Slice slice=clusterState.getSlice(cd.getCloudDescriptor().getCollectionName(),cd.getCloudDescriptor().getShardId());
-    if (slice.getState() == Slice.State.CONSTRUCTION) {
-      getUpdateHandler().getUpdateLog().bufferUpdates();
-    }
-  }
-  ruleExpiryLock=new ReentrantLock();
+  bufferUpdatesIfConstructing(coreDescriptor);
+  this.ruleExpiryLock=new ReentrantLock();
   registerConfListener();
 }

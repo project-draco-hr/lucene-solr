@@ -2,13 +2,14 @@
   if (isShutDown) {
     throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Solr has close.");
   }
+  SolrCore core=null;
   try {
     if (zkSys.getZkController() != null) {
       zkSys.getZkController().preRegister(dcore);
     }
     ConfigSet coreConfig=coreConfigService.getConfig(dcore);
     log.info("Creating SolrCore '{}' using configuration from {}",dcore.getName(),coreConfig.getName());
-    SolrCore core=new SolrCore(dcore,coreConfig);
+    core=new SolrCore(dcore,coreConfig);
     solrCores.addCreated(core);
     if (!isZooKeeperAware() && core.getUpdateHandler().getUpdateLog() != null) {
       core.getUpdateHandler().getUpdateLog().recoverFromLog();
@@ -19,12 +20,15 @@
  catch (  Exception e) {
     coreInitFailures.put(dcore.getName(),new CoreLoadFailure(dcore,e));
     log.error("Error creating core [{}]: {}",dcore.getName(),e.getMessage(),e);
-    throw new SolrException(ErrorCode.SERVER_ERROR,"Unable to create core [" + dcore.getName() + "]",e);
+    final SolrException solrException=new SolrException(ErrorCode.SERVER_ERROR,"Unable to create core [" + dcore.getName() + "]",e);
+    IOUtils.closeQuietly(core);
+    throw solrException;
   }
 catch (  Throwable t) {
     SolrException e=new SolrException(ErrorCode.SERVER_ERROR,"JVM Error creating core [" + dcore.getName() + "]: "+ t.getMessage(),t);
     log.error("Error creating core [{}]: {}",dcore.getName(),t.getMessage(),t);
     coreInitFailures.put(dcore.getName(),new CoreLoadFailure(dcore,e));
+    IOUtils.closeQuietly(core);
     throw t;
   }
 }
