@@ -1,0 +1,46 @@
+{
+  for (int i=0; i < atLeast(100); i++) {
+    ModifiableSolrParams params=null;
+    int fieldType=i % 3;
+switch (fieldType) {
+case 0:
+      params=getRandomParamsDate();
+    break;
+case 1:
+  params=getRandomParamsInt();
+break;
+case 2:
+params=getRandomParamsFloat();
+break;
+}
+String field=params.get("facet.range");
+params.add("q",getRandomQuery());
+params.add("facet","true");
+if (random().nextBoolean()) {
+params.add("facet.range.method",FacetRangeMethod.FILTER.toString());
+}
+NamedList<Object> rangeFacetsFilter;
+NamedList<Object> rangeFacetsDv;
+SolrQueryRequest req=req(params);
+log.info("Using Params: " + params);
+try {
+SolrQueryResponse rsp=h.queryAndResponse("standard",req);
+rangeFacetsFilter=(NamedList<Object>)((NamedList<Object>)rsp.getValues().get("facet_counts")).get("facet_ranges");
+}
+  finally {
+req.close();
+}
+params.add("facet.range.method",FacetRangeMethod.DV.toString());
+req=req(params);
+try {
+SolrQueryResponse rsp=h.queryAndResponse("standard",req);
+rangeFacetsDv=(NamedList<Object>)((NamedList<Object>)rsp.getValues().get("facet_counts")).get("facet_ranges");
+}
+  finally {
+req.close();
+}
+assertNotNull(rangeFacetsFilter.get(field));
+assertNotNull(rangeFacetsDv.get(field));
+assertSameResults("Different results obtained when using 'filter' and 'dv' methods for Range Facets using params." + params + "\n"+ "Filter:"+ rangeFacetsFilter+ "\n DV: "+ rangeFacetsDv,(NamedList<Object>)rangeFacetsFilter.get(field),(NamedList<Object>)rangeFacetsDv.get(field));
+}
+}
