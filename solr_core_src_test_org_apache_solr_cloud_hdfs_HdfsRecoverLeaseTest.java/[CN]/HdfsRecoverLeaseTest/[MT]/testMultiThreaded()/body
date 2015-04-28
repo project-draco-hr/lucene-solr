@@ -1,0 +1,97 @@
+{
+  long startRecoverLeaseSuccessCount=FSHDFSUtils.RECOVER_LEASE_SUCCESS_COUNT.get();
+  final URI uri=dfsCluster.getURI();
+  final Path path=new Path(uri);
+  final Configuration conf=new Configuration();
+  conf.setBoolean("fs.hdfs.impl.disable.cache",true);
+class WriterThread extends Thread {
+    private FileSystem fs;
+    private int id;
+    public WriterThread(    int id){
+      this.id=id;
+      try {
+        fs=FileSystem.get(path.toUri(),conf);
+      }
+ catch (      IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public void run(){
+      Path testFile=new Path(uri.toString() + "/file-" + id);
+      FSDataOutputStream out;
+      try {
+        out=fs.create(testFile);
+        if (random().nextBoolean()) {
+          int cnt=random().nextInt(100);
+          for (int i=0; i < cnt; i++) {
+            out.write(random().nextInt(20000));
+          }
+          out.hflush();
+        }
+      }
+ catch (      IOException e) {
+        throw new RuntimeException();
+      }
+    }
+    public void close() throws IOException {
+      fs.close();
+    }
+    public int getFileId(){
+      return id;
+    }
+  }
+class RecoverThread extends Thread {
+    private FileSystem fs;
+    private int id;
+    public RecoverThread(    int id){
+      this.id=id;
+      try {
+        fs=FileSystem.get(path.toUri(),conf);
+      }
+ catch (      IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override public void run(){
+      Path testFile=new Path(uri.toString() + "/file-" + id);
+      try {
+        FSHDFSUtils.recoverFileLease(fs,testFile,conf,new CallerInfo(){
+          @Override public boolean isCallerClosed(){
+            return false;
+          }
+        }
+);
+      }
+ catch (      IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+    public void close() throws IOException {
+      fs.close();
+    }
+  }
+  Set<WriterThread> writerThreads=new HashSet<WriterThread>();
+  Set<RecoverThread> recoverThreads=new HashSet<RecoverThread>();
+  int threadCount=3;
+  for (int i=0; i < threadCount; i++) {
+    WriterThread wt=new WriterThread(i);
+    writerThreads.add(wt);
+    wt.run();
+  }
+  for (  WriterThread wt : writerThreads) {
+    wt.join();
+  }
+  Thread.sleep(2000);
+  for (  WriterThread wt : writerThreads) {
+    RecoverThread rt=new RecoverThread(wt.getFileId());
+    recoverThreads.add(rt);
+    rt.run();
+  }
+  for (  WriterThread wt : writerThreads) {
+    wt.close();
+  }
+  for (  RecoverThread rt : recoverThreads) {
+    rt.close();
+  }
+  assertEquals(threadCount,FSHDFSUtils.RECOVER_LEASE_SUCCESS_COUNT.get() - startRecoverLeaseSuccessCount);
+}
