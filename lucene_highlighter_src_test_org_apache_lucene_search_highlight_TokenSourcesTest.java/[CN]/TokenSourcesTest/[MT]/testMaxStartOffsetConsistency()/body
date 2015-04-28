@@ -1,0 +1,43 @@
+{
+  FieldType tvFieldType=new FieldType(TextField.TYPE_NOT_STORED);
+  tvFieldType.setStoreTermVectors(true);
+  tvFieldType.setStoreTermVectorOffsets(true);
+  tvFieldType.setStoreTermVectorPositions(true);
+  Directory dir=newDirectory();
+  MockAnalyzer analyzer=new MockAnalyzer(random());
+  analyzer.setEnableChecks(false);
+  Document doc=new Document();
+  final String TEXT=" f gg h";
+  doc.add(new Field("fld_tv",analyzer.tokenStream("fooFld",TEXT),tvFieldType));
+  doc.add(new TextField("fld_notv",analyzer.tokenStream("barFld",TEXT)));
+  IndexReader reader;
+  try (RandomIndexWriter writer=new RandomIndexWriter(random(),dir)){
+    writer.addDocument(doc);
+    reader=writer.getReader();
+  }
+   try {
+    Fields tvFields=reader.getTermVectors(0);
+    for (int maxStartOffset=-1; maxStartOffset <= TEXT.length(); maxStartOffset++) {
+      TokenStream tvStream=TokenSources.getTokenStream("fld_tv",tvFields,TEXT,analyzer,maxStartOffset);
+      TokenStream anaStream=TokenSources.getTokenStream("fld_notv",tvFields,TEXT,analyzer,maxStartOffset);
+      final OffsetAttribute tvOffAtt=tvStream.addAttribute(OffsetAttribute.class);
+      final OffsetAttribute anaOffAtt=anaStream.addAttribute(OffsetAttribute.class);
+      tvStream.reset();
+      anaStream.reset();
+      while (tvStream.incrementToken()) {
+        assertTrue(anaStream.incrementToken());
+        assertEquals(tvOffAtt.startOffset(),anaOffAtt.startOffset());
+        if (maxStartOffset >= 0)         assertTrue(tvOffAtt.startOffset() <= maxStartOffset);
+      }
+      assertTrue(anaStream.incrementToken() == false);
+      tvStream.end();
+      anaStream.end();
+      tvStream.close();
+      anaStream.close();
+    }
+  }
+  finally {
+    reader.close();
+  }
+  dir.close();
+}
