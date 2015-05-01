@@ -1,0 +1,34 @@
+{
+  MacroExpander m=new MacroExpander(p.getMap());
+  String cat_s=m.expand("${cat_s}");
+  String where_s=m.expand("${where_s}");
+  client.deleteByQuery("*:*",null);
+  Random r=new Random(0);
+  int numCat=1;
+  int numWhere=2000000000;
+  int commitPercent=10;
+  int ndocs=1000;
+  Map<Integer,Map<Integer,List<Integer>>> model=new HashMap();
+  for (int i=0; i < ndocs; i++) {
+    Integer cat=r.nextInt(numCat);
+    Integer where=r.nextInt(numWhere);
+    client.add(sdoc("id",i,cat_s,cat,where_s,where),null);
+    Map<Integer,List<Integer>> sub=model.get(cat);
+    if (sub == null) {
+      sub=new HashMap<>();
+      model.put(cat,sub);
+    }
+    List<Integer> ids=sub.get(where);
+    if (ids == null) {
+      ids=new ArrayList<>();
+      sub.put(where,ids);
+    }
+    ids.add(i);
+    if (r.nextInt(100) < commitPercent) {
+      client.commit();
+    }
+  }
+  client.commit();
+  int sz=model.get(0).size();
+  client.testJQ(params(p,"q","*:*","json.facet","{f1:{type:terms, field:${cat_s}, limit:2, facet:{x:'unique($where_s)'}  }}"),"facets=={ 'count':" + ndocs + ","+ "'f1':{  'buckets':[{ 'val':'0', 'count':"+ ndocs+ ", x:"+ sz+ " }]} } ");
+}
