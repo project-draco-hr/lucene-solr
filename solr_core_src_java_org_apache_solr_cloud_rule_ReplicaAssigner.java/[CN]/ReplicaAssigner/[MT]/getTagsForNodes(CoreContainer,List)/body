@@ -1,0 +1,101 @@
+{
+class Info extends SnitchContext.SnitchInfo {
+    final Snitch snitch;
+    final Set<String> myTags=new HashSet<>();
+    final Map<String,SnitchContext> nodeVsContext=new HashMap<>();
+    Info(    Map<String,Object> conf,    Snitch snitch){
+      super(conf);
+      this.snitch=snitch;
+    }
+    @Override public Set<String> getTagNames(){
+      return myTags;
+    }
+    @Override public CoreContainer getCoreContainer(){
+      return cc;
+    }
+  }
+  Map<Class,Info> snitches=new LinkedHashMap<>();
+  for (  Object o : snitchConf) {
+    String klas=null;
+    Map map=Collections.emptyMap();
+    if (o instanceof Map) {
+      map=(Map)o;
+      klas=(String)map.get("class");
+      if (klas == null) {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"snitch must have  a class attribute");
+      }
+    }
+ else {
+      klas=o.toString();
+    }
+    try {
+      if (klas.indexOf('.') == -1)       klas=Snitch.class.getPackage().getName() + "." + klas;
+      Snitch inst=cc == null ? (Snitch)Snitch.class.getClassLoader().loadClass(klas).newInstance() : cc.getResourceLoader().newInstance(klas,Snitch.class);
+      snitches.put(inst.getClass(),new Info(map,inst));
+    }
+ catch (    Exception e) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,e);
+    }
+  }
+  for (  Class c : Snitch.WELL_KNOWN_SNITCHES) {
+    if (snitches.containsKey(c))     continue;
+    try {
+      snitches.put(c,new Info(Collections.EMPTY_MAP,(Snitch)c.newInstance()));
+    }
+ catch (    Exception e) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Error instantiating Snitch " + c.getName());
+    }
+  }
+  for (  String tagName : tagNames) {
+    boolean foundProvider=false;
+    for (    Info info : snitches.values()) {
+      if (info.snitch.isKnownTag(tagName)) {
+        foundProvider=true;
+        info.myTags.add(tagName);
+        break;
+      }
+    }
+    if (!foundProvider)     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown tag in rules " + tagName);
+  }
+  for (  String node : liveNodes) {
+    for (    Info info : snitches.values()) {
+      if (!info.myTags.isEmpty()) {
+        SnitchContext context=new SnitchContext(info,node);
+        info.nodeVsContext.put(node,context);
+        try {
+          info.snitch.getTags(node,info.myTags,context);
+        }
+ catch (        Exception e) {
+          context.exception=e;
+        }
+      }
+    }
+  }
+  Map<String,Map<String,Object>> result=new HashMap<>();
+  for (  Info info : snitches.values()) {
+    for (    Map.Entry<String,SnitchContext> e : info.nodeVsContext.entrySet()) {
+      SnitchContext context=e.getValue();
+      String node=e.getKey();
+      if (context.exception != null) {
+        failedNodes.put(node,context);
+        liveNodes.remove(node);
+        log.warn("Not all tags were obtained from node " + node);
+        context.exception=new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Not all tags were obtained from node " + node);
+      }
+ else {
+        if (context.getTags().keySet().containsAll(context.snitchInfo.getTagNames())) {
+          Map<String,Object> tags=result.get(node);
+          if (tags == null) {
+            tags=new HashMap<>();
+            result.put(node,tags);
+          }
+          tags.putAll(context.getTags());
+        }
+      }
+    }
+  }
+  if (liveNodes.isEmpty()) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Could not get all tags for any nodes");
+  }
+  return result;
+}

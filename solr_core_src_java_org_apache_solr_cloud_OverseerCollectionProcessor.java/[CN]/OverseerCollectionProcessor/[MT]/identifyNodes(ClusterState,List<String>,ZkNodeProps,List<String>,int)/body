@@ -1,0 +1,35 @@
+{
+  List<Map> maps=(List)message.get("rule");
+  if (maps == null) {
+    int i=0;
+    Map<Position,String> result=new HashMap<>();
+    for (    String aShard : shardNames) {
+      for (int j=0; j < repFactor; j++) {
+        result.put(new Position(aShard,j),nodeList.get(i % nodeList.size()));
+        i++;
+      }
+    }
+    return result;
+  }
+  List<Rule> rules=new ArrayList<>();
+  for (  Object map : maps)   rules.add(new Rule((Map)map));
+  Map<String,Integer> sharVsReplicaCount=new HashMap<>();
+  for (  String shard : shardNames)   sharVsReplicaCount.put(shard,repFactor);
+  maps=(List<Map>)message.get("snitch");
+  List snitchList=maps == null ? Collections.emptyList() : maps;
+  ReplicaAssigner replicaAssigner=new ReplicaAssigner(rules,sharVsReplicaCount,snitchList,new HashMap<>(),nodeList,overseer.getZkController().getCoreContainer(),clusterState);
+  Map<Position,String> nodeMappings=replicaAssigner.getNodeMappings();
+  if (nodeMappings == null) {
+    String msg="Could not identify nodes matching the rules " + rules;
+    if (!replicaAssigner.failedNodes.isEmpty()) {
+      Map<String,String> failedNodes=new HashMap<>();
+      for (      Map.Entry<String,SnitchContext> e : replicaAssigner.failedNodes.entrySet()) {
+        failedNodes.put(e.getKey(),e.getValue().getErrMsg());
+      }
+      msg+=" Some nodes where excluded from assigning replicas because tags could not be obtained from them " + failedNodes;
+    }
+    msg+=ZkStateReader.toJSONString(replicaAssigner.getNodeVsTags());
+    throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+  }
+  return nodeMappings;
+}
