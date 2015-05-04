@@ -1,0 +1,91 @@
+{
+  Aliases aliases=null;
+  String corename="";
+  String origCorename=null;
+  req.setAttribute(SolrRequestParsers.REQUEST_TIMER_SERVLET_ATTRIBUTE,new RTimer());
+  req.setAttribute("org.apache.solr.CoreContainer",cores);
+  path=req.getServletPath();
+  if (req.getPathInfo() != null) {
+    path+=req.getPathInfo();
+  }
+  if (solrDispatchFilter.pathPrefix != null && path.startsWith(solrDispatchFilter.pathPrefix)) {
+    path=path.substring(solrDispatchFilter.pathPrefix.length());
+  }
+  String alternate=cores.getManagementPath();
+  if (alternate != null && path.startsWith(alternate)) {
+    path=path.substring(0,alternate.length());
+  }
+  int idx=path.indexOf(':');
+  if (idx > 0) {
+    path=path.substring(0,idx);
+  }
+  boolean usingAliases=false;
+  List<String> collectionsList=null;
+  handler=cores.getRequestHandler(path);
+  if (handler != null) {
+    solrReq=SolrRequestParsers.DEFAULT.parse(null,path,req);
+    solrReq.getContext().put(CoreContainer.class.getName(),cores);
+    action=ADMIN;
+    return;
+  }
+ else {
+    idx=path.indexOf("/",1);
+    if (idx > 1) {
+      corename=path.substring(1,idx);
+      if (cores.isZooKeeperAware()) {
+        origCorename=corename;
+        ZkStateReader reader=cores.getZkController().getZkStateReader();
+        aliases=reader.getAliases();
+        if (aliases != null && aliases.collectionAliasSize() > 0) {
+          usingAliases=true;
+          String alias=aliases.getCollectionAlias(corename);
+          if (alias != null) {
+            collectionsList=StrUtils.splitSmart(alias,",",true);
+            corename=collectionsList.get(0);
+          }
+        }
+      }
+      core=cores.getCore(corename);
+      if (core != null) {
+        path=path.substring(idx);
+      }
+    }
+    if (core == null) {
+      if (!cores.isZooKeeperAware()) {
+        core=cores.getCore("");
+      }
+    }
+  }
+  if (core != null)   addMDCValues();
+  if (core == null && cores.isZooKeeperAware()) {
+    core=getCoreByCollection(corename);
+    if (core != null) {
+      path=path.substring(idx);
+      addMDCValues();
+    }
+    extractRemotePath(corename,origCorename,idx);
+    if (action != null)     return;
+    if (core == null) {
+      core=cores.getCore("");
+      if (core != null)       addMDCValues();
+    }
+  }
+  if (core != null) {
+    config=core.getSolrConfig();
+    SolrRequestParsers parser=config.getRequestParsers();
+    extractHandlerFromURLPath(parser);
+    if (action != null)     return;
+    if (handler != null) {
+      if (solrReq == null) {
+        solrReq=parser.parse(core,path,req);
+      }
+      if (usingAliases) {
+        processAliases(aliases,collectionsList);
+      }
+      action=PROCESS;
+      return;
+    }
+  }
+  SolrDispatchFilter.log.debug("no handler or core retrieved for " + path + ", follow through...");
+  action=PASSTHROUGH;
+}

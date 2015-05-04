@@ -1,0 +1,67 @@
+{
+  MDCUtils.clearMDC();
+  if (cores == null) {
+    sendError(503,"Server is shutting down or failed to initialize");
+    return RETURN;
+  }
+  if (cores.isZooKeeperAware()) {
+    MDC.put(NODE_NAME_PROP,cores.getZkController().getNodeName());
+  }
+  if (solrDispatchFilter.abortErrorMessage != null) {
+    sendError(500,solrDispatchFilter.abortErrorMessage);
+    return RETURN;
+  }
+  try {
+    setContext();
+    HttpServletResponse resp=response;
+switch (action) {
+case ADMIN:
+      handleAdminRequest();
+    return RETURN;
+case REMOTEQUERY:
+  remoteQuery(coreUrl + path,resp);
+return RETURN;
+case PROCESS:
+final Method reqMethod=Method.getMethod(req.getMethod());
+HttpCacheHeaderUtil.setCacheControlHeader(config,resp,reqMethod);
+if (config.getHttpCachingConfig().isNever304() || !HttpCacheHeaderUtil.doCacheHeaderValidation(solrReq,req,reqMethod,resp)) {
+SolrQueryResponse solrRsp=new SolrQueryResponse();
+SolrRequestInfo.setRequestInfo(new SolrRequestInfo(solrReq,solrRsp));
+execute(solrRsp);
+HttpCacheHeaderUtil.checkHttpCachingVeto(solrRsp,resp,reqMethod);
+Iterator<Map.Entry<String,String>> headers=solrRsp.httpHeaders();
+while (headers.hasNext()) {
+Map.Entry<String,String> entry=headers.next();
+resp.addHeader(entry.getKey(),entry.getValue());
+}
+QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
+if (invalidStates != null) solrReq.getContext().put(CloudSolrClient.STATE_VERSION,invalidStates);
+writeResponse(solrRsp,responseWriter,reqMethod);
+}
+return RETURN;
+case FORWARD:
+return FORWARD;
+case PASSTHROUGH:
+return PASSTHROUGH;
+case RETRY:
+return RETRY;
+case RETURN:
+return RETURN;
+}
+}
+ catch (Throwable ex) {
+sendError(ex);
+Throwable t=ex;
+while (t != null) {
+if (t instanceof Error) {
+if (t != ex) {
+SolrDispatchFilter.log.error("An Error was wrapped in another exception - please report complete stacktrace on SOLR-6161",ex);
+}
+throw (Error)t;
+}
+t=t.getCause();
+}
+return RETURN;
+}
+return Action.PASSTHROUGH;
+}

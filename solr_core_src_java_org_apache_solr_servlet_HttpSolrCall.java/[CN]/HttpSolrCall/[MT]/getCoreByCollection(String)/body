@@ -1,0 +1,29 @@
+{
+  ZkStateReader zkStateReader=cores.getZkController().getZkStateReader();
+  ClusterState clusterState=zkStateReader.getClusterState();
+  Map<String,Slice> slices=clusterState.getActiveSlicesMap(corename);
+  if (slices == null) {
+    return null;
+  }
+  Set<Map.Entry<String,Slice>> entries=slices.entrySet();
+  SolrCore core=null;
+  done:   for (  Map.Entry<String,Slice> entry : entries) {
+    ZkNodeProps leaderProps=clusterState.getLeader(corename,entry.getKey());
+    if (leaderProps != null) {
+      core=checkProps(leaderProps);
+    }
+    if (core != null) {
+      break done;
+    }
+    Map<String,Replica> shards=entry.getValue().getReplicasMap();
+    Set<Map.Entry<String,Replica>> shardEntries=shards.entrySet();
+    for (    Map.Entry<String,Replica> shardEntry : shardEntries) {
+      Replica zkProps=shardEntry.getValue();
+      core=checkProps(zkProps);
+      if (core != null) {
+        break done;
+      }
+    }
+  }
+  return core;
+}
