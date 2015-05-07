@@ -1,7 +1,12 @@
 {
-  final String kpre=XPRE + "lst[@name='stats_fields']/lst[@name='k']/";
+  final String kpre=ExpectedStat.KPRE;
   assertU(adoc("id","1","a_f","2.3","b_f","9.7","a_i","9","foo_t","how now brown cow"));
   assertU(commit());
+  SolrCore core=h.getCore();
+  SchemaField field=core.getLatestSchema().getField("a_i");
+  HllOptions hllOpts=HllOptions.parseHllOptions(params("cardinality","true"),field);
+  HLL hll=hllOpts.newHLL();
+  HashFunction hasher=hllOpts.getHasher();
   AVLTreeDigest tdigest=new AVLTreeDigest(100);
   assertQ("ask for and get only 2 stats",req("q","*:*","stats","true","stats.field","{!key=k mean=true min=true}a_i"),kpre + "double[@name='mean'][.='9.0']",kpre + "double[@name='min'][.='9.0']","count(" + kpre + "*)=2");
   assertQ("min=true & max=false: only min should come back",req("q","*:*","stats","true","stats.field","{!key=k max=false min=true}a_i"),kpre + "double[@name='min'][.='9.0']","count(" + kpre + "*)=1");
@@ -10,99 +15,70 @@
   double sumOfSquares=0;
   final int count=20;
   for (int i=0; i < count; i++) {
-    assertU(adoc("id",String.valueOf(i),"a_f","2.3","b_f","9.7","a_i",String.valueOf(i % 10),"foo_t","how now brown cow"));
-    tdigest.add(i % 10);
-    sum+=i % 10;
-    sumOfSquares+=(i % 10) * (i % 10);
+    int a_i=i % 10;
+    assertU(adoc("id",String.valueOf(i),"a_f","2.3","b_f","9.7","a_i",String.valueOf(a_i),"foo_t","how now brown cow"));
+    tdigest.add(a_i);
+    hll.addRaw(hasher.hashInt(a_i).asLong());
+    sum+=a_i;
+    sumOfSquares+=(a_i) * (a_i);
   }
+  double stddev=Math.sqrt(((count * sumOfSquares) - (sum * sum)) / (20 * (count - 1.0D)));
   assertU(commit());
-  ByteBuffer buf=ByteBuffer.allocate(tdigest.smallByteSize());
-  tdigest.asSmallBytes(buf);
+  ByteBuffer tdigestBuf=ByteBuffer.allocate(tdigest.smallByteSize());
+  tdigest.asSmallBytes(tdigestBuf);
+  byte[] hllBytes=hll.toBytes();
   EnumSet<Stat> allStats=EnumSet.allOf(Stat.class);
-  Map<Stat,String> expectedStats=new HashMap<>();
-  expectedStats.put(Stat.min,"0.0");
-  expectedStats.put(Stat.max,"9.0");
-  expectedStats.put(Stat.missing,"0");
-  expectedStats.put(Stat.sum,String.valueOf(sum));
-  expectedStats.put(Stat.count,String.valueOf(count));
-  expectedStats.put(Stat.mean,String.valueOf(sum / count));
-  expectedStats.put(Stat.sumOfSquares,String.valueOf(sumOfSquares));
-  expectedStats.put(Stat.stddev,String.valueOf(Math.sqrt(((count * sumOfSquares) - (sum * sum)) / (20 * (count - 1.0D)))));
-  expectedStats.put(Stat.calcdistinct,"10");
-  expectedStats.put(Stat.percentiles,Base64.byteArrayToBase64(buf.array(),0,buf.array().length));
-  Map<Stat,String> expectedType=new HashMap<>();
-  expectedType.put(Stat.min,"double");
-  expectedType.put(Stat.max,"double");
-  expectedType.put(Stat.missing,"long");
-  expectedType.put(Stat.sum,"double");
-  expectedType.put(Stat.count,"long");
-  expectedType.put(Stat.mean,"double");
-  expectedType.put(Stat.sumOfSquares,"double");
-  expectedType.put(Stat.stddev,"double");
-  expectedType.put(Stat.calcdistinct,"long");
-  expectedType.put(Stat.percentiles,"str");
-  Map<Stat,String> localParasInput=new HashMap<>();
-  localParasInput.put(Stat.min,"true");
-  localParasInput.put(Stat.max,"true");
-  localParasInput.put(Stat.missing,"true");
-  localParasInput.put(Stat.sum,"true");
-  localParasInput.put(Stat.count,"true");
-  localParasInput.put(Stat.mean,"true");
-  localParasInput.put(Stat.sumOfSquares,"true");
-  localParasInput.put(Stat.stddev,"true");
-  localParasInput.put(Stat.calcdistinct,"true");
-  localParasInput.put(Stat.percentiles,"'90, 99'");
-  assertEquals("size of expectedStats doesn't match all known stats; " + "enum was updated w/o updating test?",expectedStats.size(),allStats.size());
-  assertEquals("size of expectedType doesn't match all known stats; " + "enum was updated w/o updating test?",expectedType.size(),allStats.size());
-  for (  Stat stat : expectedStats.keySet()) {
-    EnumSet<Stat> distribDeps=stat.getDistribDeps();
+  final List<ExpectedStat> expected=new ArrayList<ExpectedStat>(allStats.size());
+  ExpectedStat.createSimple(Stat.min,"true","double","0.0");
+  ExpectedStat.createSimple(Stat.max,"true","double","9.0");
+  ExpectedStat.createSimple(Stat.missing,"true","long","0");
+  ExpectedStat.createSimple(Stat.sum,"true","double",String.valueOf(sum));
+  ExpectedStat.createSimple(Stat.count,"true","long",String.valueOf(count));
+  ExpectedStat.createSimple(Stat.mean,"true","double",String.valueOf(sum / count));
+  ExpectedStat.createSimple(Stat.sumOfSquares,"true","double",String.valueOf(sumOfSquares));
+  ExpectedStat.createSimple(Stat.stddev,"true","double",String.valueOf(stddev));
+  final String countDistinctXpath=kpre + "long[@name='countDistinct'][.='10']";
+  ExpectedStat.create(Stat.calcdistinct,"true",2,Arrays.asList("count(" + kpre + "arr[@name='distinctValues']/*)=10",countDistinctXpath),Collections.singletonList(countDistinctXpath));
+  final String percentileShardXpath=kpre + "str[@name='percentiles'][.='" + Base64.byteArrayToBase64(tdigestBuf.array(),0,tdigestBuf.array().length)+ "']";
+  final String p90="" + tdigest.quantile(0.90D);
+  final String p99="" + tdigest.quantile(0.99D);
+  ExpectedStat.create(Stat.percentiles,"'90, 99'",1,Collections.singletonList(percentileShardXpath),Arrays.asList("count(" + kpre + "lst[@name='percentiles']/*)=2",kpre + "lst[@name='percentiles']/double[@name='90.0'][.=" + p90+ "]",kpre + "lst[@name='percentiles']/double[@name='99.0'][.=" + p99+ "]"));
+  final String cardinalityShardXpath=kpre + "str[@name='cardinality'][.='" + Base64.byteArrayToBase64(hllBytes,0,hllBytes.length)+ "']";
+  final String cardinalityXpath=kpre + "long[@name='cardinality'][.='10']";
+  ExpectedStat.create(Stat.cardinality,"true",1,Collections.singletonList(cardinalityShardXpath),Collections.singletonList(cardinalityXpath));
+  assertEquals("num of ExpectedStat doesn't match all known stats; " + "enum was updated w/o updating test?",ExpectedStat.ALL.size(),allStats.size());
+  for (  ExpectedStat expect : ExpectedStat.ALL.values()) {
+    Stat stat=expect.stat;
     StringBuilder exclude=new StringBuilder();
-    List<String> testParas=new ArrayList<String>(distribDeps.size() + 2);
-    int calcdistinctFudge=0;
-    for (    Stat perShardStat : distribDeps) {
-      String key=perShardStat.toString();
-      if (perShardStat.equals(Stat.calcdistinct)) {
-        key="countDistinct";
-        calcdistinctFudge++;
-        testParas.add("count(" + kpre + "arr[@name='distinctValues']/*)=10");
-      }
-      testParas.add(kpre + expectedType.get(perShardStat) + "[@name='"+ key+ "'][.='"+ expectedStats.get(perShardStat)+ "']");
-      if (!stat.equals(Stat.percentiles)) {
-        exclude.append(perShardStat + "=false ");
+    List<String> testXpaths=new ArrayList<String>(5 + expect.perShardXpaths.size());
+    testXpaths.addAll(expect.perShardXpaths);
+    int numKeysExpected=0;
+    EnumSet<Stat> distribDeps=stat.getDistribDeps();
+    for (    Stat perShardDep : distribDeps) {
+      numKeysExpected+=ExpectedStat.ALL.get(perShardDep).numResponseKeys;
+      if (!stat.equals(perShardDep)) {
+        exclude.append(perShardDep + "=false ");
       }
     }
-    testParas.add("count(" + kpre + "*)="+ (distribDeps.size() + calcdistinctFudge));
-    assertQ("ask for only " + stat + ", with isShard=true, and expect only deps: "+ distribDeps,req("q","*:*","isShard","true","stats","true","stats.field","{!key=k " + exclude + stat+ "="+ localParasInput.get(stat)+ "}a_i"),testParas.toArray(new String[testParas.size()]));
+    testXpaths.add("count(" + kpre + "*)="+ numKeysExpected);
+    assertQ("ask for only " + stat + ", with isShard=true, and expect only deps: "+ distribDeps,req("q","*:*","isShard","true","stats","true","stats.field","{!key=k " + exclude + stat+ "="+ expect.input+ "}a_i"),testXpaths.toArray(new String[testXpaths.size()]));
   }
   for (int numParams=1; numParams <= allStats.size(); numParams++) {
     for (    EnumSet<Stat> set : new StatSetCombinations(numParams,allStats)) {
       List<Stat> combo=new ArrayList<Stat>(set);
       Collections.shuffle(combo,random());
       StringBuilder paras=new StringBuilder("{!key=k ");
-      List<String> testParas=new ArrayList<String>(numParams + 2);
-      int calcdistinctFudge=0;
+      List<String> testXpaths=new ArrayList<String>(numParams + 5);
+      int numKeysExpected=0;
       for (      Stat stat : combo) {
-        String key=stat.toString();
-        if (stat.equals(Stat.calcdistinct)) {
-          key="countDistinct";
-          calcdistinctFudge++;
-          testParas.add("count(" + kpre + "arr[@name='distinctValues']/*)=10");
-        }
-        paras.append(stat + "=" + localParasInput.get(stat)+ " ");
-        if (!stat.equals(Stat.percentiles)) {
-          testParas.add(kpre + expectedType.get(stat) + "[@name='"+ key+ "'][.='"+ expectedStats.get(stat)+ "']");
-        }
- else {
-          testParas.add("count(" + kpre + "lst[@name='percentiles']/*)=2");
-          String p90="" + tdigest.quantile(0.90D);
-          String p99="" + tdigest.quantile(0.99D);
-          testParas.add(kpre + "lst[@name='percentiles']/double[@name='90.0'][.=" + p90+ "]");
-          testParas.add(kpre + "lst[@name='percentiles']/double[@name='99.0'][.=" + p99+ "]");
-        }
+        ExpectedStat expect=ExpectedStat.ALL.get(stat);
+        paras.append(stat + "=" + expect.input+ " ");
+        numKeysExpected+=expect.numResponseKeys;
+        testXpaths.addAll(expect.finalXpaths);
       }
       paras.append("}a_i");
-      testParas.add("count(" + kpre + "*)="+ (combo.size() + calcdistinctFudge));
-      assertQ("ask for an get only: " + combo,req("q","*:*","stats","true","stats.field",paras.toString()),testParas.toArray(new String[testParas.size()]));
+      testXpaths.add("count(" + kpre + "*)="+ numKeysExpected);
+      assertQ("ask for and get only: " + combo,req("q","*:*","stats","true","stats.field",paras.toString()),testXpaths.toArray(new String[testXpaths.size()]));
     }
   }
 }

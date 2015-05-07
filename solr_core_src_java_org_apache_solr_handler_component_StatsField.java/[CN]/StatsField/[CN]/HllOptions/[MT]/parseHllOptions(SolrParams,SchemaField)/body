@@ -1,0 +1,41 @@
+{
+  String cardinalityOpt=localParams.get(Stat.cardinality.name());
+  if (StringUtils.isBlank(cardinalityOpt)) {
+    return null;
+  }
+  final NumericType hashableNumType=getHashableNumericType(field);
+  int log2m=13;
+  int regwidth=6;
+  if (NumericType.FLOAT.equals(hashableNumType) || NumericType.INT.equals(hashableNumType)) {
+    regwidth--;
+  }
+  try {
+    final double accuracyOpt=Double.parseDouble(cardinalityOpt);
+    if (accuracyOpt < 0D || 1.0D < accuracyOpt) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,ERR);
+    }
+    log2m=HLL.MINIMUM_LOG2M_PARAM + (int)Math.round(accuracyOpt * (HLL.MAXIMUM_LOG2M_PARAM - HLL.MINIMUM_LOG2M_PARAM));
+    final int MIN_HUERISTIC_REGWIDTH=regwidth - 1;
+    regwidth=MIN_HUERISTIC_REGWIDTH + (int)Math.round(accuracyOpt * (HLL.MAXIMUM_REGWIDTH_PARAM - MIN_HUERISTIC_REGWIDTH));
+  }
+ catch (  NumberFormatException nfe) {
+    if (!localParams.getBool(Stat.cardinality.name(),false)) {
+      return null;
+    }
+  }
+  log2m=localParams.getInt("hllLog2m",log2m);
+  regwidth=localParams.getInt("hllRegwidth",regwidth);
+  if (log2m < HLL.MINIMUM_LOG2M_PARAM || HLL.MAXIMUM_LOG2M_PARAM < log2m) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"hllLog2m must be at least " + HLL.MINIMUM_LOG2M_PARAM + " and at most "+ HLL.MAXIMUM_LOG2M_PARAM+ " ("+ log2m+ ")");
+  }
+  if (regwidth < HLL.MINIMUM_REGWIDTH_PARAM || HLL.MAXIMUM_REGWIDTH_PARAM < regwidth) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"hllRegwidth must be at least " + HLL.MINIMUM_REGWIDTH_PARAM + " and at most "+ HLL.MAXIMUM_REGWIDTH_PARAM);
+  }
+  HashFunction hasher=localParams.getBool("hllPreHashed",false) ? null : Hashing.murmur3_128();
+  if (null == hasher) {
+    if (null == field || !NumericType.LONG.equals(field.getType().getNumericType())) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"hllPreHashed is only supported with Long based fields");
+    }
+  }
+  return new HllOptions(log2m,regwidth,hasher);
+}

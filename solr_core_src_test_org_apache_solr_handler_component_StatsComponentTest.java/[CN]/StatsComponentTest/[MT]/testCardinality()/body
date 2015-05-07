@@ -1,0 +1,18 @@
+{
+  SolrCore core=h.getCore();
+  HashFunction hasher=HllOptions.parseHllOptions(params("cardinality","true"),core.getLatestSchema().getField("a_l")).getHasher();
+  String[] baseParams=new String[]{"q","*:*","stats","true","indent","true","rows","0"};
+  assertQ("empty cardinalities",req(params("stats.field","{!key=a cardinality=true}a_l","stats.field","{!key=pa cardinality=true}prehashed_a_l","stats.field","{!key=b cardinality=true}b_l","stats.field","{!key=c cardinality=true}c_l"),baseParams),cardinalityXpath("a",0),cardinalityXpath("pa",0),cardinalityXpath("b",0),cardinalityXpath("c",0));
+  int id=0;
+  for (int i=0; i < 100; i++) {
+    for (int j=0; j < 5; j++) {
+      ++id;
+      assertU(adoc("id","" + id,"a_l","" + i,"prehashed_a_l","" + hasher.hashLong((long)i).asLong(),"b_l","" + (i % 7),"c_l","" + id));
+    }
+  }
+  assertU(commit());
+  assertQ("various cardinalities",req(params("stats.field","{!key=a cardinality=true}a_l","stats.field","{!key=pa hllPreHashed=true cardinality=true}prehashed_a_l","stats.field","{!key=b cardinality=true}b_l","stats.field","{!key=c cardinality=true}c_l"),baseParams),cardinalityXpath("a",100),cardinalityXpath("pa",100),cardinalityXpath("b",7),cardinalityXpath("c",500));
+  for (  SolrParams p : new SolrParams[]{params("stats.field","{!key=a min=true cardinality=false}a_l"),params("stats.field","{!key=a min=true cardinality=$doit}a_l","doit","false"),params("stats.field","{!key=a min=true cardinality=$doit}a_l"),params("stats.field","{!key=a min=true hllPreHashed=true cardinality=false}a_l"),params("stats.field","{!key=a min=true hllRegwidth=4 cardinality=$doit}a_l","doit","false"),params("stats.field","{!key=a min=true hllLog2m=18 cardinality=$doit}a_l")}) {
+    assertQ("min w/cardinality explicitly disabled",req(p,baseParams),"count(//lst[@name='stats_fields']/lst[@name='a']/double[@name='min'])=1","count(//lst[@name='stats_fields']/lst[@name='a']/long[@name='cardinality'])=0");
+  }
+}
