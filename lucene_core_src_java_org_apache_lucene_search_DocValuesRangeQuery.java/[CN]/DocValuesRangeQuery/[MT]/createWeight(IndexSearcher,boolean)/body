@@ -2,14 +2,8 @@
   if (lowerVal == null && upperVal == null) {
     throw new IllegalStateException("Both min and max values cannot be null, call rewrite first");
   }
-  return new ConstantScoreWeight(DocValuesRangeQuery.this){
-    @Override public Scorer scorer(    LeafReaderContext context,    Bits acceptDocs,    float score) throws IOException {
-      final Bits docsWithField=context.reader().getDocsWithField(field);
-      if (docsWithField == null || docsWithField instanceof MatchNoBits) {
-        return null;
-      }
-      final DocIdSetIterator approximation=DocIdSetIterator.all(context.reader().maxDoc());
-      final TwoPhaseIterator twoPhaseRange;
+  return new RandomAccessWeight(DocValuesRangeQuery.this){
+    @Override protected Bits getMatchingDocs(    LeafReaderContext context) throws IOException {
       if (lowerVal instanceof Long || upperVal instanceof Long) {
         final SortedNumericDocValues values=DocValues.getSortedNumeric(context.reader(),field);
         final long min;
@@ -35,7 +29,23 @@
         if (min > max) {
           return null;
         }
-        twoPhaseRange=new TwoPhaseNumericRange(values,min,max,approximation,acceptDocs);
+        return new Bits(){
+          @Override public boolean get(          int doc){
+            values.setDocument(doc);
+            final int count=values.count();
+            for (int i=0; i < count; ++i) {
+              final long value=values.valueAt(i);
+              if (value >= min && value <= max) {
+                return true;
+              }
+            }
+            return false;
+          }
+          @Override public int length(){
+            return context.reader().maxDoc();
+          }
+        }
+;
       }
  else       if (lowerVal instanceof BytesRef || upperVal instanceof BytesRef) {
         final SortedSetDocValues values=DocValues.getSortedSet(context.reader(),field);
@@ -74,12 +84,25 @@
         if (minOrd > maxOrd) {
           return null;
         }
-        twoPhaseRange=new TwoPhaseOrdRange(values,minOrd,maxOrd,approximation,acceptDocs);
+        return new Bits(){
+          @Override public boolean get(          int doc){
+            values.setDocument(doc);
+            for (long ord=values.nextOrd(); ord != SortedSetDocValues.NO_MORE_ORDS; ord=values.nextOrd()) {
+              if (ord >= minOrd && ord <= maxOrd) {
+                return true;
+              }
+            }
+            return false;
+          }
+          @Override public int length(){
+            return context.reader().maxDoc();
+          }
+        }
+;
       }
  else {
         throw new AssertionError();
       }
-      return new RangeScorer(this,twoPhaseRange,score);
     }
   }
 ;

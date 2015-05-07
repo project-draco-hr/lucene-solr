@@ -1,7 +1,32 @@
 {
   final Weight innerWeight=searcher.createWeight(query,false);
   if (needsScores) {
-    return new ConstantScoreQuery.ConstantWeight(innerWeight);
+    return new ConstantScoreWeight(this){
+      @Override public BulkScorer bulkScorer(      LeafReaderContext context,      Bits acceptDocs) throws IOException {
+        final BulkScorer innerScorer=innerWeight.bulkScorer(context,acceptDocs);
+        if (innerScorer == null) {
+          return null;
+        }
+        return new ConstantBulkScorer(innerScorer,this,score());
+      }
+      @Override public Scorer scorer(      LeafReaderContext context,      Bits acceptDocs) throws IOException {
+        final Scorer innerScorer=innerWeight.scorer(context,acceptDocs);
+        if (innerScorer == null) {
+          return null;
+        }
+        final float score=score();
+        return new FilterScorer(innerScorer){
+          @Override public float score() throws IOException {
+            return score;
+          }
+          @Override public Collection<ChildScorer> getChildren(){
+            return Collections.singleton(new ChildScorer(innerScorer,"constant"));
+          }
+        }
+;
+      }
+    }
+;
   }
  else {
     return innerWeight;
