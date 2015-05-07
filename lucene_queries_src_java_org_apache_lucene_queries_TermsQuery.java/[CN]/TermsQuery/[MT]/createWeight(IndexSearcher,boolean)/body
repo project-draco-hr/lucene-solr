@@ -1,46 +1,30 @@
 {
-  return new Weight(this){
-    private float queryNorm;
-    private float queryWeight;
+  return new ConstantScoreWeight(this){
     @Override public void extractTerms(    Set<Term> terms){
     }
-    @Override public float getValueForNormalization() throws IOException {
-      queryWeight=getBoost();
-      return queryWeight * queryWeight;
-    }
-    @Override public void normalize(    float norm,    float topLevelBoost){
-      queryNorm=norm * topLevelBoost;
-      queryWeight*=queryNorm;
-    }
-    @Override public Explanation explain(    LeafReaderContext context,    int doc) throws IOException {
-      final Scorer s=scorer(context,context.reader().getLiveDocs());
-      final boolean exists=(s != null && s.advance(doc) == doc);
-      if (exists) {
-        return Explanation.match(queryWeight,TermsQuery.this.toString() + ", product of:",Explanation.match(getBoost(),"boost"),Explanation.match(queryNorm,"queryNorm"));
-      }
- else {
-        return Explanation.noMatch(TermsQuery.this.toString() + " doesn't match id " + doc);
-      }
-    }
-    @Override public Scorer scorer(    LeafReaderContext context,    Bits acceptDocs) throws IOException {
+    @Override public Scorer scorer(    LeafReaderContext context,    Bits acceptDocs,    float score) throws IOException {
       final LeafReader reader=context.reader();
       BitDocIdSet.Builder builder=new BitDocIdSet.Builder(reader.maxDoc());
       final Fields fields=reader.fields();
-      final BytesRef spare=new BytesRef(termsBytes);
+      String lastField=null;
       Terms terms=null;
       TermsEnum termsEnum=null;
       PostingsEnum docs=null;
-      for (      TermsAndField termsAndField : termsAndFields) {
-        if ((terms=fields.terms(termsAndField.field)) != null) {
-          termsEnum=terms.iterator();
-          for (int i=termsAndField.start; i < termsAndField.end; i++) {
-            spare.offset=offsets[i];
-            spare.length=offsets[i + 1] - offsets[i];
-            if (termsEnum.seekExact(spare)) {
-              docs=termsEnum.postings(acceptDocs,docs,PostingsEnum.NONE);
-              builder.or(docs);
-            }
+      TermIterator iterator=termData.iterator();
+      for (BytesRef term=iterator.next(); term != null; term=iterator.next()) {
+        String field=iterator.field();
+        if (field != lastField) {
+          terms=fields.terms(field);
+          if (terms == null) {
+            termsEnum=null;
           }
+ else {
+            termsEnum=terms.iterator();
+          }
+        }
+        if (termsEnum != null && termsEnum.seekExact(term)) {
+          docs=termsEnum.postings(acceptDocs,docs,PostingsEnum.NONE);
+          builder.or(docs);
         }
       }
       BitDocIdSet result=builder.build();
@@ -48,9 +32,12 @@
         return null;
       }
       final DocIdSetIterator disi=result.iterator();
+      if (disi == null) {
+        return null;
+      }
       return new Scorer(this){
         @Override public float score() throws IOException {
-          return queryWeight;
+          return score;
         }
         @Override public int freq() throws IOException {
           return 1;
