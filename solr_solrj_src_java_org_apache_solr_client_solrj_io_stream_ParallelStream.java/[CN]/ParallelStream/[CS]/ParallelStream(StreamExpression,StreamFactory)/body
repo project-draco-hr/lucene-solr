@@ -1,0 +1,48 @@
+{
+  objectSerialize=false;
+  String collectionName=factory.getValueOperand(expression,0);
+  StreamExpressionNamedParameter workersParam=factory.getNamedOperand(expression,"workers");
+  List<StreamExpression> streamExpressions=factory.getExpressionOperandsRepresentingTypes(expression,ExpressibleStream.class,TupleStream.class);
+  StreamExpressionNamedParameter sortExpression=factory.getNamedOperand(expression,"sort");
+  StreamExpressionNamedParameter zkHostExpression=factory.getNamedOperand(expression,"zkHost");
+  if (expression.getParameters().size() != streamExpressions.size() + 3 + (null != zkHostExpression ? 1 : 0)) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - unknown operands found",expression));
+  }
+  if (null == collectionName) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - collectionName expected as first operand",expression));
+  }
+  if (null == workersParam || null == workersParam.getParameter() || !(workersParam.getParameter() instanceof StreamExpressionValue)) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting a single 'workersParam' parameter of type positive integer but didn't find one",expression));
+  }
+  String workersStr=((StreamExpressionValue)workersParam.getParameter()).getValue();
+  int workersInt=0;
+  try {
+    workersInt=Integer.parseInt(workersStr);
+    if (workersInt <= 0) {
+      throw new IOException(String.format(Locale.ROOT,"invalid expression %s - workers '%s' must be greater than 0.",expression,workersStr));
+    }
+  }
+ catch (  NumberFormatException e) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - workers '%s' is not a valid integer.",expression,workersStr));
+  }
+  if (1 != streamExpressions.size()) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting a single stream but found %d",expression,streamExpressions.size()));
+  }
+  if (null == sortExpression || !(sortExpression.getParameter() instanceof StreamExpressionValue)) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting single 'sort' parameter telling us how to join the parallel streams but didn't find one",expression));
+  }
+  String zkHost=null;
+  if (null == zkHostExpression) {
+    zkHost=factory.getCollectionZkHost(collectionName);
+  }
+ else   if (zkHostExpression.getParameter() instanceof StreamExpressionValue) {
+    zkHost=((StreamExpressionValue)zkHostExpression.getParameter()).getValue();
+  }
+  if (null == zkHost) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - zkHost not found for collection '%s'",expression,collectionName));
+  }
+  TupleStream stream=factory.constructStream(streamExpressions.get(0));
+  Comparator<Tuple> comp=factory.constructComparator(((StreamExpressionValue)sortExpression.getParameter()).getValue(),FieldComparator.class);
+  streamFactory=factory;
+  init(zkHost,collectionName,stream,workersInt,comp);
+}

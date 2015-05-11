@@ -1,0 +1,44 @@
+{
+  String collectionName=factory.getValueOperand(expression,0);
+  List<StreamExpressionNamedParameter> namedParams=factory.getNamedOperands(expression);
+  StreamExpressionNamedParameter aliasExpression=factory.getNamedOperand(expression,"aliases");
+  StreamExpressionNamedParameter zkHostExpression=factory.getNamedOperand(expression,"zkHost");
+  if (expression.getParameters().size() != 1 + namedParams.size()) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - unknown operands found",expression));
+  }
+  if (null == collectionName) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - collectionName expected as first operand",expression));
+  }
+  if (0 == namedParams.size()) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - at least one named parameter expected. eg. 'q=*:*'",expression));
+  }
+  Map<String,String> params=new HashMap<String,String>();
+  for (  StreamExpressionNamedParameter namedParam : namedParams) {
+    if (!namedParam.getName().equals("zkHost") && !namedParam.getName().equals("aliases")) {
+      params.put(namedParam.getName(),namedParam.getParameter().toString().trim());
+    }
+  }
+  if (null != aliasExpression && aliasExpression.getParameter() instanceof StreamExpressionValue) {
+    fieldMappings=new HashMap<String,String>();
+    for (    String mapping : ((StreamExpressionValue)aliasExpression.getParameter()).getValue().split(",")) {
+      String[] parts=mapping.trim().split("=");
+      if (2 == parts.length) {
+        fieldMappings.put(parts[0],parts[1]);
+      }
+ else {
+        throw new IOException(String.format(Locale.ROOT,"invalid expression %s - alias expected of the format origName=newName",expression));
+      }
+    }
+  }
+  String zkHost=null;
+  if (null == zkHostExpression) {
+    zkHost=factory.getCollectionZkHost(collectionName);
+  }
+ else   if (zkHostExpression.getParameter() instanceof StreamExpressionValue) {
+    zkHost=((StreamExpressionValue)zkHostExpression.getParameter()).getValue();
+  }
+  if (null == zkHost) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - zkHost not found for collection '%s'",expression,collectionName));
+  }
+  init(collectionName,zkHost,params);
+}

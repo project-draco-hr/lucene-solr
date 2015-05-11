@@ -1,0 +1,35 @@
+{
+  indexr(id,"0","a_s","hello0","a_i","0","a_f","0");
+  indexr(id,"2","a_s","hello2","a_i","2","a_f","0");
+  indexr(id,"3","a_s","hello3","a_i","3","a_f","3");
+  indexr(id,"4","a_s","hello4","a_i","4","a_f","4");
+  indexr(id,"1","a_s","hello1","a_i","1","a_f","1");
+  indexr(id,"5","a_s","hello0","a_i","10","a_f","0");
+  indexr(id,"6","a_s","hello2","a_i","8","a_f","0");
+  indexr(id,"7","a_s","hello3","a_i","7","a_f","3");
+  indexr(id,"8","a_s","hello4","a_i","11","a_f","4");
+  indexr(id,"9","a_s","hello1","a_i","100","a_f","1");
+  commit();
+  String zkHost=zkServer.getZkAddress();
+  streamFactory.withCollectionZkHost("collection1",zkHost);
+  Map paramsA=mapParams("q","id:(4 1 8 7 9)","fl","id,a_s,a_i","sort","a_i asc","partitionKeys","a_i");
+  CloudSolrStream streamA=new CloudSolrStream(zkHost,"collection1",paramsA);
+  Map paramsB=mapParams("q","id:(0 2 3 6)","fl","id,a_s,a_i","sort","a_i asc","partitionKeys","a_i");
+  CloudSolrStream streamB=new CloudSolrStream(zkHost,"collection1",paramsB);
+  MergeStream mstream=new MergeStream(streamA,streamB,new FieldComparator("a_i",ComparatorOrder.ASCENDING));
+  CountStream cstream=new CountStream(mstream);
+  ParallelStream pstream=new ParallelStream(zkHost,"collection1",cstream,2,new FieldComparator("a_i",ComparatorOrder.ASCENDING));
+  List<Tuple> tuples=getTuples(pstream);
+  assert(tuples.size() == 9);
+  Map<String,Tuple> eofTuples=pstream.getEofTuples();
+  assert(eofTuples.size() == 2);
+  long totalCount=0;
+  Iterator<Tuple> it=eofTuples.values().iterator();
+  while (it.hasNext()) {
+    Tuple t=it.next();
+    totalCount+=t.getLong("count");
+  }
+  assert(tuples.size() == totalCount);
+  del("*:*");
+  commit();
+}
