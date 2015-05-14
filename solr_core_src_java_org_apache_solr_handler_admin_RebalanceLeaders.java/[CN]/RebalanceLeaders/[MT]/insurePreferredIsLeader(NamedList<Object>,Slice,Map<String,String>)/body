@@ -1,0 +1,52 @@
+{
+  final String inactivePreferreds="inactivePreferreds";
+  final String alreadyLeaders="alreadyLeaders";
+  String collectionName=req.getParams().get(COLLECTION_PROP);
+  for (  Replica replica : slice.getReplicas()) {
+    if (replica.getBool(SliceMutator.PREFERRED_LEADER_PROP,false) == false) {
+      continue;
+    }
+    if (replica.getBool(LEADER_PROP,false)) {
+      NamedList<Object> noops=(NamedList<Object>)results.get(alreadyLeaders);
+      if (noops == null) {
+        noops=new NamedList<>();
+        results.add(alreadyLeaders,noops);
+      }
+      NamedList<Object> res=new NamedList<>();
+      res.add("status","success");
+      res.add("msg","Already leader");
+      res.add("shard",slice.getName());
+      res.add("nodeName",replica.getNodeName());
+      noops.add(replica.getName(),res);
+      return;
+    }
+    if (replica.getState() != Replica.State.ACTIVE) {
+      NamedList<Object> inactives=(NamedList<Object>)results.get(inactivePreferreds);
+      if (inactives == null) {
+        inactives=new NamedList<>();
+        results.add(inactivePreferreds,inactives);
+      }
+      NamedList<Object> res=new NamedList<>();
+      res.add("status","skipped");
+      res.add("msg","Node is a referredLeader, but it's inactive. Skipping");
+      res.add("shard",slice.getName());
+      res.add("nodeName",replica.getNodeName());
+      inactives.add(replica.getName(),res);
+      return;
+    }
+    ZkStateReader zkStateReader=coreContainer.getZkController().getZkStateReader();
+    List<String> electionNodes=OverseerCollectionProcessor.getSortedElectionNodes(zkStateReader.getZkClient(),ZkStateReader.getShardLeadersElectPath(collectionName,slice.getName()));
+    if (electionNodes.size() < 2) {
+      CollectionsHandler.log.warn("Rebalancing leaders and slice " + slice.getName() + " has less than two elements in the leader "+ "election queue, but replica "+ replica.getName()+ " doesn't think it's the leader. Do nothing");
+      return;
+    }
+    String firstWatcher=electionNodes.get(1);
+    if (LeaderElector.getNodeName(firstWatcher).equals(replica.getName()) == false) {
+      makeReplicaFirstWatcher(collectionName,slice,replica);
+    }
+    String coreName=slice.getReplica(LeaderElector.getNodeName(electionNodes.get(0))).getStr(CORE_NAME_PROP);
+    rejoinElection(collectionName,slice,electionNodes.get(0),coreName,false);
+    waitForNodeChange(collectionName,slice,electionNodes.get(0));
+    return;
+  }
+}

@@ -7,134 +7,21 @@
     throw new SolrException(ErrorCode.BAD_REQUEST,"Solr instance is not running in SolrCloud mode.");
   }
   SolrParams params=req.getParams();
-  CollectionAction action=null;
   String a=params.get(CoreAdminParams.ACTION);
   if (a != null) {
-    action=CollectionAction.get(a);
-  }
-  if (action == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Unknown action: " + a);
-  }
-switch (action) {
-case CREATE:
-{
-      this.handleCreateAction(req,rsp);
-      break;
+    CollectionAction action=CollectionAction.get(a);
+    if (action == null)     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown action: " + a);
+    CollectionOperation operation=CollectionOperation.get(action);
+    log.info("Invoked Collection Action :{} with params{} ",action.toLower(),req.getParamString());
+    Map<String,Object> result=operation.call(req,rsp,this);
+    if (result != null) {
+      result.put(QUEUE_OPERATION,operation.action.toLower());
+      ZkNodeProps props=new ZkNodeProps(result);
+      handleResponse(operation.action.toLower(),props,rsp,operation.timeOut);
     }
-case DELETE:
-{
-    this.handleDeleteAction(req,rsp);
-    break;
   }
-case RELOAD:
-{
-  this.handleReloadAction(req,rsp);
-  break;
-}
-case SYNCSHARD:
-{
-this.handleSyncShardAction(req,rsp);
-break;
-}
-case CREATEALIAS:
-{
-this.handleCreateAliasAction(req,rsp);
-break;
-}
-case DELETEALIAS:
-{
-this.handleDeleteAliasAction(req,rsp);
-break;
-}
-case SPLITSHARD:
-{
-this.handleSplitShardAction(req,rsp);
-break;
-}
-case DELETESHARD:
-{
-this.handleDeleteShardAction(req,rsp);
-break;
-}
-case CREATESHARD:
-{
-this.handleCreateShard(req,rsp);
-break;
-}
-case DELETEREPLICA:
-{
-this.handleRemoveReplica(req,rsp);
-break;
-}
-case MIGRATE:
-{
-this.handleMigrate(req,rsp);
-break;
-}
-case ADDROLE:
-{
-handleRole(ADDROLE,req,rsp);
-break;
-}
-case REMOVEROLE:
-{
-handleRole(REMOVEROLE,req,rsp);
-break;
-}
-case CLUSTERPROP:
-{
-this.handleProp(req,rsp);
-break;
-}
-case ADDREPLICA:
-{
-this.handleAddReplica(req,rsp);
-break;
-}
-case REQUESTSTATUS:
-{
-this.handleRequestStatus(req,rsp);
-break;
-}
-case OVERSEERSTATUS:
-{
-this.handleOverseerStatus(req,rsp);
-break;
-}
-case LIST:
-{
-this.handleListAction(req,rsp);
-break;
-}
-case CLUSTERSTATUS:
-{
-this.handleClusterStatus(req,rsp);
-break;
-}
-case ADDREPLICAPROP:
-{
-this.handleAddReplicaProp(req,rsp);
-break;
-}
-case DELETEREPLICAPROP:
-{
-this.handleDeleteReplicaProp(req,rsp);
-break;
-}
-case BALANCESHARDUNIQUE:
-{
-this.handleBalanceShardUnique(req,rsp);
-break;
-}
-case REBALANCELEADERS:
-{
-this.handleBalanceLeaders(req,rsp);
-break;
-}
-default :
-{
-throw new RuntimeException("Unknown action: " + action);
-}
-}
-rsp.setHttpCaching(false);
+ else {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"action is a required param");
+  }
+  rsp.setHttpCaching(false);
 }
