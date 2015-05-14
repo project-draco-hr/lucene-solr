@@ -1,0 +1,61 @@
+{
+  String resource=getPath();
+  SolrParams params=getQueryParams();
+  final ArrayList<CollectionRequest> collectionRequests=new ArrayList<>();
+  if (getCollectionsList() != null) {
+    for (    String collection : getCollectionsList()) {
+      collectionRequests.add(new CollectionRequest(collection));
+    }
+  }
+  if (getPath().equals("/admin/collections")) {
+    if (CREATE.isEqual(params.get("action")) || RELOAD.isEqual(params.get("action")) || DELETE.isEqual(params.get("action")))     collectionRequests.add(new CollectionRequest(params.get("name")));
+ else     if (params.get(COLLECTION_PROP) != null)     collectionRequests.add(new CollectionRequest(params.get(COLLECTION_PROP)));
+  }
+  if (resource.equals("/select") && params.get("collection") != null) {
+    collectionRequests.clear();
+    for (    String collection : params.get("collection").split(",")) {
+      collectionRequests.add(new CollectionRequest(collection));
+    }
+  }
+  if (requestType == RequestType.UNKNOWN) {
+    if (resource.startsWith("/select"))     requestType=RequestType.READ;
+    if (resource.startsWith("/update"))     requestType=RequestType.WRITE;
+  }
+  if (getCore() != null && (getCollectionsList() == null || getCollectionsList().size() == 0)) {
+    collectionRequests.add(new CollectionRequest(getCore().getCoreDescriptor().getCollectionName()));
+  }
+  if (getQueryParams().get(COLLECTION_PROP) != null)   collectionRequests.add(new CollectionRequest(getQueryParams().get(COLLECTION_PROP)));
+  return new AuthorizationContext(){
+    @Override public SolrParams getParams(){
+      return getQueryParams();
+    }
+    @Override public Principal getUserPrincipal(){
+      return getReq().getUserPrincipal();
+    }
+    @Override public String getHttpHeader(    String s){
+      return getReq().getHeader(s);
+    }
+    @Override public Enumeration getHeaderNames(){
+      return getReq().getHeaderNames();
+    }
+    @Override public List<CollectionRequest> getCollectionRequests(){
+      return collectionRequests;
+    }
+    @Override public RequestType getRequestType(){
+      return requestType;
+    }
+    public String getResource(){
+      return path;
+    }
+    @Override public String toString(){
+      StringBuilder response=new StringBuilder("userPrincipal: [").append(getUserPrincipal()).append("]").append(" type: [").append(requestType.toString()).append("], collections: [");
+      for (      CollectionRequest collectionRequest : collectionRequests) {
+        response.append(collectionRequest.collectionName).append(", ");
+      }
+      if (collectionRequests.size() > 0)       response.delete(response.length() - 1,response.length());
+      response.append("], Path: [").append(resource).append("]");
+      return response.toString();
+    }
+  }
+;
+}
