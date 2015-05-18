@@ -1,4 +1,18 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,REPLICA_PROP);
-  return req.getParams().getAll(map,ASYNC,ONLY_IF_DOWN);
+  String collection=req.getParams().required().get("collection");
+  String shard=req.getParams().required().get("shard");
+  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
+  ZkNodeProps leaderProps=clusterState.getLeader(collection,shard);
+  ZkCoreNodeProps nodeProps=new ZkCoreNodeProps(leaderProps);
+  ;
+  try (HttpSolrClient client=new HttpSolrClient(nodeProps.getBaseUrl())){
+    client.setConnectionTimeout(15000);
+    client.setSoTimeout(60000);
+    RequestSyncShard reqSyncShard=new CoreAdminRequest.RequestSyncShard();
+    reqSyncShard.setCollection(collection);
+    reqSyncShard.setShard(shard);
+    reqSyncShard.setCoreName(nodeProps.getCoreName());
+    client.request(reqSyncShard);
+  }
+   return null;
 }
