@@ -1,0 +1,160 @@
+{
+  final String testCollectionName="c8n_vers_1x3";
+  String shardId="shard1";
+  int rf=3;
+  createCollectionRetry(testCollectionName,1,rf,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  final Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,shardId);
+  List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,shardId,1,rf,maxWaitSecsToSeeAllActive);
+  sendDoc(1);
+  cloudClient.commit();
+  assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,1,null);
+  Replica replica=notLeaders.get(0);
+  Long maxOnLeader=getMaxVersionFromIndex(leader);
+  Long maxOnReplica=getMaxVersionFromIndex(replica);
+  assertEquals("leader and replica should have same max version: " + maxOnLeader,maxOnLeader,maxOnReplica);
+  try (SolrClient client=new HttpSolrClient(replica.getCoreUrl())){
+    String docId=String.valueOf(1);
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.setField(id,docId);
+    doc.setField("_version_",maxOnReplica - 1);
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(DISTRIB_UPDATE_PARAM,DistributedUpdateProcessor.DistribPhase.FROMLEADER.toString());
+    params.set(DISTRIB_FROM,leader.getCoreUrl());
+    UpdateRequest req=new UpdateRequest();
+    req.setParams(params);
+    req.add(doc);
+    log.info("Sending doc with out-of-date version (" + (maxOnReplica - 1) + ") document directly to replica");
+    client.request(req);
+    client.commit();
+    Long docVersion=getVersionFromIndex(replica,docId);
+    assertEquals("older version should have been thrown away",maxOnReplica,docVersion);
+  }
+   reloadCollection(leader,testCollectionName);
+  maxOnLeader=getMaxVersionFromIndex(leader);
+  maxOnReplica=getMaxVersionFromIndex(replica);
+  assertEquals("leader and replica should have same max version after reload",maxOnLeader,maxOnReplica);
+  delQ("*:*");
+  commit();
+  final Set<Integer> deletedDocs=new HashSet<>();
+  final AtomicInteger docsSent=new AtomicInteger(0);
+  final Random rand=new Random(5150);
+  Thread docSenderThread=new Thread(){
+    public void run(){
+      try {
+        Thread.sleep(rand.nextInt(30) + 1);
+      }
+ catch (      InterruptedException e) {
+      }
+      for (int i=0; i < 1000; i++) {
+        if (i % (rand.nextInt(20) + 1) == 0) {
+          try {
+            Thread.sleep(rand.nextInt(50) + 1);
+          }
+ catch (          InterruptedException e) {
+          }
+        }
+        int docId=i + 1;
+        try {
+          sendDoc(docId);
+          docsSent.incrementAndGet();
+        }
+ catch (        Exception e) {
+        }
+      }
+    }
+  }
+;
+  Thread reloaderThread=new Thread(){
+    public void run(){
+      try {
+        Thread.sleep(rand.nextInt(300) + 1);
+      }
+ catch (      InterruptedException e) {
+      }
+      for (int i=0; i < 3; i++) {
+        try {
+          reloadCollection(leader,testCollectionName);
+        }
+ catch (        Exception e) {
+        }
+        try {
+          Thread.sleep(rand.nextInt(300) + 300);
+        }
+ catch (        InterruptedException e) {
+        }
+      }
+    }
+  }
+;
+  Thread deleteThread=new Thread(){
+    public void run(){
+      try {
+        Thread.sleep(500);
+      }
+ catch (      InterruptedException e) {
+      }
+      for (int i=0; i < 200; i++) {
+        try {
+          Thread.sleep(rand.nextInt(50) + 1);
+        }
+ catch (        InterruptedException e) {
+        }
+        int docToDelete=rand.nextInt(docsSent.get()) + 1;
+        if (!deletedDocs.contains(docToDelete)) {
+          delI(String.valueOf(docToDelete));
+          deletedDocs.add(docToDelete);
+        }
+      }
+    }
+  }
+;
+  Thread committerThread=new Thread(){
+    public void run(){
+      try {
+        Thread.sleep(rand.nextInt(200) + 1);
+      }
+ catch (      InterruptedException e) {
+      }
+      for (int i=0; i < 20; i++) {
+        try {
+          cloudClient.commit();
+        }
+ catch (        Exception e) {
+        }
+        try {
+          Thread.sleep(rand.nextInt(100) + 100);
+        }
+ catch (        InterruptedException e) {
+        }
+      }
+    }
+  }
+;
+  docSenderThread.start();
+  reloaderThread.start();
+  committerThread.start();
+  deleteThread.start();
+  docSenderThread.join();
+  reloaderThread.join();
+  committerThread.join();
+  deleteThread.join();
+  cloudClient.commit();
+  log.info("\n\n\n Total of " + deletedDocs.size() + " docs deleted \n\n\n");
+  maxOnLeader=getMaxVersionFromIndex(leader);
+  maxOnReplica=getMaxVersionFromIndex(replica);
+  assertEquals("leader and replica should have same max version before reload",maxOnLeader,maxOnReplica);
+  reloadCollection(leader,testCollectionName);
+  maxOnLeader=getMaxVersionFromIndex(leader);
+  maxOnReplica=getMaxVersionFromIndex(replica);
+  assertEquals("leader and replica should have same max version after reload",maxOnLeader,maxOnReplica);
+  assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,1000,deletedDocs);
+  try {
+    CollectionAdminRequest.Delete req=new CollectionAdminRequest.Delete();
+    req.setCollectionName(testCollectionName);
+    req.process(cloudClient);
+  }
+ catch (  Exception e) {
+    log.warn("Could not delete collection {} after test completed",testCollectionName);
+  }
+}
