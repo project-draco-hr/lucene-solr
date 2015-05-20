@@ -1,0 +1,29 @@
+{
+  List<SolrInputDocument> batch=new ArrayList<>(numDocsInBatch);
+  for (int d=0; d < numDocsInBatch; d++) {
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.setField("id",String.valueOf(d));
+    batch.add(doc);
+  }
+  UpdateRequest updateRequest=new UpdateRequest();
+  if (batch.size() > 1) {
+    updateRequest.add(batch);
+  }
+ else {
+    updateRequest.add(batch.get(0));
+  }
+  ByteArrayOutputStream os=new ByteArrayOutputStream();
+  (new JavaBinUpdateRequestCodec()).marshal(updateRequest,os);
+  BufferingRequestProcessor mockUpdateProcessor=new BufferingRequestProcessor(null){
+    @Override public void processAdd(    AddUpdateCommand cmd) throws IOException {
+      addCommands.add((AddUpdateCommand)cmd.clone());
+    }
+  }
+;
+  SolrQueryRequest req=req();
+  (new JavabinLoader()).load(req,new SolrQueryResponse(),new ContentStreamBase.ByteArrayStream(os.toByteArray(),"test"),mockUpdateProcessor);
+  req.close();
+  assertTrue(mockUpdateProcessor.addCommands.size() == numDocsInBatch);
+  for (int i=0; i < numDocsInBatch - 1; i++)   assertFalse(mockUpdateProcessor.addCommands.get(i).isLastDocInBatch);
+  assertTrue(mockUpdateProcessor.addCommands.get(batch.size() - 1).isLastDocInBatch);
+}
