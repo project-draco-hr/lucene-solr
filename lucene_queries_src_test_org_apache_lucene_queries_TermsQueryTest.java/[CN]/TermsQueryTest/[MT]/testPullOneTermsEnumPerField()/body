@@ -1,0 +1,26 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  doc.add(new StringField("foo","1",Store.NO));
+  doc.add(new StringField("bar","2",Store.NO));
+  doc.add(new StringField("baz","3",Store.NO));
+  w.addDocument(doc);
+  DirectoryReader reader=w.getReader();
+  w.close();
+  final AtomicInteger counter=new AtomicInteger();
+  DirectoryReader wrapped=new TermsCountingDirectoryReaderWrapper(reader,counter);
+  final List<Term> terms=new ArrayList<>();
+  final Set<String> fields=new HashSet<>();
+  final int numTerms=TestUtil.nextInt(random(),TermsQuery.BOOLEAN_REWRITE_TERM_COUNT_THRESHOLD + 1,100);
+  for (int i=0; i < numTerms; ++i) {
+    final String field=RandomPicks.randomFrom(random(),new String[]{"foo","bar","baz"});
+    final BytesRef term=new BytesRef(RandomStrings.randomUnicodeOfCodepointLength(random(),10));
+    fields.add(field);
+    terms.add(new Term(field,term));
+  }
+  new IndexSearcher(wrapped).count(new TermsQuery(terms));
+  assertEquals(fields.size(),counter.get());
+  wrapped.close();
+  dir.close();
+}
