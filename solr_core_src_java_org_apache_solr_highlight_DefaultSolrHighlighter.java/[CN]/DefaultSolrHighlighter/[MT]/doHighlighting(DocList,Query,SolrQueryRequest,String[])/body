@@ -14,26 +14,41 @@
   }
   FastVectorHighlighter fvh=null;
   FieldQuery fvhFieldQuery=null;
+  IndexReader reader=new TermVectorReusingLeafReader(req.getSearcher().getLeafReader());
   NamedList fragments=new SimpleOrderedMap();
   DocIterator iterator=docs.iterator();
   for (int i=0; i < docs.size(); i++) {
     int docId=iterator.nextDoc();
     StoredDocument doc=searcher.doc(docId,preFetchFieldNames);
-    NamedList docSummaries=new SimpleOrderedMap();
+    @SuppressWarnings("rawtypes") NamedList docHighlights=new SimpleOrderedMap();
     for (    String fieldName : fieldNames) {
-      if (useFastVectorHighlighter(params,schema,fieldName)) {
+      SchemaField schemaField=schema.getFieldOrNull(fieldName);
+      Object fieldHighlights;
+      if (schemaField == null) {
+        fieldHighlights=null;
+      }
+ else       if (schemaField.getType() instanceof org.apache.solr.schema.TrieField) {
+        fieldHighlights=null;
+      }
+ else       if (useFastVectorHighlighter(params,schemaField)) {
         if (fvhFieldQuery == null) {
           fvh=new FastVectorHighlighter(params.getBool(HighlightParams.USE_PHRASE_HIGHLIGHTER,true),params.getBool(HighlightParams.FIELD_MATCH,false));
           fvh.setPhraseLimit(params.getInt(HighlightParams.PHRASE_LIMIT,SolrHighlighter.DEFAULT_PHRASE_LIMIT));
-          fvhFieldQuery=fvh.getFieldQuery(query,searcher.getIndexReader());
+          fvhFieldQuery=fvh.getFieldQuery(query,reader);
         }
-        doHighlightingByFastVectorHighlighter(fvh,fvhFieldQuery,req,docSummaries,docId,doc,fieldName);
+        fieldHighlights=doHighlightingByFastVectorHighlighter(doc,docId,schemaField,fvh,fvhFieldQuery,reader,req);
       }
  else {
-        doHighlightingByHighlighter(query,req,docSummaries,docId,doc,fieldName);
+        fieldHighlights=doHighlightingByHighlighter(doc,docId,schemaField,query,reader,req);
+      }
+      if (fieldHighlights == null) {
+        fieldHighlights=alternateField(doc,fieldName,req);
+      }
+      if (fieldHighlights != null) {
+        docHighlights.add(fieldName,fieldHighlights);
       }
     }
-    fragments.add(schema.printableUniqueKey(doc),docSummaries);
+    fragments.add(schema.printableUniqueKey(doc),docHighlights);
   }
   return fragments;
 }
