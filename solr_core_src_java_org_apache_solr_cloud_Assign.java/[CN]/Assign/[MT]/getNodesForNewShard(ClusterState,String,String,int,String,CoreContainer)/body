@@ -1,4 +1,8 @@
 {
+  DocCollection coll=clusterState.getCollection(collectionName);
+  Integer maxShardsPerNode=coll.getInt(MAX_SHARDS_PER_NODE,1);
+  Integer repFactor=coll.getInt(REPLICATION_FACTOR,1);
+  int numSlices=coll.getSlices().size();
   List<String> createNodeList=createNodeSetStr == null ? null : StrUtils.splitSmart(createNodeSetStr,",",true);
   Set<String> nodes=clusterState.getLiveNodes();
   List<String> nodeList=new ArrayList<>(nodes.size());
@@ -34,12 +38,35 @@
   if (maxCoresAllowedToCreate < minCoresToCreate) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cannot create shards " + collectionName + ". Value of "+ MAX_SHARDS_PER_NODE+ " is "+ maxShardsPerNode+ ", and the number of live nodes is "+ nodeList.size()+ ". This allows a maximum of "+ maxCoresAllowedToCreate+ " to be created. Value of "+ NUM_SLICES+ " is "+ numSlices+ " and value of "+ ZkStateReader.REPLICATION_FACTOR+ " is "+ repFactor+ ". This requires "+ requestedCoresToCreate+ " shards to be created (higher than the allowed number)");
   }
-  ArrayList<Node> sortedNodeList=new ArrayList<>(nodeNameVsShardCount.values());
-  Collections.sort(sortedNodeList,new Comparator<Node>(){
-    @Override public int compare(    Node x,    Node y){
-      return (x.weight() < y.weight()) ? -1 : ((x.weight() == y.weight()) ? 0 : 1);
+  List l=(List)coll.get(DocCollection.RULE);
+  if (l != null) {
+    ArrayList<Rule> rules=new ArrayList<>();
+    for (    Object o : l)     rules.add(new Rule((Map)o));
+    Map<String,Map<String,Integer>> shardVsNodes=new LinkedHashMap<>();
+    for (    Slice slice : coll.getSlices()) {
+      LinkedHashMap<String,Integer> n=new LinkedHashMap<>();
+      shardVsNodes.put(slice.getName(),n);
+      for (      Replica replica : slice.getReplicas()) {
+        Integer count=n.get(replica.getNodeName());
+        if (count == null)         count=0;
+        n.put(replica.getNodeName(),++count);
+      }
     }
+    List snitches=(List)coll.get(DocCollection.SNITCH);
+    List<String> nodesList=createNodeList == null ? new ArrayList<>(clusterState.getLiveNodes()) : createNodeList;
+    Map<ReplicaAssigner.Position,String> positions=new ReplicaAssigner(rules,Collections.singletonMap(shard,numberOfNodes),snitches,shardVsNodes,nodesList,cc,clusterState).getNodeMappings();
+    List<Node> n=new ArrayList<>();
+    for (    String s : positions.values())     n.add(new Node(s));
+    return n;
   }
+ else {
+    ArrayList<Node> sortedNodeList=new ArrayList<>(nodeNameVsShardCount.values());
+    Collections.sort(sortedNodeList,new Comparator<Node>(){
+      @Override public int compare(      Node x,      Node y){
+        return (x.weight() < y.weight()) ? -1 : ((x.weight() == y.weight()) ? 0 : 1);
+      }
+    }
 );
-  return sortedNodeList;
+    return sortedNodeList;
+  }
 }
