@@ -1,0 +1,45 @@
+{
+  final FunctionValues targetFuncValues=targetValueSource.getValues(context,readerContext);
+  final SolrCache<PerSegCacheKey,Shape> cache=SolrRequestInfo.getRequestInfo().getReq().getSearcher().getCache(CACHE_KEY_PREFIX + fieldName);
+  if (cache == null) {
+    return targetFuncValues;
+  }
+  return new FunctionValues(){
+    int docId=-1;
+    Shape shape=null;
+    private void setShapeFromDoc(    int doc){
+      if (docId == doc) {
+        return;
+      }
+      docId=doc;
+      PerSegCacheKey key=new PerSegCacheKey(readerContext.reader().getCoreCacheKey(),doc);
+      shape=cache.get(key);
+      if (shape == null) {
+        shape=(Shape)targetFuncValues.objectVal(doc);
+        if (shape != null) {
+          cache.put(key,shape);
+        }
+      }
+ else {
+        if (shape instanceof JtsGeometry) {
+          ((JtsGeometry)shape).index();
+        }
+      }
+    }
+    @Override public boolean exists(    int doc){
+      setShapeFromDoc(doc);
+      return shape != null;
+    }
+    @Override public Object objectVal(    int doc){
+      setShapeFromDoc(doc);
+      return shape;
+    }
+    @Override public Explanation explain(    int doc){
+      return targetFuncValues.explain(doc);
+    }
+    @Override public String toString(    int doc){
+      return targetFuncValues.toString(doc);
+    }
+  }
+;
+}
