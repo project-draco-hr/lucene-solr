@@ -1,0 +1,39 @@
+{
+  String collectionName=core.getCoreDescriptor().getCloudDescriptor().getCollectionName();
+  String shard=core.getCoreDescriptor().getCloudDescriptor().getShardId();
+  if (!leaderStateManager.amILeader()) {
+    log.warn("Action {} sent to non-leader replica @ {}:{}",CdcrParams.CdcrAction.LASTPROCESSEDVERSION,collectionName,shard);
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Action " + CdcrParams.CdcrAction.LASTPROCESSEDVERSION + " sent to non-leader replica");
+  }
+  long lastProcessedVersion=Long.MAX_VALUE;
+  for (  CdcrReplicatorState state : replicatorManager.getReplicatorStates()) {
+    long version=Long.MAX_VALUE;
+    if (state.getLogReader() != null) {
+      version=state.getLogReader().getLastVersion();
+    }
+    lastProcessedVersion=Math.min(lastProcessedVersion,version);
+  }
+  CdcrUpdateLog.CdcrLogReader bufferLogReader=((CdcrUpdateLog)core.getUpdateHandler().getUpdateLog()).getBufferToggle();
+  if (bufferLogReader != null) {
+    lastProcessedVersion=Math.min(lastProcessedVersion,bufferLogReader.getLastVersion());
+  }
+  if (processStateManager.getState().equals(CdcrParams.ProcessState.STOPPED) && bufferStateManager.getState().equals(CdcrParams.BufferState.DISABLED)) {
+    CdcrUpdateLog.CdcrLogReader logReader=((CdcrUpdateLog)core.getUpdateHandler().getUpdateLog()).newLogReader();
+    try {
+      logReader.next();
+      lastProcessedVersion=Math.min(lastProcessedVersion,logReader.getLastVersion());
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error while fetching the last processed version",e);
+    }
+catch (    IOException e) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error while fetching the last processed version",e);
+    }
+ finally {
+      logReader.close();
+    }
+  }
+  log.info("Returning the lowest last processed version {}  @ {}:{}",lastProcessedVersion,collectionName,shard);
+  rsp.add(CdcrParams.LAST_PROCESSED_VERSION,lastProcessedVersion);
+}

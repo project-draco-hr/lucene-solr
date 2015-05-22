@@ -1,0 +1,24 @@
+{
+  UpdateLog ulog=solrCore.getUpdateHandler().getUpdateLog();
+  LOG.info("Starting download of tlog files from master: " + tlogFilesToDownload);
+  tlogFilesDownloaded=Collections.synchronizedList(new ArrayList<Map<String,Object>>());
+  File tmpTlogDir=new File(ulog.getLogDir(),"tlog." + getDateAsStr(new Date()));
+  try {
+    boolean status=tmpTlogDir.mkdirs();
+    if (!status) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Failed to create temporary tlog folder: " + tmpTlogDir.getName());
+    }
+    for (    Map<String,Object> file : tlogFilesToDownload) {
+      String saveAs=(String)(file.get(ALIAS) == null ? file.get(NAME) : file.get(ALIAS));
+      localFileFetcher=new LocalFsFileFetcher(tmpTlogDir,file,saveAs,TLOG_FILE,latestGeneration);
+      currentFile=file;
+      localFileFetcher.fetchFile();
+      tlogFilesDownloaded.add(new HashMap<>(file));
+    }
+    terminateAndWaitFsyncService();
+    copyTmpTlogFiles2Tlog(tmpTlogDir,timestamp);
+  }
+  finally {
+    delTree(tmpTlogDir);
+  }
+}

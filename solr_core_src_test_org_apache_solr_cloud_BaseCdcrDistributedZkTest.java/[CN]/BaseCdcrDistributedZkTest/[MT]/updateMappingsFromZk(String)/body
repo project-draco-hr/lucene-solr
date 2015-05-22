@@ -1,0 +1,44 @@
+{
+  List<CloudJettyRunner> cloudJettys=new ArrayList<>();
+  Map<String,List<CloudJettyRunner>> shardToJetty=new HashMap<>();
+  Map<String,CloudJettyRunner> shardToLeaderJetty=new HashMap<>();
+  CloudSolrClient cloudClient=this.createCloudClient(null);
+  try {
+    cloudClient.connect();
+    ZkStateReader zkStateReader=cloudClient.getZkStateReader();
+    zkStateReader.updateClusterState(true);
+    ClusterState clusterState=zkStateReader.getClusterState();
+    DocCollection coll=clusterState.getCollection(collection);
+    for (    JettySolrRunner jetty : jettys) {
+      int port=jetty.getLocalPort();
+      if (port == -1) {
+        throw new RuntimeException("Cannot find the port for jetty");
+      }
+      nextJetty:       for (      Slice shard : coll.getSlices()) {
+        Set<Map.Entry<String,Replica>> entries=shard.getReplicasMap().entrySet();
+        for (        Map.Entry<String,Replica> entry : entries) {
+          Replica replica=entry.getValue();
+          if (replica.getStr(ZkStateReader.BASE_URL_PROP).contains(":" + port)) {
+            if (!shardToJetty.containsKey(shard.getName())) {
+              shardToJetty.put(shard.getName(),new ArrayList<CloudJettyRunner>());
+            }
+            boolean isLeader=shard.getLeader() == replica;
+            CloudJettyRunner cjr=new CloudJettyRunner(jetty,replica,collection,shard.getName(),entry.getKey());
+            shardToJetty.get(shard.getName()).add(cjr);
+            if (isLeader) {
+              shardToLeaderJetty.put(shard.getName(),cjr);
+            }
+            cloudJettys.add(cjr);
+            break nextJetty;
+          }
+        }
+      }
+    }
+    this.cloudJettys.put(collection,cloudJettys);
+    this.shardToJetty.put(collection,shardToJetty);
+    this.shardToLeaderJetty.put(collection,shardToLeaderJetty);
+  }
+  finally {
+    cloudClient.close();
+  }
+}

@@ -1,0 +1,27 @@
+{
+  if (!isStarted) {
+    scheduler=Executors.newSingleThreadScheduledExecutor(new DefaultSolrThreadFactory("cdcr-scheduler"));
+    replicatorsPool=ExecutorUtil.newMDCAwareFixedThreadPool(poolSize,new DefaultSolrThreadFactory("cdcr-replicator"));
+    scheduler.scheduleWithFixedDelay(new Runnable(){
+      @Override public void run(){
+        int nCandidates=statesQueue.size();
+        for (int i=0; i < nCandidates; i++) {
+          replicatorsPool.execute(new Runnable(){
+            @Override public void run(){
+              CdcrReplicatorState state=statesQueue.poll();
+              try {
+                new CdcrReplicator(state,batchSize).run();
+              }
+  finally {
+                statesQueue.offer(state);
+              }
+            }
+          }
+);
+        }
+      }
+    }
+,0,timeSchedule,TimeUnit.MILLISECONDS);
+    isStarted=true;
+  }
+}

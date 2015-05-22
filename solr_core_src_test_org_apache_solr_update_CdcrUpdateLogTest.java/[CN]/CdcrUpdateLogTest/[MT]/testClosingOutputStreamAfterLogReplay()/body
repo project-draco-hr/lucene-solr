@@ -1,0 +1,41 @@
+{
+  this.clearCore();
+  DirectUpdateHandler2.commitOnClose=false;
+  final Semaphore logReplay=new Semaphore(0);
+  final Semaphore logReplayFinish=new Semaphore(0);
+  UpdateLog.testing_logReplayHook=new Runnable(){
+    @Override public void run(){
+      try {
+        assertTrue(logReplay.tryAcquire(timeout,TimeUnit.SECONDS));
+      }
+ catch (      Exception e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+;
+  UpdateLog.testing_logReplayFinishHook=new Runnable(){
+    @Override public void run(){
+      logReplayFinish.release();
+    }
+  }
+;
+  Deque<Long> versions=new ArrayDeque<>();
+  versions.addFirst(addAndGetVersion(sdoc("id","A11"),null));
+  versions.addFirst(addAndGetVersion(sdoc("id","A12"),null));
+  versions.addFirst(addAndGetVersion(sdoc("id","A13"),null));
+  assertJQ(req("q","*:*"),"/response/numFound==0");
+  assertJQ(req("qt","/get","getVersions","" + versions.size()),"/versions==" + versions);
+  h.close();
+  createCore();
+  assertJQ(req("q","*:*"),"/response/numFound==0");
+  logReplay.release(1000);
+  assertTrue(logReplayFinish.tryAcquire(timeout,TimeUnit.SECONDS));
+  assertJQ(req("q","*:*"),"/response/numFound==3");
+  UpdateLog ulog=h.getCore().getUpdateHandler().getUpdateLog();
+  assertEquals(0,ulog.logs.peekLast().refcount.get());
+  assertNull(ulog.logs.peekLast().channel);
+  ulog.logs.peekLast().incref();
+  assertTrue(ulog.logs.peekLast().endsWithCommit());
+  ulog.logs.peekLast().decref();
+}

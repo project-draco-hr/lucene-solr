@@ -1,0 +1,54 @@
+{
+  try {
+    String leaderUrl=getLeaderUrl();
+    if (leaderUrl == null) {
+      return;
+    }
+    HttpSolrClient server=new HttpSolrClient(leaderUrl);
+    server.setConnectionTimeout(15000);
+    server.setSoTimeout(60000);
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(CommonParams.ACTION,CdcrParams.CdcrAction.LASTPROCESSEDVERSION.toString());
+    SolrRequest request=new QueryRequest(params);
+    request.setPath(path);
+    long lastVersion;
+    try {
+      NamedList response=server.request(request);
+      lastVersion=(Long)response.get(CdcrParams.LAST_PROCESSED_VERSION);
+      log.debug("My leader {} says its last processed _version_ number is: {}. I am {}",leaderUrl,lastVersion,core.getCoreDescriptor().getCloudDescriptor().getCoreNodeName());
+    }
+ catch (    IOException|SolrServerException e) {
+      log.warn("Couldn't get last processed version from leader {}: {}",leaderUrl,e.getMessage());
+      return;
+    }
+ finally {
+      try {
+        server.close();
+      }
+ catch (      IOException ioe) {
+        log.warn("Caught exception trying to close server: ",leaderUrl,ioe.getMessage());
+      }
+    }
+    if (lastVersion == -1) {
+      return;
+    }
+    try {
+      CdcrUpdateLog ulog=(CdcrUpdateLog)core.getUpdateHandler().getUpdateLog();
+      if (ulog.isBuffering()) {
+        log.debug("Advancing replica buffering tlog reader to {} @ {}:{}",lastVersion,collection,shardId);
+        ulog.getBufferToggle().seek(lastVersion);
+      }
+    }
+ catch (    InterruptedException e) {
+      Thread.currentThread().interrupt();
+      log.warn("Couldn't advance replica buffering tlog reader to {} (to remove old tlogs): {}",lastVersion,e.getMessage());
+    }
+catch (    IOException e) {
+      log.warn("Couldn't advance replica buffering tlog reader to {} (to remove old tlogs): {}",lastVersion,e.getMessage());
+    }
+  }
+ catch (  Throwable e) {
+    log.warn("Caught unexpected exception",e);
+    throw e;
+  }
+}

@@ -1,0 +1,52 @@
+{
+  CdcrUpdateLog.CdcrLogReader logReader=state.getLogReader();
+  CdcrUpdateLog.CdcrLogReader subReader=null;
+  if (logReader == null) {
+    log.warn("Log reader for target {} is not initialised, it will be ignored.",state.getTargetCollection());
+    return;
+  }
+  try {
+    UpdateRequest req=new UpdateRequest();
+    req.setParam(CdcrUpdateProcessor.CDCR_UPDATE,"");
+    state.getBenchmarkTimer().start();
+    long counter=0;
+    subReader=logReader.getSubReader();
+    for (int i=0; i < batchSize; i++) {
+      Object o=subReader.next();
+      if (o == null)       break;
+      if (isDelete(o)) {
+        List<SolrInputDocument> docs=req.getDocuments();
+        if (docs != null && docs.size() > 0) {
+          subReader.resetToLastPosition();
+          this.sendRequest(req);
+          logReader.forwardSeek(subReader);
+          o=subReader.next();
+          counter+=docs.size();
+          req.clear();
+        }
+        this.processUpdate(o,req);
+        this.sendRequest(req);
+        logReader.forwardSeek(subReader);
+        counter++;
+        req.clear();
+      }
+ else {
+        this.processUpdate(o,req);
+      }
+    }
+    List<SolrInputDocument> docs=req.getDocuments();
+    if ((docs != null && docs.size() > 0)) {
+      this.sendRequest(req);
+      counter+=docs.size();
+    }
+    logReader.forwardSeek(subReader);
+    log.debug("Forwarded {} updates to target {}",counter,state.getTargetCollection());
+  }
+ catch (  Exception e) {
+    this.handleException(e);
+  }
+ finally {
+    state.getBenchmarkTimer().stop();
+    if (subReader != null)     subReader.close();
+  }
+}

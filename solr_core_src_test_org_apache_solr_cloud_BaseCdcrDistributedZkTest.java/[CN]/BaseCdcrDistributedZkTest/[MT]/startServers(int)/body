@@ -1,0 +1,25 @@
+{
+  String temporaryCollection="tmp_collection";
+  System.setProperty("collection",temporaryCollection);
+  for (int i=1; i <= nServer; i++) {
+    File jettyDir=createTempDir("jetty").toFile();
+    jettyDir.mkdirs();
+    setupJettySolrHome(jettyDir);
+    JettySolrRunner jetty=createJetty(jettyDir,null,"shard" + i);
+    jettys.add(jetty);
+  }
+  ZkStateReader zkStateReader=((SolrDispatchFilter)jettys.get(0).getDispatchFilter().getFilter()).getCores().getZkController().getZkStateReader();
+  for (int i=1; i <= shardCount; i++) {
+    this.printLayout();
+    zkStateReader.getLeaderRetry(temporaryCollection,"shard" + i,15000);
+  }
+  List<String> nodeNames=new ArrayList<>();
+  for (  Slice shard : zkStateReader.getClusterState().getCollection(temporaryCollection).getSlices()) {
+    for (    Replica replica : shard.getReplicas()) {
+      nodeNames.add(replica.getNodeName());
+    }
+  }
+  this.deleteCollection(temporaryCollection);
+  System.clearProperty("collection");
+  return nodeNames;
+}

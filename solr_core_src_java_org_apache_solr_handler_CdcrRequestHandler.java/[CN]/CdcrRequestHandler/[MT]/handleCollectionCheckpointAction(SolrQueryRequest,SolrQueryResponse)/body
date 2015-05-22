@@ -1,0 +1,38 @@
+{
+  ZkController zkController=core.getCoreDescriptor().getCoreContainer().getZkController();
+  try {
+    zkController.getZkStateReader().updateClusterState(true);
+  }
+ catch (  Exception e) {
+    log.warn("Error when updating cluster state",e);
+  }
+  ClusterState cstate=zkController.getClusterState();
+  Collection<Slice> shards=cstate.getActiveSlices(collection);
+  ExecutorService parallelExecutor=ExecutorUtil.newMDCAwareCachedThreadPool(new DefaultSolrThreadFactory("parallelCdcrExecutor"));
+  long checkpoint=Long.MAX_VALUE;
+  try {
+    List<Callable<Long>> callables=new ArrayList<>();
+    for (    Slice shard : shards) {
+      ZkNodeProps leaderProps=zkController.getZkStateReader().getLeaderRetry(collection,shard.getName());
+      ZkCoreNodeProps nodeProps=new ZkCoreNodeProps(leaderProps);
+      callables.add(new SliceCheckpointCallable(nodeProps.getCoreUrl(),path));
+    }
+    for (    final Future<Long> future : parallelExecutor.invokeAll(callables)) {
+      long version=future.get();
+      if (version < checkpoint) {
+        checkpoint=version;
+      }
+    }
+  }
+ catch (  InterruptedException e) {
+    Thread.currentThread().interrupt();
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error while requesting shard's checkpoints",e);
+  }
+catch (  ExecutionException e) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error while requesting shard's checkpoints",e);
+  }
+ finally {
+    parallelExecutor.shutdown();
+  }
+  rsp.add(CdcrParams.CHECKPOINT,checkpoint);
+}

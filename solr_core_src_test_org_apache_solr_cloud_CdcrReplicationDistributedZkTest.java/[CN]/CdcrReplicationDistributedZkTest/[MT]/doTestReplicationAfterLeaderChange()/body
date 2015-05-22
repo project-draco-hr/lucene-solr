@@ -1,0 +1,44 @@
+{
+  this.clearSourceCollection();
+  this.clearTargetCollection();
+  log.info("Starting CDCR");
+  this.invokeCdcrAction(shardToLeaderJetty.get(SOURCE_COLLECTION).get(SHARD1),CdcrParams.CdcrAction.START);
+  log.info("Indexing 10 documents");
+  int start=0;
+  List<SolrInputDocument> docs=new ArrayList<>();
+  for (; start < 10; start++) {
+    docs.add(getDoc(id,Integer.toString(start)));
+  }
+  index(SOURCE_COLLECTION,docs);
+  log.info("Querying source collection");
+  assertEquals(10,getNumDocs(SOURCE_COLLECTION));
+  log.info("Waiting for replication");
+  this.waitForReplicationToComplete(SOURCE_COLLECTION,SHARD1);
+  this.waitForReplicationToComplete(SOURCE_COLLECTION,SHARD2);
+  log.info("Querying target collection");
+  commit(TARGET_COLLECTION);
+  assertEquals(10,getNumDocs(TARGET_COLLECTION));
+  log.info("Restarting target leaders");
+  this.restartServer(shardToLeaderJetty.get(TARGET_COLLECTION).get(SHARD1));
+  this.restartServer(shardToLeaderJetty.get(TARGET_COLLECTION).get(SHARD2));
+  log.info("Restarting source leaders");
+  this.restartServer(shardToLeaderJetty.get(SOURCE_COLLECTION).get(SHARD1));
+  this.restartServer(shardToLeaderJetty.get(SOURCE_COLLECTION).get(SHARD2));
+  log.info("Checking queue size of new source leaders");
+  assertTrue(this.getQueueSize(SOURCE_COLLECTION,SHARD1) < 10);
+  assertTrue(this.getQueueSize(SOURCE_COLLECTION,SHARD2) < 10);
+  log.info("Indexing 100 documents");
+  docs.clear();
+  for (; start < 110; start++) {
+    docs.add(getDoc(id,Integer.toString(start)));
+  }
+  index(SOURCE_COLLECTION,docs);
+  log.info("Querying source collection");
+  assertEquals(110,getNumDocs(SOURCE_COLLECTION));
+  log.info("Waiting for replication");
+  this.waitForReplicationToComplete(SOURCE_COLLECTION,SHARD1);
+  this.waitForReplicationToComplete(SOURCE_COLLECTION,SHARD2);
+  log.info("Querying target collection");
+  commit(TARGET_COLLECTION);
+  assertEquals(110,getNumDocs(TARGET_COLLECTION));
+}

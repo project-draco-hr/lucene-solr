@@ -1,0 +1,38 @@
+{
+  this.core=core;
+  collection=core.getCoreDescriptor().getCloudDescriptor().getCollectionName();
+  if (!core.getCoreDescriptor().getCoreContainer().isZooKeeperAware()) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Solr instance is not running in SolrCloud mode.");
+  }
+  if (!(core.getUpdateHandler().getUpdateLog() instanceof CdcrUpdateLog)) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Solr instance is not configured with the cdcr update log.");
+  }
+  path=null;
+  for (  Map.Entry<String,PluginBag.PluginHolder<SolrRequestHandler>> entry : core.getRequestHandlers().getRegistry().entrySet()) {
+    if (core.getRequestHandlers().isLoaded(entry.getKey()) && entry.getValue().get() == this) {
+      path=entry.getKey();
+      break;
+    }
+  }
+  if (path == null) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"The CdcrRequestHandler is not registered with the current core.");
+  }
+  if (!path.startsWith("/")) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"The CdcrRequestHandler needs to be registered to a path. Typically this is '/cdcr'");
+  }
+  bufferStateManager=new CdcrBufferStateManager(core,bufferConfiguration);
+  processStateManager=new CdcrProcessStateManager(core);
+  leaderStateManager=new CdcrLeaderStateManager(core);
+  replicatorManager=new CdcrReplicatorManager(core,path,replicatorConfiguration,replicasConfiguration);
+  replicatorManager.setProcessStateManager(processStateManager);
+  replicatorManager.setLeaderStateManager(leaderStateManager);
+  replicatorManager.stateUpdate();
+  updateLogSynchronizer=new CdcrUpdateLogSynchronizer(core,path,updateLogSynchronizerConfiguration);
+  updateLogSynchronizer.setLeaderStateManager(leaderStateManager);
+  updateLogSynchronizer.stateUpdate();
+  bufferManager=new CdcrBufferManager(core);
+  bufferManager.setLeaderStateManager(leaderStateManager);
+  bufferManager.setBufferStateManager(bufferStateManager);
+  bufferManager.stateUpdate();
+  this.registerCloseHook(core);
+}
