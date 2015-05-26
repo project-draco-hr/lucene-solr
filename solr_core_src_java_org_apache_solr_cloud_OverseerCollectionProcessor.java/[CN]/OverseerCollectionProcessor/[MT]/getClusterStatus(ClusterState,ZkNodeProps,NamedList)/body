@@ -25,66 +25,45 @@
   }
   byte[] bytes=ZkStateReader.toJSON(clusterState);
   Map<String,Object> stateMap=(Map<String,Object>)ZkStateReader.fromJSON(bytes);
+  Set<String> collections=new HashSet<>();
+  String routeKey=message.getStr(ShardParams._ROUTE_);
   String shard=message.getStr(ZkStateReader.SHARD_ID_PROP);
-  NamedList<Object> collectionProps=new SimpleOrderedMap<Object>();
   if (collection == null) {
-    Set<String> collections=clusterState.getCollections();
-    for (    String name : collections) {
-      Map<String,Object> collectionStatus=null;
-      if (clusterState.getCollection(name).getStateFormat() > 1) {
-        bytes=ZkStateReader.toJSON(clusterState.getCollection(name));
-        Map<String,Object> docCollection=(Map<String,Object>)ZkStateReader.fromJSON(bytes);
-        collectionStatus=getCollectionStatus(docCollection,name,shard);
-      }
- else {
-        collectionStatus=getCollectionStatus((Map<String,Object>)stateMap.get(name),name,shard);
-      }
-      if (collectionVsAliases.containsKey(name) && !collectionVsAliases.get(name).isEmpty()) {
-        collectionStatus.put("aliases",collectionVsAliases.get(name));
-      }
-      String configName=zkStateReader.readConfigName(name);
-      collectionStatus.put("configName",configName);
-      collectionProps.add(name,collectionStatus);
-    }
+    collections=new HashSet<>(clusterState.getCollections());
   }
  else {
-    String routeKey=message.getStr(ShardParams._ROUTE_);
-    Map<String,Object> docCollection=null;
-    if (clusterState.getCollection(collection).getStateFormat() > 1) {
-      bytes=ZkStateReader.toJSON(clusterState.getCollection(collection));
-      docCollection=(Map<String,Object>)ZkStateReader.fromJSON(bytes);
-    }
- else {
-      docCollection=(Map<String,Object>)stateMap.get(collection);
-    }
-    if (routeKey == null) {
-      Map<String,Object> collectionStatus=getCollectionStatus(docCollection,collection,shard);
-      if (collectionVsAliases.containsKey(collection) && !collectionVsAliases.get(collection).isEmpty()) {
-        collectionStatus.put("aliases",collectionVsAliases.get(collection));
-      }
-      String configName=zkStateReader.readConfigName(collection);
-      collectionStatus.put("configName",configName);
-      collectionProps.add(collection,collectionStatus);
-    }
- else {
-      DocCollection coll=clusterState.getCollection(collection);
-      DocRouter router=coll.getRouter();
-      Collection<Slice> slices=router.getSearchSlices(routeKey,null,coll);
-      String s="";
+    collections=Collections.singleton(collection);
+  }
+  NamedList<Object> collectionProps=new SimpleOrderedMap<Object>();
+  for (  String name : collections) {
+    Map<String,Object> collectionStatus=null;
+    DocCollection clusterStateCollection=clusterState.getCollection(name);
+    Set<String> requestedShards=new HashSet<>();
+    if (routeKey != null) {
+      DocRouter router=clusterStateCollection.getRouter();
+      Collection<Slice> slices=router.getSearchSlices(routeKey,null,clusterStateCollection);
       for (      Slice slice : slices) {
-        s+=slice.getName() + ",";
+        requestedShards.add(slice.getName());
       }
-      if (shard != null) {
-        s+=shard;
-      }
-      Map<String,Object> collectionStatus=getCollectionStatus(docCollection,collection,s);
-      if (collectionVsAliases.containsKey(collection) && !collectionVsAliases.get(collection).isEmpty()) {
-        collectionStatus.put("aliases",collectionVsAliases.get(collection));
-      }
-      String configName=zkStateReader.readConfigName(collection);
-      collectionStatus.put("configName",configName);
-      collectionProps.add(collection,collectionStatus);
     }
+    if (shard != null) {
+      requestedShards.add(shard);
+    }
+    if (clusterStateCollection.getStateFormat() > 1) {
+      bytes=ZkStateReader.toJSON(clusterStateCollection);
+      Map<String,Object> docCollection=(Map<String,Object>)ZkStateReader.fromJSON(bytes);
+      collectionStatus=getCollectionStatus(docCollection,name,requestedShards);
+    }
+ else {
+      collectionStatus=getCollectionStatus((Map<String,Object>)stateMap.get(name),name,requestedShards);
+    }
+    collectionStatus.put("znodeVersion",clusterStateCollection.getZNodeVersion());
+    if (collectionVsAliases.containsKey(name) && !collectionVsAliases.get(name).isEmpty()) {
+      collectionStatus.put("aliases",collectionVsAliases.get(name));
+    }
+    String configName=zkStateReader.readConfigName(name);
+    collectionStatus.put("configName",configName);
+    collectionProps.add(name,collectionStatus);
   }
   List<String> liveNodes=zkStateReader.getZkClient().getChildren(ZkStateReader.LIVE_NODES_ZKNODE,null,true);
   crossCheckReplicaStateWithLiveNodes(liveNodes,collectionProps);
