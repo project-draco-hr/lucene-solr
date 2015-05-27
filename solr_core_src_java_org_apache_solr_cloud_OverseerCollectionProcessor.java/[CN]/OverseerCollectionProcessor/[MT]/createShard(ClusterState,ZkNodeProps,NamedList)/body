@@ -1,53 +1,46 @@
 {
-  Map previousMDCContext=MDC.getCopyOfContextMap();
   String collectionName=message.getStr(COLLECTION_PROP);
   String sliceName=message.getStr(SHARD_ID_PROP);
-  MDCUtils.setMDC(collectionName,sliceName,null,null);
-  try {
-    log.info("Create shard invoked: {}",message);
-    if (collectionName == null || sliceName == null)     throw new SolrException(ErrorCode.BAD_REQUEST,"'collection' and 'shard' are required parameters");
-    int numSlices=1;
-    ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
-    DocCollection collection=clusterState.getCollection(collectionName);
-    int repFactor=message.getInt(REPLICATION_FACTOR,collection.getInt(REPLICATION_FACTOR,1));
-    String createNodeSetStr=message.getStr(CREATE_NODE_SET);
-    List<Node> sortedNodeList=getNodesForNewShard(clusterState,collectionName,sliceName,repFactor,createNodeSetStr,overseer.getZkController().getCoreContainer());
-    Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(message));
-    long waitUntil=System.nanoTime() + TimeUnit.NANOSECONDS.convert(30,TimeUnit.SECONDS);
-    boolean created=false;
-    while (System.nanoTime() < waitUntil) {
-      Thread.sleep(100);
-      created=zkStateReader.getClusterState().getCollection(collectionName).getSlice(sliceName) != null;
-      if (created)       break;
-    }
-    if (!created)     throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully create shard: " + message.getStr(NAME));
-    String configName=message.getStr(COLL_CONF);
-    for (int j=1; j <= repFactor; j++) {
-      String nodeName=sortedNodeList.get(((j - 1)) % sortedNodeList.size()).nodeName;
-      String shardName=collectionName + "_" + sliceName+ "_replica"+ j;
-      log.info("Creating shard " + shardName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ nodeName);
-      ModifiableSolrParams params=new ModifiableSolrParams();
-      params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
-      params.set(CoreAdminParams.NAME,shardName);
-      params.set(COLL_CONF,configName);
-      params.set(CoreAdminParams.COLLECTION,collectionName);
-      params.set(CoreAdminParams.SHARD,sliceName);
-      params.set(ZkStateReader.NUM_SHARDS_PROP,numSlices);
-      addPropertyParams(message,params);
-      ShardRequest sreq=new ShardRequest();
-      params.set("qt",adminPath);
-      sreq.purpose=1;
-      String replica=zkStateReader.getBaseUrlForNodeName(nodeName);
-      sreq.shards=new String[]{replica};
-      sreq.actualShards=sreq.shards;
-      sreq.params=params;
-      shardHandler.submit(sreq,replica,sreq.params);
-    }
-    processResponses(results,shardHandler);
-    log.info("Finished create command on all shards for collection: " + collectionName);
-    return true;
+  log.info("Create shard invoked: {}",message);
+  if (collectionName == null || sliceName == null)   throw new SolrException(ErrorCode.BAD_REQUEST,"'collection' and 'shard' are required parameters");
+  int numSlices=1;
+  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
+  DocCollection collection=clusterState.getCollection(collectionName);
+  int repFactor=message.getInt(REPLICATION_FACTOR,collection.getInt(REPLICATION_FACTOR,1));
+  String createNodeSetStr=message.getStr(CREATE_NODE_SET);
+  List<Node> sortedNodeList=getNodesForNewShard(clusterState,collectionName,sliceName,repFactor,createNodeSetStr,overseer.getZkController().getCoreContainer());
+  Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(message));
+  long waitUntil=System.nanoTime() + TimeUnit.NANOSECONDS.convert(30,TimeUnit.SECONDS);
+  boolean created=false;
+  while (System.nanoTime() < waitUntil) {
+    Thread.sleep(100);
+    created=zkStateReader.getClusterState().getCollection(collectionName).getSlice(sliceName) != null;
+    if (created)     break;
   }
-  finally {
-    MDCUtils.cleanupMDC(previousMDCContext);
+  if (!created)   throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully create shard: " + message.getStr(NAME));
+  String configName=message.getStr(COLL_CONF);
+  for (int j=1; j <= repFactor; j++) {
+    String nodeName=sortedNodeList.get(((j - 1)) % sortedNodeList.size()).nodeName;
+    String shardName=collectionName + "_" + sliceName+ "_replica"+ j;
+    log.info("Creating shard " + shardName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ nodeName);
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATE.toString());
+    params.set(CoreAdminParams.NAME,shardName);
+    params.set(COLL_CONF,configName);
+    params.set(CoreAdminParams.COLLECTION,collectionName);
+    params.set(CoreAdminParams.SHARD,sliceName);
+    params.set(ZkStateReader.NUM_SHARDS_PROP,numSlices);
+    addPropertyParams(message,params);
+    ShardRequest sreq=new ShardRequest();
+    params.set("qt",adminPath);
+    sreq.purpose=1;
+    String replica=zkStateReader.getBaseUrlForNodeName(nodeName);
+    sreq.shards=new String[]{replica};
+    sreq.actualShards=sreq.shards;
+    sreq.params=params;
+    shardHandler.submit(sreq,replica,sreq.params);
   }
+  processResponses(results,shardHandler);
+  log.info("Finished create command on all shards for collection: " + collectionName);
+  return true;
 }

@@ -1,56 +1,49 @@
 {
   String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
   String sliceId=message.getStr(ZkStateReader.SHARD_ID_PROP);
-  Map previousMDCContext=MDC.getCopyOfContextMap();
-  MDCUtils.setMDC(collection,sliceId,null,null);
-  try {
-    log.info("Delete shard invoked");
-    Slice slice=clusterState.getSlice(collection,sliceId);
-    if (slice == null) {
-      if (clusterState.hasCollection(collection)) {
-        throw new SolrException(ErrorCode.BAD_REQUEST,"No shard with name " + sliceId + " exists for collection "+ collection);
-      }
+  log.info("Delete shard invoked");
+  Slice slice=clusterState.getSlice(collection,sliceId);
+  if (slice == null) {
+    if (clusterState.hasCollection(collection)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"No shard with name " + sliceId + " exists for collection "+ collection);
+    }
  else {
-        throw new SolrException(ErrorCode.BAD_REQUEST,"No collection with the specified name exists: " + collection);
-      }
-    }
-    final Slice.State state=slice.getState();
-    if (!(slice.getRange() == null || state == Slice.State.INACTIVE || state == Slice.State.RECOVERY || state == Slice.State.CONSTRUCTION)) {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"The slice: " + slice.getName() + " is currently "+ state+ ". Only non-active (or custom-hashed) slices can be deleted.");
-    }
-    ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
-    try {
-      ModifiableSolrParams params=new ModifiableSolrParams();
-      params.set(CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString());
-      params.set(CoreAdminParams.DELETE_INDEX,"true");
-      sliceCmd(clusterState,params,null,slice,shardHandler);
-      processResponses(results,shardHandler);
-      ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,DELETESHARD.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,sliceId);
-      Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(m));
-      long now=System.nanoTime();
-      long timeout=now + TimeUnit.NANOSECONDS.convert(30,TimeUnit.SECONDS);
-      boolean removed=false;
-      while (System.nanoTime() < timeout) {
-        Thread.sleep(100);
-        removed=zkStateReader.getClusterState().getSlice(collection,sliceId) == null;
-        if (removed) {
-          Thread.sleep(100);
-          break;
-        }
-      }
-      if (!removed) {
-        throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully remove collection: " + collection + " shard: "+ sliceId);
-      }
-      log.info("Successfully deleted collection: " + collection + ", shard: "+ sliceId);
-    }
- catch (    SolrException e) {
-      throw e;
-    }
-catch (    Exception e) {
-      throw new SolrException(ErrorCode.SERVER_ERROR,"Error executing delete operation for collection: " + collection + " shard: "+ sliceId,e);
+      throw new SolrException(ErrorCode.BAD_REQUEST,"No collection with the specified name exists: " + collection);
     }
   }
-  finally {
-    MDCUtils.cleanupMDC(previousMDCContext);
+  final Slice.State state=slice.getState();
+  if (!(slice.getRange() == null || state == Slice.State.INACTIVE || state == Slice.State.RECOVERY || state == Slice.State.CONSTRUCTION)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"The slice: " + slice.getName() + " is currently "+ state+ ". Only non-active (or custom-hashed) slices can be deleted.");
+  }
+  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
+  try {
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString());
+    params.set(CoreAdminParams.DELETE_INDEX,"true");
+    sliceCmd(clusterState,params,null,slice,shardHandler);
+    processResponses(results,shardHandler);
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,DELETESHARD.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,sliceId);
+    Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(m));
+    long now=System.nanoTime();
+    long timeout=now + TimeUnit.NANOSECONDS.convert(30,TimeUnit.SECONDS);
+    boolean removed=false;
+    while (System.nanoTime() < timeout) {
+      Thread.sleep(100);
+      removed=zkStateReader.getClusterState().getSlice(collection,sliceId) == null;
+      if (removed) {
+        Thread.sleep(100);
+        break;
+      }
+    }
+    if (!removed) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully remove collection: " + collection + " shard: "+ sliceId);
+    }
+    log.info("Successfully deleted collection: " + collection + ", shard: "+ sliceId);
+  }
+ catch (  SolrException e) {
+    throw e;
+  }
+catch (  Exception e) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Error executing delete operation for collection: " + collection + " shard: "+ sliceId,e);
   }
 }
