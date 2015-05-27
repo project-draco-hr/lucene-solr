@@ -26,50 +26,77 @@
   coreConfigService=ConfigSetService.createConfigSetService(cfg,loader,zkSys.zkController);
   containerProperties.putAll(cfg.getSolrProperties());
   ExecutorService coreLoadExecutor=ExecutorUtil.newMDCAwareFixedThreadPool((zkSys.getZkController() == null ? cfg.getCoreLoadThreadCount() : Integer.MAX_VALUE),new DefaultSolrThreadFactory("coreLoadExecutor"));
+  final List<Future<SolrCore>> futures=new ArrayList<Future<SolrCore>>();
   try {
     List<CoreDescriptor> cds=coresLocator.discover(this);
     checkForDuplicateCoreNames(cds);
-    List<Callable<SolrCore>> creators=new ArrayList<>();
     for (    final CoreDescriptor cd : cds) {
       if (cd.isTransient() || !cd.isLoadOnStartup()) {
         solrCores.putDynamicDescriptor(cd.getName(),cd);
       }
+ else       if (asyncSolrCoreLoad) {
+        solrCores.markCoreAsLoading(cd);
+      }
       if (cd.isLoadOnStartup()) {
-        creators.add(new Callable<SolrCore>(){
+        futures.add(coreLoadExecutor.submit(new Callable<SolrCore>(){
           @Override public SolrCore call() throws Exception {
-            if (zkSys.getZkController() != null) {
-              zkSys.getZkController().throwErrorIfReplicaReplaced(cd);
+            SolrCore core;
+            try {
+              if (zkSys.getZkController() != null) {
+                zkSys.getZkController().throwErrorIfReplicaReplaced(cd);
+              }
+              core=create(cd,false);
             }
-            return create(cd,false);
+  finally {
+              if (asyncSolrCoreLoad) {
+                solrCores.markCoreAsNotLoading(cd);
+              }
+            }
+            try {
+              zkSys.registerInZk(core,true);
+            }
+ catch (            Throwable t) {
+              SolrException.log(log,"Error registering SolrCore",t);
+            }
+            return core;
           }
         }
-);
+));
       }
-    }
-    try {
-      coreLoadExecutor.invokeAll(creators);
-    }
- catch (    InterruptedException e) {
-      throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"Interrupted while loading cores");
     }
     backgroundCloser=new CloserThread(this,solrCores,cfg);
     backgroundCloser.start();
   }
   finally {
-    ExecutorUtil.shutdownNowAndAwaitTermination(coreLoadExecutor);
-  }
-  if (isZooKeeperAware()) {
-    Collection<SolrCore> cores=getCores();
-    if (cores != null) {
-      for (      SolrCore core : cores) {
-        try {
-          zkSys.registerInZk(core,true);
-        }
- catch (        Throwable t) {
-          SolrException.log(log,"Error registering SolrCore",t);
+    if (asyncSolrCoreLoad && futures != null) {
+      Thread shutdownThread=new Thread(){
+        public void run(){
+          try {
+            for (            Future<SolrCore> future : futures) {
+              try {
+                future.get();
+              }
+ catch (              InterruptedException e) {
+                Thread.currentThread().interrupt();
+              }
+catch (              ExecutionException e) {
+                log.error("Error waiting for SolrCore to be created",e);
+              }
+            }
+          }
+  finally {
+            ExecutorUtil.shutdownNowAndAwaitTermination(coreLoadExecutor);
+          }
         }
       }
+;
+      coreContainerWorkExecutor.submit(shutdownThread);
     }
+ else {
+      ExecutorUtil.shutdownAndAwaitTermination(coreLoadExecutor);
+    }
+  }
+  if (isZooKeeperAware()) {
     zkSys.getZkController().checkOverseerDesignate();
   }
 }

@@ -1,3 +1,52 @@
 {
-  return createJettys(numJettys,false);
+  List<JettySolrRunner> jettys=new ArrayList<>();
+  List<SolrClient> clients=new ArrayList<>();
+  StringBuilder sb=new StringBuilder();
+  if ("2".equals(getStateFormat())) {
+    log.info("Creating collection1 with stateFormat=2");
+    SolrZkClient zkClient=new SolrZkClient(zkServer.getZkAddress(),AbstractZkTestCase.TIMEOUT,AbstractZkTestCase.TIMEOUT);
+    Overseer.getInQueue(zkClient).offer(ZkStateReader.toJSON(ZkNodeProps.makeMap(Overseer.QUEUE_OPERATION,CollectionParams.CollectionAction.CREATE.toLower(),"name",DEFAULT_COLLECTION,"numShards",String.valueOf(sliceCount),DocCollection.STATE_FORMAT,getStateFormat())));
+    zkClient.close();
+  }
+  for (int i=1; i <= numJettys; i++) {
+    if (sb.length() > 0)     sb.append(',');
+    int cnt=this.jettyIntCntr.incrementAndGet();
+    File jettyDir=createTempDir("shard-" + i).toFile();
+    jettyDir.mkdirs();
+    setupJettySolrHome(jettyDir);
+    log.info("create jetty {} in directory {}",i,jettyDir);
+    JettySolrRunner j=createJetty(jettyDir,useJettyDataDir ? getDataDir(testDir + "/jetty" + cnt) : null,null,"solrconfig.xml",null);
+    jettys.add(j);
+    SolrClient client=createNewSolrClient(j.getLocalPort());
+    clients.add(client);
+  }
+  this.jettys.addAll(jettys);
+  this.clients.addAll(clients);
+  int numShards=getTotalReplicas(DEFAULT_COLLECTION);
+  int retries=0;
+  while (numShards != getShardCount()) {
+    numShards=getTotalReplicas(DEFAULT_COLLECTION);
+    if (numShards == getShardCount())     break;
+    if (retries++ == 60) {
+      printLayoutOnTearDown=true;
+      fail("Shards in the state does not match what we set:" + numShards + " vs "+ getShardCount());
+    }
+    Thread.sleep(500);
+  }
+  ZkStateReader zkStateReader=cloudClient.getZkStateReader();
+  for (int i=1; i <= sliceCount; i++) {
+    zkStateReader.getLeaderRetry(DEFAULT_COLLECTION,"shard" + i,10000);
+  }
+  if (numShards > 0) {
+    updateMappingsFromZk(this.jettys,this.clients);
+  }
+  for (int i=1; i <= numJettys / 2; i++) {
+    JettySolrRunner j=this.jettys.get(i);
+    JettySolrRunner j2=this.jettys.get(i + (numJettys / 2 - 1));
+    if (sb.length() > 0)     sb.append(',');
+    sb.append(buildUrl(j.getLocalPort()));
+    sb.append("|").append(buildUrl(j2.getLocalPort()));
+  }
+  shards=sb.toString();
+  return jettys;
 }
