@@ -1,0 +1,60 @@
+{
+  String collectionName="testOverseerCol";
+  createCollection(collectionName,client);
+  waitForRecoveriesToFinish(collectionName,false);
+  List<String> l=OverseerCollectionProcessor.getSortedOverseerNodeNames(client.getZkStateReader().getZkClient());
+  log.info("All nodes {}",l);
+  String currentLeader=OverseerCollectionProcessor.getLeaderNode(client.getZkStateReader().getZkClient());
+  log.info("Current leader {} ",currentLeader);
+  l.remove(currentLeader);
+  Collections.shuffle(l,random());
+  String overseerDesignate=l.get(0);
+  log.info("overseerDesignate {}",overseerDesignate);
+  setOverseerRole(client,CollectionAction.ADDROLE,overseerDesignate);
+  long timeout=System.currentTimeMillis() + 15000;
+  boolean leaderchanged=false;
+  for (; System.currentTimeMillis() < timeout; ) {
+    if (overseerDesignate.equals(OverseerCollectionProcessor.getLeaderNode(client.getZkStateReader().getZkClient()))) {
+      log.info("overseer designate is the new overseer");
+      leaderchanged=true;
+      break;
+    }
+    Thread.sleep(100);
+  }
+  assertTrue("could not set the new overseer . expected " + overseerDesignate + " current order : "+ getSortedOverseerNodeNames(client.getZkStateReader().getZkClient())+ " ldr :"+ OverseerCollectionProcessor.getLeaderNode(client.getZkStateReader().getZkClient()),leaderchanged);
+  l.remove(overseerDesignate);
+  Collections.shuffle(l,random());
+  String anotherOverseer=l.get(0);
+  log.info("Adding another overseer designate {}",anotherOverseer);
+  setOverseerRole(client,CollectionAction.ADDROLE,anotherOverseer);
+  String currentOverseer=getLeaderNode(client.getZkStateReader().getZkClient());
+  log.info("Current Overseer {}",currentOverseer);
+  String hostPort=currentOverseer.substring(0,currentOverseer.indexOf('_'));
+  StringBuilder sb=new StringBuilder();
+  log.info("hostPort : {}",hostPort);
+  JettySolrRunner leaderJetty=null;
+  for (  JettySolrRunner jetty : jettys) {
+    String s=jetty.getBaseUrl().toString();
+    log.info("jetTy {}",s);
+    sb.append(s).append(" , ");
+    if (s.contains(hostPort)) {
+      leaderJetty=jetty;
+      break;
+    }
+  }
+  assertNotNull("Could not find a jetty2 kill",leaderJetty);
+  log.info("leader node {}",leaderJetty.getBaseUrl());
+  log.info("current election Queue",OverseerCollectionProcessor.getSortedElectionNodes(client.getZkStateReader().getZkClient(),OverseerElectionContext.PATH + LeaderElector.ELECTION_NODE));
+  ChaosMonkey.stop(leaderJetty);
+  timeout=System.currentTimeMillis() + 10000;
+  leaderchanged=false;
+  for (; System.currentTimeMillis() < timeout; ) {
+    currentOverseer=getLeaderNode(client.getZkStateReader().getZkClient());
+    if (anotherOverseer.equals(currentOverseer)) {
+      leaderchanged=true;
+      break;
+    }
+    Thread.sleep(100);
+  }
+  assertTrue("New overseer designate has not become the overseer, expected : " + anotherOverseer + "actual : "+ getLeaderNode(client.getZkStateReader().getZkClient()),leaderchanged);
+}
