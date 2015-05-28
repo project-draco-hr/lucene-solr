@@ -1,0 +1,23 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  IndexWriter iw=new IndexWriter(dir,iwcWithSuggestField(analyzer,"suggest_field"));
+  int num=Math.min(1000,atLeast(10));
+  Document document=new Document();
+  for (int i=0; i < num; i++) {
+    document.add(new SuggestField("suggest_field","abc_" + i,i));
+    document.add(newStringField("delete","delete",Field.Store.NO));
+    iw.addDocument(document);
+    document.clear();
+    if (usually()) {
+      iw.commit();
+    }
+  }
+  iw.deleteDocuments(new Term("delete","delete"));
+  DirectoryReader reader=DirectoryReader.open(iw,true);
+  SuggestIndexSearcher indexSearcher=new SuggestIndexSearcher(reader);
+  PrefixCompletionQuery query=new PrefixCompletionQuery(analyzer,new Term("suggest_field","abc_"));
+  TopSuggestDocs suggest=indexSearcher.suggest(query,num);
+  assertThat(suggest.totalHits,equalTo(0));
+  reader.close();
+  iw.close();
+}

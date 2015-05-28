@@ -1,0 +1,47 @@
+{
+  IntsRefBuilder scratch=new IntsRefBuilder();
+  final Map<IntsRef,Float> contextMap=new HashMap<>(contexts.size());
+  final TreeSet<Integer> contextLengths=new TreeSet<>();
+  final CompletionWeight innerWeight=((CompletionWeight)query.createWeight(searcher,needsScores));
+  Automaton contextsAutomaton=null;
+  Automaton gap=Automata.makeChar(ContextSuggestField.CONTEXT_SEPARATOR);
+  gap=Operations.concatenate(gap,Operations.optional(Automata.makeChar(CompletionAnalyzer.SEP_LABEL)));
+  final Automaton prefixAutomaton=Operations.concatenate(gap,innerWeight.getAutomaton());
+  final Automaton matchAllAutomaton=new RegExp(".*").toAutomaton();
+  for (  Map.Entry<CharSequence,ContextMetaData> entry : contexts.entrySet()) {
+    Automaton contextAutomaton;
+    if (entry.getKey().equals("*")) {
+      contextAutomaton=Operations.concatenate(matchAllAutomaton,prefixAutomaton);
+    }
+ else {
+      BytesRef ref=new BytesRef(entry.getKey());
+      ContextMetaData contextMetaData=entry.getValue();
+      contextMap.put(IntsRef.deepCopyOf(Util.toIntsRef(ref,scratch)),contextMetaData.boost);
+      contextLengths.add(scratch.length());
+      contextAutomaton=Automata.makeString(entry.getKey().toString());
+      if (contextMetaData.exact) {
+        contextAutomaton=Operations.concatenate(contextAutomaton,prefixAutomaton);
+      }
+ else {
+        contextAutomaton=Operations.concatenate(Arrays.asList(contextAutomaton,matchAllAutomaton,prefixAutomaton));
+      }
+    }
+    if (contextsAutomaton == null) {
+      contextsAutomaton=contextAutomaton;
+    }
+ else {
+      contextsAutomaton=Operations.union(contextsAutomaton,contextAutomaton);
+    }
+  }
+  if (contexts.size() == 0) {
+    addContext("*");
+    contextsAutomaton=Operations.concatenate(matchAllAutomaton,prefixAutomaton);
+  }
+  contextsAutomaton=Operations.determinize(contextsAutomaton,Operations.DEFAULT_MAX_DETERMINIZED_STATES);
+  int[] contextLengthArray=new int[contextLengths.size()];
+  final Iterator<Integer> iterator=contextLengths.descendingIterator();
+  for (int i=0; iterator.hasNext(); i++) {
+    contextLengthArray[i]=iterator.next();
+  }
+  return new ContextCompletionWeight(searcher.getIndexReader(),this,contextsAutomaton,innerWeight,contextMap,contextLengthArray);
+}

@@ -1,0 +1,27 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwcWithSuggestField(analyzer,"suggest_field"));
+  Document document=new Document();
+  document.add(new ContextSuggestField("suggest_field",Collections.singletonList("type1"),"sduggestion",5));
+  document.add(new ContextSuggestField("suggest_field",Collections.singletonList("type2"),"sudggestion",4));
+  document.add(new ContextSuggestField("suggest_field",Collections.singletonList("type3"),"sugdgestion",3));
+  iw.addDocument(document);
+  document.clear();
+  document.add(new ContextSuggestField("suggest_field",Collections.singletonList("type4"),"suggdestion",2));
+  document.add(new ContextSuggestField("suggest_field",Collections.singletonList("type4"),"suggestion",1));
+  iw.addDocument(document);
+  if (rarely()) {
+    iw.commit();
+  }
+  DirectoryReader reader=iw.getReader();
+  SuggestIndexSearcher suggestIndexSearcher=new SuggestIndexSearcher(reader);
+  CompletionQuery query=new RegexCompletionQuery(new Term("suggest_field","[a|s][d|u|s][u|g]"));
+  ContextQuery contextQuery=new ContextQuery(query);
+  contextQuery.addContext("type1",6);
+  contextQuery.addContext("type3",7);
+  contextQuery.addContext("*");
+  TopSuggestDocs suggest=suggestIndexSearcher.suggest(contextQuery,5);
+  assertSuggestions(suggest,new Entry("sduggestion","type1",5 * 6),new Entry("sugdgestion","type3",3 * 7),new Entry("suggdestion","type4",2),new Entry("suggestion","type4",1));
+  reader.close();
+  iw.close();
+}

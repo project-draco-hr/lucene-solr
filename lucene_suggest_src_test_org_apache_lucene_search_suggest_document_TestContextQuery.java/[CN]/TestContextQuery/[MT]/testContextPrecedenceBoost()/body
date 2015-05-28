@@ -1,0 +1,20 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwcWithSuggestField(analyzer,"suggest_field"));
+  Document document=new Document();
+  document.add(new ContextSuggestField("suggest_field",Collections.singletonList("typetype"),"suggestion1",4));
+  document.add(new ContextSuggestField("suggest_field",Collections.singletonList("type"),"suggestion2",3));
+  iw.addDocument(document);
+  if (rarely()) {
+    iw.commit();
+  }
+  DirectoryReader reader=iw.getReader();
+  SuggestIndexSearcher suggestIndexSearcher=new SuggestIndexSearcher(reader);
+  ContextQuery query=new ContextQuery(new PrefixCompletionQuery(analyzer,new Term("suggest_field","sugg")));
+  query.addContext("type",1);
+  query.addContext("typetype",2);
+  TopSuggestDocs suggest=suggestIndexSearcher.suggest(query,5);
+  assertSuggestions(suggest,new Entry("suggestion1","typetype",4 * 2),new Entry("suggestion2","type",3 * 1));
+  reader.close();
+  iw.close();
+}
