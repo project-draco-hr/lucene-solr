@@ -3,32 +3,23 @@
   SolrCore core=h.getCore();
   for (  final String name : Arrays.asList("distrib-chain-explicit","distrib-chain-implicit","distrib-chain-noop")) {
     UpdateRequestProcessor proc;
+    List<UpdateRequestProcessor> procs;
     UpdateRequestProcessorChain chain=core.getUpdateProcessingChain(name);
     assertNotNull(name,chain);
-    assertEquals(name + " chain length",EXPECTED_CHAIN_LENGTH,chain.getFactories().length);
+    assertEquals(name + " chain length: " + chain.toString(),EXPECTED_CHAIN_LENGTH,chain.getFactories().length);
     proc=chain.createProcessor(req(),new SolrQueryResponse());
-    assertTrue(name + " first processor isn't a CustomUpdateRequestProcessor: " + proc.getClass().getName(),proc instanceof CustomUpdateRequestProcessor);
+    procs=procToList(proc);
+    assertEquals(name + " procs size: " + procs.toString(),EXPECTED_CHAIN_LENGTH - ("distrib-chain-noop".equals(name) ? 1 : 0),procs.size());
+    assertTrue(name + " first processor isn't a CustomUpdateRequestProcessor: " + procs.toString(),(proc instanceof CustomUpdateRequestProcessor && procs.get(0) instanceof CustomUpdateRequestProcessor));
+    assertNotNull(name + " proc.next is null",proc.next);
+    assertNotNull(name + " second proc is null",procs.get(1));
+    assertTrue(name + " second proc isn't LogUpdateProcessor: " + procs.toString(),(proc.next instanceof LogUpdateProcessor && procs.get(1) instanceof LogUpdateProcessor));
     proc=chain.createProcessor(req(DISTRIB_UPDATE_PARAM,"non_blank_value"),new SolrQueryResponse());
-    assertNotNull(name + " distrib chain had no proc's in it",proc);
-    assertFalse(name + " post distrib proc should not be a CustomUpdateRequestProcessor: " + proc.getClass().getName(),proc instanceof CustomUpdateRequestProcessor);
-    int n=0;
-    boolean foundLog=false;
-    String seen="";
-    for (; ; ) {
-      n++;
-      seen=seen + proc.toString() + ", ";
-      if (proc instanceof LogUpdateProcessor) {
-        foundLog=true;
-      }
-      if (null == proc.next) {
-        break;
-      }
- else {
-        proc=proc.next;
-      }
-    }
-    assertTrue(name + " expected a distrib chain shorter then " + EXPECTED_CHAIN_LENGTH+ " but got: "+ n+ " ("+ seen+ ")",n < EXPECTED_CHAIN_LENGTH);
-    assertTrue(name + " expected LogUpdateProcessor in chain due to @RunAllways, but not found: " + seen,foundLog);
-    assertTrue(name + " last processor isn't a RunUpdateProcessor: " + proc.getClass().getName(),proc instanceof RunUpdateProcessor);
+    procs=procToList(proc);
+    assertNotNull(name + " (distrib) chain produced null proc",proc);
+    assertFalse(name + " (distrib) procs is empty",procs.isEmpty());
+    assertTrue(name + " (distrib) first proc should be LogUpdateProcessor because of @RunAllways: " + procs.toString(),(proc instanceof LogUpdateProcessor && procs.get(0) instanceof LogUpdateProcessor));
+    assertTrue(name + " (distrib) last processor isn't a RunUpdateProcessor: " + procs.toString(),procs.get(procs.size() - 1) instanceof RunUpdateProcessor);
+    assertEquals(name + " (distrib) chain has wrong length: " + procs.toString(),EXPECTED_CHAIN_LENGTH - ("distrib-chain-explicit".equals(name) ? 1 : 2),procs.size());
   }
 }
