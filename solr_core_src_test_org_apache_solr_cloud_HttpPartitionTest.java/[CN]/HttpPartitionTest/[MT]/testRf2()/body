@@ -12,6 +12,19 @@
   List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",1,2,maxWaitSecsToSeeAllActive);
   sendDoc(3);
   assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,3);
+  JettySolrRunner replicaJetty=getJettyOnPort(getReplicaPort(notLeader));
+  SolrDispatchFilter filter=(SolrDispatchFilter)replicaJetty.getDispatchFilter().getFilter();
+  CoreContainer coreContainer=filter.getCores();
+  ZkCoreNodeProps replicaCoreNodeProps=new ZkCoreNodeProps(notLeader);
+  String coreName=replicaCoreNodeProps.getCoreName();
+  Long maxVersionBefore=null;
+  try (SolrCore core=coreContainer.getCore(coreName)){
+    assertNotNull("Core '" + coreName + "' not found for replica: "+ notLeader.getName(),core);
+    UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
+    maxVersionBefore=ulog.getCurrentMaxVersion();
+  }
+   assertNotNull("max version bucket seed not set for core " + coreName,maxVersionBefore);
+  log.info("Looked up max version bucket seed " + maxVersionBefore + " for core "+ coreName);
   int numDocs=1000;
   boolean hasPartition=false;
   for (int d=0; d < numDocs; d++) {
@@ -34,7 +47,13 @@
     proxy.reopen();
   }
   notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",1,2,maxWaitSecsToSeeAllActive);
-  assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,numDocs + 3);
+  try (SolrCore core=coreContainer.getCore(coreName)){
+    assertNotNull("Core '" + coreName + "' not found for replica: "+ notLeader.getName(),core);
+    Long currentMaxVersion=core.getUpdateHandler().getUpdateLog().getCurrentMaxVersion();
+    log.info("After recovery, looked up NEW max version bucket seed " + currentMaxVersion + " for core "+ coreName+ ", was: "+ maxVersionBefore);
+    assertTrue("max version bucket seed not updated after recovery!",currentMaxVersion > maxVersionBefore);
+  }
+   assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,numDocs + 3);
   log.info("testRf2 succeeded ... deleting the " + testCollectionName + " collection");
   try {
     new CollectionAdminRequest.Delete().setCollectionName(testCollectionName).process(cloudClient);
