@@ -1,24 +1,47 @@
 {
   if (points.size() == 0)   throw new IllegalArgumentException("Path must have at least one point");
-  if (segments.size() > 0) {
-    edgePoints=new GeoPoint[]{points.get(0).circlePlane.getSampleIntersectionPoint(segments.get(0).invertedStartCutoffPlane)};
-  }
-  for (int i=0; i < points.size(); i++) {
-    final SegmentEndpoint pathPoint=points.get(i);
-    Membership previousEndBound=null;
-    GeoPoint[] previousEndNotablePoints=null;
-    Membership nextStartBound=null;
-    GeoPoint[] nextStartNotablePoints=null;
-    if (i > 0) {
-      final PathSegment previousSegment=segments.get(i - 1);
-      previousEndBound=previousSegment.invertedEndCutoffPlane;
-      previousEndNotablePoints=previousSegment.endCutoffPlanePoints;
+  final double cutoffOffset=this.sinAngle * planetModel.getMinimumMagnitude();
+  GeoPoint lastPoint=null;
+  for (  final GeoPoint end : points) {
+    if (lastPoint != null) {
+      final Plane normalizedConnectingPlane=new Plane(lastPoint,end).normalize();
+      if (normalizedConnectingPlane == null) {
+        continue;
+      }
+      segments.add(new PathSegment(planetModel,lastPoint,end,normalizedConnectingPlane,cutoffOffset));
     }
-    if (i < segments.size()) {
-      final PathSegment nextSegment=segments.get(i);
-      nextStartBound=nextSegment.invertedStartCutoffPlane;
-      nextStartNotablePoints=nextSegment.startCutoffPlanePoints;
-    }
-    pathPoint.setCutoffPlanes(previousEndNotablePoints,previousEndBound,nextStartNotablePoints,nextStartBound);
+    lastPoint=end;
   }
+  if (segments.size() == 0) {
+    final SegmentEndpoint onlyEndpoint=new SegmentEndpoint(points.get(0),cutoffOffset);
+    endPoints.add(onlyEndpoint);
+    Plane verticalPlane=Plane.constructNormalizedVerticalPlane(onlyEndpoint.point.x,onlyEndpoint.point.y);
+    if (verticalPlane == null) {
+      verticalPlane=new Plane(1.0,0.0);
+    }
+    final GeoPoint edgePoint=onlyEndpoint.circlePlane.getSampleIntersectionPoint(planetModel,verticalPlane);
+    if (edgePoint == null) {
+      throw new RuntimeException("Could not find edge point for path endpoint=" + onlyEndpoint.point + " cutoffOffset="+ cutoffOffset+ " planetModel="+ planetModel);
+    }
+    this.edgePoints=new GeoPoint[]{edgePoint};
+    return;
+  }
+  for (int i=0; i < segments.size(); i++) {
+    final PathSegment currentSegment=segments.get(i);
+    if (i == 0) {
+      final SegmentEndpoint startEndpoint=new SegmentEndpoint(currentSegment.start,currentSegment.startCutoffPlane,currentSegment.ULHC,currentSegment.LLHC);
+      endPoints.add(startEndpoint);
+      this.edgePoints=new GeoPoint[]{currentSegment.ULHC};
+      continue;
+    }
+    final PathSegment prevSegment=segments.get(i - 1);
+    if (prevSegment.upperConnectingPlane.isNumericallyIdentical(currentSegment.upperConnectingPlane) && prevSegment.lowerConnectingPlane.isNumericallyIdentical(currentSegment.lowerConnectingPlane)) {
+      endPoints.add(new SegmentEndpoint(currentSegment.start));
+    }
+ else {
+      endPoints.add(new SegmentEndpoint(currentSegment.start,prevSegment.endCutoffPlane,currentSegment.startCutoffPlane,prevSegment.URHC,prevSegment.LRHC,currentSegment.ULHC,currentSegment.LLHC));
+    }
+  }
+  final PathSegment lastSegment=segments.get(segments.size() - 1);
+  endPoints.add(new SegmentEndpoint(lastSegment.end,lastSegment.endCutoffPlane,lastSegment.URHC,lastSegment.LRHC));
 }
