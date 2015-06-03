@@ -1,0 +1,62 @@
+{
+  return new Weight(this){
+    private float queryNorm;
+    private float queryWeight;
+    @Override public void extractTerms(    Set<Term> terms){
+    }
+    @Override public float getValueForNormalization() throws IOException {
+      queryWeight=getBoost();
+      return queryWeight * queryWeight;
+    }
+    @Override public void normalize(    float norm,    float topLevelBoost){
+      queryNorm=norm * topLevelBoost;
+      queryWeight*=queryNorm;
+    }
+    @Override public Explanation explain(    LeafReaderContext context,    int doc) throws IOException {
+      final Scorer s=scorer(context,context.reader().getLiveDocs());
+      final boolean exists=s != null && s.advance(doc) == doc;
+      if (exists) {
+        return Explanation.match(queryWeight,BKDPointInBBoxQuery.this.toString() + ", product of:",Explanation.match(getBoost(),"boost"),Explanation.match(queryNorm,"queryNorm"));
+      }
+ else {
+        return Explanation.noMatch(BKDPointInBBoxQuery.this.toString() + " doesn't match id " + doc);
+      }
+    }
+    @Override public Scorer scorer(    LeafReaderContext context,    Bits acceptDocs) throws IOException {
+      LeafReader reader=context.reader();
+      SortedNumericDocValues sdv=reader.getSortedNumericDocValues(field);
+      if (sdv == null) {
+        return null;
+      }
+      if (sdv instanceof BKDTreeSortedNumericDocValues == false) {
+        throw new IllegalStateException("field \"" + field + "\" was not indexed with BKDTreeDocValuesFormat: got: "+ sdv);
+      }
+      BKDTreeSortedNumericDocValues treeDV=(BKDTreeSortedNumericDocValues)sdv;
+      BKDTreeReader tree=treeDV.getBKDTreeReader();
+      DocIdSet result=tree.intersect(acceptDocs,minLat,maxLat,minLon,maxLon,treeDV.delegate);
+      final DocIdSetIterator disi=result.iterator();
+      return new Scorer(this){
+        @Override public float score() throws IOException {
+          return queryWeight;
+        }
+        @Override public int freq() throws IOException {
+          return 1;
+        }
+        @Override public int docID(){
+          return disi.docID();
+        }
+        @Override public int nextDoc() throws IOException {
+          return disi.nextDoc();
+        }
+        @Override public int advance(        int target) throws IOException {
+          return disi.advance(target);
+        }
+        @Override public long cost(){
+          return disi.cost();
+        }
+      }
+;
+    }
+  }
+;
+}
