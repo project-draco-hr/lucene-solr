@@ -55,6 +55,7 @@
   List<Thread> threads=new ArrayList<>();
   final int iters=atLeast(100);
   final CountDownLatch startingGun=new CountDownLatch(1);
+  final AtomicBoolean failed=new AtomicBoolean();
   for (int i=0; i < numThreads; i++) {
     Thread thread=new Thread(){
       @Override public void run(){
@@ -62,13 +63,14 @@
           _run();
         }
  catch (        Exception e) {
+          failed.set(true);
           throw new RuntimeException(e);
         }
       }
       private void _run() throws Exception {
         startingGun.await();
         NumericDocValues docIDToID=MultiDocValues.getNumericValues(r,"id");
-        for (int iter=0; iter < iters; iter++) {
+        for (int iter=0; iter < iters && failed.get() == false; iter++) {
           double lat0=randomLat();
           double lat1=randomLat();
           double lon0=randomLon();
@@ -129,7 +131,11 @@
             int id=(int)docIDToID.get(docID);
             boolean expected=deleted.contains(id) == false && rectContainsPointEnc(lat0,lat1,lon0,lon1,lats[id],lons[id]);
             if (hits.get(docID) != expected) {
-              fail(Thread.currentThread().getName() + ": iter=" + iter+ " id="+ id+ " docID="+ docID+ " lat="+ lats[id]+ " lon="+ lons[id]+ " (bbox: lat="+ lat0+ " TO "+ lat1+ " lon="+ lon0+ " TO "+ lon1+ ") expected "+ expected+ " but got: "+ hits.get(docID)+ " deleted?="+ deleted.contains(id)+ " query="+ query);
+              if (query instanceof BKDPointInPolygonQuery && (Math.abs(lat0 - lats[id]) < TOLERANCE || Math.abs(lat1 - lats[id]) < TOLERANCE || Math.abs(lon0 - lons[id]) < TOLERANCE || Math.abs(lon1 - lons[id]) < TOLERANCE)) {
+              }
+ else {
+                fail(Thread.currentThread().getName() + ": iter=" + iter+ " id="+ id+ " docID="+ docID+ " lat="+ lats[id]+ " lon="+ lons[id]+ " (bbox: lat="+ lat0+ " TO "+ lat1+ " lon="+ lon0+ " TO "+ lon1+ ") expected "+ expected+ " but got: "+ hits.get(docID)+ " deleted?="+ deleted.contains(id)+ " query="+ query);
+              }
             }
           }
         }
