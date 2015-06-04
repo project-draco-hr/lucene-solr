@@ -1,0 +1,35 @@
+{
+  Path lockDir=dir.getDirectory();
+  Files.createDirectories(lockDir);
+  Path lockFile=lockDir.resolve(lockName);
+  try {
+    Files.createFile(lockFile);
+  }
+ catch (  IOException ignore) {
+  }
+  final Path realPath=lockFile.toRealPath();
+  final FileTime creationTime=Files.readAttributes(realPath,BasicFileAttributes.class).creationTime();
+  if (LOCK_HELD.add(realPath.toString())) {
+    FileChannel channel=null;
+    FileLock lock=null;
+    try {
+      channel=FileChannel.open(realPath,StandardOpenOption.CREATE,StandardOpenOption.WRITE);
+      lock=channel.tryLock();
+      if (lock != null) {
+        return new NativeFSLock(lock,channel,realPath,creationTime);
+      }
+ else {
+        throw new LockObtainFailedException("Lock held by another program: " + realPath);
+      }
+    }
+  finally {
+      if (lock == null) {
+        IOUtils.closeWhileHandlingException(channel);
+        clearLockHeld(realPath);
+      }
+    }
+  }
+ else {
+    throw new LockObtainFailedException("Lock held by this virtual machine: " + realPath);
+  }
+}

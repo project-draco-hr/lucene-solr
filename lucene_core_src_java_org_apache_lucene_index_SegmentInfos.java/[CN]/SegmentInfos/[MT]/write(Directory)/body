@@ -1,2 +1,59 @@
 {
+  long nextGeneration=getNextPendingGeneration();
+  String segmentFileName=IndexFileNames.fileNameFromGeneration(IndexFileNames.PENDING_SEGMENTS,"",nextGeneration);
+  generation=nextGeneration;
+  IndexOutput segnOutput=null;
+  boolean success=false;
+  try {
+    segnOutput=directory.createOutput(segmentFileName,IOContext.DEFAULT);
+    CodecUtil.writeIndexHeader(segnOutput,"segments",VERSION_CURRENT,StringHelper.randomId(),Long.toString(nextGeneration,Character.MAX_RADIX));
+    segnOutput.writeLong(version);
+    segnOutput.writeInt(counter);
+    segnOutput.writeInt(size());
+    for (    SegmentCommitInfo siPerCommit : this) {
+      SegmentInfo si=siPerCommit.info;
+      segnOutput.writeString(si.name);
+      byte segmentID[]=si.getId();
+      if (segmentID == null) {
+        segnOutput.writeByte((byte)0);
+      }
+ else {
+        if (segmentID.length != StringHelper.ID_LENGTH) {
+          throw new IllegalStateException("cannot write segment: invalid id segment=" + si.name + "id="+ StringHelper.idToString(segmentID));
+        }
+        segnOutput.writeByte((byte)1);
+        segnOutput.writeBytes(segmentID,segmentID.length);
+      }
+      segnOutput.writeString(si.getCodec().getName());
+      segnOutput.writeLong(siPerCommit.getDelGen());
+      int delCount=siPerCommit.getDelCount();
+      if (delCount < 0 || delCount > si.maxDoc()) {
+        throw new IllegalStateException("cannot write segment: invalid maxDoc segment=" + si.name + " maxDoc="+ si.maxDoc()+ " delCount="+ delCount);
+      }
+      segnOutput.writeInt(delCount);
+      segnOutput.writeLong(siPerCommit.getFieldInfosGen());
+      segnOutput.writeLong(siPerCommit.getDocValuesGen());
+      segnOutput.writeSetOfStrings(siPerCommit.getFieldInfosFiles());
+      final Map<Integer,Set<String>> dvUpdatesFiles=siPerCommit.getDocValuesUpdatesFiles();
+      segnOutput.writeInt(dvUpdatesFiles.size());
+      for (      Entry<Integer,Set<String>> e : dvUpdatesFiles.entrySet()) {
+        segnOutput.writeInt(e.getKey());
+        segnOutput.writeSetOfStrings(e.getValue());
+      }
+    }
+    segnOutput.writeMapOfStrings(userData);
+    CodecUtil.writeFooter(segnOutput);
+    segnOutput.close();
+    directory.sync(Collections.singleton(segmentFileName));
+    success=true;
+  }
+  finally {
+    if (success) {
+      pendingCommit=true;
+    }
+ else {
+      IOUtils.closeWhileHandlingException(segnOutput);
+      IOUtils.deleteFilesIgnoringExceptions(directory,segmentFileName);
+    }
+  }
 }

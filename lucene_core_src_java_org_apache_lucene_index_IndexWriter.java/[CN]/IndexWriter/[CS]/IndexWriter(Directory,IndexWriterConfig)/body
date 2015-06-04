@@ -1,19 +1,27 @@
 {
   conf.setIndexWriter(this);
   config=conf;
-  directory=d;
-  mergeDirectory=addMergeRateLimiters(d);
-  analyzer=config.getAnalyzer();
   infoStream=config.getInfoStream();
-  mergeScheduler=config.getMergeScheduler();
-  mergeScheduler.setInfoStream(infoStream);
-  codec=config.getCodec();
-  bufferedUpdatesStream=new BufferedUpdatesStream(infoStream);
-  poolReaders=config.getReaderPooling();
-  writeLock=directory.makeLock(WRITE_LOCK_NAME);
-  if (!writeLock.obtain(config.getWriteLockTimeout()))   throw new LockObtainFailedException("Index locked for write: " + writeLock);
+  long timeout=config.getWriteLockTimeout();
+  final Directory lockDir;
+  if (timeout == 0) {
+    lockDir=d;
+  }
+ else {
+    lockDir=new SleepingLockWrapper(d,timeout);
+  }
+  writeLock=lockDir.obtainLock(WRITE_LOCK_NAME);
   boolean success=false;
   try {
+    directoryOrig=d;
+    directory=new LockValidatingDirectoryWrapper(d,writeLock);
+    mergeDirectory=addMergeRateLimiters(directory);
+    analyzer=config.getAnalyzer();
+    mergeScheduler=config.getMergeScheduler();
+    mergeScheduler.setInfoStream(infoStream);
+    codec=config.getCodec();
+    bufferedUpdatesStream=new BufferedUpdatesStream(infoStream);
+    poolReaders=config.getReaderPooling();
     OpenMode mode=config.getOpenMode();
     boolean create;
     if (mode == OpenMode.CREATE) {
@@ -45,11 +53,11 @@
       if (lastSegmentsFile == null) {
         throw new IndexNotFoundException("no segments* file found in " + directory + ": files: "+ Arrays.toString(files));
       }
-      segmentInfos=SegmentInfos.readCommit(directory,lastSegmentsFile);
+      segmentInfos=SegmentInfos.readCommit(directoryOrig,lastSegmentsFile);
       IndexCommit commit=config.getIndexCommit();
       if (commit != null) {
-        if (commit.getDirectory() != directory)         throw new IllegalArgumentException("IndexCommit's directory doesn't match my directory");
-        SegmentInfos oldInfos=SegmentInfos.readCommit(directory,commit.getSegmentsFileName());
+        if (commit.getDirectory() != directoryOrig)         throw new IllegalArgumentException("IndexCommit's directory doesn't match my directory, expected=" + directoryOrig + ", got="+ commit.getDirectory());
+        SegmentInfos oldInfos=SegmentInfos.readCommit(directoryOrig,commit.getSegmentsFileName());
         segmentInfos.replace(oldInfos);
         changed();
         if (infoStream.isEnabled("IW")) {
@@ -61,10 +69,10 @@
     pendingNumDocs.set(segmentInfos.totalMaxDoc());
     globalFieldNumberMap=getFieldNumberMap();
     config.getFlushPolicy().init(config);
-    docWriter=new DocumentsWriter(this,config,directory);
+    docWriter=new DocumentsWriter(this,config,directoryOrig,directory);
     eventQueue=docWriter.eventQueue();
 synchronized (this) {
-      deleter=new IndexFileDeleter(directory,config.getIndexDeletionPolicy(),segmentInfos,infoStream,this,initialIndexExists);
+      deleter=new IndexFileDeleter(directoryOrig,directory,config.getIndexDeletionPolicy(),segmentInfos,infoStream,this,initialIndexExists);
     }
     if (deleter.startingCommitDeleted) {
       changed();

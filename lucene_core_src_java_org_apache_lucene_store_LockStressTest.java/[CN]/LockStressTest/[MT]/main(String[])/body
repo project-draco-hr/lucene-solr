@@ -27,30 +27,25 @@
     out.write(myID);
     out.flush();
     LockFactory verifyLF=new VerifyingLockFactory(lockFactory,in,out);
-    Lock l=verifyLF.makeLock(lockDir,"test.lock");
     final Random rnd=new Random();
     if (in.read() != 43) {
       throw new IOException("Protocol violation");
     }
     for (int i=0; i < count; i++) {
-      boolean obtained=false;
-      try {
-        obtained=l.obtain(rnd.nextInt(100) + 10);
-      }
- catch (      LockObtainFailedException e) {
-      }
-      if (obtained) {
+      try (final Lock l=verifyLF.obtainLock(lockDir,LOCK_FILE_NAME)){
         if (rnd.nextInt(10) == 0) {
           if (rnd.nextBoolean()) {
             verifyLF=new VerifyingLockFactory(getNewLockFactory(lockFactoryClassName),in,out);
           }
-          final Lock secondLock=verifyLF.makeLock(lockDir,"test.lock");
-          if (secondLock.obtain()) {
-            throw new IOException("Double Obtain");
+          try (final Lock secondLock=verifyLF.obtainLock(lockDir,LOCK_FILE_NAME)){
+            throw new IOException("Double obtain");
+          }
+ catch (          LockObtainFailedException loe) {
           }
         }
         Thread.sleep(sleepTimeMS);
-        l.close();
+      }
+ catch (      LockObtainFailedException loe) {
       }
       if (i % 500 == 0) {
         System.out.println((i * 100. / count) + "% done.");

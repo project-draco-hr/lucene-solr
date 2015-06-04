@@ -1,0 +1,49 @@
+{
+  if (!(dir instanceof HdfsDirectory)) {
+    throw new UnsupportedOperationException("HdfsLockFactory can only be used with HdfsDirectory subclasses, got: " + dir);
+  }
+  final HdfsDirectory hdfsDir=(HdfsDirectory)dir;
+  final Configuration conf=hdfsDir.getConfiguration();
+  final Path lockPath=hdfsDir.getHdfsDirPath();
+  final Path lockFile=new Path(lockPath,lockName);
+  FSDataOutputStream file=null;
+  final FileSystem fs=FileSystem.get(lockPath.toUri(),conf);
+  while (true) {
+    try {
+      if (!fs.exists(lockPath)) {
+        boolean success=fs.mkdirs(lockPath);
+        if (!success) {
+          throw new RuntimeException("Could not create directory: " + lockPath);
+        }
+      }
+ else {
+        fs.mkdirs(lockPath);
+      }
+      file=fs.create(lockFile,false);
+      break;
+    }
+ catch (    FileAlreadyExistsException e) {
+      throw new LockObtainFailedException("Cannot obtain lock file: " + lockFile,e);
+    }
+catch (    RemoteException e) {
+      if (e.getClassName().equals("org.apache.hadoop.hdfs.server.namenode.SafeModeException")) {
+        log.warn("The NameNode is in SafeMode - Solr will wait 5 seconds and try again.");
+        try {
+          Thread.sleep(5000);
+        }
+ catch (        InterruptedException e1) {
+          Thread.interrupted();
+        }
+        continue;
+      }
+      throw new LockObtainFailedException("Cannot obtain lock file: " + lockFile,e);
+    }
+catch (    IOException e) {
+      throw new LockObtainFailedException("Cannot obtain lock file: " + lockFile,e);
+    }
+ finally {
+      IOUtils.closeQuietly(file);
+    }
+  }
+  return new HdfsLock(fs,lockFile);
+}
