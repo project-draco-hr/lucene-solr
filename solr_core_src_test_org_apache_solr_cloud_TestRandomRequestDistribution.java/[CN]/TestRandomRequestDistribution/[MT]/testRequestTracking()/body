@@ -1,0 +1,39 @@
+{
+  waitForThingsToLevelOut(30);
+  List<String> nodeNames=new ArrayList<>(3);
+  for (  CloudJettyRunner cloudJetty : cloudJettys) {
+    nodeNames.add(cloudJetty.nodeName);
+  }
+  assertEquals(3,nodeNames.size());
+  new CollectionAdminRequest.Create().setCollectionName("a1x2").setNumShards(1).setReplicationFactor(2).setCreateNodeSet(nodeNames.get(0) + ',' + nodeNames.get(1)).process(cloudClient);
+  new CollectionAdminRequest.Create().setCollectionName("b1x1").setNumShards(1).setReplicationFactor(1).setCreateNodeSet(nodeNames.get(2)).process(cloudClient);
+  waitForRecoveriesToFinish("a1x2",true);
+  waitForRecoveriesToFinish("b1x1",true);
+  cloudClient.getZkStateReader().updateClusterState(true);
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  DocCollection b1x1=clusterState.getCollection("b1x1");
+  Collection<Replica> replicas=b1x1.getSlice("shard1").getReplicas();
+  assertEquals(1,replicas.size());
+  String baseUrl=replicas.iterator().next().getStr(ZkStateReader.BASE_URL_PROP);
+  if (!baseUrl.endsWith("/"))   baseUrl+="/";
+  HttpSolrClient client=new HttpSolrClient(baseUrl + "a1x2");
+  client.setSoTimeout(5000);
+  client.setConnectionTimeout(2000);
+  log.info("Making requests to " + baseUrl + "a1x2");
+  for (int i=0; i < 10; i++) {
+    client.query(new SolrQuery("*:*"));
+  }
+  Map<String,Integer> shardVsCount=new HashMap<>();
+  for (  JettySolrRunner runner : jettys) {
+    CoreContainer container=((SolrDispatchFilter)runner.getDispatchFilter().getFilter()).getCores();
+    for (    SolrCore core : container.getCores()) {
+      SolrRequestHandler select=core.getRequestHandler("");
+      long c=(long)select.getStatistics().get("requests");
+      shardVsCount.put(core.getName(),(int)c);
+    }
+  }
+  log.info("Shard count map = " + shardVsCount);
+  for (  Map.Entry<String,Integer> entry : shardVsCount.entrySet()) {
+    assertTrue("Shard " + entry.getKey() + " received all 10 requests",entry.getValue() != 10);
+  }
+}
