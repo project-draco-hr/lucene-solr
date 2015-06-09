@@ -13,11 +13,28 @@
     infos.id=id;
     infos.generation=generation;
     infos.lastGeneration=generation;
+    if (format >= VERSION_53) {
+      infos.luceneVersion=Version.fromBits(input.readVInt(),input.readVInt(),input.readVInt());
+    }
+ else {
+    }
     infos.version=input.readLong();
     infos.counter=input.readInt();
     int numSegments=input.readInt();
     if (numSegments < 0) {
       throw new CorruptIndexException("invalid segment count: " + numSegments,input);
+    }
+    if (format >= VERSION_53) {
+      if (numSegments > 0) {
+        infos.minSegmentLuceneVersion=Version.fromBits(input.readVInt(),input.readVInt(),input.readVInt());
+        if (infos.minSegmentLuceneVersion.onOrAfter(Version.LUCENE_5_0_0) == false) {
+          throw new IndexFormatTooOldException(input,"this index contains a too-old segment (version: " + infos.minSegmentLuceneVersion + ")");
+        }
+      }
+ else {
+      }
+    }
+ else {
     }
     long totalDocs=0;
     for (int seg=0; seg < numSegments; seg++) {
@@ -34,7 +51,7 @@
  else {
         throw new CorruptIndexException("invalid hasID byte, got: " + hasID,input);
       }
-      Codec codec=readCodec(input);
+      Codec codec=readCodec(input,format < VERSION_53);
       SegmentInfo info=codec.segmentInfoFormat().read(directory,segName,segmentID,IOContext.READ);
       info.setCodec(codec);
       totalDocs+=info.maxDoc();
@@ -71,6 +88,15 @@
       }
       siPerCommit.setDocValuesUpdatesFiles(dvUpdateFiles);
       infos.add(siPerCommit);
+      Version segmentVersion=info.getVersion();
+      if (format < VERSION_53) {
+        if (infos.minSegmentLuceneVersion == null || segmentVersion.onOrAfter(infos.minSegmentLuceneVersion) == false) {
+          infos.minSegmentLuceneVersion=segmentVersion;
+        }
+      }
+ else       if (segmentVersion.onOrAfter(infos.minSegmentLuceneVersion) == false) {
+        throw new CorruptIndexException("segments file recorded minSegmentLuceneVersion=" + infos.minSegmentLuceneVersion + " but segment="+ info+ " has older version="+ segmentVersion,input);
+      }
     }
     if (format >= VERSION_51) {
       infos.userData=input.readMapOfStrings();
