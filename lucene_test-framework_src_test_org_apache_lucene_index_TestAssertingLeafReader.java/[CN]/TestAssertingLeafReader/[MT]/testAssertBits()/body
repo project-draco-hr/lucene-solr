@@ -1,0 +1,28 @@
+{
+  Directory dir=newDirectory();
+  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig());
+  w.addDocument(new Document());
+  Document doc=new Document();
+  doc.add(newStringField("id","0",Field.Store.NO));
+  w.addDocument(doc);
+  w.commit();
+  w.deleteDocuments(new Term("id","0"));
+  w.close();
+  IndexReader r=DirectoryReader.open(dir);
+  assertEquals(1,r.leaves().size());
+  assertEquals(2,r.maxDoc());
+  assertEquals(1,r.numDocs());
+  r=new AssertingDirectoryReader((DirectoryReader)r);
+  final IndexReader r2=SlowCompositeReaderWrapper.wrap(r);
+  Thread thread=new Thread(){
+    @Override public void run(){
+      for (      LeafReaderContext context : r2.leaves()) {
+        context.reader().getLiveDocs().get(0);
+      }
+    }
+  }
+;
+  thread.start();
+  thread.join();
+  IOUtils.close(r2,dir);
+}
