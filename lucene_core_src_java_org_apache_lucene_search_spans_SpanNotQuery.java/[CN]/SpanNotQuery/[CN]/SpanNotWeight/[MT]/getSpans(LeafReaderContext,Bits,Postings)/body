@@ -1,0 +1,52 @@
+{
+  Spans includeSpans=includeWeight.getSpans(context,acceptDocs,requiredPostings);
+  if (includeSpans == null) {
+    return null;
+  }
+  Spans excludeSpans=excludeWeight.getSpans(context,acceptDocs,requiredPostings);
+  if (excludeSpans == null) {
+    return includeSpans;
+  }
+  TwoPhaseIterator excludeTwoPhase=excludeSpans.asTwoPhaseIterator();
+  DocIdSetIterator excludeApproximation=excludeTwoPhase == null ? null : excludeTwoPhase.approximation();
+  return new FilterSpans(includeSpans){
+    int lastApproxDoc=-1;
+    boolean lastApproxResult=false;
+    @Override protected AcceptStatus accept(    Spans candidate) throws IOException {
+      int doc=candidate.docID();
+      if (doc > excludeSpans.docID()) {
+        if (excludeTwoPhase != null) {
+          if (excludeApproximation.advance(doc) == doc) {
+            lastApproxDoc=doc;
+            lastApproxResult=excludeTwoPhase.matches();
+          }
+        }
+ else {
+          excludeSpans.advance(doc);
+        }
+      }
+ else       if (excludeTwoPhase != null && doc == excludeSpans.docID() && doc != lastApproxDoc) {
+        lastApproxDoc=doc;
+        lastApproxResult=excludeTwoPhase.matches();
+      }
+      if (doc != excludeSpans.docID() || (doc == lastApproxDoc && lastApproxResult == false)) {
+        return AcceptStatus.YES;
+      }
+      if (excludeSpans.startPosition() == -1) {
+        excludeSpans.nextStartPosition();
+      }
+      while (excludeSpans.endPosition() <= candidate.startPosition() - pre) {
+        if (excludeSpans.nextStartPosition() == NO_MORE_POSITIONS) {
+          return AcceptStatus.YES;
+        }
+      }
+      if (candidate.endPosition() + post <= excludeSpans.startPosition()) {
+        return AcceptStatus.YES;
+      }
+ else {
+        return AcceptStatus.NO;
+      }
+    }
+  }
+;
+}
