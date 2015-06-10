@@ -1,0 +1,31 @@
+{
+  Configuration conf=HdfsTestUtil.getClientConfiguration(dfsCluster);
+  conf.set("dfs.permissions.enabled","false");
+  HdfsDirectoryFactory factory=new HdfsDirectoryFactory();
+  Map<String,String> props=new HashMap<String,String>();
+  props.put(HdfsDirectoryFactory.HDFS_HOME,HdfsTestUtil.getURI(dfsCluster) + "/solr");
+  props.put(HdfsDirectoryFactory.BLOCKCACHE_ENABLED,"false");
+  props.put(HdfsDirectoryFactory.NRTCACHINGDIRECTORY_ENABLE,"false");
+  factory.init(new NamedList<>(props));
+  Iterator<SolrInfoMBean> it=factory.offerMBeans().iterator();
+  it.next();
+  SolrInfoMBean localityBean=it.next();
+  assertEquals("hdfs-locality",localityBean.getName());
+  NamedList<?> statistics=localityBean.getStatistics();
+  assertEquals(0l,statistics.get(HdfsLocalityReporter.LOCALITY_BYTES_TOTAL));
+  assertEquals(0,statistics.get(HdfsLocalityReporter.LOCALITY_BYTES_RATIO));
+  String path=HdfsTestUtil.getURI(dfsCluster) + "/solr3/";
+  Directory dir=factory.create(path,NoLockFactory.INSTANCE,DirContext.DEFAULT);
+  try (IndexOutput writer=dir.createOutput("output",null)){
+    writer.writeLong(42l);
+  }
+   final long long_bytes=Long.SIZE / Byte.SIZE;
+  statistics=localityBean.getStatistics();
+  assertEquals(long_bytes,statistics.get(HdfsLocalityReporter.LOCALITY_BYTES_TOTAL));
+  assertEquals(1,statistics.get(HdfsLocalityReporter.LOCALITY_BLOCKS_TOTAL));
+  assertEquals(0,statistics.get(HdfsLocalityReporter.LOCALITY_BLOCKS_LOCAL));
+  factory.setHost("127.0.0.1");
+  statistics=localityBean.getStatistics();
+  assertEquals(long_bytes,statistics.get(HdfsLocalityReporter.LOCALITY_BYTES_LOCAL));
+  factory.close();
+}
