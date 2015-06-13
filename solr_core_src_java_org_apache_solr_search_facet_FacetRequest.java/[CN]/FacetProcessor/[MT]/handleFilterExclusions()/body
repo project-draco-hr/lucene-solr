@@ -1,0 +1,44 @@
+{
+  List<String> excludeTags=freq.domain.excludeTags;
+  if (excludeTags == null || excludeTags.size() == 0) {
+    return;
+  }
+  ResponseBuilder rb=SolrRequestInfo.getRequestInfo().getResponseBuilder();
+  Map tagMap=(Map)rb.req.getContext().get("tags");
+  if (tagMap == null) {
+    return;
+  }
+  IdentityHashMap<Query,Boolean> excludeSet=new IdentityHashMap<>();
+  for (  String excludeTag : excludeTags) {
+    Object olst=tagMap.get(excludeTag);
+    if (!(olst instanceof Collection))     continue;
+    for (    Object o : (Collection<?>)olst) {
+      if (!(o instanceof QParser))       continue;
+      QParser qp=(QParser)o;
+      try {
+        excludeSet.put(qp.getQuery(),Boolean.TRUE);
+      }
+ catch (      SyntaxError syntaxError) {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,syntaxError);
+      }
+    }
+  }
+  if (excludeSet.size() == 0)   return;
+  List<Query> qlist=new ArrayList<>();
+  if (!excludeSet.containsKey(rb.getQuery())) {
+    qlist.add(rb.getQuery());
+  }
+  if (rb.getFilters() != null) {
+    for (    Query q : rb.getFilters()) {
+      if (!excludeSet.containsKey(q)) {
+        qlist.add(q);
+      }
+    }
+  }
+  for (FacetContext curr=fcontext; curr != null; curr=curr.parent) {
+    if (curr.filter != null) {
+      qlist.add(curr.filter);
+    }
+  }
+  fcontext.base=fcontext.searcher.getDocSet(qlist);
+}
