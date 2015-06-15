@@ -1,0 +1,61 @@
+{
+  final int iters=atLeast(2);
+  for (int iter=0; iter < iters; ++iter) {
+    final List<Long> allNumbers=new ArrayList<>();
+    final int numNumbers=TestUtil.nextInt(random(),1,1 << TestUtil.nextInt(random(),1,10));
+    for (int i=0; i < numNumbers; ++i) {
+      allNumbers.add(random().nextLong());
+    }
+    Directory dir=newDirectory();
+    RandomIndexWriter iw=new RandomIndexWriter(random(),dir);
+    final int numDocs=atLeast(100);
+    for (int i=0; i < numDocs; ++i) {
+      Document doc=new Document();
+      final Long number=allNumbers.get(random().nextInt(allNumbers.size()));
+      doc.add(new StringField("text",number.toString(),Store.NO));
+      doc.add(new NumericDocValuesField("long",number));
+      doc.add(new SortedNumericDocValuesField("twolongs",number));
+      doc.add(new SortedNumericDocValuesField("twolongs",number * 2));
+      iw.addDocument(doc);
+    }
+    if (numNumbers > 1 && random().nextBoolean()) {
+      iw.deleteDocuments(new TermQuery(new Term("text",allNumbers.get(0).toString())));
+    }
+    iw.commit();
+    final IndexReader reader=iw.getReader();
+    final IndexSearcher searcher=newSearcher(reader);
+    iw.close();
+    if (reader.numDocs() == 0) {
+      IOUtils.close(reader,dir);
+      continue;
+    }
+    for (int i=0; i < 100; ++i) {
+      final float boost=random().nextFloat() * 10;
+      final int numQueryNumbers=TestUtil.nextInt(random(),1,1 << TestUtil.nextInt(random(),1,8));
+      Set<Long> queryNumbers=new HashSet<>();
+      Set<Long> queryNumbersX2=new HashSet<>();
+      for (int j=0; j < numQueryNumbers; ++j) {
+        Long number=allNumbers.get(random().nextInt(allNumbers.size()));
+        queryNumbers.add(number);
+        queryNumbersX2.add(2 * number);
+      }
+      final BooleanQuery bq=new BooleanQuery();
+      for (      Long number : queryNumbers) {
+        bq.add(new TermQuery(new Term("text",number.toString())),Occur.SHOULD);
+      }
+      Query q1=new ConstantScoreQuery(bq);
+      q1.setBoost(boost);
+      Query q2=new DocValuesNumbersQuery("long",queryNumbers);
+      q2.setBoost(boost);
+      assertSameMatches(searcher,q1,q2,true);
+      Query q3=new DocValuesNumbersQuery("twolongs",queryNumbers);
+      q3.setBoost(boost);
+      assertSameMatches(searcher,q1,q3,true);
+      Query q4=new DocValuesNumbersQuery("twolongs",queryNumbersX2);
+      q4.setBoost(boost);
+      assertSameMatches(searcher,q1,q4,true);
+    }
+    reader.close();
+    dir.close();
+  }
+}
