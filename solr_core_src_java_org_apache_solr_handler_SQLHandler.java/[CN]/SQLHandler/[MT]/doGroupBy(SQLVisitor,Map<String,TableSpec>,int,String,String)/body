@@ -1,0 +1,42 @@
+{
+  Set<String> fieldSet=new HashSet();
+  Bucket[] buckets=getBuckets(sqlVisitor.groupBy,fieldSet);
+  Metric[] metrics=getMetrics(sqlVisitor.fields,fieldSet);
+  String fl=fields(fieldSet);
+  String sortDirection=getSortDirection(sqlVisitor.sorts);
+  String sort=bucketSort(buckets,sortDirection);
+  TableSpec tableSpec=tableMap.get(sqlVisitor.table);
+  String zkHost=tableSpec.zkHost;
+  String collection=tableSpec.collection;
+  Map<String,String> params=new HashMap();
+  params.put(CommonParams.FL,fl);
+  params.put(CommonParams.Q,sqlVisitor.query);
+  params.put(CommonParams.QT,"/export");
+  if (numWorkers > 1) {
+    params.put("partitionKeys",getPartitionKeys(buckets));
+  }
+  params.put("sort",sort);
+  TupleStream tupleStream=null;
+  CloudSolrStream cstream=new CloudSolrStream(zkHost,collection,params);
+  tupleStream=new RollupStream(cstream,buckets,metrics);
+  if (numWorkers > 1) {
+    Comparator<Tuple> comp=bucketSortComp(buckets,sortDirection);
+    tupleStream=new ParallelStream(workerZkHost,workerCollection,tupleStream,numWorkers,comp);
+  }
+  if (sqlVisitor.havingExpression != null) {
+    tupleStream=new HavingStream(tupleStream,sqlVisitor.havingExpression);
+  }
+  if (sqlVisitor.sorts != null && sqlVisitor.sorts.size() > 0) {
+    if (!sortsEqual(buckets,sortDirection,sqlVisitor.sorts)) {
+      int limit=sqlVisitor.limit == -1 ? 100 : sqlVisitor.limit;
+      Comparator<Tuple> comp=getComp(sqlVisitor.sorts);
+      tupleStream=new RankStream(tupleStream,limit,comp);
+    }
+ else {
+      if (sqlVisitor.limit > -1) {
+        tupleStream=new LimitStream(tupleStream,sqlVisitor.limit);
+      }
+    }
+  }
+  return tupleStream;
+}
