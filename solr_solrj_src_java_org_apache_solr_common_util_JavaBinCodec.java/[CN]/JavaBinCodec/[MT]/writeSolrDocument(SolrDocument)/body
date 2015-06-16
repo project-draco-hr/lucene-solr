@@ -1,17 +1,34 @@
 {
   List<SolrDocument> children=doc.getChildDocuments();
-  int sz=doc.size() + (children == null ? 0 : children.size());
+  int fieldsCount=0;
+  if (writableDocFields == null || writableDocFields.wantsAllFields() || ignoreWritable) {
+    fieldsCount=doc.size();
+  }
+ else {
+    for (    Entry<String,Object> e : doc) {
+      if (toWrite(e.getKey()))       fieldsCount++;
+    }
+  }
+  int sz=fieldsCount + (children == null ? 0 : children.size());
   writeTag(SOLRDOC);
   writeTag(ORDERED_MAP,sz);
   for (  Map.Entry<String,Object> entry : doc) {
     String name=entry.getKey();
-    writeExternString(name);
-    Object val=entry.getValue();
-    writeVal(val);
+    if (toWrite(name)) {
+      writeExternString(name);
+      Object val=entry.getValue();
+      writeVal(val);
+    }
   }
   if (children != null) {
-    for (    SolrDocument child : children) {
-      writeSolrDocument(child);
+    try {
+      ignoreWritable=true;
+      for (      SolrDocument child : children) {
+        writeSolrDocument(child);
+      }
+    }
+  finally {
+      ignoreWritable=false;
     }
   }
 }

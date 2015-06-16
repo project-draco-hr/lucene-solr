@@ -1,29 +1,9 @@
 {
   DocList ids=res.docs;
-  TransformContext context=new TransformContext();
-  context.query=res.query;
-  context.wantsScores=fields.wantsScore() && ids.hasScores();
-  context.req=req;
-  writeStartDocumentList(name,ids.offset(),ids.size(),ids.matches(),context.wantsScores ? new Float(ids.maxScore()) : null);
-  DocTransformer transformer=fields.getTransformer();
-  context.searcher=req.getSearcher();
-  context.iterator=ids.iterator();
-  if (transformer != null) {
-    transformer.setContext(context);
-  }
-  int sz=ids.size();
-  Set<String> fnames=fields.getLuceneFieldNames();
-  for (int i=0; i < sz; i++) {
-    int id=context.iterator.nextDoc();
-    StoredDocument doc=context.searcher.doc(id,fnames);
-    SolrDocument sdoc=toSolrDocument(doc);
-    if (transformer != null) {
-      transformer.transform(sdoc,id);
-    }
-    writeSolrDocument(null,sdoc,returnFields,i);
-  }
-  if (transformer != null) {
-    transformer.setContext(null);
+  DocsStreamer docsStreamer=new DocsStreamer(res.docs,res.query,req,fields);
+  writeStartDocumentList(name,ids.offset(),ids.size(),ids.matches(),docsStreamer.hasScores() ? new Float(ids.maxScore()) : null);
+  while (docsStreamer.hasNext()) {
+    writeSolrDocument(null,docsStreamer.next(),returnFields,docsStreamer.currentIndex());
   }
   writeEndDocumentList();
 }
