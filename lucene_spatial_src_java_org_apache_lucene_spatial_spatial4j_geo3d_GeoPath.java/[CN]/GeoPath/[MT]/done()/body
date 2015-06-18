@@ -1,5 +1,9 @@
 {
+  if (isDone)   throw new IllegalStateException("Can't call done() twice");
   if (points.size() == 0)   throw new IllegalArgumentException("Path must have at least one point");
+  isDone=true;
+  endPoints=new ArrayList<>(points.size());
+  segments=new ArrayList<>(points.size());
   final double cutoffOffset=this.sinAngle * planetModel.getMinimumMagnitude();
   GeoPoint lastPoint=null;
   for (  final GeoPoint end : points) {
@@ -13,17 +17,27 @@
     lastPoint=end;
   }
   if (segments.size() == 0) {
-    final SegmentEndpoint onlyEndpoint=new SegmentEndpoint(points.get(0),cutoffOffset);
+    double lat=points.get(0).getLatitude();
+    double lon=points.get(0).getLongitude();
+    double upperLat=lat + cutoffAngle;
+    double upperLon=lon;
+    if (upperLat > Math.PI * 0.5) {
+      upperLon+=Math.PI;
+      if (upperLon > Math.PI)       upperLon-=2.0 * Math.PI;
+      upperLat=Math.PI - upperLat;
+    }
+    double lowerLat=lat - cutoffAngle;
+    double lowerLon=lon;
+    if (lowerLat < -Math.PI * 0.5) {
+      lowerLon+=Math.PI;
+      if (lowerLon > Math.PI)       lowerLon-=2.0 * Math.PI;
+      lowerLat=-Math.PI - lowerLat;
+    }
+    final GeoPoint upperPoint=new GeoPoint(planetModel,upperLat,upperLon);
+    final GeoPoint lowerPoint=new GeoPoint(planetModel,lowerLat,lowerLon);
+    final SegmentEndpoint onlyEndpoint=new SegmentEndpoint(points.get(0),upperPoint,lowerPoint);
     endPoints.add(onlyEndpoint);
-    Plane verticalPlane=Plane.constructNormalizedVerticalPlane(onlyEndpoint.point.x,onlyEndpoint.point.y);
-    if (verticalPlane == null) {
-      verticalPlane=new Plane(1.0,0.0);
-    }
-    final GeoPoint edgePoint=onlyEndpoint.circlePlane.getSampleIntersectionPoint(planetModel,verticalPlane);
-    if (edgePoint == null) {
-      throw new RuntimeException("Could not find edge point for path endpoint=" + onlyEndpoint.point + " cutoffOffset="+ cutoffOffset+ " planetModel="+ planetModel);
-    }
-    this.edgePoints=new GeoPoint[]{edgePoint};
+    this.edgePoints=new GeoPoint[]{upperPoint};
     return;
   }
   for (int i=0; i < segments.size(); i++) {

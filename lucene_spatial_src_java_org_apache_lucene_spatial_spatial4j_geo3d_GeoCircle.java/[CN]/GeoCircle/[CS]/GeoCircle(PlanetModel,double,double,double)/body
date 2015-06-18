@@ -5,19 +5,28 @@
   if (cutoffAngle <= 0.0 || cutoffAngle > Math.PI)   throw new IllegalArgumentException("Cutoff angle out of bounds");
   final double cosAngle=Math.cos(cutoffAngle);
   this.center=new GeoPoint(planetModel,lat,lon);
-  final double magnitude=center.magnitude();
   this.cutoffAngle=cutoffAngle;
-  this.circlePlane=new SidedPlane(center,center.normalize(),-cosAngle * magnitude);
+  double upperLat=lat + cutoffAngle;
+  double upperLon=lon;
+  if (upperLat > Math.PI * 0.5) {
+    upperLon+=Math.PI;
+    if (upperLon > Math.PI)     upperLon-=2.0 * Math.PI;
+    upperLat=Math.PI - upperLat;
+  }
+  double lowerLat=lat - cutoffAngle;
+  double lowerLon=lon;
+  if (lowerLat < -Math.PI * 0.5) {
+    lowerLon+=Math.PI;
+    if (lowerLon > Math.PI)     lowerLon-=2.0 * Math.PI;
+    lowerLat=-Math.PI - lowerLat;
+  }
+  final GeoPoint upperPoint=new GeoPoint(planetModel,upperLat,upperLon);
+  final GeoPoint lowerPoint=new GeoPoint(planetModel,lowerLat,lowerLon);
+  final Plane normalPlane=new Plane(upperPoint,center);
+  this.circlePlane=SidedPlane.constructNormalizedPerpendicularSidedPlane(center,normalPlane,upperPoint,lowerPoint);
+  if (circlePlane == null)   throw new RuntimeException("Couldn't construct circle plane.  Cutoff angle = " + cutoffAngle + "; upperPoint = "+ upperPoint+ "; lowerPoint = "+ lowerPoint);
   if (cutoffAngle == Math.PI)   this.edgePoints=new GeoPoint[0];
  else {
-    Plane verticalPlane=Plane.constructNormalizedVerticalPlane(this.center.x,this.center.y);
-    if (verticalPlane == null) {
-      verticalPlane=new Plane(1.0,0.0);
-    }
-    final GeoPoint edgePoint=this.circlePlane.getSampleIntersectionPoint(planetModel,verticalPlane);
-    if (edgePoint == null) {
-      throw new RuntimeException("Could not find edge point for circle at lat=" + lat + " lon="+ lon+ " cutoffAngle="+ cutoffAngle+ " planetModel="+ planetModel);
-    }
-    this.edgePoints=new GeoPoint[]{edgePoint};
+    this.edgePoints=new GeoPoint[]{upperPoint};
   }
 }
