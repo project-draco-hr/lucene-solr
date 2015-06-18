@@ -1,5 +1,5 @@
 {
-  if (minNrShouldMatch == 0 && clauses.size() == 1) {
+  if (minimumNumberShouldMatch == 0 && clauses.size() == 1) {
     BooleanClause c=clauses.get(0);
     if (!c.isProhibited()) {
       Query query=c.getQuery().rewrite(reader);
@@ -18,21 +18,22 @@
       return query;
     }
   }
-  BooleanQuery clone=null;
-  for (int i=0; i < clauses.size(); i++) {
-    BooleanClause c=clauses.get(i);
-    Query query=c.getQuery().rewrite(reader);
-    if (query != c.getQuery()) {
-      if (clone == null) {
-        clone=this.clone();
-      }
-      clone.clauses.set(i,new BooleanClause(query,c.getOccur()));
+  BooleanQuery.Builder builder=new BooleanQuery.Builder();
+  builder.setDisableCoord(isCoordDisabled());
+  builder.setMinimumNumberShouldMatch(getMinimumNumberShouldMatch());
+  boolean actuallyRewritten=false;
+  for (  BooleanClause clause : this) {
+    Query query=clause.getQuery();
+    Query rewritten=query.rewrite(reader);
+    if (rewritten != query) {
+      actuallyRewritten=true;
     }
+    builder.add(rewritten,clause.getOccur());
   }
-  if (clone != null) {
-    return clone;
+  if (actuallyRewritten) {
+    BooleanQuery rewritten=builder.build();
+    rewritten.setBoost(getBoost());
+    return rewritten;
   }
- else {
-    return this;
-  }
+  return super.rewrite(reader);
 }

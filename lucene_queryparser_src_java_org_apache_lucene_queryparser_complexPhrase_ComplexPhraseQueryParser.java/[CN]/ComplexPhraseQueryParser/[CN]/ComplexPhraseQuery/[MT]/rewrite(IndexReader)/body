@@ -1,4 +1,5 @@
 {
+  final Query contents=this.contents[0];
   if (contents instanceof TermQuery) {
     return contents;
   }
@@ -7,12 +8,12 @@
     throw new IllegalArgumentException("Unknown query type \"" + contents.getClass().getName() + "\" found in phrase query string \""+ phrasedQueryStringContents+ "\"");
   }
   BooleanQuery bq=(BooleanQuery)contents;
-  BooleanClause[] bclauses=bq.getClauses();
-  SpanQuery[] allSpanClauses=new SpanQuery[bclauses.length];
-  for (int i=0; i < bclauses.length; i++) {
-    Query qc=bclauses[i].getQuery();
+  SpanQuery[] allSpanClauses=new SpanQuery[bq.clauses().size()];
+  int i=0;
+  for (  BooleanClause clause : bq) {
+    Query qc=clause.getQuery();
     qc=qc.rewrite(reader);
-    if (bclauses[i].getOccur().equals(BooleanClause.Occur.MUST_NOT)) {
+    if (clause.getOccur().equals(BooleanClause.Occur.MUST_NOT)) {
       numNegatives++;
     }
     if (qc instanceof BooleanQuery) {
@@ -34,15 +35,18 @@
         throw new IllegalArgumentException("Unknown query type \"" + qc.getClass().getName() + "\" found in phrase query string \""+ phrasedQueryStringContents+ "\"");
       }
     }
+    i+=1;
   }
   if (numNegatives == 0) {
     return new SpanNearQuery(allSpanClauses,slopFactor,inOrder);
   }
   ArrayList<SpanQuery> positiveClauses=new ArrayList<>();
-  for (int j=0; j < allSpanClauses.length; j++) {
-    if (!bclauses[j].getOccur().equals(BooleanClause.Occur.MUST_NOT)) {
-      positiveClauses.add(allSpanClauses[j]);
+  i=0;
+  for (  BooleanClause clause : bq) {
+    if (!clause.getOccur().equals(BooleanClause.Occur.MUST_NOT)) {
+      positiveClauses.add(allSpanClauses[i]);
     }
+    i+=1;
   }
   SpanQuery[] includeClauses=positiveClauses.toArray(new SpanQuery[positiveClauses.size()]);
   SpanQuery include=null;

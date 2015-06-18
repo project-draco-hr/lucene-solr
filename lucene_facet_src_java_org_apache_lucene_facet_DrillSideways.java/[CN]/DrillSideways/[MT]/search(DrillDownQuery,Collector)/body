@@ -1,2 +1,28 @@
 {
+  Map<String,Integer> drillDownDims=query.getDims();
+  FacetsCollector drillDownCollector=new FacetsCollector();
+  if (drillDownDims.isEmpty()) {
+    searcher.search(query,MultiCollector.wrap(hitCollector,drillDownCollector));
+    return new DrillSidewaysResult(buildFacetsResult(drillDownCollector,null,null),null);
+  }
+  Query baseQuery=query.getBaseQuery();
+  if (baseQuery == null) {
+    baseQuery=new MatchAllDocsQuery();
+  }
+  Query[] drillDownQueries=query.getDrillDownQueries();
+  FacetsCollector[] drillSidewaysCollectors=new FacetsCollector[drillDownDims.size()];
+  for (int i=0; i < drillSidewaysCollectors.length; i++) {
+    drillSidewaysCollectors[i]=new FacetsCollector();
+  }
+  DrillSidewaysQuery dsq=new DrillSidewaysQuery(baseQuery,drillDownCollector,drillSidewaysCollectors,drillDownQueries,scoreSubDocsAtOnce());
+  if (hitCollector.needsScores() == false) {
+    hitCollector=new FilterCollector(hitCollector){
+      @Override public boolean needsScores(){
+        return true;
+      }
+    }
+;
+  }
+  searcher.search(dsq,hitCollector);
+  return new DrillSidewaysResult(buildFacetsResult(drillDownCollector,drillSidewaysCollectors,drillDownDims.keySet().toArray(new String[drillDownDims.size()])),null);
 }
