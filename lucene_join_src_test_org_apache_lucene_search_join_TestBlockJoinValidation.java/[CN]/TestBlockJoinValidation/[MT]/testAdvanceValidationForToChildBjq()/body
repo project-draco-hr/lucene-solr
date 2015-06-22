@@ -1,15 +1,18 @@
 {
-  int randomChildNumber=getRandomChildNumber(0);
-  int nextRandomChildNumber=getRandomChildNumber(randomChildNumber);
-  Query parentQueryWithRandomChild=createParentsQueryWithOneChild(nextRandomChildNumber);
-  ToChildBlockJoinQuery blockJoinQuery=new ToChildBlockJoinQuery(parentQueryWithRandomChild,parentsFilter);
-  BooleanQuery.Builder conjunctionQuery=new BooleanQuery.Builder();
-  WildcardQuery childQuery=new WildcardQuery(new Term("child",createFieldValue(randomChildNumber)));
-  conjunctionQuery.add(childQuery,BooleanClause.Occur.MUST);
-  conjunctionQuery.add(blockJoinQuery,BooleanClause.Occur.MUST);
+  Query parentQuery=new MatchAllDocsQuery();
+  ToChildBlockJoinQuery blockJoinQuery=new ToChildBlockJoinQuery(parentQuery,parentsFilter);
+  final LeafReaderContext context=indexSearcher.getIndexReader().leaves().get(0);
+  Weight weight=indexSearcher.createNormalizedWeight(blockJoinQuery,true);
+  Scorer scorer=weight.scorer(context,context.reader().getLiveDocs());
+  final Bits parentDocs=parentsFilter.getDocIdSet(context).bits();
+  int target;
+  do {
+    target=TestUtil.nextInt(random(),0,context.reader().maxDoc() - 2);
+  }
+ while (parentDocs.get(target + 1));
   try {
-    indexSearcher.search(conjunctionQuery.build(),1);
-    fail("didn't get expected exception");
+    scorer.advance(target);
+    fail();
   }
  catch (  IllegalStateException expected) {
     assertTrue(expected.getMessage() != null && expected.getMessage().contains(ToChildBlockJoinQuery.INVALID_QUERY_MESSAGE));
