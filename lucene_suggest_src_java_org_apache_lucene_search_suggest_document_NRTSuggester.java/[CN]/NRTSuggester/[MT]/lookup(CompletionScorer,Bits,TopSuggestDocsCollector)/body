@@ -1,0 +1,33 @@
+{
+  final double liveDocsRatio=calculateLiveDocRatio(scorer.reader.numDocs(),scorer.reader.maxDoc());
+  if (liveDocsRatio == -1) {
+    return;
+  }
+  final List<FSTUtil.Path<Pair<Long,BytesRef>>> prefixPaths=FSTUtil.intersectPrefixPaths(scorer.automaton,fst);
+  final int queueSize=getMaxTopNSearcherQueueSize(collector.getCountToCollect() * prefixPaths.size(),scorer.reader.numDocs(),liveDocsRatio,scorer.filtered);
+  Comparator<Pair<Long,BytesRef>> comparator=getComparator();
+  Util.TopNSearcher<Pair<Long,BytesRef>> searcher=new Util.TopNSearcher<Pair<Long,BytesRef>>(fst,collector.getCountToCollect(),queueSize,comparator,new ScoringPathComparator(scorer)){
+    private final CharsRefBuilder spare=new CharsRefBuilder();
+    @Override protected boolean acceptResult(    Util.FSTPath<Pair<Long,BytesRef>> path){
+      int payloadSepIndex=parseSurfaceForm(path.cost.output2,payloadSep,spare);
+      int docID=parseDocID(path.cost.output2,payloadSepIndex);
+      if (!scorer.accept(docID,acceptDocs)) {
+        return false;
+      }
+      try {
+        float score=scorer.score(decode(path.cost.output1),path.boost);
+        collector.collect(docID,spare.toCharsRef(),path.context,score);
+        return true;
+      }
+ catch (      IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+  }
+;
+  for (  FSTUtil.Path<Pair<Long,BytesRef>> path : prefixPaths) {
+    scorer.weight.setNextMatch(path.input.get());
+    searcher.addStartPaths(path.fstNode,path.output,false,path.input,scorer.weight.boost(),scorer.weight.context());
+  }
+  searcher.search();
+}
