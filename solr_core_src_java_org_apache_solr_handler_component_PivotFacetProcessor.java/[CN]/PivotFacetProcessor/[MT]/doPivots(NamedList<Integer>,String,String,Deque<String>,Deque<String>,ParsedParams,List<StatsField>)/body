@@ -1,0 +1,50 @@
+{
+  boolean isShard=rb.req.getParams().getBool(ShardParams.IS_SHARD,false);
+  SolrIndexSearcher searcher=rb.req.getSearcher();
+  SchemaField sfield=searcher.getSchema().getField(field);
+  FieldType ftype=sfield.getType();
+  String nextField=fnames.poll();
+  BytesRefBuilder termval=new BytesRefBuilder();
+  List<NamedList<Object>> values=new ArrayList<>(superFacets.size());
+  for (  Map.Entry<String,Integer> kv : superFacets) {
+    if (kv.getValue() >= getMinCountForField(field)) {
+      final String fieldValue=kv.getKey();
+      final int pivotCount=kv.getValue();
+      SimpleOrderedMap<Object> pivot=new SimpleOrderedMap<>();
+      pivot.add("field",field);
+      if (null == fieldValue) {
+        pivot.add("value",null);
+      }
+ else {
+        ftype.readableToIndexed(fieldValue,termval);
+        pivot.add("value",ftype.toObject(sfield,termval.get()));
+      }
+      pivot.add("count",pivotCount);
+      final DocSet subset=getSubset(parsed.docs,sfield,fieldValue);
+      if (subField != null) {
+        NamedList<Integer> facetCounts;
+        if (!vnames.isEmpty()) {
+          String val=vnames.pop();
+          facetCounts=new NamedList<>();
+          facetCounts.add(val,getSubsetSize(subset,searcher.getSchema().getField(subField),val));
+        }
+ else {
+          facetCounts=this.getTermCountsForPivots(subField,parsed.withDocs(subset));
+        }
+        if (facetCounts.size() >= 1) {
+          pivot.add("pivot",doPivots(facetCounts,subField,nextField,fnames,vnames,parsed.withDocs(subset),statsFields));
+        }
+      }
+      if ((isShard || 0 < pivotCount) && !statsFields.isEmpty()) {
+        Map<String,StatsValues> stv=new LinkedHashMap<>();
+        for (        StatsField statsField : statsFields) {
+          stv.put(statsField.getOutputKey(),statsField.computeLocalStatsValues(subset));
+        }
+        pivot.add("stats",StatsComponent.convertToResponse(stv));
+      }
+      values.add(pivot);
+    }
+  }
+  fnames.push(nextField);
+  return values;
+}
