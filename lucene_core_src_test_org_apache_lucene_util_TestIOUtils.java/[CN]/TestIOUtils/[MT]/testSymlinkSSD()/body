@@ -1,0 +1,29 @@
+{
+  assumeFalse("windows is not supported",Constants.WINDOWS);
+  Path dir=createTempDir();
+  dir=FilterPath.unwrap(dir).toRealPath();
+  Random rnd=random();
+  String partitionUUID=new UUID(rnd.nextLong(),rnd.nextLong()).toString();
+  FileStore root=new MockFileStore(dir.toString() + " (/dev/disk/by-uuid/" + partitionUUID+ ")","btrfs","/dev/disk/by-uuid/" + partitionUUID);
+  Path devdir=dir.resolve("dev");
+  Files.createDirectories(devdir);
+  Path deviceFile=devdir.resolve("sda1");
+  Files.createFile(deviceFile);
+  Path symlinkdir=devdir.resolve("disk").resolve("by-uuid");
+  Files.createDirectories(symlinkdir);
+  try {
+    Files.createSymbolicLink(symlinkdir.resolve(partitionUUID),deviceFile);
+  }
+ catch (  UnsupportedOperationException|IOException e) {
+    assumeNoException("test requires filesystem that supports symbolic links",e);
+  }
+  Path sysdir=dir.resolve("sys").resolve("block").resolve("sda").resolve("queue");
+  Files.createDirectories(sysdir);
+  try (OutputStream o=Files.newOutputStream(sysdir.resolve("rotational"))){
+    o.write("0\n".getBytes(StandardCharsets.US_ASCII));
+  }
+   Map<String,FileStore> mappings=Collections.singletonMap(dir.toString(),root);
+  FileSystem mockLinux=new MockLinuxFileSystemProvider(dir.getFileSystem(),mappings,dir).getFileSystem(null);
+  Path mockPath=mockLinux.getPath(dir.toString());
+  assertFalse(IOUtils.spinsLinux(mockPath));
+}
