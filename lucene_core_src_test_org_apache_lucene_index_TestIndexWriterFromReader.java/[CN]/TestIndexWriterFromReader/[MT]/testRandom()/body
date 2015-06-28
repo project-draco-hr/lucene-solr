@@ -1,0 +1,115 @@
+{
+  Directory dir=newDirectory();
+  if (dir instanceof MockDirectoryWrapper) {
+    ((MockDirectoryWrapper)dir).setPreventDoubleWrite(false);
+  }
+  int numOps=atLeast(100);
+  IndexWriter w=new IndexWriter(dir,newIndexWriterConfig());
+  w.commit();
+  DirectoryReader r=DirectoryReader.open(w,true);
+  int nrtReaderNumDocs=0;
+  int writerNumDocs=0;
+  boolean commitAfterNRT=false;
+  Set<Integer> liveIDs=new HashSet<>();
+  Set<Integer> nrtLiveIDs=new HashSet<>();
+  for (int op=0; op < numOps; op++) {
+    if (VERBOSE) {
+      System.out.println("\nITER op=" + op + " nrtReaderNumDocs="+ nrtReaderNumDocs+ " writerNumDocs="+ writerNumDocs+ " r="+ r+ " r.numDocs()="+ r.numDocs());
+    }
+    assertEquals(nrtReaderNumDocs,r.numDocs());
+    int x=random().nextInt(5);
+switch (x) {
+case 0:
+      if (VERBOSE) {
+        System.out.println("  add doc id=" + op);
+      }
+    Document doc=new Document();
+  doc.add(newStringField("id","" + op,Field.Store.NO));
+w.addDocument(doc);
+liveIDs.add(op);
+writerNumDocs++;
+break;
+case 1:
+if (VERBOSE) {
+System.out.println("  delete doc");
+}
+if (liveIDs.size() > 0) {
+int id=random().nextInt(op);
+if (VERBOSE) {
+System.out.println("    id=" + id);
+}
+w.deleteDocuments(new Term("id","" + id));
+if (liveIDs.remove(id)) {
+if (VERBOSE) {
+System.out.println("    really deleted");
+}
+writerNumDocs--;
+}
+}
+ else {
+if (VERBOSE) {
+System.out.println("    nothing to delete yet");
+}
+}
+break;
+case 2:
+if (VERBOSE) {
+System.out.println("  reopen NRT reader");
+}
+DirectoryReader r2=DirectoryReader.openIfChanged(r);
+if (r2 != null) {
+r.close();
+r=r2;
+if (VERBOSE) {
+System.out.println("    got new reader oldNumDocs=" + nrtReaderNumDocs + " newNumDocs="+ writerNumDocs);
+}
+nrtReaderNumDocs=writerNumDocs;
+nrtLiveIDs=new HashSet<>(liveIDs);
+}
+ else {
+if (VERBOSE) {
+System.out.println("    reader is unchanged");
+}
+assertEquals(nrtReaderNumDocs,r.numDocs());
+}
+commitAfterNRT=false;
+break;
+case 3:
+if (commitAfterNRT == false) {
+if (random().nextBoolean()) {
+if (VERBOSE) {
+System.out.println("  close writer and open new writer from non-NRT reader numDocs=" + w.numDocs());
+}
+w.close();
+r.close();
+r=DirectoryReader.open(dir);
+assertEquals(writerNumDocs,r.numDocs());
+nrtReaderNumDocs=writerNumDocs;
+nrtLiveIDs=new HashSet<>(liveIDs);
+}
+ else {
+if (VERBOSE) {
+System.out.println("  rollback writer and open new writer from NRT reader numDocs=" + w.numDocs());
+}
+w.rollback();
+}
+IndexWriterConfig iwc=newIndexWriterConfig();
+iwc.setIndexCommit(r.getIndexCommit());
+w=new IndexWriter(dir,iwc);
+writerNumDocs=nrtReaderNumDocs;
+liveIDs=new HashSet<>(nrtLiveIDs);
+r.close();
+r=DirectoryReader.open(w,true);
+}
+break;
+case 4:
+if (VERBOSE) {
+System.out.println("    commit");
+}
+w.commit();
+commitAfterNRT=true;
+break;
+}
+}
+IOUtils.close(w,r,dir);
+}
