@@ -138,7 +138,7 @@
     }
     collectShardResponses(results,false,null,shardHandler);
     final String asyncId=message.getStr(ASYNC);
-    HashMap<String,String> requestMap=new HashMap<String,String>();
+    HashMap<String,String> requestMap=new HashMap<>();
     for (int i=0; i < subRanges.size(); i++) {
       String subSlice=subSlices.get(i);
       String subShardName=subShardNames.get(i);
@@ -218,8 +218,8 @@
     Set<String> nodes=clusterState.getLiveNodes();
     List<String> nodeList=new ArrayList<>(nodes.size());
     nodeList.addAll(nodes);
-    Collections.shuffle(nodeList,RANDOM);
     nodeList.remove(nodeName);
+    List<Map<String,Object>> replicas=new ArrayList<>((repFactor - 1) * 2);
     for (int i=1; i <= subSlices.size(); i++) {
       Collections.shuffle(nodeList,RANDOM);
       String sliceName=subSlices.get(i - 1);
@@ -227,6 +227,8 @@
         String subShardNodeName=nodeList.get((repFactor * (i - 1) + (j - 2)) % nodeList.size());
         String shardName=collectionName + "_" + sliceName+ "_replica"+ (j);
         log.info("Creating replica shard " + shardName + " as part of slice "+ sliceName+ " of collection "+ collectionName+ " on "+ subShardNodeName);
+        ZkNodeProps props=new ZkNodeProps(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower(),ZkStateReader.COLLECTION_PROP,collectionName,ZkStateReader.SHARD_ID_PROP,sliceName,ZkStateReader.CORE_NAME_PROP,shardName,ZkStateReader.STATE_PROP,Replica.State.DOWN.toString(),ZkStateReader.BASE_URL_PROP,zkStateReader.getBaseUrlForNodeName(subShardNodeName),ZkStateReader.NODE_NAME_PROP,subShardNodeName);
+        Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(props));
         HashMap<String,Object> propMap=new HashMap<>();
         propMap.put(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower());
         propMap.put(COLLECTION_PROP,collectionName);
@@ -241,24 +243,10 @@
         if (asyncId != null) {
           propMap.put(ASYNC,asyncId);
         }
-        addReplica(clusterState,new ZkNodeProps(propMap),results);
-        String coreNodeName=waitForCoreNodeName(collectionName,subShardNodeName,shardName);
-        log.info("Asking sub shard leader to wait for: " + shardName + " to be alive on: "+ subShardNodeName);
-        CoreAdminRequest.WaitForState cmd=new CoreAdminRequest.WaitForState();
-        cmd.setCoreName(subShardNames.get(i - 1));
-        cmd.setNodeName(subShardNodeName);
-        cmd.setCoreNodeName(coreNodeName);
-        cmd.setState(Replica.State.RECOVERING);
-        cmd.setCheckLive(true);
-        cmd.setOnlyIfLeader(true);
-        ModifiableSolrParams p=new ModifiableSolrParams(cmd.getParams());
-        sendShardRequest(nodeName,p,shardHandler,asyncId,requestMap);
+        propMap.put(SKIP_CREATE_REPLICA_IN_CLUSTER_STATE,"true");
+        replicas.add(propMap);
       }
     }
-    collectShardResponses(results,true,"SPLITSHARD failed to create subshard replicas or timed out waiting for them to come up",shardHandler);
-    completeAsyncRequest(asyncId,requestMap,results);
-    log.info("Successfully created all replica shards for all sub-slices " + subSlices);
-    commit(results,slice,parentShardLeader);
     if (repFactor == 1) {
       log.info("Replication factor is 1 so switching shard states");
       DistributedQueue inQueue=Overseer.getInQueue(zkStateReader.getZkClient());
@@ -284,6 +272,13 @@
       ZkNodeProps m=new ZkNodeProps(propMap);
       inQueue.offer(ZkStateReader.toJSON(m));
     }
+    for (    Map<String,Object> replica : replicas) {
+      addReplica(clusterState,new ZkNodeProps(replica),results);
+    }
+    collectShardResponses(results,true,"SPLITSHARD failed to create subshard replicas",shardHandler);
+    completeAsyncRequest(asyncId,requestMap,results);
+    log.info("Successfully created all replica shards for all sub-slices " + subSlices);
+    commit(results,slice,parentShardLeader);
     return true;
   }
  catch (  SolrException e) {

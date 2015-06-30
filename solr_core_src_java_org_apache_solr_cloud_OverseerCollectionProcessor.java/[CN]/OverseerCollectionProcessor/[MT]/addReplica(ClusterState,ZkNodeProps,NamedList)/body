@@ -20,23 +20,9 @@
     throw new SolrException(ErrorCode.BAD_REQUEST,"Node: " + node + " is not live");
   }
   if (coreName == null) {
-    Slice slice=coll.getSlice(shard);
-    int replicaNum=slice.getReplicas().size();
-    for (; ; ) {
-      String replicaName=collection + "_" + shard+ "_replica"+ replicaNum;
-      boolean exists=false;
-      for (      Replica replica : slice.getReplicas()) {
-        if (replicaName.equals(replica.getStr(CORE_NAME_PROP))) {
-          exists=true;
-          break;
-        }
-      }
-      if (exists)       replicaNum++;
- else       break;
-    }
-    coreName=collection + "_" + shard+ "_replica"+ replicaNum;
+    coreName=Assign.buildCoreName(coll,shard);
   }
- else {
+ else   if (!message.getBool(SKIP_CREATE_REPLICA_IN_CLUSTER_STATE,false)) {
     for (    Slice slice : coll.getSlices()) {
       for (      Replica replica : slice.getReplicas()) {
         String replicaCoreName=replica.getStr(CORE_NAME_PROP);
@@ -48,8 +34,10 @@
   }
   ModifiableSolrParams params=new ModifiableSolrParams();
   if (!Overseer.isLegacy(zkStateReader.getClusterProps())) {
-    ZkNodeProps props=new ZkNodeProps(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,shard,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.STATE_PROP,Replica.State.DOWN.toString(),ZkStateReader.BASE_URL_PROP,zkStateReader.getBaseUrlForNodeName(node));
-    Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(props));
+    if (!message.getBool(SKIP_CREATE_REPLICA_IN_CLUSTER_STATE,false)) {
+      ZkNodeProps props=new ZkNodeProps(Overseer.QUEUE_OPERATION,ADDREPLICA.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,shard,ZkStateReader.CORE_NAME_PROP,coreName,ZkStateReader.STATE_PROP,Replica.State.DOWN.toString(),ZkStateReader.BASE_URL_PROP,zkStateReader.getBaseUrlForNodeName(node),ZkStateReader.NODE_NAME_PROP,node);
+      Overseer.getInQueue(zkStateReader.getZkClient()).offer(ZkStateReader.toJSON(props));
+    }
     params.set(CoreAdminParams.CORE_NODE_NAME,waitToSeeReplicasInState(collection,Collections.singletonList(coreName)).get(coreName).getName());
   }
   String configName=zkStateReader.readConfigName(collection);
