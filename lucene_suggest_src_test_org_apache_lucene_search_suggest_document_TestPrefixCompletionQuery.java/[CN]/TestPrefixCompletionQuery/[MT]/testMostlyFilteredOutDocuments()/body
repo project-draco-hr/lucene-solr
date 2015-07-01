@@ -5,7 +5,7 @@
   for (int i=0; i < num; i++) {
     Document document=new Document();
     document.add(new SuggestField("suggest_field","abc_" + i,i));
-    document.add(new IntField("filter_int_fld",i,Field.Store.NO));
+    document.add(new NumericDocValuesField("filter_int_fld",i));
     iw.addDocument(document);
     if (usually()) {
       iw.commit();
@@ -14,20 +14,17 @@
   DirectoryReader reader=iw.getReader();
   SuggestIndexSearcher indexSearcher=new SuggestIndexSearcher(reader);
   int topScore=num / 2;
-  QueryWrapperFilter filterWrapper=new QueryWrapperFilter(NumericRangeQuery.newIntRange("filter_int_fld",0,topScore,true,true));
-  Filter filter=randomAccessFilter(filterWrapper);
+  BitsProducer filter=new NumericRangeBitsProducer("filter_int_fld",0,topScore);
   PrefixCompletionQuery query=new PrefixCompletionQuery(analyzer,new Term("suggest_field","abc_"),filter);
   TopSuggestDocs suggest=indexSearcher.suggest(query,num);
   assertTrue(suggest.totalHits >= 1);
   assertThat(suggest.scoreLookupDocs()[0].key.toString(),equalTo("abc_" + topScore));
   assertThat(suggest.scoreLookupDocs()[0].score,equalTo((float)topScore));
-  filterWrapper=new QueryWrapperFilter(NumericRangeQuery.newIntRange("filter_int_fld",0,0,true,true));
-  filter=randomAccessFilter(filterWrapper);
+  filter=new NumericRangeBitsProducer("filter_int_fld",0,0);
   query=new PrefixCompletionQuery(analyzer,new Term("suggest_field","abc_"),filter);
   suggest=indexSearcher.suggest(query,num);
   assertSuggestions(suggest,new Entry("abc_0",0));
-  filterWrapper=new QueryWrapperFilter(NumericRangeQuery.newIntRange("filter_int_fld",num - 1,num - 1,true,true));
-  filter=randomAccessFilter(filterWrapper);
+  filter=new NumericRangeBitsProducer("filter_int_fld",num - 1,num - 1);
   query=new PrefixCompletionQuery(analyzer,new Term("suggest_field","abc_"),filter);
   suggest=indexSearcher.suggest(query,1);
   assertSuggestions(suggest,new Entry("abc_" + (num - 1),num - 1));
