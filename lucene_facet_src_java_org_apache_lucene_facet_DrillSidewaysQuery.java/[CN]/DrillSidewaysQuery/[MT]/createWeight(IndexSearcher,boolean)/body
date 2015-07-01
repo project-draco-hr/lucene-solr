@@ -1,15 +1,8 @@
 {
   final Weight baseWeight=baseQuery.createWeight(searcher,needsScores);
-  final Object[] drillDowns=new Object[drillDownQueries.length];
+  final Weight[] drillDowns=new Weight[drillDownQueries.length];
   for (int dim=0; dim < drillDownQueries.length; dim++) {
-    Query query=drillDownQueries[dim];
-    Filter filter=DrillDownQuery.getFilter(query);
-    if (filter != null) {
-      drillDowns[dim]=filter;
-    }
- else {
-      drillDowns[dim]=searcher.rewrite(query).createWeight(searcher,needsScores);
-    }
+    drillDowns[dim]=searcher.createNormalizedWeight(drillDownQueries[dim],false);
   }
   return new Weight(DrillSidewaysQuery.this){
     @Override public void extractTerms(    Set<Term> terms){
@@ -31,39 +24,22 @@
       DrillSidewaysScorer.DocsAndCost[] dims=new DrillSidewaysScorer.DocsAndCost[drillDowns.length];
       int nullCount=0;
       for (int dim=0; dim < dims.length; dim++) {
-        dims[dim]=new DrillSidewaysScorer.DocsAndCost();
-        dims[dim].sidewaysCollector=drillSidewaysCollectors[dim];
-        if (drillDowns[dim] instanceof Filter) {
-          DocIdSet dis=((Filter)drillDowns[dim]).getDocIdSet(context,null);
-          if (dis == null) {
-            continue;
-          }
-          Bits bits=dis.bits();
-          if (bits != null) {
-            dims[dim].bits=bits;
-          }
- else {
-            DocIdSetIterator disi=dis.iterator();
-            if (disi == null) {
-              nullCount++;
-              continue;
-            }
-            dims[dim].disi=disi;
-          }
+        Scorer scorer=drillDowns[dim].scorer(context);
+        if (scorer == null) {
+          nullCount++;
+          scorer=new ConstantScoreScorer(drillDowns[dim],0f,DocIdSetIterator.empty());
         }
- else {
-          DocIdSetIterator disi=((Weight)drillDowns[dim]).scorer(context);
-          if (disi == null) {
-            nullCount++;
-            continue;
-          }
-          dims[dim].disi=disi;
-        }
+        dims[dim]=new DrillSidewaysScorer.DocsAndCost(scorer,drillSidewaysCollectors[dim]);
       }
       if (nullCount > 1) {
         return null;
       }
-      Arrays.sort(dims);
+      Arrays.sort(dims,new Comparator<DrillSidewaysScorer.DocsAndCost>(){
+        @Override public int compare(        DocsAndCost o1,        DocsAndCost o2){
+          return Long.compare(o1.approximation.cost(),o2.approximation.cost());
+        }
+      }
+);
       if (baseScorer == null) {
         return null;
       }

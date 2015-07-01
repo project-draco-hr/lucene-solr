@@ -1,0 +1,42 @@
+{
+  int docID=baseScorer.docID();
+  nextDoc:   while (docID != PostingsEnum.NO_MORE_DOCS) {
+    if (acceptDocs != null && acceptDocs.get(docID) == false) {
+      docID=baseScorer.nextDoc();
+      continue;
+    }
+    LeafCollector failedCollector=null;
+    for (    DocsAndCost dim : dims) {
+      if (dim.approximation.docID() < docID) {
+        dim.approximation.advance(docID);
+      }
+      boolean matches=false;
+      if (dim.approximation.docID() == docID) {
+        if (dim.twoPhase == null) {
+          matches=true;
+        }
+ else {
+          matches=dim.twoPhase.matches();
+        }
+      }
+      if (matches == false) {
+        if (failedCollector != null) {
+          docID=baseScorer.nextDoc();
+          continue nextDoc;
+        }
+ else {
+          failedCollector=dim.sidewaysLeafCollector;
+        }
+      }
+    }
+    collectDocID=docID;
+    collectScore=baseScorer.score();
+    if (failedCollector == null) {
+      collectHit(collector,dims);
+    }
+ else {
+      collectNearMiss(failedCollector);
+    }
+    docID=baseScorer.nextDoc();
+  }
+}

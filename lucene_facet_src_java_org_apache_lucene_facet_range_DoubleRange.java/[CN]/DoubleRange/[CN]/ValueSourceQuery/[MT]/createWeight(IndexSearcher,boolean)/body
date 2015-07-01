@@ -1,0 +1,27 @@
+{
+  final Weight fastMatchWeight=fastMatchQuery == null ? null : searcher.createWeight(fastMatchQuery,false);
+  return new ConstantScoreWeight(this){
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      final int maxDoc=context.reader().maxDoc();
+      final DocIdSetIterator approximation;
+      if (fastMatchWeight == null) {
+        approximation=DocIdSetIterator.all(maxDoc);
+      }
+ else {
+        approximation=fastMatchWeight.scorer(context);
+        if (approximation == null) {
+          return null;
+        }
+      }
+      final FunctionValues values=valueSource.getValues(Collections.emptyMap(),context);
+      final TwoPhaseIterator twoPhase=new TwoPhaseIterator(approximation){
+        @Override public boolean matches() throws IOException {
+          return range.accept(values.doubleVal(approximation.docID()));
+        }
+      }
+;
+      return new ConstantScoreScorer(this,score(),twoPhase);
+    }
+  }
+;
+}
