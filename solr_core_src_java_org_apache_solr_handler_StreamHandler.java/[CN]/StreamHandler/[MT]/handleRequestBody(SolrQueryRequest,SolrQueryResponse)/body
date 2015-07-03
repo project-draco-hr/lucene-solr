@@ -2,16 +2,23 @@
   SolrParams params=req.getParams();
   boolean objectSerialize=params.getBool("objectSerialize",false);
   TupleStream tupleStream=null;
-  if (objectSerialize) {
-    String encodedStream=params.get("stream");
-    encodedStream=URLDecoder.decode(encodedStream,"UTF-8");
-    byte[] bytes=Base64.base64ToByteArray(encodedStream);
-    ByteArrayInputStream byteStream=new ByteArrayInputStream(bytes);
-    ObjectInputStream objectInputStream=new ObjectInputStream(byteStream);
-    tupleStream=(TupleStream)objectInputStream.readObject();
-  }
+  try {
+    if (objectSerialize) {
+      String encodedStream=params.get("stream");
+      encodedStream=URLDecoder.decode(encodedStream,"UTF-8");
+      byte[] bytes=Base64.base64ToByteArray(encodedStream);
+      ByteArrayInputStream byteStream=new ByteArrayInputStream(bytes);
+      ObjectInputStream objectInputStream=new ObjectInputStream(byteStream);
+      tupleStream=(TupleStream)objectInputStream.readObject();
+    }
  else {
-    tupleStream=this.streamFactory.constructStream(params.get("stream"));
+      tupleStream=this.streamFactory.constructStream(params.get("stream"));
+    }
+  }
+ catch (  Exception e) {
+    logger.error("Exception creating TupleStream",e);
+    rsp.add("tuples",new DummyErrorStream(e));
+    return;
   }
   int worker=params.getInt("workerID",0);
   int numWorkers=params.getInt("numWorkers",1);
@@ -20,5 +27,5 @@
   context.numWorkers=numWorkers;
   context.setSolrClientCache(clientCache);
   tupleStream.setStreamContext(context);
-  rsp.add("tuples",tupleStream);
+  rsp.add("tuples",new ExceptionStream(tupleStream));
 }
