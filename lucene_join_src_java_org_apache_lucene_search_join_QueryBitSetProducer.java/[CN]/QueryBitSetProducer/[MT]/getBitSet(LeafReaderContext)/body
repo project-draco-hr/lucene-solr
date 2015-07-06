@@ -1,0 +1,22 @@
+{
+  final LeafReader reader=context.reader();
+  final Object key=reader.getCoreCacheKey();
+  DocIdSet docIdSet=cache.get(key);
+  if (docIdSet == null) {
+    final IndexReaderContext topLevelContext=ReaderUtil.getTopLevelContext(context);
+    final IndexSearcher searcher=new IndexSearcher(topLevelContext);
+    searcher.setQueryCache(null);
+    final Weight weight=searcher.createNormalizedWeight(query,false);
+    final DocIdSetIterator it=weight.scorer(context);
+    BitDocIdSet.Builder builder=new BitDocIdSet.Builder(context.reader().maxDoc());
+    if (it != null) {
+      builder.or(it);
+    }
+    docIdSet=builder.build();
+    if (docIdSet == null) {
+      docIdSet=DocIdSet.EMPTY;
+    }
+    cache.put(key,docIdSet);
+  }
+  return docIdSet == DocIdSet.EMPTY ? null : ((BitDocIdSet)docIdSet).bits();
+}
