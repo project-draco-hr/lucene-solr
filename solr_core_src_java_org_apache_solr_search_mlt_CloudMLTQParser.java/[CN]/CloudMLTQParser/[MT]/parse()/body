@@ -17,22 +17,33 @@
   mlt.setAnalyzer(req.getSchema().getIndexAnalyzer());
   String[] qf=localParams.getParams("qf");
   Map<String,Collection<Object>> filteredDocument=new HashMap();
+  ArrayList<String> fieldNames=new ArrayList();
   if (qf != null) {
-    mlt.setFieldNames(qf);
-    for (    String field : qf) {
-      filteredDocument.put(field,doc.getFieldValues(field));
+    for (    String fieldName : qf) {
+      if (!StringUtils.isEmpty(fieldName)) {
+        String[] strings=splitList.split(fieldName);
+        for (        String string : strings) {
+          if (!StringUtils.isEmpty(string)) {
+            fieldNames.add(string);
+          }
+        }
+      }
     }
   }
  else {
     Map<String,SchemaField> fields=req.getSchema().getFields();
-    ArrayList<String> fieldNames=new ArrayList();
     for (    String field : doc.getFieldNames()) {
       if (fields.get(field).stored() && fields.get(field).getType().isExplicitAnalyzer()) {
         fieldNames.add(field);
-        filteredDocument.put(field,doc.getFieldValues(field));
       }
     }
-    mlt.setFieldNames(fieldNames.toArray(new String[fieldNames.size()]));
+  }
+  if (fieldNames.size() < 1) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"MoreLikeThis requires at least one similarity field: qf");
+  }
+  mlt.setFieldNames(fieldNames.toArray(new String[fieldNames.size()]));
+  for (  String field : fieldNames) {
+    filteredDocument.put(field,doc.getFieldValues(field));
   }
   try {
     return mlt.like(filteredDocument);
