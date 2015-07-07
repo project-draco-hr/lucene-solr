@@ -1,7 +1,6 @@
 {
   LOG.debug("process: {}",rb.req.getParams());
   SolrQueryRequest req=rb.req;
-  SolrQueryResponse rsp=rb.rsp;
   SolrParams params=req.getParams();
   if (!params.getBool(COMPONENT_NAME,true)) {
     return;
@@ -16,18 +15,16 @@
   if ((purpose & ShardRequest.PURPOSE_SET_TERM_STATS) != 0) {
     statsCache.receiveGlobalStats(req);
   }
-  long timeAllowed=params.getLong(CommonParams.TIME_ALLOWED,-1L);
-  if (null != rb.getCursorMark() && 0 < timeAllowed) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Can not search using both " + CursorMarkParams.CURSOR_MARK_PARAM + " and "+ CommonParams.TIME_ALLOWED);
-  }
+  SolrQueryResponse rsp=rb.rsp;
+  IndexSchema schema=searcher.getSchema();
   String ids=params.get(ShardParams.IDS);
   if (ids != null) {
-    SchemaField idField=searcher.getSchema().getUniqueKeyField();
+    SchemaField idField=schema.getUniqueKeyField();
     List<String> idArr=StrUtils.splitSmart(ids,",",true);
     int[] luceneIds=new int[idArr.size()];
     int docs=0;
     for (int i=0; i < idArr.size(); i++) {
-      int id=req.getSearcher().getFirstMatch(new Term(idField.getName(),idField.getType().toInternal(idArr.get(i))));
+      int id=searcher.getFirstMatch(new Term(idField.getName(),idField.getType().toInternal(idArr.get(i))));
       if (id >= 0)       luceneIds[docs++]=id;
     }
     DocListAndSet res=new DocListAndSet();
@@ -46,6 +43,10 @@
     rsp.add("response",ctx);
     return;
   }
+  long timeAllowed=params.getLong(CommonParams.TIME_ALLOWED,-1L);
+  if (null != rb.getCursorMark() && 0 < timeAllowed) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Can not search using both " + CursorMarkParams.CURSOR_MARK_PARAM + " and "+ CommonParams.TIME_ALLOWED);
+  }
   SolrIndexSearcher.QueryCommand cmd=rb.getQueryCommand();
   cmd.setTimeAllowed(timeAllowed);
   req.getContext().put(SolrIndexSearcher.STATS_SOURCE,statsCache.get(req));
@@ -57,7 +58,7 @@
       if (params.getBool(GroupParams.GROUP_DISTRIBUTED_FIRST,false)) {
         CommandHandler.Builder topsGroupsActionBuilder=new CommandHandler.Builder().setQueryCommand(cmd).setNeedDocSet(false).setIncludeHitCount(true).setSearcher(searcher);
         for (        String field : groupingSpec.getFields()) {
-          topsGroupsActionBuilder.addCommandField(new SearchGroupsFieldCommand.Builder().setField(searcher.getSchema().getField(field)).setGroupSort(groupingSpec.getGroupSort()).setTopNGroups(cmd.getOffset() + cmd.getLen()).setIncludeGroupCount(groupingSpec.isIncludeGroupCount()).build());
+          topsGroupsActionBuilder.addCommandField(new SearchGroupsFieldCommand.Builder().setField(schema.getField(field)).setGroupSort(groupingSpec.getGroupSort()).setTopNGroups(cmd.getOffset() + cmd.getLen()).setIncludeGroupCount(groupingSpec.isIncludeGroupCount()).build());
         }
         CommandHandler commandHandler=topsGroupsActionBuilder.build();
         commandHandler.execute();
@@ -70,6 +71,7 @@
  else       if (params.getBool(GroupParams.GROUP_DISTRIBUTED_SECOND,false)) {
         CommandHandler.Builder secondPhaseBuilder=new CommandHandler.Builder().setQueryCommand(cmd).setTruncateGroups(groupingSpec.isTruncateGroups() && groupingSpec.getFields().length > 0).setSearcher(searcher);
         for (        String field : groupingSpec.getFields()) {
+          SchemaField schemaField=schema.getField(field);
           String[] topGroupsParam=params.getParams(GroupParams.GROUP_DISTRIBUTED_TOPGROUPS_PREFIX + field);
           if (topGroupsParam == null) {
             topGroupsParam=new String[0];
@@ -78,11 +80,11 @@
           for (          String topGroup : topGroupsParam) {
             SearchGroup<BytesRef> searchGroup=new SearchGroup<>();
             if (!topGroup.equals(TopGroupsShardRequestFactory.GROUP_NULL_VALUE)) {
-              searchGroup.groupValue=new BytesRef(searcher.getSchema().getField(field).getType().readableToIndexed(topGroup));
+              searchGroup.groupValue=new BytesRef(schemaField.getType().readableToIndexed(topGroup));
             }
             topGroups.add(searchGroup);
           }
-          secondPhaseBuilder.addCommandField(new TopGroupsFieldCommand.Builder().setField(searcher.getSchema().getField(field)).setGroupSort(groupingSpec.getGroupSort()).setSortWithinGroup(groupingSpec.getSortWithinGroup()).setFirstPhaseGroups(topGroups).setMaxDocPerGroup(groupingSpec.getGroupOffset() + groupingSpec.getGroupLimit()).setNeedScores(needScores).setNeedMaxScore(needScores).build());
+          secondPhaseBuilder.addCommandField(new TopGroupsFieldCommand.Builder().setField(schemaField).setGroupSort(groupingSpec.getGroupSort()).setSortWithinGroup(groupingSpec.getSortWithinGroup()).setFirstPhaseGroups(topGroups).setMaxDocPerGroup(groupingSpec.getGroupOffset() + groupingSpec.getGroupLimit()).setNeedScores(needScores).setNeedMaxScore(needScores).build());
         }
         for (        String query : groupingSpec.getQueries()) {
           secondPhaseBuilder.addCommandField(new QueryCommand.Builder().setDocsToCollect(groupingSpec.getOffset() + groupingSpec.getLimit()).setSort(groupingSpec.getGroupSort()).setQuery(query,rb.req).setDocSet(searcher).build());
