@@ -10,7 +10,6 @@
   this.directoryOrig=directoryOrig;
   this.directory=directory;
   CommitPoint currentCommitPoint=null;
-  String[] files=directory.listAll();
   if (currentSegmentsFile != null) {
     Matcher m=IndexFileNames.CODEC_FILE_PATTERN.matcher("");
     for (    String fileName : files) {
@@ -21,25 +20,15 @@
           if (infoStream.isEnabled("IFD")) {
             infoStream.message("IFD","init: load commit \"" + fileName + "\"");
           }
-          SegmentInfos sis=null;
-          try {
-            sis=SegmentInfos.readCommit(directoryOrig,fileName);
+          SegmentInfos sis=SegmentInfos.readCommit(directoryOrig,fileName);
+          final CommitPoint commitPoint=new CommitPoint(commitsToDelete,directoryOrig,sis);
+          if (sis.getGeneration() == segmentInfos.getGeneration()) {
+            currentCommitPoint=commitPoint;
           }
- catch (          FileNotFoundException|NoSuchFileException e) {
-            if (infoStream.isEnabled("IFD")) {
-              infoStream.message("IFD","init: hit FileNotFoundException when loading commit \"" + fileName + "\"; skipping this commit point");
-            }
-          }
-          if (sis != null) {
-            final CommitPoint commitPoint=new CommitPoint(commitsToDelete,directoryOrig,sis);
-            if (sis.getGeneration() == segmentInfos.getGeneration()) {
-              currentCommitPoint=commitPoint;
-            }
-            commits.add(commitPoint);
-            incRef(sis,true);
-            if (lastSegmentInfos == null || sis.getGeneration() > lastSegmentInfos.getGeneration()) {
-              lastSegmentInfos=sis;
-            }
+          commits.add(commitPoint);
+          incRef(sis,true);
+          if (lastSegmentInfos == null || sis.getGeneration() > lastSegmentInfos.getGeneration()) {
+            lastSegmentInfos=sis;
           }
         }
       }
@@ -69,6 +58,9 @@
     RefCount rc=entry.getValue();
     final String fileName=entry.getKey();
     if (0 == rc.count) {
+      if (fileName.startsWith(IndexFileNames.SEGMENTS)) {
+        throw new IllegalStateException("file \"" + fileName + "\" has refCount=0, which should never happen on init");
+      }
       if (infoStream.isEnabled("IFD")) {
         infoStream.message("IFD","init: removing unreferenced file \"" + fileName + "\"");
       }
