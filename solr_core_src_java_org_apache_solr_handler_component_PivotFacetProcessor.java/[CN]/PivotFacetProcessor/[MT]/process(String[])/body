@@ -25,6 +25,8 @@
     }
     String refineKey=null;
     List<StatsField> statsFields=Collections.emptyList();
+    List<FacetComponent.FacetBase> facetQueries=Collections.emptyList();
+    List<RangeFacetRequest> facetRanges=Collections.emptyList();
     if (null != parsed.localParams) {
       refineKey=parsed.localParams.get(PivotFacet.REFINE_PARAM);
       String statsLocalParam=parsed.localParams.get(StatsParams.STATS);
@@ -32,15 +34,47 @@
         statsInfo=new StatsInfo(rb);
       }
       statsFields=getTaggedStatsFields(statsInfo,statsLocalParam);
+      try {
+        FacetComponent.FacetContext facetContext=FacetComponent.FacetContext.getFacetContext(req);
+        String taggedQueries=parsed.localParams.get(QUERY);
+        if (StringUtils.isEmpty(taggedQueries)) {
+          facetQueries=Collections.emptyList();
+        }
+ else {
+          List<String> localParamValue=StrUtils.splitSmart(taggedQueries,',');
+          if (localParamValue.size() > 1) {
+            String msg=QUERY + " local param of " + FacetParams.FACET_PIVOT+ "may not include tags separated by a comma - please use a common tag on all "+ FacetParams.FACET_QUERY+ " params you wish to compute under this pivot";
+            throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+          }
+          taggedQueries=localParamValue.get(0);
+          facetQueries=facetContext.getQueryFacetsForTag(taggedQueries);
+        }
+        String taggedRanges=parsed.localParams.get(RANGE);
+        if (StringUtils.isEmpty(taggedRanges)) {
+          facetRanges=Collections.emptyList();
+        }
+ else {
+          List<String> localParamValue=StrUtils.splitSmart(taggedRanges,',');
+          if (localParamValue.size() > 1) {
+            String msg=RANGE + " local param of " + FacetParams.FACET_PIVOT+ "may not include tags separated by a comma - please use a common tag on all "+ FacetParams.FACET_RANGE+ " params you wish to compute under this pivot";
+            throw new SolrException(ErrorCode.BAD_REQUEST,msg);
+          }
+          taggedRanges=localParamValue.get(0);
+          facetRanges=facetContext.getRangeFacetRequestsForTag(taggedRanges);
+        }
+      }
+ catch (      IllegalStateException e) {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"Faceting context not set, cannot calculate pivot values");
+      }
     }
     if (null != refineKey) {
       String[] refinementValuesByField=params.getParams(PivotFacet.REFINE_PARAM + refineKey);
       for (      String refinements : refinementValuesByField) {
-        pivotResponse.addAll(processSingle(pivotFields,refinements,statsFields,parsed));
+        pivotResponse.addAll(processSingle(pivotFields,refinements,statsFields,parsed,facetQueries,facetRanges));
       }
     }
  else {
-      pivotResponse.addAll(processSingle(pivotFields,null,statsFields,parsed));
+      pivotResponse.addAll(processSingle(pivotFields,null,statsFields,parsed,facetQueries,facetRanges));
     }
   }
   return pivotResponse;

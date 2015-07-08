@@ -1,0 +1,51 @@
+{
+  List<FacetRange> ranges=new ArrayList<>();
+  this.gap=getGap(rfr.getGap());
+  this.start=getValue(rfr.getStart());
+  T end=getValue(rfr.getEnd());
+  if (end.compareTo(start) < 0) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"range facet 'end' comes before 'start': " + end + " < "+ start);
+  }
+  final EnumSet<FacetParams.FacetRangeInclude> include=rfr.getInclude();
+  T low=start;
+  while (low.compareTo(end) < 0) {
+    T high=addGap(low,rfr.getGap());
+    if (end.compareTo(high) < 0) {
+      if (rfr.isHardEnd()) {
+        high=end;
+      }
+ else {
+        end=high;
+      }
+    }
+    if (high.compareTo(low) < 0) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"range facet infinite loop (is gap negative? did the math overflow?)");
+    }
+    if (high.compareTo(low) == 0) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"range facet infinite loop: gap is either zero, or too small relative start/end and caused underflow: " + low + " + "+ rfr.getGap()+ " = "+ high);
+    }
+    final boolean includeLower=(include.contains(FacetParams.FacetRangeInclude.LOWER) || (include.contains(FacetParams.FacetRangeInclude.EDGE) && 0 == low.compareTo(start)));
+    final boolean includeUpper=(include.contains(FacetParams.FacetRangeInclude.UPPER) || (include.contains(FacetParams.FacetRangeInclude.EDGE) && 0 == high.compareTo(end)));
+    final String lowS=formatValue(low);
+    final String highS=formatValue(high);
+    ranges.add(new FacetRange(lowS,lowS,highS,includeLower,includeUpper));
+    low=high;
+  }
+  this.computedEnd=end;
+  this.computed=true;
+  if (!rfr.getOthers().contains(FacetParams.FacetRangeOther.NONE)) {
+    boolean all=rfr.getOthers().contains(FacetParams.FacetRangeOther.ALL);
+    final String startS=formatValue(start);
+    final String endS=formatValue(end);
+    if (all || rfr.getOthers().contains(FacetParams.FacetRangeOther.BEFORE)) {
+      ranges.add(new FacetRange(FacetParams.FacetRangeOther.BEFORE,null,startS,false,include.contains(FacetParams.FacetRangeInclude.OUTER) || include.contains(FacetParams.FacetRangeInclude.ALL) || !(include.contains(FacetParams.FacetRangeInclude.LOWER) || include.contains(FacetParams.FacetRangeInclude.EDGE))));
+    }
+    if (all || rfr.getOthers().contains(FacetParams.FacetRangeOther.AFTER)) {
+      ranges.add(new FacetRange(FacetParams.FacetRangeOther.AFTER,endS,null,include.contains(FacetParams.FacetRangeInclude.OUTER) || include.contains(FacetParams.FacetRangeInclude.ALL) || !(include.contains(FacetParams.FacetRangeInclude.UPPER) || include.contains(FacetParams.FacetRangeInclude.EDGE)),false));
+    }
+    if (all || rfr.getOthers().contains(FacetParams.FacetRangeOther.BETWEEN)) {
+      ranges.add(new FacetRange(FacetParams.FacetRangeOther.BETWEEN,startS,endS,include.contains(FacetParams.FacetRangeInclude.LOWER) || include.contains(FacetParams.FacetRangeInclude.EDGE) || include.contains(FacetParams.FacetRangeInclude.ALL),include.contains(FacetParams.FacetRangeInclude.UPPER) || include.contains(FacetParams.FacetRangeInclude.EDGE) || include.contains(FacetParams.FacetRangeInclude.ALL)));
+    }
+  }
+  return ranges;
+}

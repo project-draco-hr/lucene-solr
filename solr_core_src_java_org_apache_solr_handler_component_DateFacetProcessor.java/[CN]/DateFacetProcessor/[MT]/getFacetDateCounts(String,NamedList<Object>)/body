@@ -1,0 +1,99 @@
+{
+  final IndexSchema schema=searcher.getSchema();
+  ParsedParams parsed=null;
+  try {
+    parsed=parseParams(FacetParams.FACET_DATE,dateFacet);
+  }
+ catch (  SyntaxError syntaxError) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,syntaxError);
+  }
+  final SolrParams params=parsed.params;
+  final SolrParams required=parsed.required;
+  final String key=parsed.key;
+  final String f=parsed.facetValue;
+  final NamedList<Object> resInner=new SimpleOrderedMap<>();
+  resOuter.add(key,resInner);
+  final SchemaField sf=schema.getField(f);
+  if (!(sf.getType() instanceof TrieDateField)) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Can not date facet on a field which is not a TrieDateField: " + f);
+  }
+  final TrieDateField ft=(TrieDateField)sf.getType();
+  final String startS=required.getFieldParam(f,FacetParams.FACET_DATE_START);
+  final Date start;
+  try {
+    start=ft.parseMath(null,startS);
+  }
+ catch (  SolrException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"date facet 'start' is not a valid Date string: " + startS,e);
+  }
+  final String endS=required.getFieldParam(f,FacetParams.FACET_DATE_END);
+  Date end;
+  try {
+    end=ft.parseMath(null,endS);
+  }
+ catch (  SolrException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"date facet 'end' is not a valid Date string: " + endS,e);
+  }
+  if (end.before(start)) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"date facet 'end' comes before 'start': " + endS + " < "+ startS);
+  }
+  final String gap=required.getFieldParam(f,FacetParams.FACET_DATE_GAP);
+  final DateMathParser dmp=new DateMathParser();
+  final int minCount=params.getFieldInt(f,FacetParams.FACET_MINCOUNT,0);
+  String[] iStrs=params.getFieldParams(f,FacetParams.FACET_DATE_INCLUDE);
+  final EnumSet<FacetParams.FacetRangeInclude> include=(null == iStrs || 0 == iStrs.length) ? EnumSet.of(FacetParams.FacetRangeInclude.LOWER,FacetParams.FacetRangeInclude.UPPER,FacetParams.FacetRangeInclude.EDGE) : FacetParams.FacetRangeInclude.parseParam(iStrs);
+  try {
+    Date low=start;
+    while (low.before(end)) {
+      dmp.setNow(low);
+      String label=ft.toExternal(low);
+      Date high=dmp.parseMath(gap);
+      if (end.before(high)) {
+        if (params.getFieldBool(f,FacetParams.FACET_DATE_HARD_END,false)) {
+          high=end;
+        }
+ else {
+          end=high;
+        }
+      }
+      if (high.before(low)) {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"date facet infinite loop (is gap negative?)");
+      }
+      if (high.equals(low)) {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"date facet infinite loop: gap is effectively zero");
+      }
+      final boolean includeLower=(include.contains(FacetParams.FacetRangeInclude.LOWER) || (include.contains(FacetParams.FacetRangeInclude.EDGE) && low.equals(start)));
+      final boolean includeUpper=(include.contains(FacetParams.FacetRangeInclude.UPPER) || (include.contains(FacetParams.FacetRangeInclude.EDGE) && high.equals(end)));
+      final int count=rangeCount(parsed,sf,low,high,includeLower,includeUpper);
+      if (count >= minCount) {
+        resInner.add(label,count);
+      }
+      low=high;
+    }
+  }
+ catch (  java.text.ParseException e) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"date facet 'gap' is not a valid Date Math string: " + gap,e);
+  }
+  resInner.add("gap",gap);
+  resInner.add("start",start);
+  resInner.add("end",end);
+  final String[] othersP=params.getFieldParams(f,FacetParams.FACET_DATE_OTHER);
+  if (null != othersP && 0 < othersP.length) {
+    final Set<FacetParams.FacetRangeOther> others=EnumSet.noneOf(FacetParams.FacetRangeOther.class);
+    for (    final String o : othersP) {
+      others.add(FacetParams.FacetRangeOther.get(o));
+    }
+    if (!others.contains(FacetParams.FacetRangeOther.NONE)) {
+      boolean all=others.contains(FacetParams.FacetRangeOther.ALL);
+      if (all || others.contains(FacetParams.FacetRangeOther.BEFORE)) {
+        resInner.add(FacetParams.FacetRangeOther.BEFORE.toString(),rangeCount(parsed,sf,null,start,false,(include.contains(FacetParams.FacetRangeInclude.OUTER) || (!(include.contains(FacetParams.FacetRangeInclude.LOWER) || include.contains(FacetParams.FacetRangeInclude.EDGE))))));
+      }
+      if (all || others.contains(FacetParams.FacetRangeOther.AFTER)) {
+        resInner.add(FacetParams.FacetRangeOther.AFTER.toString(),rangeCount(parsed,sf,end,null,(include.contains(FacetParams.FacetRangeInclude.OUTER) || (!(include.contains(FacetParams.FacetRangeInclude.UPPER) || include.contains(FacetParams.FacetRangeInclude.EDGE)))),false));
+      }
+      if (all || others.contains(FacetParams.FacetRangeOther.BETWEEN)) {
+        resInner.add(FacetParams.FacetRangeOther.BETWEEN.toString(),rangeCount(parsed,sf,start,end,(include.contains(FacetParams.FacetRangeInclude.LOWER) || include.contains(FacetParams.FacetRangeInclude.EDGE)),(include.contains(FacetParams.FacetRangeInclude.UPPER) || include.contains(FacetParams.FacetRangeInclude.EDGE))));
+      }
+    }
+  }
+}

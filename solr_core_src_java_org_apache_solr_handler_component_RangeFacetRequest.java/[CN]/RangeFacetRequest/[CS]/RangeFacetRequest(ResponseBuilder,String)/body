@@ -1,0 +1,37 @@
+{
+  super(rb,FacetParams.FACET_RANGE,f);
+  IndexSchema schema=rb.req.getSchema();
+  this.schemaField=schema.getField(facetOn);
+  SolrParams params=SolrParams.wrapDefaults(localParams,rb.req.getParams());
+  SolrParams required=new RequiredSolrParams(params);
+  String methodStr=params.get(FacetParams.FACET_RANGE_METHOD);
+  FacetParams.FacetRangeMethod method=(methodStr == null ? FacetParams.FacetRangeMethod.getDefault() : FacetParams.FacetRangeMethod.get(methodStr));
+  if ((schemaField.getType() instanceof DateRangeField) && method.equals(FacetParams.FacetRangeMethod.DV)) {
+    log.warn("Range facet method '" + FacetParams.FacetRangeMethod.DV + "' is not supported together with field type '"+ DateRangeField.class+ "'. Will use method '"+ FacetParams.FacetRangeMethod.FILTER+ "' instead");
+    method=FacetParams.FacetRangeMethod.FILTER;
+  }
+  this.start=required.getFieldParam(facetOn,FacetParams.FACET_RANGE_START);
+  this.end=required.getFieldParam(facetOn,FacetParams.FACET_RANGE_END);
+  this.gap=required.getFieldParam(facetOn,FacetParams.FACET_RANGE_GAP);
+  this.minCount=params.getFieldInt(facetOn,FacetParams.FACET_MINCOUNT,0);
+  this.include=FacetParams.FacetRangeInclude.parseParam(params.getFieldParams(facetOn,FacetParams.FACET_RANGE_INCLUDE));
+  this.hardEnd=params.getFieldBool(facetOn,FacetParams.FACET_RANGE_HARD_END,false);
+  this.others=EnumSet.noneOf(FacetParams.FacetRangeOther.class);
+  final String[] othersP=params.getFieldParams(facetOn,FacetParams.FACET_RANGE_OTHER);
+  if (othersP != null && othersP.length > 0) {
+    for (    final String o : othersP) {
+      others.add(FacetParams.FacetRangeOther.get(o));
+    }
+  }
+  this.groupFacet=params.getBool(GroupParams.GROUP_FACET,false);
+  if (groupFacet && method.equals(FacetParams.FacetRangeMethod.DV)) {
+    log.warn("Range facet method '" + FacetParams.FacetRangeMethod.DV + "' is not supported together with '"+ GroupParams.GROUP_FACET+ "'. Will use method '"+ FacetParams.FacetRangeMethod.FILTER+ "' instead");
+    method=FacetParams.FacetRangeMethod.FILTER;
+  }
+  this.method=method;
+  RangeEndpointCalculator<? extends Comparable<?>> calculator=createCalculator();
+  this.facetRanges=calculator.computeRanges();
+  this.gapObj=calculator.getGap();
+  this.startObj=calculator.getStart();
+  this.endObj=calculator.getComputedEnd();
+}

@@ -3,11 +3,12 @@
   DocSet docs=docsOrig;
   String facetValue=param;
   String key=param;
+  List<String> tags=Collections.emptyList();
   int threads=-1;
   if (localParams == null) {
     SolrParams params=global;
     SolrParams required=new RequiredSolrParams(params);
-    return new ParsedParams(localParams,params,required,facetValue,docs,key,threads);
+    return new ParsedParams(localParams,params,required,facetValue,docs,key,tags,threads);
   }
   SolrParams params=SolrParams.wrapDefaults(localParams,global);
   SolrParams required=new RequiredSolrParams(params);
@@ -16,58 +17,15 @@
   }
   key=facetValue;
   key=localParams.get(CommonParams.OUTPUT_KEY,key);
+  String tagStr=localParams.get(CommonParams.TAG);
+  tags=tagStr == null ? Collections.<String>emptyList() : StrUtils.splitSmart(tagStr,',');
   String threadStr=localParams.get(CommonParams.THREADS);
   if (threadStr != null) {
     threads=Integer.parseInt(threadStr);
   }
   String excludeStr=localParams.get(CommonParams.EXCLUDE);
-  if (excludeStr == null)   return new ParsedParams(localParams,params,required,facetValue,docs,key,threads);
-  Map<?,?> tagMap=(Map<?,?>)req.getContext().get("tags");
-  if (tagMap != null && rb != null) {
-    List<String> excludeTagList=StrUtils.splitSmart(excludeStr,',');
-    IdentityHashMap<Query,Boolean> excludeSet=new IdentityHashMap<>();
-    for (    String excludeTag : excludeTagList) {
-      Object olst=tagMap.get(excludeTag);
-      if (!(olst instanceof Collection))       continue;
-      for (      Object o : (Collection<?>)olst) {
-        if (!(o instanceof QParser))         continue;
-        QParser qp=(QParser)o;
-        excludeSet.put(qp.getQuery(),Boolean.TRUE);
-      }
-    }
-    if (excludeSet.size() == 0)     return new ParsedParams(localParams,params,required,facetValue,docs,key,threads);
-    List<Query> qlist=new ArrayList<>();
-    if (!excludeSet.containsKey(rb.getQuery())) {
-      qlist.add(rb.getQuery());
-    }
-    if (rb.getFilters() != null) {
-      for (      Query q : rb.getFilters()) {
-        if (!excludeSet.containsKey(q)) {
-          qlist.add(q);
-        }
-      }
-    }
-    DocSet base=searcher.getDocSet(qlist);
-    if (rb.grouping() && rb.getGroupingSpec().isTruncateGroups()) {
-      Grouping grouping=new Grouping(searcher,null,rb.getQueryCommand(),false,0,false);
-      grouping.setGroupSort(rb.getGroupingSpec().getSortWithinGroup());
-      if (rb.getGroupingSpec().getFields().length > 0) {
-        grouping.addFieldCommand(rb.getGroupingSpec().getFields()[0],req);
-      }
- else       if (rb.getGroupingSpec().getFunctions().length > 0) {
-        grouping.addFunctionCommand(rb.getGroupingSpec().getFunctions()[0],req);
-      }
- else {
-        docs=base;
-        return new ParsedParams(localParams,params,required,facetValue,docs,key,threads);
-      }
-      AbstractAllGroupHeadsCollector allGroupHeadsCollector=grouping.getCommands().get(0).createAllGroupCollector();
-      searcher.search(base.getTopFilter(),allGroupHeadsCollector);
-      docs=new BitDocSet(allGroupHeadsCollector.retrieveGroupHeads(searcher.maxDoc()));
-    }
- else {
-      docs=base;
-    }
-  }
-  return new ParsedParams(localParams,params,required,facetValue,docs,key,threads);
+  if (excludeStr == null)   return new ParsedParams(localParams,params,required,facetValue,docs,key,tags,threads);
+  List<String> excludeTagList=StrUtils.splitSmart(excludeStr,',');
+  docs=computeDocSet(docs,excludeTagList);
+  return new ParsedParams(localParams,params,required,facetValue,docs,key,tags,threads);
 }

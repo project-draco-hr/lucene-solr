@@ -1,0 +1,48 @@
+{
+  Map<?,?> tagMap=(Map<?,?>)req.getContext().get("tags");
+  if (tagMap == null || rb == null) {
+    return baseDocSet;
+  }
+  IdentityHashMap<Query,Boolean> excludeSet=new IdentityHashMap<>();
+  for (  String excludeTag : excludeTagList) {
+    Object olst=tagMap.get(excludeTag);
+    if (!(olst instanceof Collection))     continue;
+    for (    Object o : (Collection<?>)olst) {
+      if (!(o instanceof QParser))       continue;
+      QParser qp=(QParser)o;
+      excludeSet.put(qp.getQuery(),Boolean.TRUE);
+    }
+  }
+  if (excludeSet.size() == 0)   return baseDocSet;
+  List<Query> qlist=new ArrayList<>();
+  if (!excludeSet.containsKey(rb.getQuery())) {
+    qlist.add(rb.getQuery());
+  }
+  if (rb.getFilters() != null) {
+    for (    Query q : rb.getFilters()) {
+      if (!excludeSet.containsKey(q)) {
+        qlist.add(q);
+      }
+    }
+  }
+  DocSet base=searcher.getDocSet(qlist);
+  if (rb.grouping() && rb.getGroupingSpec().isTruncateGroups()) {
+    Grouping grouping=new Grouping(searcher,null,rb.getQueryCommand(),false,0,false);
+    grouping.setGroupSort(rb.getGroupingSpec().getSortWithinGroup());
+    if (rb.getGroupingSpec().getFields().length > 0) {
+      grouping.addFieldCommand(rb.getGroupingSpec().getFields()[0],req);
+    }
+ else     if (rb.getGroupingSpec().getFunctions().length > 0) {
+      grouping.addFunctionCommand(rb.getGroupingSpec().getFunctions()[0],req);
+    }
+ else {
+      return base;
+    }
+    AbstractAllGroupHeadsCollector allGroupHeadsCollector=grouping.getCommands().get(0).createAllGroupCollector();
+    searcher.search(base.getTopFilter(),allGroupHeadsCollector);
+    return new BitDocSet(allGroupHeadsCollector.retrieveGroupHeads(searcher.maxDoc()));
+  }
+ else {
+    return base;
+  }
+}
