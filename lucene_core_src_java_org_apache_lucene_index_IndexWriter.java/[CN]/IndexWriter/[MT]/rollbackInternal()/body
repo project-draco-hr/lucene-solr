@@ -1,2 +1,71 @@
 {
+  boolean success=false;
+  if (infoStream.isEnabled("IW")) {
+    infoStream.message("IW","rollback");
+  }
+  try {
+synchronized (this) {
+      abortMerges();
+      stopMerges=true;
+    }
+    rateLimiters.close();
+    if (infoStream.isEnabled("IW")) {
+      infoStream.message("IW","rollback: done finish merges");
+    }
+    mergeScheduler.close();
+    bufferedUpdatesStream.clear();
+    docWriter.close();
+    docWriter.abort(this);
+synchronized (this) {
+      if (pendingCommit != null) {
+        pendingCommit.rollbackCommit(directory);
+        try {
+          deleter.decRef(pendingCommit);
+        }
+  finally {
+          pendingCommit=null;
+          notifyAll();
+        }
+      }
+      readerPool.dropAll(false);
+      segmentInfos.rollbackSegmentInfos(rollbackSegments);
+      if (infoStream.isEnabled("IW")) {
+        infoStream.message("IW","rollback: infos=" + segString(segmentInfos));
+      }
+      testPoint("rollback before checkpoint");
+      deleter.checkpoint(segmentInfos,false);
+      deleter.refresh();
+      lastCommitChangeCount=changeCount.get();
+      deleter.close();
+      closed=true;
+      IOUtils.close(writeLock);
+      writeLock=null;
+    }
+    success=true;
+  }
+ catch (  OutOfMemoryError oom) {
+    tragicEvent(oom,"rollbackInternal");
+  }
+ finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(mergeScheduler);
+    }
+synchronized (this) {
+      if (!success) {
+        if (pendingCommit != null) {
+          try {
+            pendingCommit.rollbackCommit(directory);
+            deleter.decRef(pendingCommit);
+          }
+ catch (          Throwable t) {
+          }
+          pendingCommit=null;
+        }
+        IOUtils.closeWhileHandlingException(readerPool,deleter,writeLock);
+        writeLock=null;
+      }
+      closed=true;
+      closing=false;
+    }
+  }
 }
