@@ -1,0 +1,44 @@
+{
+  String collectionName="TooManyReplicasWhenAddingShards";
+  CollectionAdminRequest.Create create=new CollectionAdminRequest.Create().setCollectionName(collectionName).setReplicationFactor(2).setMaxShardsPerNode(2).setStateFormat(2).setRouterName("implicit").setShards("shardstart");
+  NamedList<Object> request=create.process(cloudClient).getResponse();
+  assertTrue("Could not create the collection",request.get("success") != null);
+  CollectionAdminRequest.CreateShard createShard=new CollectionAdminRequest.CreateShard().setCollectionName(collectionName).setShardName("shard1");
+  CollectionAdminResponse resp=createShard.process(cloudClient);
+  assertEquals(0,resp.getStatus());
+  createShard=new CollectionAdminRequest.CreateShard().setCollectionName(collectionName).setShardName("shard2");
+  resp=createShard.process(cloudClient);
+  assertEquals(0,resp.getStatus());
+  createShard=new CollectionAdminRequest.CreateShard().setCollectionName(collectionName).setShardName("shard3");
+  try {
+    createShard.process(cloudClient);
+    fail("Should have exceeded the max number of replicas allowed");
+  }
+ catch (  HttpSolrClient.RemoteSolrException se) {
+    assertTrue("Should have gotten the right error message back",se.getMessage().contains("given the current number of live nodes and a maxShardsPerNode of"));
+  }
+  List<String> nodes=getAllNodeNames(collectionName);
+  createShard=new CollectionAdminRequest.CreateShard().setCollectionName(collectionName).setShardName("shard4").setNodeSet(StringUtils.join(nodes,","));
+  resp=createShard.process(cloudClient);
+  assertEquals(0,resp.getStatus());
+  createShard=new CollectionAdminRequest.CreateShard().setCollectionName(collectionName).setShardName("shard5");
+  try {
+    createShard.process(cloudClient);
+    fail("Should have exceeded the max number of replicas allowed");
+  }
+ catch (  HttpSolrClient.RemoteSolrException se) {
+    assertTrue("Should have gotten the right error message back",se.getMessage().contains("given the current number of live nodes and a maxShardsPerNode of"));
+  }
+  ZkStateReader zkStateReader=getCommonCloudSolrClient().getZkStateReader();
+  zkStateReader.updateClusterState(true);
+  Map<String,Slice> slices=zkStateReader.getClusterState().getSlicesMap(collectionName);
+  assertEquals("There should be exaclty four slices",slices.size(),4);
+  assertNotNull("shardstart should exist",slices.get("shardstart"));
+  assertNotNull("shard1 should exist",slices.get("shard1"));
+  assertNotNull("shard2 should exist",slices.get("shard2"));
+  assertNotNull("shard4 should exist",slices.get("shard4"));
+  assertEquals("Shardstart should have exactly 2 replicas",2,slices.get("shardstart").getReplicas().size());
+  assertEquals("Shard1 should have exactly 2 replicas",2,slices.get("shard1").getReplicas().size());
+  assertEquals("Shard2 should have exactly 2 replicas",2,slices.get("shard2").getReplicas().size());
+  assertEquals("Shard4 should have exactly 2 replicas",2,slices.get("shard4").getReplicas().size());
+}

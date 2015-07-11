@@ -1,0 +1,46 @@
+{
+  String collectionName="TooManyReplicasInSeveralFlavors";
+  CollectionAdminRequest.Create create=new CollectionAdminRequest.Create().setCollectionName(collectionName).setNumShards(2).setReplicationFactor(1).setMaxShardsPerNode(2).setStateFormat(2);
+  CollectionAdminResponse response=create.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  assertTrue(response.isSuccess());
+  String nodeName=getAllNodeNames(collectionName).get(0);
+  CollectionAdminRequest.AddReplica addReplicaNode=new CollectionAdminRequest.AddReplica().setCollectionName(collectionName).setShardName("shard1").setNode(nodeName);
+  response=addReplicaNode.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  CollectionAdminRequest.AddReplica addReplica=new CollectionAdminRequest.AddReplica().setCollectionName(collectionName).setShardName("shard1");
+  response=addReplica.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  try {
+    addReplica.process(cloudClient);
+    fail("Should have thrown an error because the nodes are full");
+  }
+ catch (  HttpSolrClient.RemoteSolrException se) {
+    assertTrue("Should have gotten the right error message back",se.getMessage().contains("given the current number of live nodes and a maxShardsPerNode of"));
+  }
+  Properties props=new Properties();
+  props.setProperty("name","bogus2");
+  addReplicaNode.setProperties(props);
+  response=addReplicaNode.process(cloudClient);
+  assertEquals(0,response.getStatus());
+  ZkStateReader zkStateReader=getCommonCloudSolrClient().getZkStateReader();
+  zkStateReader.updateClusterState(true);
+  Slice slice=zkStateReader.getClusterState().getSlicesMap(collectionName).get("shard1");
+  Replica rep=null;
+  for (  Replica rep1 : slice.getReplicas()) {
+    if (rep1.get("core").equals("bogus2")) {
+      rep=rep1;
+      break;
+    }
+  }
+  assertNotNull("Should have found a replica named 'bogus2'",rep);
+  assertEquals("Replica should have been put on correct core",nodeName,rep.getNodeName());
+  assertEquals("There should be 4 replicas for shard 1",4,slice.getReplicas().size());
+  try {
+    addReplica.process(cloudClient);
+    fail("Should have thrown an error because the nodes are full");
+  }
+ catch (  HttpSolrClient.RemoteSolrException se) {
+    assertTrue("Should have gotten the right error message back",se.getMessage().contains("given the current number of live nodes and a maxShardsPerNode of"));
+  }
+}

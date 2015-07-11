@@ -1,0 +1,35 @@
+{
+  Set<String> nodes=clusterState.getLiveNodes();
+  List<String> nodeList=new ArrayList<>(nodes.size());
+  nodeList.addAll(nodes);
+  if (createNodeList != null)   nodeList.retainAll(createNodeList);
+  HashMap<String,ReplicaCount> nodeNameVsShardCount=new HashMap<>();
+  for (  String s : nodeList) {
+    nodeNameVsShardCount.put(s,new ReplicaCount(s));
+  }
+  if (createNodeList != null) {
+    if (createNodeList.size() != nodeNameVsShardCount.size()) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"At least one of the node(s) specified are not currently active, no action taken.");
+    }
+    return nodeNameVsShardCount;
+  }
+  DocCollection coll=clusterState.getCollection(collectionName);
+  Integer maxShardsPerNode=coll.getInt(MAX_SHARDS_PER_NODE,1);
+  for (  String s : clusterState.getCollections()) {
+    DocCollection c=clusterState.getCollection(s);
+    for (    Slice slice : c.getSlices()) {
+      Collection<Replica> replicas=slice.getReplicas();
+      for (      Replica replica : replicas) {
+        ReplicaCount count=nodeNameVsShardCount.get(replica.getNodeName());
+        if (count != null) {
+          count.totalNodes++;
+          if (s.equals(collectionName)) {
+            count.thisCollectionNodes++;
+            if (count.thisCollectionNodes >= maxShardsPerNode)             nodeNameVsShardCount.remove(replica.getNodeName());
+          }
+        }
+      }
+    }
+  }
+  return nodeNameVsShardCount;
+}

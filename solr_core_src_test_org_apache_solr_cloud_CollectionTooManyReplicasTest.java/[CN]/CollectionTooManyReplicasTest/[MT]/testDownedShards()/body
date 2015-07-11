@@ -1,0 +1,36 @@
+{
+  String collectionName="TooManyReplicasWhenAddingDownedNode";
+  CollectionAdminRequest.Create create=new CollectionAdminRequest.Create().setCollectionName(collectionName).setReplicationFactor(1).setMaxShardsPerNode(2).setStateFormat(2).setRouterName("implicit").setShards("shardstart");
+  NamedList<Object> request=create.process(cloudClient).getResponse();
+  assertTrue("Could not create the collection",request.get("success") != null);
+  try (SolrZkClient zkClient=new SolrZkClient(zkServer.getZkAddress(),AbstractZkTestCase.TIMEOUT)){
+    List<String> liveNodes=zkClient.getChildren("/live_nodes",null,true);
+    JettySolrRunner downJetty=jettys.get(r.nextInt(2));
+    downJetty.stop();
+    List<String> liveNodesNow=null;
+    for (int idx=0; idx < 150; ++idx) {
+      liveNodesNow=zkClient.getChildren("/live_nodes",null,true);
+      if (liveNodesNow.size() != liveNodes.size())       break;
+      Thread.sleep(100);
+    }
+    List<String> deadNodes=new ArrayList<>(liveNodes);
+    assertTrue("Should be a downed node",deadNodes.removeAll(liveNodesNow));
+    liveNodes.removeAll(deadNodes);
+    CollectionAdminRequest.AddReplica addReplicaNode=new CollectionAdminRequest.AddReplica().setCollectionName(collectionName).setShardName("shardstart").setNode(deadNodes.get(0));
+    try {
+      addReplicaNode.process(cloudClient);
+      fail("Should have gotten an exception");
+    }
+ catch (    HttpSolrClient.RemoteSolrException se) {
+      assertTrue("Should have gotten a message about shard not ",se.getMessage().contains("At least one of the node(s) specified are not currently active, no action taken."));
+    }
+    CollectionAdminRequest.CreateShard createShard=new CollectionAdminRequest.CreateShard().setCollectionName(collectionName).setShardName("shard1").setNodeSet(deadNodes.get(0));
+    try {
+      createShard.process(cloudClient);
+      fail("Should have gotten an exception");
+    }
+ catch (    HttpSolrClient.RemoteSolrException se) {
+      assertTrue("Should have gotten a message about shard not ",se.getMessage().contains("At least one of the node(s) specified are not currently active, no action taken."));
+    }
+  }
+ }
