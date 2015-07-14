@@ -36,6 +36,7 @@
   }
 );
   RandomIndexWriter w=null;
+  boolean tragic=false;
   for (int iter=0; iter < 10 * RANDOM_MULTIPLIER; iter++) {
     int numDocs=atLeast(100);
     if (VERBOSE) {
@@ -115,14 +116,18 @@
         w=null;
       }
     }
- catch (    IOException ioe) {
-      if (ioe instanceof FakeIOException || (ioe.getCause() != null && ioe.getCause() instanceof FakeIOException)) {
+ catch (    Throwable t) {
+      if (t instanceof FakeIOException || (t.getCause() instanceof FakeIOException)) {
         if (VERBOSE) {
-          System.out.println("TEST: w.close() hit expected IOE");
+          System.out.println("TEST: hit expected IOE");
+        }
+        if (t instanceof AlreadyClosedException) {
+          w=null;
+          tragic=true;
         }
       }
  else {
-        throw ioe;
+        throw t;
       }
     }
     shouldFail.set(false);
@@ -149,7 +154,9 @@
       }
       r=w.getReader();
     }
-    assertEquals(docCount - deleteCount,r.numDocs());
+    if (tragic == false) {
+      assertEquals(docCount - deleteCount,r.numDocs());
+    }
     BytesRef scratch=new BytesRef();
     for (    LeafReaderContext context : r.leaves()) {
       LeafReader reader=context.reader();
@@ -178,8 +185,10 @@
   if (w != null) {
     w.close();
   }
-  IndexReader r=DirectoryReader.open(dir);
-  assertEquals(docCount - deleteCount,r.numDocs());
-  r.close();
+  if (tragic == false) {
+    IndexReader r=DirectoryReader.open(dir);
+    assertEquals(docCount - deleteCount,r.numDocs());
+    r.close();
+  }
   dir.close();
 }
