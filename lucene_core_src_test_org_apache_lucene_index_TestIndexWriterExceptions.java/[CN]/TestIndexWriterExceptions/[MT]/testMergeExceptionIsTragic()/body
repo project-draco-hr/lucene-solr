@@ -1,0 +1,55 @@
+{
+  MockDirectoryWrapper dir=newMockDirectory();
+  final AtomicBoolean didFail=new AtomicBoolean();
+  dir.failOn(new MockDirectoryWrapper.Failure(){
+    @Override public void eval(    MockDirectoryWrapper dir) throws IOException {
+      if (random().nextInt(10) != 0) {
+        return;
+      }
+      if (didFail.get()) {
+        return;
+      }
+      StackTraceElement[] trace=Thread.currentThread().getStackTrace();
+      for (int i=0; i < trace.length; i++) {
+        if ("merge".equals(trace[i].getMethodName())) {
+          if (VERBOSE) {
+            System.out.println("TEST: now fail; thread=" + Thread.currentThread().getName() + " exc:");
+            new Throwable().printStackTrace(System.out);
+          }
+          didFail.set(true);
+          throw new FakeIOException();
+        }
+      }
+    }
+  }
+);
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  MergeScheduler ms=iwc.getMergeScheduler();
+  if (ms instanceof ConcurrentMergeScheduler) {
+    ((ConcurrentMergeScheduler)ms).setSuppressExceptions();
+  }
+  IndexWriter w=new IndexWriter(dir,iwc);
+  while (true) {
+    try {
+      Document doc=new Document();
+      doc.add(newStringField("field","string",Field.Store.NO));
+      w.addDocument(doc);
+      if (random().nextInt(10) == 7) {
+        DirectoryReader.open(w,true).close();
+      }
+    }
+ catch (    AlreadyClosedException ace) {
+      break;
+    }
+catch (    FakeIOException fioe) {
+      break;
+    }
+  }
+  assertNotNull(w.getTragicException());
+  assertFalse(w.isOpen());
+  assertTrue(didFail.get());
+  if (ms instanceof ConcurrentMergeScheduler) {
+    ((ConcurrentMergeScheduler)ms).sync();
+  }
+  dir.close();
+}

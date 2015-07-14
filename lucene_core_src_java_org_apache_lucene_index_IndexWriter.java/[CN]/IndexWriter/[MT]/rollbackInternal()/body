@@ -4,10 +4,7 @@
     infoStream.message("IW","rollback");
   }
   try {
-synchronized (this) {
-      abortMerges();
-      stopMerges=true;
-    }
+    abortMerges();
     rateLimiters.close();
     if (infoStream.isEnabled("IW")) {
       infoStream.message("IW","rollback: done finish merges");
@@ -33,10 +30,12 @@ synchronized (this) {
         infoStream.message("IW","rollback: infos=" + segString(segmentInfos));
       }
       testPoint("rollback before checkpoint");
-      deleter.checkpoint(segmentInfos,false);
-      deleter.refresh();
+      if (tragedy == null) {
+        deleter.checkpoint(segmentInfos,false);
+        deleter.refresh();
+        deleter.close();
+      }
       lastCommitChangeCount=changeCount.get();
-      deleter.close();
       closed=true;
       IOUtils.close(writeLock);
       writeLock=null;
@@ -47,11 +46,11 @@ synchronized (this) {
     tragicEvent(oom,"rollbackInternal");
   }
  finally {
-    if (!success) {
+    if (success == false) {
       IOUtils.closeWhileHandlingException(mergeScheduler);
     }
 synchronized (this) {
-      if (!success) {
+      if (success == false) {
         if (pendingCommit != null) {
           try {
             pendingCommit.rollbackCommit(directory);
@@ -66,6 +65,7 @@ synchronized (this) {
       }
       closed=true;
       closing=false;
+      notifyAll();
     }
   }
 }
