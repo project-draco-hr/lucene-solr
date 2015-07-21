@@ -1,19 +1,24 @@
 {
   SolrParams params=req.getParams();
+  params=adjustParams(params);
+  req.setParams(params);
   String sql=params.get("sql");
   int numWorkers=params.getInt("numWorkers",1);
   String workerCollection=params.get("workerCollection",defaultWorkerCollection);
   String workerZkhost=params.get("workerZkhost",defaultZkhost);
   StreamContext context=new StreamContext();
   try {
-    TupleStream tupleStream=SQLTupleStreamParser.parse(sql,tableMappings,numWorkers,workerCollection,workerZkhost);
+    if (sql == null) {
+      throw new Exception("sql parameter cannot be null");
+    }
+    TupleStream tupleStream=SQLTupleStreamParser.parse(sql,numWorkers,workerCollection,workerZkhost);
     context.numWorkers=numWorkers;
     context.setSolrClientCache(StreamHandler.clientCache);
     tupleStream.setStreamContext(context);
-    rsp.add("tuples",new ExceptionStream(tupleStream));
+    rsp.add("result-set",new StreamHandler.TimerStream(new ExceptionStream(tupleStream)));
   }
  catch (  Exception e) {
-    logger.error("Exception parsing SQL",e);
-    rsp.add("tuples",new StreamHandler.DummyErrorStream(e));
+    SolrException.log(logger,e);
+    rsp.add("result-set",new StreamHandler.DummyErrorStream(e));
   }
 }

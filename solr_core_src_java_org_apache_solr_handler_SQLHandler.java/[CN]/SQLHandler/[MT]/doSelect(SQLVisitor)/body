@@ -1,0 +1,70 @@
+{
+  List<String> fields=sqlVisitor.fields;
+  StringBuilder flbuf=new StringBuilder();
+  boolean comma=false;
+  if (fields.size() == 0) {
+    throw new IOException("Select columns must be specified.");
+  }
+  boolean score=false;
+  for (  String field : fields) {
+    if (field.contains("(")) {
+      throw new IOException("Aggregate functions only supported with group by queries.");
+    }
+    if (field.contains("*")) {
+      throw new IOException("* is not supported for column selection.");
+    }
+    if (field.equals("score")) {
+      if (sqlVisitor.limit < 0) {
+        throw new IOException("score is not a valid field for unlimited select queries");
+      }
+ else {
+        score=true;
+      }
+    }
+    if (comma) {
+      flbuf.append(",");
+    }
+    comma=true;
+    flbuf.append(field);
+  }
+  String fl=flbuf.toString();
+  List<SortItem> sorts=sqlVisitor.sorts;
+  StringBuilder siBuf=new StringBuilder();
+  comma=false;
+  if (sorts != null) {
+    for (    SortItem sortItem : sorts) {
+      if (comma) {
+        siBuf.append(",");
+      }
+      siBuf.append(stripQuotes(sortItem.getSortKey().toString()) + " " + ascDesc(sortItem.getOrdering().toString()));
+    }
+  }
+ else {
+    if (sqlVisitor.limit < 0) {
+      throw new IOException("order by is required for unlimited select statements.");
+    }
+ else {
+      siBuf.append("score desc");
+      if (!score) {
+        fl=fl + (",score");
+      }
+    }
+  }
+  TableSpec tableSpec=new TableSpec(sqlVisitor.table,defaultZkhost);
+  String zkHost=tableSpec.zkHost;
+  String collection=tableSpec.collection;
+  Map<String,String> params=new HashMap();
+  params.put("fl",fl.toString());
+  params.put("q",sqlVisitor.query);
+  if (siBuf.length() > 0) {
+    params.put("sort",siBuf.toString());
+  }
+  if (sqlVisitor.limit > -1) {
+    params.put("rows",Integer.toString(sqlVisitor.limit));
+    return new LimitStream(new CloudSolrStream(zkHost,collection,params),sqlVisitor.limit);
+  }
+ else {
+    params.put(CommonParams.QT,"/export");
+    return new CloudSolrStream(zkHost,collection,params);
+  }
+}
