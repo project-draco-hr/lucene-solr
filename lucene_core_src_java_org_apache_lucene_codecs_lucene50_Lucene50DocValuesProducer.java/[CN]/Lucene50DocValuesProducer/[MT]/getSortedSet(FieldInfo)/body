@@ -1,62 +1,14 @@
 {
   SortedSetEntry ss=sortedSets.get(field.name);
-  if (ss.format == SORTED_SINGLE_VALUED) {
+switch (ss.format) {
+case SORTED_SINGLE_VALUED:
     final SortedDocValues values=getSorted(field);
-    return DocValues.singleton(values);
-  }
- else   if (ss.format != SORTED_WITH_ADDRESSES) {
-    throw new AssertionError();
-  }
-  final long valueCount=binaries.get(field.name).count;
-  final LongBinaryDocValues binary=(LongBinaryDocValues)getBinary(field);
-  final LongValues ordinals=getNumeric(ords.get(field.name));
-  final MonotonicBlockPackedReader ordIndex=getOrdIndexInstance(field,ordIndexes.get(field.name));
-  return new RandomAccessOrds(){
-    long startOffset;
-    long offset;
-    long endOffset;
-    @Override public long nextOrd(){
-      if (offset == endOffset) {
-        return NO_MORE_ORDS;
-      }
- else {
-        long ord=ordinals.get(offset);
-        offset++;
-        return ord;
-      }
-    }
-    @Override public void setDocument(    int docID){
-      startOffset=offset=ordIndex.get(docID);
-      endOffset=ordIndex.get(docID + 1L);
-    }
-    @Override public BytesRef lookupOrd(    long ord){
-      return binary.get(ord);
-    }
-    @Override public long getValueCount(){
-      return valueCount;
-    }
-    @Override public long lookupTerm(    BytesRef key){
-      if (binary instanceof CompressedBinaryDocValues) {
-        return ((CompressedBinaryDocValues)binary).lookupTerm(key);
-      }
- else {
-        return super.lookupTerm(key);
-      }
-    }
-    @Override public TermsEnum termsEnum(){
-      if (binary instanceof CompressedBinaryDocValues) {
-        return ((CompressedBinaryDocValues)binary).getTermsEnum();
-      }
- else {
-        return super.termsEnum();
-      }
-    }
-    @Override public long ordAt(    int index){
-      return ordinals.get(startOffset + index);
-    }
-    @Override public int cardinality(){
-      return (int)(endOffset - startOffset);
-    }
-  }
-;
+  return DocValues.singleton(values);
+case SORTED_WITH_ADDRESSES:
+return getSortedSetWithAddresses(field);
+case SORTED_SET_TABLE:
+return getSortedSetTable(field,ss);
+default :
+throw new AssertionError();
+}
 }

@@ -1,12 +1,14 @@
 {
   SortedSetEntry ss=sortedNumerics.get(field.name);
-  NumericEntry numericEntry=numerics.get(field.name);
-  final LongValues values=getNumeric(numericEntry);
   if (ss.format == SORTED_SINGLE_VALUED) {
+    NumericEntry numericEntry=numerics.get(field.name);
+    final LongValues values=getNumeric(numericEntry);
     final Bits docsWithField=getLiveBits(numericEntry.missingOffset,maxDoc);
     return DocValues.singleton(values,docsWithField);
   }
  else   if (ss.format == SORTED_WITH_ADDRESSES) {
+    NumericEntry numericEntry=numerics.get(field.name);
+    final LongValues values=getNumeric(numericEntry);
     final MonotonicBlockPackedReader ordIndex=getOrdIndexInstance(field,ordIndexes.get(field.name));
     return new SortedNumericDocValues(){
       long startOffset;
@@ -20,6 +22,28 @@
       }
       @Override public int count(){
         return (int)(endOffset - startOffset);
+      }
+    }
+;
+  }
+ else   if (ss.format == SORTED_SET_TABLE) {
+    NumericEntry entry=ords.get(field.name);
+    final LongValues ordinals=getNumeric(entry);
+    final long[] table=ss.table;
+    final int[] offsets=ss.tableOffsets;
+    return new SortedNumericDocValues(){
+      int startOffset;
+      int endOffset;
+      @Override public void setDocument(      int doc){
+        final int ord=(int)ordinals.get(doc);
+        startOffset=offsets[ord];
+        endOffset=offsets[ord + 1];
+      }
+      @Override public long valueAt(      int index){
+        return table[startOffset + index];
+      }
+      @Override public int count(){
+        return endOffset - startOffset;
       }
     }
 ;
