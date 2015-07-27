@@ -4,22 +4,26 @@
   for (  QueryAndLimit ent : queriesIter) {
     Query query=ent.query;
     int limit=ent.limit;
-    final DocIdSet docs=new QueryWrapperFilter(query).getDocIdSet(readerContext,segState.reader.getLiveDocs());
-    if (docs != null) {
-      final DocIdSetIterator it=docs.iterator();
-      if (it != null) {
-        while (true) {
-          int doc=it.nextDoc();
-          if (doc >= limit) {
-            break;
-          }
-          if (!segState.any) {
-            segState.rld.initWritableLiveDocs();
-            segState.any=true;
-          }
-          if (segState.rld.delete(doc)) {
-            delCount++;
-          }
+    final IndexSearcher searcher=new IndexSearcher(readerContext.reader());
+    searcher.setQueryCache(null);
+    final Weight weight=searcher.createNormalizedWeight(query,false);
+    final DocIdSetIterator it=weight.scorer(readerContext);
+    if (it != null) {
+      final Bits liveDocs=readerContext.reader().getLiveDocs();
+      while (true) {
+        int doc=it.nextDoc();
+        if (doc >= limit) {
+          break;
+        }
+        if (liveDocs != null && liveDocs.get(doc) == false) {
+          continue;
+        }
+        if (!segState.any) {
+          segState.rld.initWritableLiveDocs();
+          segState.any=true;
+        }
+        if (segState.rld.delete(doc)) {
+          delCount++;
         }
       }
     }
