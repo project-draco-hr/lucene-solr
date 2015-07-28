@@ -1,0 +1,54 @@
+{
+  return new QParser(qstr,localParams,params,req){
+    @Override public Query parse() throws SyntaxError {
+      final String fromField=localParams.get("from");
+      final String fromIndex=localParams.get("fromIndex");
+      final String toField=localParams.get("to");
+      final ScoreMode scoreMode=parseScore();
+      final String v=localParams.get(CommonParams.VALUE);
+      final Query q=createQuery(fromField,v,fromIndex,toField,scoreMode,CommonParams.TRUE.equals(localParams.get("TESTenforceSameCoreAsAnotherOne")));
+      return q;
+    }
+    private Query createQuery(    final String fromField,    final String fromQueryStr,    String fromIndex,    final String toField,    final ScoreMode scoreMode,    boolean byPassShortCircutCheck) throws SyntaxError {
+      final String myCore=req.getCore().getCoreDescriptor().getName();
+      if (fromIndex != null && (!fromIndex.equals(myCore) || byPassShortCircutCheck)) {
+        CoreContainer container=req.getCore().getCoreDescriptor().getCoreContainer();
+        final SolrCore fromCore=container.getCore(fromIndex);
+        RefCounted<SolrIndexSearcher> fromHolder=null;
+        if (fromCore == null) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cross-core join: no such core " + fromIndex);
+        }
+        long fromCoreOpenTime=0;
+        LocalSolrQueryRequest otherReq=new LocalSolrQueryRequest(fromCore,params);
+        try {
+          QParser fromQueryParser=QParser.getParser(fromQueryStr,"lucene",otherReq);
+          Query fromQuery=fromQueryParser.getQuery();
+          fromHolder=fromCore.getRegisteredSearcher();
+          if (fromHolder != null) {
+            fromCoreOpenTime=fromHolder.get().getOpenTime();
+          }
+          return new OtherCoreJoinQuery(fromQuery,fromField,fromIndex,fromCoreOpenTime,scoreMode,toField);
+        }
+  finally {
+          otherReq.close();
+          fromCore.close();
+          if (fromHolder != null)           fromHolder.decref();
+        }
+      }
+ else {
+        QParser fromQueryParser=subQuery(fromQueryStr,null);
+        final Query fromQuery=fromQueryParser.getQuery();
+        return new SameCoreJoinQuery(fromQuery,fromField,toField,scoreMode);
+      }
+    }
+    private ScoreMode parseScore(){
+      String score=getParam(SCORE);
+      final ScoreMode scoreMode=lowercase.get(score);
+      if (scoreMode == null) {
+        throw new IllegalArgumentException("Unable to parse ScoreMode from: " + score);
+      }
+      return scoreMode;
+    }
+  }
+;
+}

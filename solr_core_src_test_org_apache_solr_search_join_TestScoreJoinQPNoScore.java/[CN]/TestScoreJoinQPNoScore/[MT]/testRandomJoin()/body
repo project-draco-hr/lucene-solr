@@ -1,0 +1,75 @@
+{
+  int indexIter=50 * RANDOM_MULTIPLIER;
+  int queryIter=50 * RANDOM_MULTIPLIER;
+  String[][] compat=new String[][]{{"small_s_dv","small2_s_dv","small2_ss_dv","small3_ss_dv"},{"small_i_dv","small2_i_dv","small2_is_dv","small3_is_dv"}};
+  while (--indexIter >= 0) {
+    int indexSize=random().nextInt(20 * RANDOM_MULTIPLIER);
+    List<FldType> types=new ArrayList<FldType>();
+    types.add(new FldType("id",ONE_ONE,new SVal('A','Z',4,4)));
+    types.add(new FldType("small_s_dv",ZERO_ONE,new SVal('a',(char)('c' + indexSize / 3),1,1)));
+    types.add(new FldType("small2_s_dv",ZERO_ONE,new SVal('a',(char)('c' + indexSize / 3),1,1)));
+    types.add(new FldType("small2_ss_dv",ZERO_TWO,new SVal('a',(char)('c' + indexSize / 3),1,1)));
+    types.add(new FldType("small3_ss_dv",new IRange(0,25),new SVal('A','z',1,1)));
+    clearIndex();
+    Map<Comparable,Doc> model=indexDocs(types,null,indexSize);
+    Map<String,Map<Comparable,Set<Comparable>>> pivots=new HashMap<String,Map<Comparable,Set<Comparable>>>();
+    for (int qiter=0; qiter < queryIter; qiter++) {
+      String fromField;
+      String toField;
+      if (random().nextInt(100) < 5) {
+        fromField=types.get(random().nextInt(types.size())).fname;
+        toField=(random().nextInt(100) < 50) ? fromField : types.get(random().nextInt(types.size())).fname;
+      }
+ else {
+        String[] group=compat[random().nextInt(compat.length)];
+        fromField=group[random().nextInt(group.length)];
+        toField=group[random().nextInt(group.length)];
+      }
+      Map<Comparable,Set<Comparable>> pivot=pivots.get(fromField + "/" + toField);
+      if (pivot == null) {
+        pivot=createJoinMap(model,fromField,toField);
+        pivots.put(fromField + "/" + toField,pivot);
+      }
+      Collection<Doc> fromDocs=model.values();
+      Set<Comparable> docs=join(fromDocs,pivot);
+      List<Doc> docList=new ArrayList<Doc>(docs.size());
+      for (      Comparable id : docs)       docList.add(model.get(id));
+      Collections.sort(docList,createComparator("_docid_",true,false,false,false));
+      List sortedDocs=new ArrayList();
+      for (      Doc doc : docList) {
+        if (sortedDocs.size() >= 10)         break;
+        sortedDocs.add(doc.toObject(h.getCore().getLatestSchema()));
+      }
+      Map<String,Object> resultSet=new LinkedHashMap<String,Object>();
+      resultSet.put("numFound",docList.size());
+      resultSet.put("start",0);
+      resultSet.put("docs",sortedDocs);
+      SolrQueryRequest req=req("wt","json","indent","true","echoParams","all","q","{!join from=" + fromField + " to="+ toField+ " "+ (random().nextBoolean() ? "fromIndex=collection1" : "")+ " "+ (random().nextBoolean() ? "TESTenforceSameCoreAsAnotherOne=true" : "")+ " "+ whateverScore()+ "}*:*","sort","_docid_ asc");
+      String strResponse=h.query(req);
+      Object realResponse=ObjectBuilder.fromJSON(strResponse);
+      String err=JSONTestUtil.matchObj("/response",realResponse,resultSet);
+      if (err != null) {
+        final String m="JOIN MISMATCH: " + err + "\n\trequest="+ req+ "\n\tresult="+ strResponse+ "\n\texpected="+ JSONUtil.toJSON(resultSet);
+        log.error(m);
+{
+          SolrQueryRequest f=req("wt","json","indent","true","echoParams","all","q","*:*","facet","true","facet.field",fromField,"sort","_docid_ asc","rows","0");
+          log.error("faceting on from field: " + h.query(f));
+        }
+{
+          final Map<String,String> ps=((MapSolrParams)req.getParams()).getMap();
+          final String q=ps.get("q");
+          ps.put("q",q.replaceAll("join score=none","join"));
+          log.error("plain join: " + h.query(req));
+          ps.put("q",q);
+        }
+{
+          final Map<String,String> ps=((MapSolrParams)req.getParams()).getMap();
+          final String q=ps.get("q");
+          ps.put("q",q.replaceAll("\\}"," cache=false\\}"));
+          String rsp=h.query(req);
+        }
+        fail(err);
+      }
+    }
+  }
+}

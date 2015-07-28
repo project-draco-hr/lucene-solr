@@ -1,0 +1,41 @@
+{
+  indexDataForScorring();
+  SolrCache cache=(SolrCache)h.getCore().getInfoRegistry().get("queryResultCache");
+{
+    final NamedList statPre=cache.getStatistics();
+    h.query(req("q","{!join from=movieId_s to=id score=Avg}title:first","fl","id","omitHeader","true"));
+    assertHitOrInsert(cache,statPre);
+  }
+{
+    final NamedList statPre=cache.getStatistics();
+    h.query(req("q","{!join from=movieId_s to=id score=Avg}title:first","fl","id","omitHeader","true"));
+    assertHit(cache,statPre);
+  }
+{
+    NamedList statPre=cache.getStatistics();
+    Random r=random();
+    boolean changed=false;
+    boolean x=false;
+    String from=(x=r.nextBoolean()) ? "id" : "movieId_s";
+    changed|=x;
+    String to=(x=r.nextBoolean()) ? "movieId_s" : "id";
+    changed|=x;
+    String score=(x=r.nextBoolean()) ? not(ScoreMode.Avg).name() : "Avg";
+    changed|=x;
+    String q=(!changed) ? (r.nextBoolean() ? "title:first^67" : "title:night") : "title:first";
+    final String resp=h.query(req("q","{!join from=" + from + " to="+ to+ " score="+ score+ "}"+ q,"fl","id","omitHeader","true"));
+    assertInsert(cache,statPre);
+    statPre=cache.getStatistics();
+    final String repeat=h.query(req("q","{!join from=" + from + " to="+ to+ " score="+ score.toLowerCase(Locale.ROOT)+ "}"+ q,"fl","id","omitHeader","true"));
+    assertHit(cache,statPre);
+    assertEquals("lowercase shouldn't change anything",resp,repeat);
+    try {
+      h.query(req("q","{!join from=" + from + " to="+ to+ " score="+ score.substring(0,score.length() - 1)+ "}"+ q,"fl","id","omitHeader","true"));
+      fail("excpecting exception");
+    }
+ catch (    IllegalArgumentException e) {
+      assertTrue(e.getMessage().contains("ScoreMode"));
+    }
+  }
+  cache.clear();
+}
