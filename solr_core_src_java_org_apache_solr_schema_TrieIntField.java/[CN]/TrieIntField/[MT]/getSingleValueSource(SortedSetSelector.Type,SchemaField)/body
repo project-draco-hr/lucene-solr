@@ -1,0 +1,33 @@
+{
+  return new SortedSetFieldSource(f.getName(),choice){
+    @Override public FunctionValues getValues(    Map context,    LeafReaderContext readerContext) throws IOException {
+      SortedSetFieldSource thisAsSortedSetFieldSource=this;
+      SortedSetDocValues sortedSet=DocValues.getSortedSet(readerContext.reader(),field);
+      SortedDocValues view=SortedSetSelector.wrap(sortedSet,selector);
+      return new IntDocValues(thisAsSortedSetFieldSource){
+        @Override public int intVal(        int doc){
+          BytesRef bytes=view.get(doc);
+          return NumericUtils.prefixCodedToInt(bytes);
+        }
+        @Override public boolean exists(        int doc){
+          return -1 != view.getOrd(doc);
+        }
+        @Override public ValueFiller getValueFiller(){
+          return new ValueFiller(){
+            private final MutableValueInt mval=new MutableValueInt();
+            @Override public MutableValue getValue(){
+              return mval;
+            }
+            @Override public void fillValue(            int doc){
+              mval.exists=exists(doc);
+              mval.value=mval.exists ? intVal(doc) : 0;
+            }
+          }
+;
+        }
+      }
+;
+    }
+  }
+;
+}
