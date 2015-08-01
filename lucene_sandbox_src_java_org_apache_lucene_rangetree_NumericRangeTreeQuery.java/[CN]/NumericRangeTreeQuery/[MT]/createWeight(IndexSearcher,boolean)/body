@@ -1,0 +1,37 @@
+{
+  return new ConstantScoreWeight(this){
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      LeafReader reader=context.reader();
+      SortedNumericDocValues sdv=reader.getSortedNumericDocValues(field);
+      if (sdv == null) {
+        return null;
+      }
+      if (sdv instanceof RangeTreeSortedNumericDocValues == false) {
+        throw new IllegalStateException("field \"" + field + "\" was not indexed with RangeTreeDocValuesFormat: got: "+ sdv);
+      }
+      RangeTreeSortedNumericDocValues treeDV=(RangeTreeSortedNumericDocValues)sdv;
+      RangeTreeReader tree=treeDV.getRangeTreeReader();
+      long minBoundIncl=(minValue == null) ? Long.MIN_VALUE : minValue.longValue();
+      if (minInclusive == false && minValue != null) {
+        if (minBoundIncl == Long.MAX_VALUE) {
+          return null;
+        }
+        minBoundIncl++;
+      }
+      long maxBoundIncl=(maxValue == null) ? Long.MAX_VALUE : maxValue.longValue();
+      if (maxInclusive == false && maxValue != null) {
+        if (maxBoundIncl == Long.MIN_VALUE) {
+          return null;
+        }
+        maxBoundIncl--;
+      }
+      if (maxBoundIncl < minBoundIncl) {
+        return null;
+      }
+      DocIdSet result=tree.intersect(minBoundIncl,maxBoundIncl,treeDV.delegate,context.reader().maxDoc());
+      final DocIdSetIterator disi=result.iterator();
+      return new ConstantScoreScorer(this,score(),disi);
+    }
+  }
+;
+}
