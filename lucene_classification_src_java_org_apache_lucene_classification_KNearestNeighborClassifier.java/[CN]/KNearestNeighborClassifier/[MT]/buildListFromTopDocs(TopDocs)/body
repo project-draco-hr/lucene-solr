@@ -1,5 +1,7 @@
 {
   Map<BytesRef,Integer> classCounts=new HashMap<>();
+  Map<BytesRef,Double> classBoosts=new HashMap<>();
+  float maxScore=topDocs.getMaxScore();
   for (  ScoreDoc scoreDoc : topDocs.scoreDocs) {
     StorableField storableField=indexSearcher.doc(scoreDoc.doc).getField(classFieldName);
     if (storableField != null) {
@@ -11,6 +13,14 @@
  else {
         classCounts.put(cl,1);
       }
+      Double totalBoost=classBoosts.get(cl);
+      double singleBoost=scoreDoc.score / maxScore;
+      if (totalBoost != null) {
+        classBoosts.put(cl,totalBoost + singleBoost);
+      }
+ else {
+        classBoosts.put(cl,singleBoost);
+      }
     }
   }
   List<ClassificationResult<BytesRef>> returnList=new ArrayList<>();
@@ -18,7 +28,8 @@
   int sumdoc=0;
   for (  Map.Entry<BytesRef,Integer> entry : classCounts.entrySet()) {
     Integer count=entry.getValue();
-    temporaryList.add(new ClassificationResult<>(entry.getKey().clone(),count / (double)k));
+    Double normBoost=classBoosts.get(entry.getKey()) / count;
+    temporaryList.add(new ClassificationResult<>(entry.getKey().clone(),(count * normBoost) / (double)k));
     sumdoc+=count;
   }
   if (sumdoc < k) {
