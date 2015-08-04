@@ -1,0 +1,36 @@
+{
+  CloudSolrClient cloudClient=null;
+  try {
+    cloudClient=new CloudSolrClient(zkHost);
+    cloudClient.connect();
+    Set<String> liveNodes=cloudClient.getZkStateReader().getClusterState().getLiveNodes();
+    int numLiveNodes=(liveNodes != null) ? liveNodes.size() : 0;
+    long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(maxWaitSecs,TimeUnit.SECONDS);
+    while (System.nanoTime() < timeout && numLiveNodes < numNodes) {
+      echo("\nWaiting up to " + maxWaitSecs + " seconds to see "+ (numNodes - numLiveNodes)+ " more nodes join the SolrCloud cluster ...");
+      try {
+        Thread.sleep(2000);
+      }
+ catch (      InterruptedException ie) {
+        Thread.interrupted();
+      }
+      liveNodes=cloudClient.getZkStateReader().getClusterState().getLiveNodes();
+      numLiveNodes=(liveNodes != null) ? liveNodes.size() : 0;
+    }
+    if (numLiveNodes < numNodes) {
+      echo("\nWARNING: Only " + numLiveNodes + " of "+ numNodes+ " are active in the cluster after "+ maxWaitSecs+ " seconds! Please check the solr.log for each node to look for errors.\n");
+    }
+  }
+ catch (  Exception exc) {
+    System.err.println("Failed to see if " + numNodes + " joined the SolrCloud cluster due to: "+ exc);
+  }
+ finally {
+    if (cloudClient != null) {
+      try {
+        cloudClient.close();
+      }
+ catch (      Exception ignore) {
+      }
+    }
+  }
+}

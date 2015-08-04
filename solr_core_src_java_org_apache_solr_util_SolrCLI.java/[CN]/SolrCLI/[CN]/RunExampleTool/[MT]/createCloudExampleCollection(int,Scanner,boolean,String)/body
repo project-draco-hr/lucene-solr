@@ -1,0 +1,46 @@
+{
+  int numShards=2;
+  int replicationFactor=2;
+  String cloudConfig="data_driven_schema_configs";
+  String collectionName="gettingstarted";
+  File configsetsDir=new File(serverDir,"solr/configsets");
+  String collectionListUrl=solrUrl + "/admin/collections?action=list";
+  if (prompt) {
+    echo("\nNow let's create a new collection for indexing documents in your " + numNodes + "-node cluster.");
+    while (true) {
+      collectionName=prompt(readInput,"Please provide a name for your new collection: [" + collectionName + "] ",collectionName);
+      if (safeCheckCollectionExists(collectionListUrl,collectionName)) {
+        echo("\nCollection '" + collectionName + "' already exists!");
+        int oneOrTwo=promptForInt(readInput,"Do you want to re-use the existing collection or create a new one? Enter 1 to reuse, 2 to create new [1]: ","a 1 or 2",1,1,2);
+        if (oneOrTwo == 1) {
+          return collectionName;
+        }
+ else {
+          continue;
+        }
+      }
+ else {
+        break;
+      }
+    }
+    numShards=promptForInt(readInput,"How many shards would you like to split " + collectionName + " into? [2]","a shard count",2,1,4);
+    replicationFactor=promptForInt(readInput,"How many replicas per shard would you like to create? [2] ","a replication factor",2,1,4);
+    echo("Please choose a configuration for the " + collectionName + " collection, available options are:");
+    cloudConfig=prompt(readInput,"basic_configs, data_driven_schema_configs, or sample_techproducts_configs [" + cloudConfig + "] ",cloudConfig);
+    while (!isValidConfig(configsetsDir,cloudConfig)) {
+      echo(cloudConfig + " is not a valid configuration directory! Please choose a configuration for the " + collectionName+ " collection, available options are:");
+      cloudConfig=prompt(readInput,"basic_configs, data_driven_schema_configs, or sample_techproducts_configs [" + cloudConfig + "] ",cloudConfig);
+    }
+  }
+ else {
+    if (safeCheckCollectionExists(collectionListUrl,collectionName)) {
+      echo("\nCollection '" + collectionName + "' already exists! Skipping collection creation step.");
+      return collectionName;
+    }
+  }
+  String[] createArgs=new String[]{"-name",collectionName,"-shards",String.valueOf(numShards),"-replicationFactor",String.valueOf(replicationFactor),"-confname",collectionName,"-confdir",cloudConfig,"-configsetsDir",configsetsDir.getAbsolutePath(),"-solrUrl",solrUrl};
+  CreateCollectionTool createCollectionTool=new CreateCollectionTool(stdout);
+  int createCode=createCollectionTool.runTool(processCommandLineArgs(joinCommonAndToolOptions(createCollectionTool.getOptions()),createArgs));
+  if (createCode != 0)   throw new Exception("Failed to create collection using command: " + Arrays.asList(createArgs));
+  return collectionName;
+}

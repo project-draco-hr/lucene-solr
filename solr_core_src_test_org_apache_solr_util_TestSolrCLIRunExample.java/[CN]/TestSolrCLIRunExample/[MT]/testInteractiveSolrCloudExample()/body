@@ -1,0 +1,68 @@
+{
+  File solrHomeDir=new File(ExternalPaths.SERVER_HOME);
+  if (!solrHomeDir.isDirectory())   fail(solrHomeDir.getAbsolutePath() + " not found and is required to run this test!");
+  Path tmpDir=createTempDir();
+  File solrExampleDir=tmpDir.toFile();
+  File solrServerDir=solrHomeDir.getParentFile();
+  String[] toolArgs=new String[]{"-example","cloud","-serverDir",solrServerDir.getAbsolutePath(),"-exampleDir",solrExampleDir.getAbsolutePath()};
+  int bindPort=-1;
+  try (ServerSocket socket=new ServerSocket(0)){
+    bindPort=socket.getLocalPort();
+  }
+   String collectionName="testCloudExamplePrompt";
+  String userInput="1\n" + bindPort + "\n"+ collectionName+ "\n2\n2\ndata_driven_schema_configs\n";
+  InputStream userInputSim=new ByteArrayInputStream(userInput.getBytes(StandardCharsets.UTF_8));
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  PrintStream stdoutSim=new PrintStream(baos,true,StandardCharsets.UTF_8.name());
+  RunExampleExecutor executor=new RunExampleExecutor(stdoutSim);
+  closeables.add(executor);
+  SolrCLI.RunExampleTool tool=new SolrCLI.RunExampleTool(executor,userInputSim,stdoutSim);
+  try {
+    tool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(tool.getOptions()),toolArgs));
+  }
+ catch (  Exception e) {
+    System.err.println("RunExampleTool failed due to: " + e + "; stdout from tool prior to failure: "+ baos.toString(StandardCharsets.UTF_8.name()));
+    throw e;
+  }
+  String toolOutput=baos.toString(StandardCharsets.UTF_8.name());
+  String solrUrl="http://localhost:" + bindPort + "/solr";
+  String collectionListUrl=solrUrl + "/admin/collections?action=list";
+  if (!SolrCLI.safeCheckCollectionExists(collectionListUrl,collectionName)) {
+    fail("After running Solr cloud example, test collection '" + collectionName + "' not found in Solr at: "+ solrUrl+ "; tool output: "+ toolOutput);
+  }
+  CloudSolrClient cloudClient=null;
+  try {
+    cloudClient=new CloudSolrClient(executor.solrCloudCluster.getZkServer().getZkAddress());
+    cloudClient.connect();
+    cloudClient.setDefaultCollection(collectionName);
+    int numDocs=10;
+    for (int d=0; d < numDocs; d++) {
+      SolrInputDocument doc=new SolrInputDocument();
+      doc.setField("id","doc" + d);
+      doc.setField("str_s","a");
+      cloudClient.add(doc);
+    }
+    cloudClient.commit();
+    QueryResponse qr=cloudClient.query(new SolrQuery("str_s:a"));
+    if (qr.getResults().getNumFound() != numDocs) {
+      fail("Expected " + numDocs + " to be found in the "+ collectionName+ " collection but only found "+ qr.getResults().getNumFound());
+    }
+  }
+  finally {
+    if (cloudClient != null) {
+      try {
+        cloudClient.close();
+      }
+ catch (      Exception ignore) {
+      }
+    }
+  }
+  File node1SolrHome=new File(solrExampleDir,"cloud/node1/solr");
+  if (!node1SolrHome.isDirectory()) {
+    fail(node1SolrHome.getAbsolutePath() + " not found! run cloud example failed; tool output: " + toolOutput);
+  }
+  SolrCLI.DeleteTool deleteTool=new SolrCLI.DeleteTool(stdoutSim);
+  String[] deleteArgs=new String[]{"-name",collectionName,"-solrUrl",solrUrl};
+  deleteTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(deleteTool.getOptions()),deleteArgs));
+  executor.execute(org.apache.commons.exec.CommandLine.parse("bin/solr stop -p " + bindPort));
+}

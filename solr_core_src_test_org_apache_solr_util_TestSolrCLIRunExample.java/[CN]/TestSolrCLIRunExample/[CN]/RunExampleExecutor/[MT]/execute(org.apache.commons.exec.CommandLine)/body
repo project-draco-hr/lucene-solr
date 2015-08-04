@@ -1,0 +1,110 @@
+{
+  commandsExecuted.add(cmd);
+  String exe=cmd.getExecutable();
+  if (exe.endsWith("solr")) {
+    String[] args=cmd.getArguments();
+    if ("start".equals(args[0])) {
+      if (!hasFlag("-cloud",args) && !hasFlag("-c",args))       return startStandaloneSolr(args);
+      File baseDir=createTempDir().toFile();
+      File solrHomeDir=new File(getArg("-s",args));
+      int port=Integer.parseInt(getArg("-p",args));
+      JettyConfig jettyConfig=JettyConfig.builder().setContext("/solr").setPort(port).build();
+      try {
+        if (solrCloudCluster == null) {
+          System.setProperty("host","localhost");
+          System.setProperty("jetty.port",String.valueOf(port));
+          solrCloudCluster=new MiniSolrCloudCluster(1,baseDir,new File(solrHomeDir,"solr.xml"),jettyConfig);
+        }
+ else {
+          throw new IllegalArgumentException("Only launching one SolrCloud node is supported by this test!");
+        }
+      }
+ catch (      Exception e) {
+        if (e instanceof RuntimeException) {
+          throw (RuntimeException)e;
+        }
+ else {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+ else     if ("stop".equals(args[0])) {
+      int port=Integer.parseInt(getArg("-p",args));
+      if (standaloneSolr != null) {
+        int localPort=standaloneSolr.getLocalPort();
+        if (port == localPort) {
+          try {
+            standaloneSolr.stop();
+            log.info("Stopped standalone Solr instance running on port " + port);
+          }
+ catch (          Exception e) {
+            if (e instanceof RuntimeException) {
+              throw (RuntimeException)e;
+            }
+ else {
+              throw new RuntimeException(e);
+            }
+          }
+        }
+ else {
+          throw new IllegalArgumentException("No Solr is running on port " + port);
+        }
+      }
+ else {
+        if (solrCloudCluster != null) {
+          try {
+            solrCloudCluster.shutdown();
+            log.info("Stopped SolrCloud test cluster");
+          }
+ catch (          Exception e) {
+            if (e instanceof RuntimeException) {
+              throw (RuntimeException)e;
+            }
+ else {
+              throw new RuntimeException(e);
+            }
+          }
+        }
+ else {
+          throw new IllegalArgumentException("No Solr nodes found to stop!");
+        }
+      }
+    }
+  }
+ else {
+    String cmdLine=joinArgs(cmd.getArguments());
+    if (cmdLine.indexOf("post.jar") != -1) {
+      List<String> argsToSimplePostTool=new ArrayList<String>();
+      boolean afterPostJarArg=false;
+      for (      String arg : cmd.getArguments()) {
+        if (arg.startsWith("-D")) {
+          arg=arg.substring(2);
+          int eqPos=arg.indexOf("=");
+          System.setProperty(arg.substring(0,eqPos),arg.substring(eqPos + 1));
+        }
+ else {
+          if (arg.endsWith("post.jar")) {
+            afterPostJarArg=true;
+          }
+ else {
+            if (afterPostJarArg) {
+              argsToSimplePostTool.add(arg);
+            }
+          }
+        }
+      }
+      SimplePostTool.main(argsToSimplePostTool.toArray(new String[0]));
+    }
+ else {
+      log.info("Executing command: " + cmdLine);
+      try {
+        return super.execute(cmd);
+      }
+ catch (      Exception exc) {
+        log.error("Execute command [" + cmdLine + "] failed due to: "+ exc,exc);
+        throw exc;
+      }
+    }
+  }
+  return 0;
+}

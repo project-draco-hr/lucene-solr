@@ -1,0 +1,60 @@
+{
+  File exDir=setupExampleDir(serverDir,exampleDir,exampleName);
+  String collectionName="schemaless".equals(exampleName) ? "gettingstarted" : exampleName;
+  String configSet="techproducts".equals(exampleName) ? "sample_techproducts_configs" : "data_driven_schema_configs";
+  boolean isCloudMode=cli.hasOption('c');
+  String zkHost=cli.getOptionValue('z');
+  int port=Integer.parseInt(cli.getOptionValue('p',"8983"));
+  Map<String,Object> nodeStatus=startSolr(new File(exDir,"solr"),isCloudMode,cli,port,zkHost,30);
+  File configsetsDir=new File(serverDir,"solr/configsets");
+  String solrUrl=(String)nodeStatus.get("baseUrl");
+  boolean alreadyExists=false;
+  if (nodeStatus.get("cloud") != null) {
+    String collectionListUrl=solrUrl + "/admin/collections?action=list";
+    if (safeCheckCollectionExists(collectionListUrl,collectionName)) {
+      alreadyExists=true;
+      echo("\nWARNING: Collection '" + collectionName + "' already exists!\nChecked collection existence using Collections API command:\n"+ collectionListUrl+ "\n");
+    }
+  }
+ else {
+    String coreName=collectionName;
+    String coreStatusUrl=solrUrl + "/admin/cores?action=STATUS&core=" + coreName;
+    if (safeCheckCoreExists(coreStatusUrl,coreName)) {
+      alreadyExists=true;
+      echo("\nWARNING: Core '" + coreName + "' already exists!\nChecked core existence using Core API command:\n"+ coreStatusUrl+ "\n");
+    }
+  }
+  if (!alreadyExists) {
+    String[] createArgs=new String[]{"-name",collectionName,"-shards","1","-replicationFactor","1","-confname",collectionName,"-confdir",configSet,"-configsetsDir",configsetsDir.getAbsolutePath(),"-solrUrl",solrUrl};
+    CreateTool createTool=new CreateTool(stdout);
+    int createCode=createTool.runTool(processCommandLineArgs(joinCommonAndToolOptions(createTool.getOptions()),createArgs));
+    if (createCode != 0)     throw new Exception("Failed to create " + collectionName + " using command: "+ Arrays.asList(createArgs));
+  }
+  if ("techproducts".equals(exampleName)) {
+    File exampledocsDir=new File(exampleDir,"exampledocs");
+    if (!exampledocsDir.isDirectory()) {
+      File readOnlyExampleDir=new File(serverDir.getParentFile(),"example");
+      if (readOnlyExampleDir.isDirectory()) {
+        exampledocsDir=new File(readOnlyExampleDir,"exampledocs");
+      }
+    }
+    if (exampledocsDir.isDirectory()) {
+      File postJarFile=new File(exampledocsDir,"post.jar");
+      if (postJarFile.isFile()) {
+        echo("Indexing tech product example docs from " + exampledocsDir.getAbsolutePath());
+        String javaHome=System.getProperty("java.home");
+        String java=javaHome + "/bin/java";
+        String updateUrl=String.format(Locale.ROOT,"%s/%s/update",solrUrl,collectionName);
+        String postCmd=String.format(Locale.ROOT,"%s -Durl=\"%s\" -jar %s \"%s\"/*.xml",java,updateUrl,postJarFile.getAbsolutePath(),exampledocsDir.getAbsolutePath());
+        executor.execute(org.apache.commons.exec.CommandLine.parse(postCmd));
+      }
+ else {
+        echo("example/exampledocs/post.jar not found, skipping indexing step for the techproducts example");
+      }
+    }
+ else {
+      echo("exampledocs directory not found, skipping indexing step for the techproducts example");
+    }
+  }
+  echo("\nSolr " + exampleName + " example launched successfully. Direct your Web browser to "+ solrUrl+ " to visit the Solr Admin UI");
+}

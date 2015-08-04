@@ -1,0 +1,36 @@
+{
+  File solrHomeDir=new File(ExternalPaths.SERVER_HOME);
+  if (!solrHomeDir.isDirectory())   fail(solrHomeDir.getAbsolutePath() + " not found and is required to run this test!");
+  Path tmpDir=createTempDir();
+  File solrExampleDir=tmpDir.toFile();
+  File solrServerDir=solrHomeDir.getParentFile();
+  int bindPort=-1;
+  try (ServerSocket socket=new ServerSocket(0)){
+    bindPort=socket.getLocalPort();
+  }
+   log.info("Selected port " + bindPort + " to start "+ exampleName+ " example Solr instance on ...");
+  String[] toolArgs=new String[]{"-e",exampleName,"-serverDir",solrServerDir.getAbsolutePath(),"-exampleDir",solrExampleDir.getAbsolutePath(),"-p",String.valueOf(bindPort)};
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  PrintStream stdoutSim=new PrintStream(baos,true,StandardCharsets.UTF_8.name());
+  RunExampleExecutor executor=new RunExampleExecutor(stdoutSim);
+  closeables.add(executor);
+  SolrCLI.RunExampleTool tool=new SolrCLI.RunExampleTool(executor,System.in,stdoutSim);
+  try {
+    tool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(tool.getOptions()),toolArgs));
+  }
+ catch (  Exception e) {
+    log.error("RunExampleTool failed due to: " + e + "; stdout from tool prior to failure: "+ baos.toString(StandardCharsets.UTF_8.name()));
+    throw e;
+  }
+  String toolOutput=baos.toString(StandardCharsets.UTF_8.name());
+  File exampleSolrHomeDir=new File(solrExampleDir,exampleName + "/solr");
+  assertTrue(exampleSolrHomeDir.getAbsolutePath() + " not found! run " + exampleName+ " example failed; output: "+ toolOutput,exampleSolrHomeDir.isDirectory());
+  if ("techproducts".equals(exampleName)) {
+    HttpSolrClient solrClient=new HttpSolrClient("http://localhost:" + bindPort + "/solr/"+ exampleName);
+    SolrQuery query=new SolrQuery("*:*");
+    QueryResponse qr=solrClient.query(query);
+    long numFound=qr.getResults().getNumFound();
+    assertTrue("expected 32 docs in the " + exampleName + " example but found "+ numFound+ ", output: "+ toolOutput,numFound == 32);
+  }
+  executor.execute(org.apache.commons.exec.CommandLine.parse("bin/solr stop -p " + bindPort));
+}

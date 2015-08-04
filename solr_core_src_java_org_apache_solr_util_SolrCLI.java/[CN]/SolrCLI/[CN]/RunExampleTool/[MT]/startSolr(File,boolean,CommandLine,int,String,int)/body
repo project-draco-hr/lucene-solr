@@ -1,0 +1,50 @@
+{
+  String extraArgs=readExtraArgs(cli.getArgs());
+  String host=cli.getOptionValue('h');
+  String memory=cli.getOptionValue('m');
+  String hostArg=(host != null && !"localhost".equals(host)) ? " -h " + host : "";
+  String zkHostArg=(zkHost != null) ? " -z " + zkHost : "";
+  String memArg=(memory != null) ? " -m " + memory : "";
+  String cloudModeArg=cloudMode ? "-cloud " : "";
+  String addlOpts=cli.getOptionValue('a');
+  String addlOptsArg=(addlOpts != null) ? " -a \"" + addlOpts + "\"" : "";
+  File cwd=new File(System.getProperty("user.dir"));
+  File binDir=(new File(script)).getParentFile();
+  boolean isWindows=(OS.isFamilyDOS() || OS.isFamilyWin9x() || OS.isFamilyWindows());
+  String callScript=(!isWindows && cwd.equals(binDir.getParentFile())) ? "bin/solr" : script;
+  String cwdPath=cwd.getAbsolutePath();
+  String solrHome=solrHomeDir.getAbsolutePath();
+  if (!isWindows && solrHome.startsWith(cwdPath))   solrHome=solrHome.substring(cwdPath.length() + 1);
+  String startCmd=String.format(Locale.ROOT,"%s start %s -p %d -s \"%s\" %s %s %s %s %s",callScript,cloudModeArg,port,solrHome,hostArg,zkHostArg,memArg,extraArgs,addlOptsArg);
+  startCmd=startCmd.replaceAll("\\s+"," ").trim();
+  echo("\nStarting up Solr on port " + port + " using command:");
+  echo(startCmd + "\n");
+  String solrUrl=String.format(Locale.ROOT,"%s://%s:%d/solr",urlScheme,(host != null ? host : "localhost"),port);
+  Map<String,Object> nodeStatus=checkPortConflict(solrUrl,solrHomeDir,port,cli);
+  if (nodeStatus != null)   return nodeStatus;
+  int code=0;
+  if (isWindows) {
+    Map<String,String> startEnv=new HashMap<>();
+    Map<String,String> procEnv=EnvironmentUtils.getProcEnvironment();
+    if (procEnv != null) {
+      for (      String envVar : procEnv.keySet()) {
+        String envVarVal=procEnv.get(envVar);
+        if (envVarVal != null && !"EXAMPLE".equals(envVar) && !envVar.startsWith("SOLR_")) {
+          startEnv.put(envVar,envVarVal);
+        }
+      }
+    }
+    executor.execute(org.apache.commons.exec.CommandLine.parse(startCmd),startEnv,new DefaultExecuteResultHandler());
+    try {
+      Thread.sleep(3000);
+    }
+ catch (    InterruptedException ie) {
+      Thread.interrupted();
+    }
+  }
+ else {
+    code=executor.execute(org.apache.commons.exec.CommandLine.parse(startCmd));
+  }
+  if (code != 0)   throw new Exception("Failed to start Solr using command: " + startCmd);
+  return getNodeStatus(solrUrl,maxWaitSecs);
+}

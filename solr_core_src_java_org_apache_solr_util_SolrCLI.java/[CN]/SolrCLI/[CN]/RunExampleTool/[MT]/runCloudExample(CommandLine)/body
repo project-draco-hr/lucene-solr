@@ -1,0 +1,57 @@
+{
+  boolean prompt=!cli.hasOption("noprompt");
+  int numNodes=2;
+  int[] cloudPorts=new int[]{8983,7574,8984,7575};
+  File cloudDir=new File(exampleDir,"cloud");
+  if (!cloudDir.isDirectory())   cloudDir.mkdir();
+  echo("\nWelcome to the SolrCloud example!\n");
+  Scanner readInput=prompt ? new Scanner(userInput,StandardCharsets.UTF_8.name()) : null;
+  if (prompt) {
+    echo("This interactive session will help you launch a SolrCloud cluster on your local workstation.");
+    numNodes=promptForInt(readInput,"To begin, how many Solr nodes would you like to run in your local cluster? (specify 1-4 nodes) [2]: ","a number",numNodes,1,4);
+    echo("Ok, let's start up " + numNodes + " Solr nodes for your example SolrCloud cluster.");
+    for (int n=0; n < numNodes; n++) {
+      String promptMsg=String.format(Locale.ROOT,"Please enter the port for node%d [%d]: ",(n + 1),cloudPorts[n]);
+      int port=promptForPort(readInput,n + 1,promptMsg,cloudPorts[n]);
+      while (!isPortAvailable(port)) {
+        port=promptForPort(readInput,n + 1,"Oops! Looks like port " + port + " is already being used by another process. Please choose a different port.",cloudPorts[n]);
+      }
+      cloudPorts[n]=port;
+      if (verbose)       echo("Using port " + port + " for node "+ (n + 1));
+    }
+  }
+ else {
+    echo("Starting up " + numNodes + " Solr nodes for your example SolrCloud cluster.\n");
+  }
+  File node1Dir=setupExampleDir(serverDir,cloudDir,"node1");
+  for (int n=2; n <= numNodes; n++) {
+    File nodeNDir=new File(cloudDir,"node" + n);
+    if (!nodeNDir.isDirectory()) {
+      echo("Cloning " + node1Dir.getAbsolutePath() + " into\n   "+ nodeNDir.getAbsolutePath());
+      FileUtils.copyDirectory(node1Dir,nodeNDir);
+    }
+ else {
+      echo(nodeNDir.getAbsolutePath() + " already exists.");
+    }
+  }
+  String zkHost=cli.getOptionValue('z');
+  Map<String,Object> nodeStatus=startSolr(new File(node1Dir,"solr"),true,cli,cloudPorts[0],zkHost,30);
+  if (zkHost == null) {
+    Map<String,Object> cloudStatus=(Map<String,Object>)nodeStatus.get("cloud");
+    if (cloudStatus != null) {
+      String zookeeper=(String)cloudStatus.get("ZooKeeper");
+      if (zookeeper != null)       zkHost=zookeeper;
+    }
+    if (zkHost == null)     throw new Exception("Could not get the ZooKeeper connection string for node1!");
+  }
+  if (numNodes > 1) {
+    for (int n=1; n < numNodes; n++)     startSolr(new File(cloudDir,"node" + (n + 1) + "/solr"),true,cli,cloudPorts[n],zkHost,30);
+  }
+  String solrUrl=(String)nodeStatus.get("baseUrl");
+  if (solrUrl.endsWith("/"))   solrUrl=solrUrl.substring(0,solrUrl.length() - 1);
+  waitToSeeLiveNodes(10,zkHost,numNodes);
+  String collectionName=createCloudExampleCollection(numNodes,readInput,prompt,solrUrl);
+  echo("\nEnabling auto soft-commits with maxTime 3 secs using the Config API");
+  setCollectionConfigProperty(solrUrl,collectionName,"updateHandler.autoSoftCommit.maxTime","3000");
+  echo("\n\nSolrCloud example running, please visit: " + solrUrl + " \n");
+}
