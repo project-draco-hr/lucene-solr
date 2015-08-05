@@ -1,0 +1,29 @@
+{
+  final String collectionName="testSolrCloudCollectionWithoutCores";
+  final MiniSolrCloudCluster miniCluster=createMiniSolrCloudCluster();
+  final CloudSolrClient cloudSolrClient=miniCluster.getSolrClient();
+  try {
+    assertNotNull(miniCluster.getZkServer());
+    assertFalse(miniCluster.getJettySolrRunners().isEmpty());
+    final String asyncId=(random().nextBoolean() ? null : "asyncId(" + collectionName + ".create)="+ random().nextInt());
+    createCollection(miniCluster,collectionName,OverseerCollectionProcessor.CREATE_NODE_SET_EMPTY,asyncId);
+    if (asyncId != null) {
+      assertEquals("did not see async createCollection completion","completed",AbstractFullDistribZkTestBase.getRequestStateAfterCompletion(asyncId,330,cloudSolrClient));
+    }
+    try (SolrZkClient zkClient=new SolrZkClient(miniCluster.getZkServer().getZkAddress(),AbstractZkTestCase.TIMEOUT,45000,null);ZkStateReader zkStateReader=new ZkStateReader(zkClient)){
+      AbstractDistribZkTestBase.waitForRecoveriesToFinish(collectionName,zkStateReader,true,true,330);
+{
+        int coreCount=0;
+        for (        Map.Entry<String,Slice> entry : zkStateReader.getClusterState().getSlicesMap(collectionName).entrySet()) {
+          coreCount+=entry.getValue().getReplicasMap().entrySet().size();
+        }
+        assertEquals(0,coreCount);
+      }
+      miniCluster.deleteCollection(collectionName);
+      AbstractDistribZkTestBase.waitForCollectionToDisappear(collectionName,zkStateReader,true,true,330);
+    }
+   }
+  finally {
+    miniCluster.shutdown();
+  }
+}
