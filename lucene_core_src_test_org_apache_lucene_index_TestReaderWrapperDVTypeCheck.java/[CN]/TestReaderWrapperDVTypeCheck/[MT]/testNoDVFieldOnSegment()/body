@@ -1,0 +1,45 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig cfg=new IndexWriterConfig(new MockAnalyzer(random())).setCodec(TestUtil.alwaysDocValuesFormat(TestUtil.getDefaultDocValuesFormat()));
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,cfg);
+  boolean sdvExist=false;
+  boolean ssdvExist=false;
+  final long seed=random().nextLong();
+{
+    final Random indexRandom=new Random(seed);
+    final int docs;
+    docs=indexRandom.nextInt(4);
+    for (int i=0; i < docs; i++) {
+      Document d=new Document();
+      d.add(newStringField("id","" + i,Store.NO));
+      if (rarely(indexRandom)) {
+        d.add(new SortedDocValuesField("sdv",new BytesRef("" + i)));
+        sdvExist=true;
+      }
+ else {
+      }
+      final int numSortedSet=indexRandom.nextInt(5) - 3;
+      for (int j=0; j < numSortedSet; ++j) {
+        d.add(new SortedSetDocValuesField("ssdv",new BytesRef("" + j)));
+        ssdvExist=true;
+      }
+      iw.addDocument(d);
+      iw.commit();
+    }
+  }
+  final DirectoryReader reader=iw.getReader();
+  iw.close();
+  final LeafReader wrapper=SlowCompositeReaderWrapper.wrap(reader);
+{
+    final SortedDocValues sdv=wrapper.getSortedDocValues("sdv");
+    final SortedSetDocValues ssdv=wrapper.getSortedSetDocValues("ssdv");
+    assertNull("confusing DV type",wrapper.getSortedDocValues("ssdv"));
+    assertNull("confusing DV type",wrapper.getSortedSetDocValues("sdv"));
+    assertNull("absent field",wrapper.getSortedDocValues("NOssdv"));
+    assertNull("absent field",wrapper.getSortedSetDocValues("NOsdv"));
+    assertTrue("optional sdv field",sdvExist == (sdv != null));
+    assertTrue("optional ssdv field",ssdvExist == (ssdv != null));
+  }
+  reader.close();
+  dir.close();
+}
