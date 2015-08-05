@@ -1,0 +1,46 @@
+{
+  String requestURI=((HttpServletRequest)request).getRequestURI();
+  if (requestURI.endsWith(PATH)) {
+    filterChain.doFilter(request,response);
+    return;
+  }
+  long receivedTime=System.currentTimeMillis();
+  String header=((HttpServletRequest)request).getHeader(HEADER);
+  if (header == null) {
+    log.error("No SolrAuth header present");
+    filterChain.doFilter(request,response);
+    return;
+  }
+  List<String> authInfo=StrUtils.splitWS(header,false);
+  if (authInfo.size() < 2) {
+    log.error("Invalid SolrAuth Header");
+    return;
+  }
+  String nodeName=authInfo.get(0);
+  String cipher=authInfo.get(1);
+  byte[] decipher=decipherData(nodeName,cipher);
+  if (decipher == null) {
+    return;
+  }
+  String s=new String(decipher,StandardCharsets.UTF_8).trim();
+  List<String> pcs=StrUtils.splitWS(s,false);
+  if (pcs.size() < 2) {
+    return;
+  }
+  final String userName=pcs.get(0);
+  String timeStr=pcs.get(1);
+  try {
+    long timeMillis=Long.parseLong(timeStr);
+    if ((receivedTime - timeMillis) > maxValidity) {
+      log.error("Invalid key ");
+      filterChain.doFilter(request,response);
+      return;
+    }
+  }
+ catch (  NumberFormatException e) {
+    log.error("Invalid time " + timeStr,e);
+    return;
+  }
+  final Principal principal="$".equals(userName) ? SU : new BasicUserPrincipal(userName);
+  filterChain.doFilter(getWrapper((HttpServletRequest)request,principal),response);
+}

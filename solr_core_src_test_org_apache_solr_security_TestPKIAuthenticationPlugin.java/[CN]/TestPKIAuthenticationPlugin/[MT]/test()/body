@@ -1,0 +1,51 @@
+{
+  AtomicReference<Principal> principal=new AtomicReference<>();
+  String nodeName="node_x_233";
+  final MockPKIAuthenticationPlugin mock=new MockPKIAuthenticationPlugin(null,nodeName);
+  LocalSolrQueryRequest localSolrQueryRequest=new LocalSolrQueryRequest(null,new ModifiableSolrParams()){
+    @Override public Principal getUserPrincipal(){
+      return principal.get();
+    }
+  }
+;
+  mock.remoteKeys.put(nodeName,CryptoKeys.deserializeX509PublicKey(mock.getPublicKey()));
+  principal.set(new BasicUserPrincipal("solr"));
+  mock.solrRequestInfo=new SolrRequestInfo(localSolrQueryRequest,new SolrQueryResponse());
+  BasicHttpRequest request=new BasicHttpRequest("GET","http://localhost:56565");
+  mock.setHeader(request);
+  final AtomicReference<Header> header=new AtomicReference<>();
+  header.set(request.getFirstHeader(PKIAuthenticationPlugin.HEADER));
+  assertNotNull(header.get());
+  assertTrue(header.get().getValue().startsWith(nodeName));
+  final AtomicReference<ServletRequest> wrappedRequestByFilter=new AtomicReference<>();
+  HttpServletRequest mockReq=createMockRequest(header);
+  FilterChain filterChain=new FilterChain(){
+    @Override public void doFilter(    ServletRequest servletRequest,    ServletResponse servletResponse) throws IOException, ServletException {
+      wrappedRequestByFilter.set(servletRequest);
+    }
+  }
+;
+  mock.doAuthenticate(mockReq,null,filterChain);
+  assertNotNull(wrappedRequestByFilter.get());
+  assertEquals("solr",((HttpServletRequest)wrappedRequestByFilter.get()).getUserPrincipal().getName());
+  principal.set(null);
+  header.set(null);
+  wrappedRequestByFilter.set(null);
+  request=new BasicHttpRequest("GET","http://localhost:56565");
+  mock.setHeader(request);
+  assertNull(request.getFirstHeader(PKIAuthenticationPlugin.HEADER));
+  mock.doAuthenticate(mockReq,null,filterChain);
+  assertNotNull(wrappedRequestByFilter.get());
+  assertNull(((HttpServletRequest)wrappedRequestByFilter.get()).getUserPrincipal());
+  mock.solrRequestInfo=null;
+  header.set(null);
+  wrappedRequestByFilter.set(null);
+  request=new BasicHttpRequest("GET","http://localhost:56565");
+  mock.setHeader(request);
+  header.set(request.getFirstHeader(PKIAuthenticationPlugin.HEADER));
+  assertNotNull(header.get());
+  assertTrue(header.get().getValue().startsWith(nodeName));
+  mock.doAuthenticate(mockReq,null,filterChain);
+  assertNotNull(wrappedRequestByFilter.get());
+  assertEquals("$",((HttpServletRequest)wrappedRequestByFilter.get()).getUserPrincipal().getName());
+}

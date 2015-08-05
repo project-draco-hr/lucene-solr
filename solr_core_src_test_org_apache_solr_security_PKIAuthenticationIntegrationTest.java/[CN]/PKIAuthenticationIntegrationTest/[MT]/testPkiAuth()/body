@@ -1,0 +1,42 @@
+{
+  waitForThingsToLevelOut(10);
+  log.info("Starting test");
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.add("q","*:*");
+  params.add("__user","solr");
+  params.add("__pwd","SolrRocks");
+  final AtomicInteger count=new AtomicInteger();
+  MockAuthorizationPlugin.predicate=new Predicate<AuthorizationContext>(){
+    @Override public boolean test(    AuthorizationContext context){
+      if ("/select".equals(context.getResource())) {
+        Principal principal=context.getUserPrincipal();
+        log.info("principalIs : {}",principal);
+        if (principal != null && principal.getName().equals("solr")) {
+          count.incrementAndGet();
+        }
+      }
+      return true;
+    }
+  }
+;
+  MockAuthenticationPlugin.predicate=new Predicate<ServletRequest>(){
+    @Override public boolean test(    ServletRequest servletRequest){
+      String s=((HttpServletRequest)servletRequest).getQueryString();
+      if (s != null && s.contains("__user=solr") && s.contains("__pwd=SolrRocks")) {
+        servletRequest.setAttribute(Principal.class.getName(),"solr");
+      }
+      return true;
+    }
+  }
+;
+  QueryRequest query=new QueryRequest(params);
+  LocalSolrQueryRequest lsqr=new LocalSolrQueryRequest(null,new ModifiableSolrParams()){
+    @Override public Principal getUserPrincipal(){
+      return null;
+    }
+  }
+;
+  query.process(cloudClient);
+  log.info("count :{}",count);
+  assertTrue(count.get() > 2);
+}
