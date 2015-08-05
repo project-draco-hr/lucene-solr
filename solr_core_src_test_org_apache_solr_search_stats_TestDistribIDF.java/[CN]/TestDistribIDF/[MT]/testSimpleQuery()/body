@@ -1,0 +1,56 @@
+{
+  createCollection("onecollection","conf1",ImplicitDocRouter.NAME);
+  createCollection("onecollection_local","conf2",ImplicitDocRouter.NAME);
+  SolrInputDocument doc=new SolrInputDocument();
+  doc.setField("id",1);
+  doc.setField("cat","football");
+  doc.addField(ShardParams._ROUTE_,"a");
+  solrCluster.getSolrClient().add("onecollection",doc);
+  solrCluster.getSolrClient().add("onecollection_local",doc);
+  doc=new SolrInputDocument();
+  doc.setField("id",2);
+  doc.setField("cat","football");
+  doc.addField(ShardParams._ROUTE_,"b");
+  solrCluster.getSolrClient().add("onecollection",doc);
+  solrCluster.getSolrClient().add("onecollection_local",doc);
+  int nDocs=TestUtil.nextInt(random(),10,100);
+  for (int i=0; i < nDocs; i++) {
+    doc=new SolrInputDocument();
+    doc.setField("id",3 + i);
+    String cat=TestUtil.randomSimpleString(random());
+    if (!cat.equals("football")) {
+      doc.setField("cat",cat);
+      if (rarely()) {
+        doc.addField(ShardParams._ROUTE_,"a");
+      }
+ else {
+        doc.addField(ShardParams._ROUTE_,"b");
+      }
+      solrCluster.getSolrClient().add("onecollection",doc);
+      solrCluster.getSolrClient().add("onecollection_local",doc);
+    }
+  }
+  solrCluster.getSolrClient().commit("onecollection");
+  solrCluster.getSolrClient().commit("onecollection_local");
+  for (  JettySolrRunner jettySolrRunner : solrCluster.getJettySolrRunners()) {
+    SolrClient solrClient=new HttpSolrClient(jettySolrRunner.getBaseUrl().toString());
+    SolrClient solrClient_local=new HttpSolrClient(jettySolrRunner.getBaseUrl().toString());
+    SolrQuery query=new SolrQuery("cat:football");
+    query.setFields("*,score");
+    QueryResponse queryResponse=solrClient.query("onecollection",query);
+    assertEquals(2,queryResponse.getResults().getNumFound());
+    float score1=(float)queryResponse.getResults().get(0).get("score");
+    float score2=(float)queryResponse.getResults().get(1).get("score");
+    assertEquals("Doc1 score=" + score1 + " Doc2 score="+ score2,0,Float.compare(score1,score2));
+    query=new SolrQuery("cat:football");
+    query.setShowDebugInfo(true);
+    query.setFields("*,score");
+    queryResponse=solrClient_local.query("onecollection_local",query);
+    assertEquals(2,queryResponse.getResults().getNumFound());
+    assertEquals(2,queryResponse.getResults().get(0).get("id"));
+    assertEquals(1,queryResponse.getResults().get(1).get("id"));
+    float score1_local=(float)queryResponse.getResults().get(0).get("score");
+    float score2_local=(float)queryResponse.getResults().get(1).get("score");
+    assertEquals("Doc1 score=" + score1_local + " Doc2 score="+ score2_local,1,Float.compare(score1_local,score2_local));
+  }
+}
