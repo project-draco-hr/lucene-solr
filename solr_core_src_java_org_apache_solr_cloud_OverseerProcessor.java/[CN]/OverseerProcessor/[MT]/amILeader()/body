@@ -1,0 +1,39 @@
+{
+  String statsName="collection_am_i_leader";
+  TimerContext timerContext=stats.time(statsName);
+  boolean success=true;
+  try {
+    ZkNodeProps props=ZkNodeProps.load(zkStateReader.getZkClient().getData("/overseer_elect/leader",null,null,true));
+    if (myId.equals(props.getStr("id"))) {
+      return LeaderStatus.YES;
+    }
+  }
+ catch (  KeeperException e) {
+    success=false;
+    if (e.code() == KeeperException.Code.CONNECTIONLOSS) {
+      log.error("",e);
+      return LeaderStatus.DONT_KNOW;
+    }
+ else     if (e.code() == KeeperException.Code.SESSIONEXPIRED) {
+      log.info("",e);
+    }
+ else {
+      log.warn("",e);
+    }
+  }
+catch (  InterruptedException e) {
+    success=false;
+    Thread.currentThread().interrupt();
+  }
+ finally {
+    timerContext.stop();
+    if (success) {
+      stats.success(statsName);
+    }
+ else {
+      stats.error(statsName);
+    }
+  }
+  log.info("According to ZK I (id=" + myId + ") am no longer a leader.");
+  return LeaderStatus.NO;
+}

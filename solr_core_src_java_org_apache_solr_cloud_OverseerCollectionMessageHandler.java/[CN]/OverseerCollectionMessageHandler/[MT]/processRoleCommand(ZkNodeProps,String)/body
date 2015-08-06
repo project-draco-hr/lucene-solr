@@ -1,0 +1,40 @@
+{
+  SolrZkClient zkClient=zkStateReader.getZkClient();
+  Map roles=null;
+  String node=message.getStr("node");
+  String roleName=message.getStr("role");
+  boolean nodeExists=false;
+  if (nodeExists=zkClient.exists(ZkStateReader.ROLES,true)) {
+    roles=(Map)Utils.fromJSON(zkClient.getData(ZkStateReader.ROLES,null,new Stat(),true));
+  }
+ else {
+    roles=new LinkedHashMap(1);
+  }
+  List nodeList=(List)roles.get(roleName);
+  if (nodeList == null)   roles.put(roleName,nodeList=new ArrayList());
+  if (ADDROLE.toString().toLowerCase(Locale.ROOT).equals(operation)) {
+    log.info("Overseer role added to {}",node);
+    if (!nodeList.contains(node))     nodeList.add(node);
+  }
+ else   if (REMOVEROLE.toString().toLowerCase(Locale.ROOT).equals(operation)) {
+    log.info("Overseer role removed from {}",node);
+    nodeList.remove(node);
+  }
+  if (nodeExists) {
+    zkClient.setData(ZkStateReader.ROLES,Utils.toJSON(roles),true);
+  }
+ else {
+    zkClient.create(ZkStateReader.ROLES,Utils.toJSON(roles),CreateMode.PERSISTENT,true);
+  }
+  new Thread(){
+    @Override public void run(){
+      try {
+        overseerPrioritizer.prioritizeOverseerNodes(myId);
+      }
+ catch (      Exception e) {
+        log.error("Error in prioritizing Overseer",e);
+      }
+    }
+  }
+.start();
+}
