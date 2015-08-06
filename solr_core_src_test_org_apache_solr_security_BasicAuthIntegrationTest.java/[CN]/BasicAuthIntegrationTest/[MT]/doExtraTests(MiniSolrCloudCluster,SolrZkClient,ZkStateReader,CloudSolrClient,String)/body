@@ -1,0 +1,45 @@
+{
+  NamedList<Object> rsp=cloudSolrClient.request(new GenericSolrRequest(SolrRequest.METHOD.GET,"/admin/authentication",new ModifiableSolrParams()));
+  assertNotNull(rsp.get(CommandOperation.ERR_MSGS));
+  zkClient.setData("/security.json",STD_CONF.replaceAll("'","\"").getBytes(UTF_8),true);
+  String baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
+  HttpClient cl=cloudSolrClient.getLbClient().getHttpClient();
+  verifySecurityStatus(cl,baseUrl + "/admin/authentication","authentication/class","solr.BasicAuthPlugin",20);
+  String command="{\n" + "'set-user': {'harry':'HarryIsCool'}\n" + "}";
+  GenericSolrRequest genericReq=new GenericSolrRequest(SolrRequest.METHOD.POST,"/admin/authentication",new ModifiableSolrParams());
+  genericReq.setContentStreams(Collections.singletonList(new ContentStreamBase.ByteArrayStream(command.getBytes(UTF_8),"")));
+  try {
+    cloudSolrClient.request(genericReq);
+    fail("Should have failed with a 401");
+  }
+ catch (  HttpSolrClient.RemoteSolrException e) {
+  }
+  command="{\n" + "'set-user': {'harry':'HarryIsUberCool'}\n" + "}";
+  HttpPost httpPost=new HttpPost(baseUrl + "/admin/authentication");
+  setBasicAuthHeader(httpPost,"solr","SolrRocks");
+  httpPost.setEntity(new ByteArrayEntity(command.getBytes(UTF_8)));
+  httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
+  verifySecurityStatus(cl,baseUrl + "/admin/authentication","authentication.enabled","true",20);
+  HttpResponse r=cl.execute(httpPost);
+  int statusCode=r.getStatusLine().getStatusCode();
+  assertEquals("proper_cred sent, but access denied",200,statusCode);
+  baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
+  verifySecurityStatus(cl,baseUrl + "/admin/authentication","authentication/credentials/harry",NOT_NULL_PREDICATE,20);
+  command="{\n" + "'set-user-role': {'harry':'admin'}\n" + "}";
+  httpPost=new HttpPost(baseUrl + "/admin/authorization");
+  setBasicAuthHeader(httpPost,"solr","SolrRocks");
+  httpPost.setEntity(new ByteArrayEntity(command.getBytes(UTF_8)));
+  httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
+  r=cl.execute(httpPost);
+  assertEquals(200,r.getStatusLine().getStatusCode());
+  baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
+  verifySecurityStatus(cl,baseUrl + "/admin/authorization","authorization/user-role/harry",NOT_NULL_PREDICATE,20);
+  httpPost=new HttpPost(baseUrl + "/admin/authorization");
+  setBasicAuthHeader(httpPost,"harry","HarryIsUberCool");
+  httpPost.setEntity(new ByteArrayEntity(Utils.toJSON(singletonMap("set-permission",Utils.makeMap("name","x-update","collection","x","path","/update/*","role","dev")))));
+  httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
+  verifySecurityStatus(cl,baseUrl + "/admin/authorization","authorization/user-role/harry",NOT_NULL_PREDICATE,20);
+  r=cl.execute(httpPost);
+  assertEquals(200,r.getStatusLine().getStatusCode());
+  verifySecurityStatus(cl,baseUrl + "/admin/authorization","authorization/permissions/x-update/collection","x",20);
+}
