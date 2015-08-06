@@ -1,0 +1,35 @@
+{
+  if (permissions == null || permissions.isEmpty())   return MatchStatus.NO_PERMISSIONS_FOUND;
+  Principal principal=context.getUserPrincipal();
+  loopPermissions:   for (int i=0; i < permissions.size(); i++) {
+    Permission permission=permissions.get(i);
+    if (permission.method != null && !permission.method.contains(context.getHttpMethod())) {
+      continue;
+    }
+    if (permission.predicate != null) {
+      if (!permission.predicate.test(context))       continue;
+    }
+    if (permission.params != null) {
+      for (      Map.Entry<String,Object> e : permission.params.entrySet()) {
+        String paramVal=context.getParams().get(e.getKey());
+        Object val=e.getValue();
+        if (val instanceof List) {
+          if (!((List)val).contains(paramVal))           continue loopPermissions;
+        }
+ else         if (!Objects.equals(val,paramVal))         continue loopPermissions;
+      }
+    }
+    if (permission.role == null) {
+      return MatchStatus.PERMITTED;
+    }
+    if (principal == null) {
+      return MatchStatus.USER_REQUIRED;
+    }
+    for (    String role : permission.role) {
+      Set<String> userRoles=usersVsRoles.get(principal.getName());
+      if (userRoles != null && userRoles.contains(role))       return MatchStatus.PERMITTED;
+    }
+    return MatchStatus.FORBIDDEN;
+  }
+  return MatchStatus.NO_PERMISSIONS_FOUND;
+}
