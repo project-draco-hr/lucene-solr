@@ -3,21 +3,32 @@
   final LeafFieldComparator[] comparators=queue.getComparators(context);
   final int[] reverseMul=queue.getReverseMul();
   if (comparators.length == 1) {
-    return new OneComparatorLeafCollector(comparators[0],reverseMul[0]){
+    return new OneComparatorLeafCollector(comparators[0],reverseMul[0],mayNeedScoresTwice){
       @Override public void collect(      int doc) throws IOException {
+        float score=Float.NaN;
+        if (trackMaxScore) {
+          score=scorer.score();
+          if (score > maxScore) {
+            maxScore=score;
+          }
+        }
         ++totalHits;
         if (queueFull) {
-          if ((reverseMul * comparator.compareBottom(doc)) <= 0) {
+          if (reverseMul * comparator.compareBottom(doc) <= 0) {
             return;
           }
-          final float score=scorer.score();
+          if (trackDocScores && !trackMaxScore) {
+            score=scorer.score();
+          }
           comparator.copy(bottom.slot,doc);
           updateBottom(doc,score);
           comparator.setBottom(bottom.slot);
         }
  else {
-          final float score=scorer.score();
           final int slot=totalHits - 1;
+          if (trackDocScores && !trackMaxScore) {
+            score=scorer.score();
+          }
           comparator.copy(slot,doc);
           add(slot,doc,score);
           if (queueFull) {
@@ -29,21 +40,32 @@
 ;
   }
  else {
-    return new MultiComparatorLeafCollector(comparators,reverseMul){
+    return new MultiComparatorLeafCollector(comparators,reverseMul,mayNeedScoresTwice){
       @Override public void collect(      int doc) throws IOException {
+        float score=Float.NaN;
+        if (trackMaxScore) {
+          score=scorer.score();
+          if (score > maxScore) {
+            maxScore=score;
+          }
+        }
         ++totalHits;
         if (queueFull) {
-          if ((compareBottom(doc)) <= 0) {
+          if (compareBottom(doc) <= 0) {
             return;
           }
-          final float score=scorer.score();
+          if (trackDocScores && !trackMaxScore) {
+            score=scorer.score();
+          }
           copy(bottom.slot,doc);
           updateBottom(doc,score);
           setBottom(bottom.slot);
         }
  else {
-          final float score=scorer.score();
           final int slot=totalHits - 1;
+          if (trackDocScores && !trackMaxScore) {
+            score=scorer.score();
+          }
           copy(slot,doc);
           add(slot,doc,score);
           if (queueFull) {
