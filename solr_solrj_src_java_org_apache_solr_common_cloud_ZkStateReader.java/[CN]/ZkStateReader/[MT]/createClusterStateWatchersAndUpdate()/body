@@ -1,73 +1,14 @@
 {
-synchronized (getUpdateLock()) {
-    log.info("Updating cluster state from ZooKeeper... ");
-    Stat stat=zkClient.exists(CLUSTER_STATE,new Watcher(){
-      @Override public void process(      WatchedEvent event){
-        if (EventType.None.equals(event.getType())) {
-          return;
-        }
-        log.info("A cluster state change: {}, has occurred - updating... (live nodes size: {})",(event),ZkStateReader.this.clusterState == null ? 0 : ZkStateReader.this.clusterState.getLiveNodes().size());
-        try {
-synchronized (ZkStateReader.this.getUpdateLock()) {
-            final Watcher thisWatch=this;
-            Set<String> ln=ZkStateReader.this.clusterState.getLiveNodes();
-            ZkStateReader.this.clusterState=constructState(ln,thisWatch);
-          }
-          log.info("Updated cluster state version to " + ZkStateReader.this.clusterState.getZkClusterStateVersion());
-        }
- catch (        KeeperException e) {
-          if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
-            log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
-            return;
-          }
-          log.error("",e);
-          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
-        }
-catch (        InterruptedException e) {
-          Thread.currentThread().interrupt();
-          log.warn("",e);
-          return;
-        }
-      }
-    }
-,true);
-    if (stat == null)     throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Cannot connect to cluster at " + zkClient.getZkServerAddress() + ": cluster not found/not ready");
+  log.info("Updating cluster state from ZooKeeper... ");
+  if (!zkClient.exists(CLUSTER_STATE,true)) {
+    throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Cannot connect to cluster at " + zkClient.getZkServerAddress() + ": cluster not found/not ready");
   }
+  refreshLegacyClusterState(new LegacyClusterStateWatcher());
+  refreshStateFormat2Collections();
+  refreshLazyFormat2Collections(true);
+  refreshLiveNodes(new LiveNodeWatcher());
 synchronized (ZkStateReader.this.getUpdateLock()) {
-    List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,new Watcher(){
-      @Override public void process(      WatchedEvent event){
-        if (EventType.None.equals(event.getType())) {
-          return;
-        }
-        try {
-synchronized (ZkStateReader.this.getUpdateLock()) {
-            List<String> liveNodes=zkClient.getChildren(LIVE_NODES_ZKNODE,this,true);
-            log.debug("Updating live nodes... ({})",liveNodes.size());
-            Set<String> liveNodesSet=new HashSet<>();
-            liveNodesSet.addAll(liveNodes);
-            ClusterState clusterState=ZkStateReader.this.clusterState;
-            clusterState.setLiveNodes(liveNodesSet);
-          }
-        }
- catch (        KeeperException e) {
-          if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
-            log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
-            return;
-          }
-          log.error("",e);
-          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
-        }
-catch (        InterruptedException e) {
-          Thread.currentThread().interrupt();
-          log.warn("",e);
-          return;
-        }
-      }
-    }
-,true);
-    Set<String> liveNodeSet=new HashSet<>();
-    liveNodeSet.addAll(liveNodes);
-    this.clusterState=constructState(liveNodeSet,null);
+    constructState();
     zkClient.exists(ALIASES,new Watcher(){
       @Override public void process(      WatchedEvent event){
         if (EventType.None.equals(event.getType())) {
@@ -101,11 +42,6 @@ catch (        InterruptedException e) {
 ,true);
   }
   updateAliases();
-synchronized (this) {
-    for (    String watchedCollection : watchedCollections) {
-      addZkWatch(watchedCollection);
-    }
-  }
   if (securityNodeListener != null) {
     addSecuritynodeWatcher(SOLR_SECURITY_CONF_PATH,new Callable<Pair<byte[],Stat>>(){
       @Override public void call(      Pair<byte[],Stat> pair){

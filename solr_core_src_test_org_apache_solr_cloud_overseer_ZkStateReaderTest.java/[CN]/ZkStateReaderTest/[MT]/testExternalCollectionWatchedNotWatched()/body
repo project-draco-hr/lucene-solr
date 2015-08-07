@@ -1,0 +1,29 @@
+{
+  String zkDir=createTempDir("testExternalCollectionWatchedNotWatched").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient zkClient=null;
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    zkClient=new SolrZkClient(server.getZkAddress(),OverseerTest.DEFAULT_CONNECTION_TIMEOUT);
+    ZkController.createClusterZkNodes(zkClient);
+    ZkStateReader reader=new ZkStateReader(zkClient);
+    reader.createClusterStateWatchersAndUpdate();
+    ZkStateWriter writer=new ZkStateWriter(reader,new Overseer.Stats());
+    zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/c1",true);
+    ZkWriteCommand c1=new ZkWriteCommand("c1",new DocCollection("c1",new HashMap<String,Slice>(),new HashMap<String,Object>(),DocRouter.DEFAULT,0,ZkStateReader.COLLECTIONS_ZKNODE + "/c1/state.json"));
+    writer.enqueueUpdate(reader.getClusterState(),c1,null);
+    writer.writePendingUpdates();
+    refresh(reader,0,true);
+    assertTrue(reader.getClusterState().getCollectionRef("c1").isLazilyLoaded());
+    reader.addCollectionWatch("c1");
+    assertFalse(reader.getClusterState().getCollectionRef("c1").isLazilyLoaded());
+    reader.removeZKWatch("c1");
+    assertTrue(reader.getClusterState().getCollectionRef("c1").isLazilyLoaded());
+  }
+  finally {
+    IOUtils.close(zkClient);
+    server.shutdown();
+  }
+}

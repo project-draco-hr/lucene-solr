@@ -1,0 +1,35 @@
+{
+  List<String> children=null;
+  try {
+    children=zkClient.getChildren(COLLECTIONS_ZKNODE,null,true);
+  }
+ catch (  KeeperException.NoNodeException e) {
+    log.warn("Error fetching collection names");
+  }
+  if (children == null || children.isEmpty()) {
+synchronized (getUpdateLock()) {
+      this.lazyCollectionStates=new HashMap<>();
+    }
+    return;
+  }
+  Map<String,ClusterState.CollectionRef> result=new HashMap<>();
+  for (  String collName : children) {
+    if (interestingCollections.contains(collName)) {
+      continue;
+    }
+    if (!fullRefresh) {
+      ClusterState.CollectionRef existing=lazyCollectionStates.get(collName);
+      if (existing != null) {
+        result.put(collName,existing);
+        continue;
+      }
+    }
+    ClusterState.CollectionRef lazyCollectionState=tryMakeLazyCollectionStateFormat2(collName);
+    if (lazyCollectionState != null) {
+      result.put(collName,lazyCollectionState);
+    }
+  }
+synchronized (getUpdateLock()) {
+    this.lazyCollectionStates=result;
+  }
+}

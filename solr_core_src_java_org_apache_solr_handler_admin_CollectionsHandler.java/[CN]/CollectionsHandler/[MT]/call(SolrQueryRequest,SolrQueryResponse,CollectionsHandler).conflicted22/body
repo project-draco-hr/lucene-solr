@@ -1,13 +1,56 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,PROPERTY_PROP,SHARD_ID_PROP,REPLICA_PROP,PROPERTY_VALUE_PROP);
-  req.getParams().getAll(map,SHARD_UNIQUE);
-  String property=(String)map.get(PROPERTY_PROP);
-  if (!property.startsWith(COLL_PROP_PREFIX)) {
-    property=COLL_PROP_PREFIX + property;
+  CoreContainer coreContainer=h.coreContainer;
+  req.getParams().required().check(REQUESTID);
+  String requestId=req.getParams().get(REQUESTID);
+  if (requestId.equals("-1")) {
+    if (requestId.equals("-1")) {
+      coreContainer.getZkController().getOverseerCompletedMap().clear();
+      coreContainer.getZkController().getOverseerFailureMap().clear();
+      return null;
+    }
   }
-  boolean uniquePerSlice=Boolean.parseBoolean((String)map.get(SHARD_UNIQUE));
-  if (StringUtils.isNotBlank((String)map.get(SHARD_UNIQUE)) && SliceMutator.SLICE_UNIQUE_BOOLEAN_PROPERTIES.contains(property.toLowerCase(Locale.ROOT)) && uniquePerSlice == false) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Overseer replica property command received for property " + property + " with the "+ SHARD_UNIQUE+ " parameter set to something other than 'true'. No action taken.");
+ else {
+    NamedList<Object> results=new NamedList<>();
+    if (coreContainer.getZkController().getOverseerCompletedMap().contains(requestId)) {
+      DistributedMap.MapEvent mapEvent=coreContainer.getZkController().getOverseerCompletedMap().get(requestId);
+      SimpleOrderedMap success=new SimpleOrderedMap();
+      if (mapEvent != null) {
+        rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
+      }
+      success.add("state","completed");
+      success.add("msg","found " + requestId + " in completed tasks");
+      results.add("status",success);
+    }
+ else     if (coreContainer.getZkController().getOverseerFailureMap().contains(requestId)) {
+      SimpleOrderedMap success=new SimpleOrderedMap();
+      DistributedMap.MapEvent mapEvent=coreContainer.getZkController().getOverseerFailureMap().get(requestId);
+      if (mapEvent != null) {
+        rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
+      }
+      success.add("state","failed");
+      success.add("msg","found " + requestId + " in failed tasks");
+      results.add("status",success);
+    }
+ else     if (coreContainer.getZkController().getOverseerRunningMap().contains(requestId)) {
+      SimpleOrderedMap success=new SimpleOrderedMap();
+      success.add("state","running");
+      success.add("msg","found " + requestId + " in running tasks");
+      results.add("status",success);
+    }
+ else     if (h.overseerCollectionQueueContains(requestId)) {
+      SimpleOrderedMap success=new SimpleOrderedMap();
+      success.add("state","submitted");
+      success.add("msg","found " + requestId + " in submitted tasks");
+      results.add("status",success);
+    }
+ else {
+      SimpleOrderedMap failure=new SimpleOrderedMap();
+      failure.add("state","notfound");
+      failure.add("msg","Did not find taskid [" + requestId + "] in any tasks queue");
+      results.add("status",failure);
+    }
+    SolrResponse response=new OverseerSolrResponse(results);
+    rsp.getValues().addAll(response.getResponse());
   }
-  return map;
+  return null;
 }
