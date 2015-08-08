@@ -7,24 +7,26 @@
   softTracker.setDocsUpperBound(-1);
   hardTracker.setTimeUpperBound(hardCommitWaitMillis);
   hardTracker.setDocsUpperBound(-1);
-  long fast5start=System.currentTimeMillis();
+  long fast5start=System.nanoTime();
   for (int i=0; i < 5; i++) {
     assertU(adoc("id","" + 500 + i,"subject","five fast docs"));
   }
-  long fast5end=System.currentTimeMillis() - 200;
-  long fast5time=1 + fast5end - fast5start;
-  long expectedSoft=(long)Math.ceil(fast5time / softCommitWaitMillis);
-  long expectedHard=(long)Math.ceil(fast5time / hardCommitWaitMillis);
+  long fast5end=System.nanoTime() - TimeUnit.NANOSECONDS.convert(200,TimeUnit.MILLISECONDS);
+  long fast5time=1 + TimeUnit.MILLISECONDS.convert(fast5end - fast5start,TimeUnit.NANOSECONDS);
+  long expectedSoft=(long)Math.ceil((double)fast5time / softCommitWaitMillis);
+  long expectedHard=(long)Math.ceil((double)fast5time / hardCommitWaitMillis);
   for (int i=1; i <= expectedSoft; i++) {
     Long soft=monitor.soft.poll(softCommitWaitMillis * 2,MILLISECONDS);
     assertNotNull(i + ": soft wasn't fast enough",soft);
     monitor.assertSaneOffers();
-    assertTrue(i + ": soft occured too fast: " + fast5end+ " + ("+ softCommitWaitMillis+ " * "+ i+ ") !<= "+ soft,fast5end + (softCommitWaitMillis * i) <= soft);
+    long softMs=TimeUnit.MILLISECONDS.convert(soft - fast5end,TimeUnit.NANOSECONDS);
+    assertTrue(i + ": soft occured too fast: " + softMs+ " < ("+ softCommitWaitMillis+ " * "+ i+ ")",softMs >= (softCommitWaitMillis * i));
   }
   for (int i=1; i <= expectedHard; i++) {
     Long hard=monitor.hard.poll(hardCommitWaitMillis,MILLISECONDS);
     assertNotNull(i + ": hard wasn't fast enough",hard);
     monitor.assertSaneOffers();
-    assertTrue(i + ": soft occured too fast: " + fast5end+ " + ("+ hardCommitWaitMillis+ " * "+ i+ ") !<= "+ hard,fast5end + (hardCommitWaitMillis * i) <= hard);
+    long hardMs=TimeUnit.MILLISECONDS.convert(hard - fast5end,TimeUnit.NANOSECONDS);
+    assertTrue(i + ": hard occured too fast: " + hardMs+ " < ("+ hardCommitWaitMillis+ " * "+ i+ ")",hardMs >= (hardCommitWaitMillis * i));
   }
 }

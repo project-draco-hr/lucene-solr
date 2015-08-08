@@ -12,7 +12,7 @@
   Long soft529;
   Long hard529;
   monitor.clear();
-  long del529=System.currentTimeMillis();
+  long del529=System.nanoTime();
   assertU(delI("529"));
   monitor.assertSaneOffers();
   soft529=monitor.soft.poll(softCommitWaitMillis * 3,MILLISECONDS);
@@ -25,10 +25,13 @@
   hard529=monitor.hard.poll(hardCommitWaitMillis * 3,MILLISECONDS);
   assertNotNull("hard529 wasn't fast enough",hard529);
   monitor.assertSaneOffers();
-  assertTrue("soft529 occured too fast: " + del529 + " + "+ softCommitWaitMillis+ " !<= "+ soft529,del529 + softCommitWaitMillis <= soft529);
-  assertTrue("hard529 occured too fast: " + del529 + " + "+ hardCommitWaitMillis+ " !<= "+ hard529,del529 + hardCommitWaitMillis <= hard529);
-  long slowTestFudge=Math.max(150,3 * (soft529 - del529 - softCommitWaitMillis));
-  assertTrue("searcher529 wasn't soon enough after soft529: " + searcher529 + " !< "+ soft529+ " + "+ slowTestFudge+ " (fudge)",searcher529 < soft529 + slowTestFudge);
+  final long soft529Ms=TimeUnit.MILLISECONDS.convert(soft529 - del529,TimeUnit.NANOSECONDS);
+  assertTrue("soft529 occured too fast, in " + soft529Ms + "ms, less than soft commit interval "+ softCommitWaitMillis,soft529Ms >= softCommitWaitMillis);
+  final long hard529Ms=TimeUnit.MILLISECONDS.convert(hard529 - del529,TimeUnit.NANOSECONDS);
+  assertTrue("hard529 occured too fast, in " + hard529Ms + "ms, less than hard commit interval "+ hardCommitWaitMillis,hard529Ms >= hardCommitWaitMillis);
+  long slowTestFudge=Math.max(300,12 * (soft529Ms - softCommitWaitMillis));
+  final long softCommitToSearcherOpenMs=TimeUnit.MILLISECONDS.convert(searcher529 - soft529,TimeUnit.NANOSECONDS);
+  assertTrue("searcher529 wasn't soon enough after soft529: Took " + softCommitToSearcherOpenMs + "ms, >= acceptable "+ slowTestFudge+ "ms (fudge)",softCommitToSearcherOpenMs < slowTestFudge);
   assertTrue("hard529 was before searcher529: " + searcher529 + " !<= "+ hard529,searcher529 <= hard529);
   monitor.hard.clear();
   monitor.soft.clear();
