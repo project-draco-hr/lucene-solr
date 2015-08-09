@@ -1,0 +1,99 @@
+{
+  clearIndex();
+  assertU(commit());
+  final int commitPercent=5 + random().nextInt(5);
+  final int deleteByQueryPercent=20 + random().nextInt(20);
+  final int ndocs=5 + (random().nextBoolean() ? random().nextInt(25) : random().nextInt(50));
+  int nWriteThreads=5 + random().nextInt(10);
+  final AtomicLong reloads=new AtomicLong(50);
+  ifVerbose("commitPercent",commitPercent,"deleteByQueryPercent",deleteByQueryPercent,"ndocs",ndocs,"nWriteThreads",nWriteThreads,"reloads",reloads);
+  initModel(ndocs);
+  final AtomicBoolean areCommitting=new AtomicBoolean();
+  List<Thread> threads=new ArrayList<>();
+  final AtomicLong testVersion=new AtomicLong(0);
+  for (int i=0; i < nWriteThreads; i++) {
+    Thread thread=new Thread("WRITER" + i){
+      Random rand=new Random(random().nextInt());
+      @Override public void run(){
+        try {
+          while (reloads.get() > 0) {
+            int oper=rand.nextInt(100);
+            if (oper < commitPercent) {
+              if (areCommitting.compareAndSet(false,true)) {
+                Map<Integer,DocInfo> newCommittedModel;
+                long version;
+synchronized (TestReloadDeadlock.this) {
+                  newCommittedModel=new HashMap<>(model);
+                  version=snapshotCount++;
+                }
+                ifVerbose("hardCommit start");
+                assertU(commit());
+                ifVerbose("hardCommit end");
+synchronized (TestReloadDeadlock.this) {
+                  if (version >= committedModelClock) {
+                    ifVerbose("installing new committedModel version=" + committedModelClock);
+                    committedModel=newCommittedModel;
+                    committedModelClock=version;
+                  }
+                }
+                areCommitting.set(false);
+              }
+              continue;
+            }
+            int id;
+            if (rand.nextBoolean()) {
+              id=rand.nextInt(ndocs);
+            }
+ else {
+              id=lastId;
+            }
+            boolean before=rand.nextBoolean();
+            if (before) {
+              lastId=id;
+            }
+            DocInfo info=model.get(id);
+            long val=info.val;
+            long nextVal=Math.abs(val) + 1;
+            long version=testVersion.incrementAndGet();
+            if (rand.nextBoolean())             Thread.yield();
+            if (oper < commitPercent + deleteByQueryPercent) {
+              deleteByQuery(id,nextVal,version);
+            }
+ else {
+              addDoc(id,nextVal,version);
+            }
+            if (!before) {
+              lastId=id;
+            }
+          }
+        }
+ catch (        Throwable e) {
+          reloads.set(-1L);
+          log.error("",e);
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    threads.add(thread);
+  }
+  for (  Thread thread : threads) {
+    thread.start();
+  }
+  while (reloads.get() > 0) {
+    Thread.sleep(10 + random().nextInt(250));
+    reloads.decrementAndGet();
+    h.getCoreContainer().reload("collection1");
+  }
+  try {
+    for (    Thread thread : threads) {
+      thread.join(10000);
+    }
+  }
+ catch (  InterruptedException ie) {
+    fail("Sholdn't have sat around here this long waiting for the threads to join.");
+  }
+  for (  Thread thread : threads) {
+    assertFalse("All threads shoul be dead, but at least thread " + thread.getName() + " is not",thread.isAlive());
+  }
+}

@@ -1,0 +1,31 @@
+{
+  log.info("Reordered DBQs detected.  Update=" + cmd + " DBQs="+ deletesAfter);
+  List<Query> dbqList=new ArrayList<>(deletesAfter.size());
+  for (  UpdateLog.DBQ dbq : deletesAfter) {
+    try {
+      DeleteUpdateCommand tmpDel=new DeleteUpdateCommand(cmd.req);
+      tmpDel.query=dbq.q;
+      tmpDel.version=-dbq.version;
+      dbqList.add(getQuery(tmpDel));
+    }
+ catch (    Exception e) {
+      log.error("Exception parsing reordered query : " + dbq,e);
+    }
+  }
+  Document luceneDocument=cmd.getLuceneDocument();
+  Term idTerm=new Term(idField.getName(),cmd.getIndexedId());
+  RefCounted<IndexWriter> iw=solrCoreState.getIndexWriter(core);
+  try {
+    IndexWriter writer=iw.get();
+synchronized (solrCoreState.getUpdateLock()) {
+      writer.updateDocument(idTerm,luceneDocument);
+      for (      Query q : dbqList) {
+        writer.deleteDocuments(new DeleteByQueryWrapper(q,core.getLatestSchema()));
+      }
+    }
+  }
+  finally {
+    iw.decref();
+  }
+  if (ulog != null)   ulog.add(cmd,true);
+}

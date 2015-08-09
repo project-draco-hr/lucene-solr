@@ -1,0 +1,33 @@
+{
+  Term updateTerm;
+  Term idTerm=new Term(cmd.isBlock() ? "_root_" : idField.getName(),cmd.getIndexedId());
+  boolean del=false;
+  if (cmd.updateTerm == null) {
+    updateTerm=idTerm;
+  }
+ else {
+    del=true;
+    updateTerm=cmd.updateTerm;
+  }
+  RefCounted<IndexWriter> iw=solrCoreState.getIndexWriter(core);
+  try {
+    IndexWriter writer=iw.get();
+    if (cmd.isBlock()) {
+      writer.updateDocuments(updateTerm,cmd);
+    }
+ else {
+      Document luceneDocument=cmd.getLuceneDocument();
+      writer.updateDocument(updateTerm,luceneDocument);
+    }
+    if (del) {
+      BooleanQuery.Builder bq=new BooleanQuery.Builder();
+      bq.add(new BooleanClause(new TermQuery(updateTerm),Occur.MUST_NOT));
+      bq.add(new BooleanClause(new TermQuery(idTerm),Occur.MUST));
+      writer.deleteDocuments(new DeleteByQueryWrapper(bq.build(),core.getLatestSchema()));
+    }
+  }
+  finally {
+    iw.decref();
+  }
+  if (ulog != null)   ulog.add(cmd);
+}
