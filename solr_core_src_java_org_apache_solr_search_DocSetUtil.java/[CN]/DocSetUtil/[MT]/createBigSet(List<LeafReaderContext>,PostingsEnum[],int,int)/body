@@ -1,0 +1,26 @@
+{
+  long[] bits=new long[FixedBitSet.bits2words(maxDoc)];
+  int sz=0;
+  for (int i=firstReader; i < postList.length; i++) {
+    PostingsEnum postings=postList[i];
+    if (postings == null)     continue;
+    LeafReaderContext ctx=leaves.get(i);
+    Bits liveDocs=ctx.reader().getLiveDocs();
+    int base=ctx.docBase;
+    for (; ; ) {
+      int subId=postings.nextDoc();
+      if (subId == DocIdSetIterator.NO_MORE_DOCS)       break;
+      if (liveDocs != null && !liveDocs.get(subId))       continue;
+      int globalId=subId + base;
+      bits[globalId >> 6]|=(1L << globalId);
+      sz++;
+    }
+  }
+  BitDocSet docSet=new BitDocSet(new FixedBitSet(bits,maxDoc),sz);
+  int smallSetSize=(maxDoc >> 6) + 5;
+  if (sz < smallSetSize) {
+    DocSet smallSet=toSmallSet(docSet);
+    return smallSet;
+  }
+  return docSet;
+}
