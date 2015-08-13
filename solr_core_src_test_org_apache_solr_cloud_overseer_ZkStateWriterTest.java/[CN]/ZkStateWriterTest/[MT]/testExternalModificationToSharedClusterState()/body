@@ -1,0 +1,52 @@
+{
+  String zkDir=createTempDir("testExternalModification").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient zkClient=null;
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    zkClient=new SolrZkClient(server.getZkAddress(),OverseerTest.DEFAULT_CONNECTION_TIMEOUT);
+    ZkController.createClusterZkNodes(zkClient);
+    ZkStateReader reader=new ZkStateReader(zkClient);
+    reader.createClusterStateWatchersAndUpdate();
+    ZkStateWriter writer=new ZkStateWriter(reader,new Overseer.Stats());
+    zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/c1",true);
+    zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/c2",true);
+    ZkWriteCommand c1=new ZkWriteCommand("c1",new DocCollection("c1",new HashMap<String,Slice>(),new HashMap<String,Object>(),DocRouter.DEFAULT,0,ZkStateReader.CLUSTER_STATE));
+    writer.enqueueUpdate(reader.getClusterState(),c1,null);
+    writer.writePendingUpdates();
+    reader.updateClusterState();
+    ClusterState clusterState=reader.getClusterState();
+    assertTrue(clusterState.hasCollection("c1"));
+    assertFalse(clusterState.hasCollection("c2"));
+    byte[] data=zkClient.getData("/clusterstate.json",null,null,true);
+    zkClient.setData("/clusterstate.json",data,true);
+    writer.enqueueUpdate(clusterState,c1,null);
+    assertTrue(writer.hasPendingUpdates());
+    ZkWriteCommand c2=new ZkWriteCommand("c2",new DocCollection("c2",new HashMap<String,Slice>(),new HashMap<String,Object>(),DocRouter.DEFAULT,0,ZkStateReader.getCollectionPath("c2")));
+    try {
+      writer.enqueueUpdate(clusterState,c2,null);
+      fail("Enqueue should not have succeeded");
+    }
+ catch (    KeeperException.BadVersionException bve) {
+    }
+    reader.updateClusterState();
+    try {
+      writer.enqueueUpdate(reader.getClusterState(),c2,null);
+      fail("enqueueUpdate after BadVersionException should not have suceeded");
+    }
+ catch (    IllegalStateException e) {
+    }
+    try {
+      writer.writePendingUpdates();
+      fail("writePendingUpdates after BadVersionException should not have suceeded");
+    }
+ catch (    IllegalStateException e) {
+    }
+  }
+  finally {
+    IOUtils.close(zkClient);
+    server.shutdown();
+  }
+}

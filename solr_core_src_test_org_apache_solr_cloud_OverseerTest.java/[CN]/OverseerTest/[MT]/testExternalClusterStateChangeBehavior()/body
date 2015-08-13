@@ -1,0 +1,46 @@
+{
+  String zkDir=createTempDir("testExternalClusterStateChangeBehavior").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient zkClient=null;
+  ZkStateReader reader=null;
+  SolrZkClient overseerClient=null;
+  try {
+    server.run();
+    zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT);
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    ZkController.createClusterZkNodes(zkClient);
+    zkClient.create("/collections/test",null,CreateMode.PERSISTENT,true);
+    reader=new ZkStateReader(zkClient);
+    reader.createClusterStateWatchersAndUpdate();
+    overseerClient=electNewOverseer(server.getZkAddress());
+    DistributedQueue q=Overseer.getInQueue(zkClient);
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr",ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.COLLECTION_PROP,"c1",ZkStateReader.CORE_NAME_PROP,"core1",ZkStateReader.ROLES_PROP,"",ZkStateReader.STATE_PROP,Replica.State.DOWN.toString());
+    q.offer(Utils.toJSON(m));
+    waitForCollections(reader,"c1");
+    verifyStatus(reader,"c1","shard1","core_node1",Replica.State.DOWN);
+    m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr",ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.COLLECTION_PROP,"c1",ZkStateReader.CORE_NAME_PROP,"core1",ZkStateReader.ROLES_PROP,"",ZkStateReader.STATE_PROP,Replica.State.RECOVERING.toString());
+    q.offer(Utils.toJSON(m));
+    m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr",ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.COLLECTION_PROP,"c1",ZkStateReader.CORE_NAME_PROP,"core1",ZkStateReader.ROLES_PROP,"",ZkStateReader.STATE_PROP,Replica.State.ACTIVE.toString());
+    q.offer(Utils.toJSON(m));
+    Stat stat=new Stat();
+    byte[] data=zkClient.getData("/clusterstate.json",null,stat,true);
+    zkClient.setData("/clusterstate.json",data,true);
+    m=new ZkNodeProps(Overseer.QUEUE_OPERATION,CollectionParams.CollectionAction.CREATE.toLower(),"name","test",ZkStateReader.NUM_SHARDS_PROP,"1",ZkStateReader.REPLICATION_FACTOR,"1",DocCollection.STATE_FORMAT,"2");
+    q.offer(Utils.toJSON(m));
+    m=new ZkNodeProps(Overseer.QUEUE_OPERATION,CollectionParams.CollectionAction.CREATESHARD.toLower(),"collection","test",ZkStateReader.SHARD_ID_PROP,"x",ZkStateReader.REPLICATION_FACTOR,"1");
+    q.offer(Utils.toJSON(m));
+    m=new ZkNodeProps(Overseer.QUEUE_OPERATION,CollectionParams.CollectionAction.ADDREPLICA.toLower(),"collection","test",ZkStateReader.SHARD_ID_PROP,"x",ZkStateReader.BASE_URL_PROP,"http://127.0.0.1/solr",ZkStateReader.NODE_NAME_PROP,"node1",ZkStateReader.CORE_NAME_PROP,"core1",ZkStateReader.STATE_PROP,Replica.State.DOWN.toString());
+    q.offer(Utils.toJSON(m));
+    waitForCollections(reader,"test");
+    verifyStatus(reader,"test","x","core_node1",Replica.State.DOWN);
+    waitForCollections(reader,"c1");
+    verifyStatus(reader,"c1","shard1","core_node1",Replica.State.ACTIVE);
+  }
+  finally {
+    close(zkClient);
+    close(overseerClient);
+    close(reader);
+    server.shutdown();
+  }
+}
