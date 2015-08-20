@@ -1,33 +1,17 @@
 {
-  LatchWatcher watcher;
-  TreeMap<Long,String> children;
-synchronized (childrenWatcherLock) {
-    watcher=childrenWatcher;
-    children=fetchedChildren;
-  }
-  if (watcher == null || watcher.getWatchedEvent() != null) {
-    watcher=new LatchWatcher(Watcher.Event.EventType.NodeChildrenChanged);
-    while (true) {
-      try {
-        children=orderedChildren(watcher);
-        break;
+  long waitNanos=TimeUnit.MILLISECONDS.toNanos(waitMillis);
+  while (waitNanos > 0) {
+    firstElement();
+    updateLock.lockInterruptibly();
+    try {
+      if (!knownChildren.isEmpty()) {
+        return new TreeSet<>(knownChildren);
       }
- catch (      KeeperException.NoNodeException e) {
-        zookeeper.create(dir,new byte[0],CreateMode.PERSISTENT,true);
-      }
+      waitNanos=notEmpty.awaitNanos(waitNanos);
     }
-synchronized (childrenWatcherLock) {
-      childrenWatcher=watcher;
-      fetchedChildren=children;
+  finally {
+      updateLock.unlock();
     }
   }
-  while (true) {
-    if (!children.isEmpty())     break;
-    watcher.await(wait == Long.MAX_VALUE ? DEFAULT_TIMEOUT : wait);
-    if (watcher.getWatchedEvent() != null) {
-      children=orderedChildren(null);
-    }
-    if (wait != Long.MAX_VALUE)     break;
-  }
-  return Collections.unmodifiableMap(children);
+  return Collections.emptySortedSet();
 }

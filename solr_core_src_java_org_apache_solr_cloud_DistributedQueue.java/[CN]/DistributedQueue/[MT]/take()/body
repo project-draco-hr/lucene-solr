@@ -1,20 +1,17 @@
 {
   TimerContext timer=stats.time(dir + "_take");
+  updateLock.lockInterruptibly();
   try {
-    Map<Long,String> orderedChildren=getChildren(Long.MAX_VALUE);
-    for (    String headNode : orderedChildren.values()) {
-      String path=dir + "/" + headNode;
-      try {
-        byte[] data=zookeeper.getData(path,null,null,true);
-        zookeeper.delete(path,-1,true);
-        return data;
+    while (true) {
+      byte[] result=removeFirst();
+      if (result != null) {
+        return result;
       }
- catch (      KeeperException.NoNodeException e) {
-      }
+      notEmpty.await();
     }
-    return null;
   }
   finally {
+    updateLock.unlock();
     timer.stop();
   }
 }

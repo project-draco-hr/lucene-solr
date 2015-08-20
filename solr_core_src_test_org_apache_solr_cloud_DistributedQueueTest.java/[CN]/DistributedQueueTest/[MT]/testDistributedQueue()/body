@@ -1,28 +1,31 @@
 {
   String dqZNode="/distqueue/test";
-  String testData="hello world";
-  long timeoutMs=500L;
-  DistributedQueue dq=new DistributedQueue(zkClient,setupDistributedQueueZNode(dqZNode));
-  assertTrue(dq.poll() == null);
-  byte[] data=testData.getBytes(UTF8);
+  byte[] data="hello world".getBytes(UTF8);
+  DistributedQueue dq=makeDistributedQueue(dqZNode);
+  assertNull(dq.poll());
+  try {
+    dq.remove();
+    fail("NoSuchElementException expected");
+  }
+ catch (  NoSuchElementException expected) {
+  }
   dq.offer(data);
-  assertEquals(new String(dq.peek(),UTF8),testData);
-  assertEquals(new String(dq.take(),UTF8),testData);
-  assertTrue(dq.poll() == null);
-  QueueEvent qe=dq.offer(data,timeoutMs);
-  assertNotNull(qe);
-  assertEquals(new String(dq.remove(),UTF8),testData);
+  assertArrayEquals(dq.peek(500),data);
+  assertArrayEquals(dq.remove(),data);
+  assertNull(dq.poll());
+  dq.offer(data);
+  assertArrayEquals(dq.take(),data);
+  assertNull(dq.poll());
+  dq.offer(data);
+  dq.peek(true);
+  assertArrayEquals(dq.remove(),data);
+  assertNull(dq.poll());
   (new QueueChangerThread(dq,1000)).start();
-  qe=dq.peek(true);
-  assertNotNull(qe);
-  dq.remove();
+  assertNotNull(dq.peek(true));
+  assertNotNull(dq.remove());
+  assertNull(dq.poll());
   QueueChangerThread qct=new QueueChangerThread(dq,1000);
   qct.start();
-  qe=dq.peek(500);
-  assertTrue(qe == null);
-  try {
-    qct.interrupt();
-  }
- catch (  Exception exc) {
-  }
+  assertNull(dq.peek(500));
+  qct.join();
 }

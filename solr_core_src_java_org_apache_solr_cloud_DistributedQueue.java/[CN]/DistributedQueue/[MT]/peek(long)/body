@@ -1,28 +1,26 @@
 {
-  TimerContext time=null;
+  Preconditions.checkArgument(wait > 0);
+  TimerContext time;
   if (wait == Long.MAX_VALUE) {
     time=stats.time(dir + "_peek_wait_forever");
   }
  else {
     time=stats.time(dir + "_peek_wait" + wait);
   }
+  updateLock.lockInterruptibly();
   try {
-    if (wait == 0) {
-      return element();
-    }
-    Map<Long,String> orderedChildren=getChildren(wait);
-    for (    String headNode : orderedChildren.values()) {
-      String path=dir + "/" + headNode;
-      try {
-        byte[] data=zookeeper.getData(path,null,null,true);
-        return new QueueEvent(path,data,null);
+    long waitNanos=TimeUnit.MILLISECONDS.toNanos(wait);
+    while (waitNanos > 0) {
+      byte[] result=firstElement();
+      if (result != null) {
+        return result;
       }
- catch (      KeeperException.NoNodeException e) {
-      }
+      waitNanos=notEmpty.awaitNanos(waitNanos);
     }
     return null;
   }
   finally {
+    updateLock.unlock();
     time.stop();
   }
 }
