@@ -1,0 +1,44 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  final int numResumes=atLeast(50);
+  for (int r=0; r < numResumes; r++) {
+    final List<Document> docs=new ArrayList<>();
+    final int rv=TestUtil.nextInt(random(),1,10);
+    final int numJobs=atLeast(1);
+    for (int j=0; j < numJobs; j++) {
+      final int jv=TestUtil.nextInt(random(),1,10);
+      final int numQualifications=atLeast(1);
+      for (int q=0; q < numQualifications; q++) {
+        docs.add(makeQualification("q" + q + "_rv"+ rv+ "_jv"+ jv,q));
+      }
+      docs.add(makeJob("j" + j,jv));
+    }
+    docs.add(makeResume("r" + r,"rv" + rv));
+    w.addDocuments(docs);
+  }
+  final IndexReader r=w.getReader();
+  final IndexSearcher s=newSearcher(r);
+  w.close();
+  BitSetProducer resumeFilter=new QueryBitSetProducer(new TermQuery(new Term("docType","resume")));
+  BitSetProducer jobFilter=new QueryBitSetProducer(new PrefixQuery(new Term("skill","")));
+  final int numQueryIters=atLeast(1);
+  for (int i=0; i < numQueryIters; i++) {
+    final int qjv=TestUtil.nextInt(random(),1,10);
+    final int qrv=TestUtil.nextInt(random(),1,10);
+    Query resumeQuery=new ToChildBlockJoinQuery(new TermQuery(new Term("country","rv" + qrv)),resumeFilter);
+    Query jobQuery=new ToChildBlockJoinQuery(NumericRangeQuery.newIntRange("year",qjv,qjv,true,true),jobFilter);
+    BooleanQuery.Builder fullQuery=new BooleanQuery.Builder();
+    fullQuery.add(new BooleanClause(jobQuery,Occur.MUST));
+    fullQuery.add(new BooleanClause(resumeQuery,Occur.MUST));
+    TopDocs hits=s.search(fullQuery.build(),100);
+    for (    ScoreDoc sd : hits.scoreDocs) {
+      String q=r.document(sd.doc).get("qualification");
+      assertNotNull(sd.doc + " has no qualification",q);
+      assertTrue(q + " MUST contain jv" + qjv,q.contains("jv" + qjv));
+      assertTrue(q + " MUST contain rv" + qrv,q.contains("rv" + qrv));
+    }
+  }
+  r.close();
+  dir.close();
+}

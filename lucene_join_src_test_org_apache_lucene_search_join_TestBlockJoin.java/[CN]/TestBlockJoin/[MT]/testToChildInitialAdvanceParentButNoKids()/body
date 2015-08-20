@@ -1,0 +1,21 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  w.addDocument(makeResume("first","nokids"));
+  w.addDocuments(Arrays.asList(makeJob("job",42),makeResume("second","haskid")));
+  w.forceMerge(1);
+  final IndexReader r=w.getReader();
+  final IndexSearcher s=newSearcher(r);
+  w.close();
+  BitSetProducer parentFilter=new QueryBitSetProducer(new TermQuery(new Term("docType","resume")));
+  Query parentQuery=new TermQuery(new Term("docType","resume"));
+  ToChildBlockJoinQuery parentJoinQuery=new ToChildBlockJoinQuery(parentQuery,parentFilter);
+  Weight weight=s.createNormalizedWeight(parentJoinQuery,random().nextBoolean());
+  DocIdSetIterator advancingScorer=weight.scorer(s.getIndexReader().leaves().get(0));
+  DocIdSetIterator nextDocScorer=weight.scorer(s.getIndexReader().leaves().get(0));
+  final int firstKid=nextDocScorer.nextDoc();
+  assertTrue("firstKid not found",DocIdSetIterator.NO_MORE_DOCS != firstKid);
+  assertEquals(firstKid,advancingScorer.advance(0));
+  r.close();
+  dir.close();
+}
