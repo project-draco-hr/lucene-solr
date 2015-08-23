@@ -9,33 +9,20 @@
       }
     }
     Query parseJoin() throws SyntaxError {
-      String fromField=getParam("from");
-      String fromIndex=getParam("fromIndex");
-      String toField=getParam("to");
-      String v=localParams.get("v");
+      final String fromField=getParam("from");
+      final String fromIndex=getParam("fromIndex");
+      final String toField=getParam("to");
+      final String v=localParams.get("v");
+      final String coreName;
       Query fromQuery;
       long fromCoreOpenTime=0;
       if (fromIndex != null && !fromIndex.equals(req.getCore().getCoreDescriptor().getName())) {
         CoreContainer container=req.getCore().getCoreDescriptor().getCoreContainer();
-        if (container.isZooKeeperAware()) {
-          ZkController zkController=container.getZkController();
-          if (!zkController.getClusterState().hasCollection(fromIndex)) {
-            String resolved=null;
-            Aliases aliases=zkController.getZkStateReader().getAliases();
-            if (aliases != null) {
-              Map<String,String> collectionAliases=aliases.getCollectionAliasMap();
-              resolved=(collectionAliases != null) ? collectionAliases.get(fromIndex) : null;
-              if (resolved != null) {
-                if (resolved.split(",").length > 1)                 throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"SolrCloud join: Collection alias '" + fromIndex + "' maps to multiple collections ("+ resolved+ "), which is not currently supported for joins.");
-              }
-            }
-            if (resolved == null)             throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"SolrCloud join: Collection '" + fromIndex + "' not found!");
-            fromIndex=resolved;
-          }
-          fromIndex=findLocalReplicaForFromIndex(zkController,fromIndex);
+        coreName=ScoreJoinQParserPlugin.getCoreName(fromIndex,container);
+        final SolrCore fromCore=container.getCore(coreName);
+        if (fromCore == null) {
+          throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cross-core join: no such core " + coreName);
         }
-        final SolrCore fromCore=container.getCore(fromIndex);
-        if (fromCore == null)         throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cross-core join: no such core " + fromIndex);
         RefCounted<SolrIndexSearcher> fromHolder=null;
         LocalSolrQueryRequest otherReq=new LocalSolrQueryRequest(fromCore,params);
         try {
@@ -51,10 +38,11 @@
         }
       }
  else {
+        coreName=null;
         QParser fromQueryParser=subQuery(v,null);
         fromQuery=fromQueryParser.getQuery();
       }
-      JoinQuery jq=new JoinQuery(fromField,toField,fromIndex,fromQuery);
+      JoinQuery jq=new JoinQuery(fromField,toField,coreName == null ? fromIndex : coreName,fromQuery);
       jq.fromCoreOpenTime=fromCoreOpenTime;
       return jq;
     }
