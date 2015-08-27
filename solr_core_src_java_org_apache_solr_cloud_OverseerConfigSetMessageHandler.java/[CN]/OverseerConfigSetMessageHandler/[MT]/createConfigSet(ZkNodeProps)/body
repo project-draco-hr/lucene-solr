@@ -1,0 +1,49 @@
+{
+  String configSetName=getTaskKey(message);
+  if (configSetName == null || configSetName.length() == 0) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"ConfigSet name not specified");
+  }
+  String baseConfigSetName=message.getStr(BASE_CONFIGSET);
+  if (baseConfigSetName == null || baseConfigSetName.length() == 0) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Base ConfigSet name not specified");
+  }
+  ZkConfigManager configManager=new ZkConfigManager(zkStateReader.getZkClient());
+  if (configManager.configExists(configSetName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"ConfigSet already exists: " + configSetName);
+  }
+  if (!configManager.configExists(baseConfigSetName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Base ConfigSet does not exist: " + baseConfigSetName);
+  }
+  String propertyPath=ConfigSetProperties.DEFAULT_FILENAME;
+  Map<String,Object> props=getNewProperties(message);
+  if (props != null) {
+    NamedList oldProps=getConfigSetProperties(getPropertyPath(baseConfigSetName,propertyPath));
+    if (oldProps != null) {
+      mergeOldProperties(props,oldProps);
+    }
+  }
+  byte[] propertyData=getPropertyData(props);
+  Set<String> copiedToZkPaths=new HashSet<String>();
+  try {
+    configManager.copyConfigDir(baseConfigSetName,configSetName,copiedToZkPaths);
+    if (propertyData != null) {
+      try {
+        zkStateReader.getZkClient().makePath(getPropertyPath(configSetName,propertyPath),propertyData,CreateMode.PERSISTENT,null,false,true);
+      }
+ catch (      KeeperException|InterruptedException e) {
+        throw new IOException("Error writing new properties",SolrZkClient.checkInterrupted(e));
+      }
+    }
+  }
+ catch (  Exception e) {
+    try {
+      if (configManager.configExists(configSetName) && copiedToZkPaths.size() > 0) {
+        deleteConfigSet(configSetName,true);
+      }
+    }
+ catch (    IOException ioe) {
+      log.error("Error while trying to delete partially created ConfigSet",ioe);
+    }
+    throw e;
+  }
+}

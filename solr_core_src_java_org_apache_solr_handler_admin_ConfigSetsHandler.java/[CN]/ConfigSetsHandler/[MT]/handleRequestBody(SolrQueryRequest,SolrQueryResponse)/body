@@ -1,0 +1,26 @@
+{
+  if (coreContainer == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Core container instance missing");
+  }
+  if (!coreContainer.isZooKeeperAware()) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Solr instance is not running in SolrCloud mode.");
+  }
+  SolrParams params=req.getParams();
+  String a=params.get(ConfigSetParams.ACTION);
+  if (a != null) {
+    ConfigSetAction action=ConfigSetAction.get(a);
+    if (action == null)     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown action: " + a);
+    ConfigSetOperation operation=ConfigSetOperation.get(action);
+    log.info("Invoked ConfigSet Action :{} with params {} ",action.toLower(),req.getParamString());
+    Map<String,Object> result=operation.call(req,rsp,this);
+    if (result != null) {
+      result.put(QUEUE_OPERATION,CONFIGSETS_ACTION_PREFIX + operation.action.toLower());
+      ZkNodeProps props=new ZkNodeProps(result);
+      handleResponse(operation.action.toLower(),props,rsp,DEFAULT_ZK_TIMEOUT);
+    }
+  }
+ else {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"action is a required param");
+  }
+  rsp.setHttpCaching(false);
+}

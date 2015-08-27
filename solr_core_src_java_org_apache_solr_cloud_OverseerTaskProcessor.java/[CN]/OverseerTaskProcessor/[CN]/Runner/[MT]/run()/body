@@ -1,0 +1,52 @@
+{
+  String statsName=messageHandler.getTimerName(operation);
+  final TimerContext timerContext=stats.time(statsName);
+  boolean success=false;
+  final String asyncId=message.getStr(ASYNC);
+  String taskKey=messageHandler.getTaskKey(message);
+  try {
+    try {
+      log.debug("Runner processing {}",head.getId());
+      response=messageHandler.processMessage(message,operation);
+    }
+  finally {
+      timerContext.stop();
+      updateStats(statsName);
+    }
+    if (asyncId != null) {
+      if (response != null && (response.getResponse().get("failure") != null || response.getResponse().get("exception") != null)) {
+        failureMap.put(asyncId,SolrResponse.serializable(response));
+        log.debug("Updated failed map for task with zkid:[{}]",head.getId());
+      }
+ else {
+        completedMap.put(asyncId,SolrResponse.serializable(response));
+        log.debug("Updated completed map for task with zkid:[{}]",head.getId());
+      }
+    }
+ else {
+      head.setBytes(SolrResponse.serializable(response));
+      log.debug("Completed task:[{}]",head.getId());
+    }
+    markTaskComplete(messageHandler,head.getId(),asyncId,taskKey,message);
+    log.debug("Marked task [{}] as completed.",head.getId());
+    printTrackingMaps();
+    log.info(messageHandler.getName() + ": Message id:" + head.getId()+ " complete, response:"+ response.getResponse().toString());
+    success=true;
+  }
+ catch (  KeeperException e) {
+    SolrException.log(log,"",e);
+  }
+catch (  InterruptedException e) {
+    resetTaskWithException(messageHandler,head.getId(),asyncId,taskKey,message);
+    log.warn("Resetting task {} as the thread was interrupted.",head.getId());
+    Thread.currentThread().interrupt();
+  }
+ finally {
+    if (!success) {
+      resetTaskWithException(messageHandler,head.getId(),asyncId,taskKey,message);
+    }
+synchronized (waitLock) {
+      waitLock.notifyAll();
+    }
+  }
+}
