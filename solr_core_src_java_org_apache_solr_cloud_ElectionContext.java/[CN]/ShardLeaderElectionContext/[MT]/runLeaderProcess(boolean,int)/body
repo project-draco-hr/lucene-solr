@@ -3,7 +3,6 @@
   ActionThrottle lt;
   try (SolrCore core=cc.getCore(coreName)){
     if (core == null) {
-      cancelElection();
       throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
     }
     MDCLoggingContext.setCore(core);
@@ -18,6 +17,9 @@
     int leaderVoteWait=cc.getZkController().getLeaderVoteWait();
     if (!weAreReplacement) {
       waitForReplicasToComeUp(leaderVoteWait);
+    }
+    if (isClosed) {
+      return;
     }
     try (SolrCore core=cc.getCore(coreName)){
       if (core == null) {
@@ -87,27 +89,32 @@
       core.getCoreDescriptor().getCloudDescriptor().setLeader(true);
     }
      boolean isLeader=true;
-    try {
-      super.runLeaderProcess(weAreReplacement,0);
-    }
- catch (    Exception e) {
-      isLeader=false;
-      SolrException.log(log,"There was a problem trying to register as the leader",e);
-      try (SolrCore core=cc.getCore(coreName)){
-        if (core == null) {
-          log.debug("SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
-          return;
-        }
-        core.getCoreDescriptor().getCloudDescriptor().setLeader(false);
-        rejoinLeaderElection(core);
-      }
-     }
-    if (isLeader) {
+    if (!isClosed) {
       try {
-        startLeaderInitiatedRecoveryOnReplicas(coreName);
+        super.runLeaderProcess(weAreReplacement,0);
       }
- catch (      Exception exc) {
+ catch (      Exception e) {
+        isLeader=false;
+        SolrException.log(log,"There was a problem trying to register as the leader",e);
+        try (SolrCore core=cc.getCore(coreName)){
+          if (core == null) {
+            log.debug("SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+            return;
+          }
+          core.getCoreDescriptor().getCloudDescriptor().setLeader(false);
+          rejoinLeaderElection(core);
+        }
+       }
+      if (isLeader) {
+        try {
+          startLeaderInitiatedRecoveryOnReplicas(coreName);
+        }
+ catch (        Exception exc) {
+        }
       }
+    }
+ else {
+      cancelElection();
     }
   }
   finally {
