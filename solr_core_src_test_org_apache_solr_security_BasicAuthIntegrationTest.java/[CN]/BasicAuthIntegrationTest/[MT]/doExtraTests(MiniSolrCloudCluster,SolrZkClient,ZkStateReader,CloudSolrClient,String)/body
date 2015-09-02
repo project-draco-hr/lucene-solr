@@ -5,6 +5,17 @@
   String baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
   HttpClient cl=cloudSolrClient.getLbClient().getHttpClient();
   verifySecurityStatus(cl,baseUrl + "/admin/authentication","authentication/class","solr.BasicAuthPlugin",20);
+  boolean found=false;
+  for (  JettySolrRunner jettySolrRunner : miniCluster.getJettySolrRunners()) {
+    if (baseUrl.contains(String.valueOf(jettySolrRunner.getLocalPort()))) {
+      found=true;
+      jettySolrRunner.stop();
+      jettySolrRunner.start();
+      verifySecurityStatus(cl,baseUrl + "/admin/authentication","authentication/class","solr.BasicAuthPlugin",20);
+      break;
+    }
+  }
+  assertTrue("No server found to restart , looking for : " + baseUrl,found);
   String command="{\n" + "'set-user': {'harry':'HarryIsCool'}\n" + "}";
   GenericSolrRequest genericReq=new GenericSolrRequest(SolrRequest.METHOD.POST,"/admin/authentication",new ModifiableSolrParams());
   genericReq.setContentStreams(Collections.singletonList(new ContentStreamBase.ByteArrayStream(command.getBytes(UTF_8),"")));
