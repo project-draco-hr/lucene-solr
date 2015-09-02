@@ -1,0 +1,108 @@
+{
+  List<Point> points=new ArrayList<>();
+  int numPoints=atLeast(10000);
+  Directory dir=newDirectory();
+  IndexOutput out=dir.createOutput("bkd",IOContext.DEFAULT);
+  int maxPointsInLeaf=TestUtil.nextInt(random(),16,2048);
+  int maxPointsSortInHeap=TestUtil.nextInt(random(),maxPointsInLeaf,1024 * 1024);
+  PlanetModel planetModel;
+  if (random().nextBoolean()) {
+    planetModel=PlanetModel.WGS84;
+  }
+ else {
+    planetModel=PlanetModel.SPHERE;
+  }
+  final double planetMax=planetModel.getMaximumMagnitude();
+  BKD3DTreeWriter w=new BKD3DTreeWriter(maxPointsInLeaf,maxPointsSortInHeap);
+  for (int docID=0; docID < numPoints; docID++) {
+    Point point;
+    if (docID > 0 && random().nextInt(30) == 17) {
+      point=points.get(random().nextInt(points.size()));
+    }
+ else {
+      point=new Point(randomCoord(planetModel),randomCoord(planetModel),randomCoord(planetModel));
+    }
+    if (VERBOSE) {
+      System.err.println("  docID=" + docID + " point="+ point);
+      System.err.println("    x=" + encodeValue(planetMax,point.x) + " y="+ encodeValue(planetMax,point.y)+ " z="+ encodeValue(planetMax,point.z));
+    }
+    points.add(point);
+    w.add(encodeValue(planetMax,point.x),encodeValue(planetMax,point.y),encodeValue(planetMax,point.z),docID);
+  }
+  long indexFP=w.finish(out);
+  out.close();
+  IndexInput in=dir.openInput("bkd",IOContext.DEFAULT);
+  in.seek(indexFP);
+  BKD3DTreeReader r=new BKD3DTreeReader(in,numPoints);
+  int numIters=atLeast(100);
+  for (int iter=0; iter < numIters; iter++) {
+    Range x=randomRange(planetModel);
+    Range y=randomRange(planetModel);
+    Range z=randomRange(planetModel);
+    int xMinEnc=encodeValue(planetMax,x.min);
+    int xMaxEnc=encodeValue(planetMax,x.max);
+    int yMinEnc=encodeValue(planetMax,y.min);
+    int yMaxEnc=encodeValue(planetMax,y.max);
+    int zMinEnc=encodeValue(planetMax,z.min);
+    int zMaxEnc=encodeValue(planetMax,z.max);
+    if (VERBOSE) {
+      System.err.println("\nTEST: iter=" + iter + " bbox: x="+ x+ " ("+ xMinEnc+ " TO "+ xMaxEnc+ ")"+ " y="+ y+ " ("+ yMinEnc+ " TO "+ yMaxEnc+ ")"+ " z="+ z+ " ("+ zMinEnc+ " TO "+ zMaxEnc+ ")");
+    }
+    DocIdSet hits=r.intersect(xMinEnc,xMaxEnc,yMinEnc,yMaxEnc,zMinEnc,zMaxEnc,new BKD3DTreeReader.ValueFilter(){
+      @Override public boolean accept(      int docID){
+        Point point=points.get(docID);
+        int xEnc=encodeValue(planetMax,point.x);
+        int yEnc=encodeValue(planetMax,point.y);
+        int zEnc=encodeValue(planetMax,point.z);
+        boolean accept=xEnc >= xMinEnc && xEnc <= xMaxEnc && yEnc >= yMinEnc && yEnc <= yMaxEnc && zEnc >= zMinEnc && zEnc <= zMaxEnc;
+        return accept;
+      }
+      @Override public BKD3DTreeReader.Relation compare(      int cellXMin,      int cellXMax,      int cellYMin,      int cellYMax,      int cellZMin,      int cellZMax){
+        if (cellXMin > xMaxEnc || cellXMax < xMinEnc) {
+          return BKD3DTreeReader.Relation.SHAPE_OUTSIDE_CELL;
+        }
+        if (cellYMin > yMaxEnc || cellYMax < yMinEnc) {
+          return BKD3DTreeReader.Relation.SHAPE_OUTSIDE_CELL;
+        }
+        if (cellZMin > zMaxEnc || cellZMax < zMinEnc) {
+          return BKD3DTreeReader.Relation.SHAPE_OUTSIDE_CELL;
+        }
+        if (cellXMin >= xMinEnc && cellXMax <= xMaxEnc && cellYMin >= yMinEnc && cellYMax <= yMaxEnc && cellZMin >= zMinEnc && cellZMax <= zMaxEnc) {
+          return BKD3DTreeReader.Relation.CELL_INSIDE_SHAPE;
+        }
+        if (xMinEnc >= cellXMin && xMaxEnc <= cellXMax && yMinEnc >= cellYMin && yMaxEnc <= cellYMax && zMinEnc >= cellZMin && zMaxEnc <= cellZMax) {
+          return BKD3DTreeReader.Relation.SHAPE_INSIDE_CELL;
+        }
+        return BKD3DTreeReader.Relation.SHAPE_CROSSES_CELL;
+      }
+    }
+);
+    DocIdSetIterator disi=hits.iterator();
+    FixedBitSet matches=new FixedBitSet(numPoints);
+    while (true) {
+      int nextHit=disi.nextDoc();
+      if (nextHit == DocIdSetIterator.NO_MORE_DOCS) {
+        break;
+      }
+      matches.set(nextHit);
+    }
+    if (VERBOSE) {
+      System.err.println("  total hits: " + matches.cardinality());
+    }
+    for (int docID=0; docID < numPoints; docID++) {
+      Point point=points.get(docID);
+      boolean actual=matches.get(docID);
+      int xEnc=encodeValue(planetMax,point.x);
+      int yEnc=encodeValue(planetMax,point.y);
+      int zEnc=encodeValue(planetMax,point.z);
+      boolean expected=xEnc >= xMinEnc && xEnc <= xMaxEnc && yEnc >= yMinEnc && yEnc <= yMaxEnc && zEnc >= zMinEnc && zEnc <= zMaxEnc;
+      if (expected != actual) {
+        System.out.println("docID=" + docID + " is wrong: expected="+ expected+ " actual="+ actual);
+        System.out.println("  x=" + point.x + " ("+ xEnc+ ")"+ " y="+ point.y+ " ("+ yEnc+ ")"+ " z="+ point.z+ " ("+ zEnc+ ")");
+        fail("wrong match");
+      }
+    }
+  }
+  in.close();
+  dir.close();
+}
