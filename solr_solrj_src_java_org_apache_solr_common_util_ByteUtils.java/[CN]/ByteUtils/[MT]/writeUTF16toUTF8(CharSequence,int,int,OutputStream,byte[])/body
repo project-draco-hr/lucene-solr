@@ -1,0 +1,42 @@
+{
+  final int end=offset + len;
+  int upto=0, totalBytes=0;
+  for (int i=offset; i < end; i++) {
+    final int code=(int)s.charAt(i);
+    if (upto > scratch.length - 4) {
+      totalBytes+=upto;
+      fos.write(scratch,0,upto);
+      upto=0;
+    }
+    if (code < 0x80)     scratch[upto++]=(byte)code;
+ else     if (code < 0x800) {
+      scratch[upto++]=(byte)(0xC0 | (code >> 6));
+      scratch[upto++]=(byte)(0x80 | (code & 0x3F));
+    }
+ else     if (code < 0xD800 || code > 0xDFFF) {
+      scratch[upto++]=(byte)(0xE0 | (code >> 12));
+      scratch[upto++]=(byte)(0x80 | ((code >> 6) & 0x3F));
+      scratch[upto++]=(byte)(0x80 | (code & 0x3F));
+    }
+ else {
+      if (code < 0xDC00 && (i < end - 1)) {
+        int utf32=(int)s.charAt(i + 1);
+        if (utf32 >= 0xDC00 && utf32 <= 0xDFFF) {
+          utf32=((code - 0xD7C0) << 10) + (utf32 & 0x3FF);
+          i++;
+          scratch[upto++]=(byte)(0xF0 | (utf32 >> 18));
+          scratch[upto++]=(byte)(0x80 | ((utf32 >> 12) & 0x3F));
+          scratch[upto++]=(byte)(0x80 | ((utf32 >> 6) & 0x3F));
+          scratch[upto++]=(byte)(0x80 | (utf32 & 0x3F));
+          continue;
+        }
+      }
+      scratch[upto++]=(byte)0xEF;
+      scratch[upto++]=(byte)0xBF;
+      scratch[upto++]=(byte)0xBD;
+    }
+  }
+  totalBytes+=upto;
+  fos.write(scratch,0,upto);
+  return totalBytes;
+}
