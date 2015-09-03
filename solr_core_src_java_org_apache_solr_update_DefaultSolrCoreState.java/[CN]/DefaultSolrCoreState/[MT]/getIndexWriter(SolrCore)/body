@@ -1,31 +1,26 @@
 {
-synchronized (writerPauseLock) {
-    if (closed) {
-      throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"SolrCoreState already closed");
-    }
-    while (pauseWriter) {
-      try {
-        writerPauseLock.wait(100);
+  boolean succeeded=false;
+  lock(iwLock.readLock());
+  try {
+synchronized (this) {
+      if (core == null) {
+        initRefCntWriter();
+        if (refCntWriter == null)         return null;
       }
- catch (      InterruptedException e) {
-      }
-      if (closed) {
-        throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Already closed");
-      }
-    }
-    if (core == null) {
-      initRefCntWriter();
-      if (refCntWriter == null)       return null;
-    }
  else {
-      if (indexWriter == null) {
-        indexWriter=createMainIndexWriter(core,"DirectUpdateHandler2");
+        if (indexWriter == null) {
+          indexWriter=createMainIndexWriter(core,"DirectUpdateHandler2");
+        }
+        initRefCntWriter();
       }
-      initRefCntWriter();
+      refCntWriter.incref();
+      succeeded=true;
+      return refCntWriter;
     }
-    writerFree=false;
-    refCntWriter.incref();
-    writerPauseLock.notifyAll();
-    return refCntWriter;
+  }
+  finally {
+    if (!succeeded) {
+      iwLock.readLock().unlock();
+    }
   }
 }
