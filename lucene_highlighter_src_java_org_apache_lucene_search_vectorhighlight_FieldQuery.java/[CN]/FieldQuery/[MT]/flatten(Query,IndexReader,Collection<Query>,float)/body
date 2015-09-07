@@ -1,0 +1,60 @@
+{
+  while (sourceQuery instanceof BoostQuery) {
+    BoostQuery bq=(BoostQuery)sourceQuery;
+    sourceQuery=bq.getQuery();
+    boost*=bq.getBoost();
+  }
+  if (sourceQuery instanceof BooleanQuery) {
+    BooleanQuery bq=(BooleanQuery)sourceQuery;
+    for (    BooleanClause clause : bq) {
+      if (!clause.isProhibited()) {
+        flatten(clause.getQuery(),reader,flatQueries,boost);
+      }
+    }
+  }
+ else   if (sourceQuery instanceof DisjunctionMaxQuery) {
+    DisjunctionMaxQuery dmq=(DisjunctionMaxQuery)sourceQuery;
+    for (    Query query : dmq) {
+      flatten(query,reader,flatQueries,boost);
+    }
+  }
+ else   if (sourceQuery instanceof TermQuery) {
+    if (boost != 1f) {
+      sourceQuery=new BoostQuery(sourceQuery,boost);
+    }
+    if (!flatQueries.contains(sourceQuery))     flatQueries.add(sourceQuery);
+  }
+ else   if (sourceQuery instanceof PhraseQuery) {
+    PhraseQuery pq=(PhraseQuery)sourceQuery;
+    if (pq.getTerms().length == 1)     sourceQuery=new TermQuery(pq.getTerms()[0]);
+    if (boost != 1f) {
+      sourceQuery=new BoostQuery(sourceQuery,boost);
+    }
+    flatQueries.add(sourceQuery);
+  }
+ else   if (sourceQuery instanceof ConstantScoreQuery) {
+    final Query q=((ConstantScoreQuery)sourceQuery).getQuery();
+    if (q != null) {
+      flatten(q,reader,flatQueries,boost);
+    }
+  }
+ else   if (sourceQuery instanceof CustomScoreQuery) {
+    final Query q=((CustomScoreQuery)sourceQuery).getSubQuery();
+    if (q != null) {
+      flatten(q,reader,flatQueries,boost);
+    }
+  }
+ else   if (reader != null) {
+    Query query=sourceQuery;
+    Query rewritten;
+    if (sourceQuery instanceof MultiTermQuery) {
+      rewritten=new MultiTermQuery.TopTermsScoringBooleanQueryRewrite(MAX_MTQ_TERMS).rewrite(reader,(MultiTermQuery)query);
+    }
+ else {
+      rewritten=query.rewrite(reader);
+    }
+    if (rewritten != query) {
+      flatten(rewritten,reader,flatQueries,boost);
+    }
+  }
+}

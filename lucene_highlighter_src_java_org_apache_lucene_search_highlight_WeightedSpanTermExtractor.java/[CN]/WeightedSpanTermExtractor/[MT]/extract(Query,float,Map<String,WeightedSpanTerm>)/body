@@ -1,0 +1,136 @@
+{
+  if (query instanceof BoostQuery) {
+    BoostQuery boostQuery=(BoostQuery)query;
+    extract(boostQuery.getQuery(),boost * boostQuery.getBoost(),terms);
+  }
+ else   if (query instanceof BooleanQuery) {
+    for (    BooleanClause clause : (BooleanQuery)query) {
+      if (!clause.isProhibited()) {
+        extract(clause.getQuery(),boost,terms);
+      }
+    }
+  }
+ else   if (query instanceof PhraseQuery) {
+    PhraseQuery phraseQuery=((PhraseQuery)query);
+    Term[] phraseQueryTerms=phraseQuery.getTerms();
+    SpanQuery[] clauses=new SpanQuery[phraseQueryTerms.length];
+    for (int i=0; i < phraseQueryTerms.length; i++) {
+      clauses[i]=new SpanTermQuery(phraseQueryTerms[i]);
+    }
+    int slop=phraseQuery.getSlop();
+    int[] positions=phraseQuery.getPositions();
+    if (positions.length > 0) {
+      int lastPos=positions[0];
+      int largestInc=0;
+      int sz=positions.length;
+      for (int i=1; i < sz; i++) {
+        int pos=positions[i];
+        int inc=pos - lastPos;
+        if (inc > largestInc) {
+          largestInc=inc;
+        }
+        lastPos=pos;
+      }
+      if (largestInc > 1) {
+        slop+=largestInc;
+      }
+    }
+    boolean inorder=false;
+    if (slop == 0) {
+      inorder=true;
+    }
+    SpanNearQuery sp=new SpanNearQuery(clauses,slop,inorder);
+    extractWeightedSpanTerms(terms,sp,boost);
+  }
+ else   if (query instanceof TermQuery) {
+    extractWeightedTerms(terms,query,boost);
+  }
+ else   if (query instanceof SpanQuery) {
+    extractWeightedSpanTerms(terms,(SpanQuery)query,boost);
+  }
+ else   if (query instanceof ConstantScoreQuery) {
+    final Query q=((ConstantScoreQuery)query).getQuery();
+    if (q != null) {
+      extract(q,boost,terms);
+    }
+  }
+ else   if (query instanceof CommonTermsQuery) {
+    extractWeightedTerms(terms,query,boost);
+  }
+ else   if (query instanceof DisjunctionMaxQuery) {
+    for (Iterator<Query> iterator=((DisjunctionMaxQuery)query).iterator(); iterator.hasNext(); ) {
+      extract(iterator.next(),boost,terms);
+    }
+  }
+ else   if (query instanceof ToParentBlockJoinQuery) {
+    extract(((ToParentBlockJoinQuery)query).getChildQuery(),boost,terms);
+  }
+ else   if (query instanceof ToChildBlockJoinQuery) {
+    extract(((ToChildBlockJoinQuery)query).getParentQuery(),boost,terms);
+  }
+ else   if (query instanceof MultiPhraseQuery) {
+    final MultiPhraseQuery mpq=(MultiPhraseQuery)query;
+    final List<Term[]> termArrays=mpq.getTermArrays();
+    final int[] positions=mpq.getPositions();
+    if (positions.length > 0) {
+      int maxPosition=positions[positions.length - 1];
+      for (int i=0; i < positions.length - 1; ++i) {
+        if (positions[i] > maxPosition) {
+          maxPosition=positions[i];
+        }
+      }
+      @SuppressWarnings({"unchecked","rawtypes"}) final List<SpanQuery>[] disjunctLists=new List[maxPosition + 1];
+      int distinctPositions=0;
+      for (int i=0; i < termArrays.size(); ++i) {
+        final Term[] termArray=termArrays.get(i);
+        List<SpanQuery> disjuncts=disjunctLists[positions[i]];
+        if (disjuncts == null) {
+          disjuncts=(disjunctLists[positions[i]]=new ArrayList<>(termArray.length));
+          ++distinctPositions;
+        }
+        for (int j=0; j < termArray.length; ++j) {
+          disjuncts.add(new SpanTermQuery(termArray[j]));
+        }
+      }
+      int positionGaps=0;
+      int position=0;
+      final SpanQuery[] clauses=new SpanQuery[distinctPositions];
+      for (int i=0; i < disjunctLists.length; ++i) {
+        List<SpanQuery> disjuncts=disjunctLists[i];
+        if (disjuncts != null) {
+          clauses[position++]=new SpanOrQuery(disjuncts.toArray(new SpanQuery[disjuncts.size()]));
+        }
+ else {
+          ++positionGaps;
+        }
+      }
+      final int slop=mpq.getSlop();
+      final boolean inorder=(slop == 0);
+      SpanNearQuery sp=new SpanNearQuery(clauses,slop + positionGaps,inorder);
+      extractWeightedSpanTerms(terms,sp,boost);
+    }
+  }
+ else   if (query instanceof MatchAllDocsQuery) {
+  }
+ else   if (query instanceof CustomScoreQuery) {
+    extract(((CustomScoreQuery)query).getSubQuery(),boost,terms);
+  }
+ else {
+    Query origQuery=query;
+    final IndexReader reader=getLeafContext().reader();
+    Query rewritten;
+    if (query instanceof MultiTermQuery) {
+      if (!expandMultiTermQuery) {
+        return;
+      }
+      rewritten=MultiTermQuery.SCORING_BOOLEAN_REWRITE.rewrite(reader,(MultiTermQuery)query);
+    }
+ else {
+      rewritten=origQuery.rewrite(reader);
+    }
+    if (rewritten != origQuery) {
+      extract(rewritten,boost,terms);
+    }
+  }
+  extractUnknownQuery(query,terms);
+}
