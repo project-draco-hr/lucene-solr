@@ -1,0 +1,27 @@
+{
+  String q="name:e*";
+  SolrCore core=h.getCore();
+  SolrInfoMBean queryCacheStats=core.getInfoRegistry().get("queryResultCache");
+  NamedList nl=queryCacheStats.getStatistics();
+  long inserts=(long)nl.get("inserts");
+  String response=JQ(req("q",q,"indent","true","timeAllowed","1","sleep",sleep));
+  nl=queryCacheStats.getStatistics();
+  assertEquals("Should NOT have inserted partial results!",inserts,(long)nl.get("inserts"));
+  Map res=(Map)ObjectBuilder.fromJSON(response);
+  Map body=(Map)(res.get("response"));
+  Map header=(Map)(res.get("responseHeader"));
+  assertTrue("Should have fewer docs than " + NUM_DOCS,(long)(body.get("numFound")) < NUM_DOCS);
+  assertTrue("Should have partial results",(Boolean)(header.get("partialResults")));
+  response=JQ(req("q",q,"indent","true","timeAllowed",longTimeout));
+  NamedList nl2=queryCacheStats.getStatistics();
+  assertEquals("Hits should still be 0",(long)nl.get("hits"),(long)nl2.get("hits"));
+  assertTrue("Inserts should be bumped",inserts < (long)nl2.get("inserts"));
+  res=(Map)ObjectBuilder.fromJSON(response);
+  body=(Map)(res.get("response"));
+  header=(Map)(res.get("responseHeader"));
+  assertEquals("Should have exactly " + NUM_DOCS,NUM_DOCS,(long)(body.get("numFound")));
+  Boolean test=(Boolean)(header.get("partialResults"));
+  if (test != null) {
+    assertFalse("Should NOT have partial results",test);
+  }
+}

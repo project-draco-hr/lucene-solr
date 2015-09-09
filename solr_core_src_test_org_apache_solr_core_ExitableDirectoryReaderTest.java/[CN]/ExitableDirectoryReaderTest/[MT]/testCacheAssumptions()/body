@@ -1,0 +1,24 @@
+{
+  String fq="name:d*";
+  SolrCore core=h.getCore();
+  SolrInfoMBean filterCacheStats=core.getInfoRegistry().get("filterCache");
+  long fqInserts=(long)filterCacheStats.getStatistics().get("inserts");
+  SolrInfoMBean queryCacheStats=core.getInfoRegistry().get("queryResultCache");
+  long qrInserts=(long)queryCacheStats.getStatistics().get("inserts");
+  String response=JQ(req("q","*:*","fq",fq,"indent","true","timeAllowed","1","sleep",sleep));
+  Map res=(Map)ObjectBuilder.fromJSON(response);
+  Map body=(Map)(res.get("response"));
+  assertTrue("Should have fewer docs than " + NUM_DOCS,(long)(body.get("numFound")) < NUM_DOCS);
+  Map header=(Map)(res.get("responseHeader"));
+  assertTrue("Should have partial results",(Boolean)(header.get("partialResults")));
+  assertEquals("Should NOT have inserted partial results in the cache!",(long)queryCacheStats.getStatistics().get("inserts"),qrInserts);
+  assertEquals("Should NOT have another insert",fqInserts,(long)filterCacheStats.getStatistics().get("inserts"));
+  response=JQ(req("q","*:*","fq",fq,"indent","true","timeAllowed",longTimeout));
+  assertEquals("Hits should still be 0",(long)filterCacheStats.getStatistics().get("hits"),0L);
+  assertEquals("Inserts should be bumped",(long)filterCacheStats.getStatistics().get("inserts"),fqInserts + 1);
+  res=(Map)ObjectBuilder.fromJSON(response);
+  body=(Map)(res.get("response"));
+  assertEquals("Should have exactly " + NUM_DOCS,(long)(body.get("numFound")),NUM_DOCS);
+  header=(Map)(res.get("responseHeader"));
+  assertTrue("Should NOT have partial results",header.get("partialResults") == null);
+}
