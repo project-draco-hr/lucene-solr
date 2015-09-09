@@ -27,8 +27,6 @@
       rsp.setException(error.e);
       break;
     }
-    int maxTries=1;
-    boolean sendRecoveryCommand=true;
     String collection=null;
     String shardId=null;
     if (error.req.node instanceof StdNode) {
@@ -61,21 +59,16 @@
       }
       if (cloudDesc.getCoreNodeName().equals(leaderCoreNodeName) && foundErrorNodeInReplicaList) {
         try {
-          sendRecoveryCommand=zkController.ensureReplicaInLeaderInitiatedRecovery(collection,shardId,stdNode.getNodeProps(),leaderCoreNodeName,false,false);
-          if (sendRecoveryCommand) {
-            maxTries=120;
-          }
+          Throwable rootCause=SolrException.getRootCause(error.e);
+          log.error("Setting up to try to start recovery on replica {}",replicaUrl,rootCause);
+          zkController.ensureReplicaInLeaderInitiatedRecovery(req.getCore().getCoreDescriptor().getCoreContainer(),collection,shardId,stdNode.getNodeProps(),leaderCoreNodeName,false);
         }
  catch (        Exception exc) {
           Throwable setLirZnodeFailedCause=SolrException.getRootCause(exc);
           log.error("Leader failed to set replica " + error.req.node.getUrl() + " state to DOWN due to: "+ setLirZnodeFailedCause,setLirZnodeFailedCause);
-          if (setLirZnodeFailedCause instanceof KeeperException.SessionExpiredException || setLirZnodeFailedCause instanceof KeeperException.ConnectionLossException) {
-            sendRecoveryCommand=false;
-          }
         }
       }
  else {
-        sendRecoveryCommand=false;
         if (!foundErrorNodeInReplicaList) {
           log.warn("Core " + cloudDesc.getCoreNodeName() + " belonging to "+ collection+ " "+ shardId+ ", does not have error'd node "+ stdNode.getNodeProps().getCoreUrl()+ " as a replica. "+ "No request recovery command will be sent!");
         }
@@ -83,19 +76,6 @@
           log.warn("Core " + cloudDesc.getCoreNodeName() + " is no longer the leader for "+ collection+ " "+ shardId+ ", no request recovery command will be sent!");
         }
       }
-    }
-    if (!sendRecoveryCommand)     continue;
-    Throwable rootCause=SolrException.getRootCause(error.e);
-    log.error("Setting up to try to start recovery on replica {}",replicaUrl,rootCause);
-    CoreContainer coreContainer=req.getCore().getCoreDescriptor().getCoreContainer();
-    LeaderInitiatedRecoveryThread lirThread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,collection,shardId,error.req.node.getNodeProps(),maxTries,cloudDesc.getCoreNodeName());
-    ExecutorService executor=coreContainer.getUpdateShardHandler().getUpdateExecutor();
-    try {
-      MDC.put("DistributedUpdateProcessor.replicaUrlToRecover",error.req.node.getNodeProps().getCoreUrl());
-      executor.execute(lirThread);
-    }
-  finally {
-      MDC.remove("DistributedUpdateProcessor.replicaUrlToRecover");
     }
   }
   if (replicationTracker != null) {

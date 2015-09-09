@@ -1,0 +1,35 @@
+{
+  boolean sendRecoveryCommand=true;
+  boolean publishDownState=false;
+  if (zkController.getZkStateReader().getClusterState().liveNodesContain(replicaNodeName)) {
+    try {
+      updateLIRState(replicaCoreNodeName);
+      log.info("Put replica core={} coreNodeName={} on " + replicaNodeName + " into leader-initiated recovery.",replicaCoreName,replicaCoreNodeName);
+      publishDownState=true;
+    }
+ catch (    Exception e) {
+      Throwable setLirZnodeFailedCause=SolrException.getRootCause(e);
+      log.error("Leader failed to set replica " + nodeProps.getCoreUrl() + " state to DOWN due to: "+ setLirZnodeFailedCause,setLirZnodeFailedCause);
+      if (setLirZnodeFailedCause instanceof KeeperException.SessionExpiredException || setLirZnodeFailedCause instanceof KeeperException.ConnectionLossException || setLirZnodeFailedCause instanceof ZkController.NotLeaderException) {
+        sendRecoveryCommand=false;
+        forcePublishState=false;
+      }
+    }
+  }
+ else {
+    log.info("Node " + replicaNodeName + " is not live, so skipping leader-initiated recovery for replica: core={} coreNodeName={}",replicaCoreName,replicaCoreNodeName);
+    forcePublishState=false;
+    sendRecoveryCommand=false;
+  }
+  try {
+    if (publishDownState || forcePublishState) {
+      ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,"state",ZkStateReader.STATE_PROP,Replica.State.DOWN.toString(),ZkStateReader.BASE_URL_PROP,nodeProps.getBaseUrl(),ZkStateReader.CORE_NAME_PROP,nodeProps.getCoreName(),ZkStateReader.NODE_NAME_PROP,nodeProps.getNodeName(),ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
+      log.warn("Leader is publishing core={} coreNodeName ={} state={} on behalf of un-reachable replica {}",replicaCoreName,replicaCoreNodeName,Replica.State.DOWN.toString(),replicaUrl);
+      zkController.getOverseerJobQueue().offer(Utils.toJSON(m));
+    }
+  }
+ catch (  Exception e) {
+    log.error("Could not publish 'down' state for replicaUrl: {}",replicaUrl,e);
+  }
+  return sendRecoveryCommand;
+}

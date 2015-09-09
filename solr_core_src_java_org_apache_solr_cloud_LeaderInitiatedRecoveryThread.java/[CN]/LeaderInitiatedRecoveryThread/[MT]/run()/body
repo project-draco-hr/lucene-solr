@@ -1,16 +1,32 @@
 {
   RTimer timer=new RTimer();
-  try {
-    sendRecoveryCommandWithRetry();
+  String replicaCoreName=nodeProps.getCoreName();
+  String replicaCoreNodeName=((Replica)nodeProps.getNodeProps()).getName();
+  String replicaNodeName=nodeProps.getNodeName();
+  final String replicaUrl=nodeProps.getCoreUrl();
+  if (!zkController.isReplicaInRecoveryHandling(replicaUrl)) {
+    throw new SolrException(ErrorCode.INVALID_STATE,"Replica: " + replicaUrl + " should have been marked under leader initiated recovery in ZkController but wasn't.");
   }
- catch (  Exception exc) {
-    log.error(getName() + " failed due to: " + exc,exc);
-    if (exc instanceof SolrException) {
-      throw (SolrException)exc;
+  boolean sendRecoveryCommand=publishDownState(replicaCoreName,replicaCoreNodeName,replicaNodeName,replicaUrl,false);
+  if (sendRecoveryCommand) {
+    try {
+      sendRecoveryCommandWithRetry();
     }
+ catch (    Exception exc) {
+      log.error(getName() + " failed due to: " + exc,exc);
+      if (exc instanceof SolrException) {
+        throw (SolrException)exc;
+      }
  else {
-      throw new SolrException(ErrorCode.SERVER_ERROR,exc);
+        throw new SolrException(ErrorCode.SERVER_ERROR,exc);
+      }
     }
+ finally {
+      zkController.removeReplicaFromLeaderInitiatedRecoveryHandling(replicaUrl);
+    }
+  }
+ else {
+    zkController.removeReplicaFromLeaderInitiatedRecoveryHandling(replicaUrl);
   }
   log.info("{} completed successfully after running for {}ms",getName(),timer.getTime());
 }
