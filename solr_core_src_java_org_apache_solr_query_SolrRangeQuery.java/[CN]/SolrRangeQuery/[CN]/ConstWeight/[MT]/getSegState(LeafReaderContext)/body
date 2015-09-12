@@ -1,0 +1,66 @@
+{
+  SegState segState=segStates[context.ord];
+  if (segState != null)   return segState;
+  boolean doCheck=!checkedFilterCache && context.ord == 0;
+  checkedFilterCache=true;
+  SolrIndexSearcher solrSearcher=null;
+  if (doCheck && searcher instanceof SolrIndexSearcher) {
+    solrSearcher=(SolrIndexSearcher)searcher;
+    if (solrSearcher.getFilterCache() == null) {
+      doCheck=false;
+    }
+ else {
+      solrSearcher=(SolrIndexSearcher)searcher;
+      DocSet answer=solrSearcher.getFilterCache().get(SolrRangeQuery.this);
+      if (answer != null) {
+        filter=answer.getTopFilter();
+      }
+    }
+  }
+  if (filter != null) {
+    return segStates[context.ord]=new SegState(filter.getDocIdSet(context,null));
+  }
+  final Terms terms=context.reader().terms(SolrRangeQuery.this.getField());
+  if (terms == null) {
+    return segStates[context.ord]=new SegState((DocIdSet)null);
+  }
+  final TermsEnum termsEnum=SolrRangeQuery.this.getTermsEnum(context);
+  PostingsEnum docs=null;
+  final List<TermAndState> collectedTerms=new ArrayList<>();
+  long count=collectTerms(context,termsEnum,collectedTerms);
+  if (count < 0) {
+    BooleanQuery.Builder bq=new BooleanQuery.Builder();
+    for (    TermAndState t : collectedTerms) {
+      final TermContext termContext=new TermContext(searcher.getTopReaderContext());
+      termContext.register(t.state,context.ord,t.docFreq,t.totalTermFreq);
+      bq.add(new TermQuery(new Term(SolrRangeQuery.this.getField(),t.term),termContext),BooleanClause.Occur.SHOULD);
+    }
+    Query q=new ConstantScoreQuery(bq.build());
+    final Weight weight=searcher.rewrite(q).createWeight(searcher,needScores);
+    weight.normalize(1f,score());
+    return segStates[context.ord]=new SegState(weight);
+  }
+  if (doCheck) {
+    DocSet answer=createDocSet(solrSearcher,count);
+    solrSearcher.getFilterCache().put(SolrRangeQuery.this,answer);
+    filter=answer.getTopFilter();
+    return segStates[context.ord]=new SegState(filter.getDocIdSet(context,null));
+  }
+  DocIdSetBuilder builder=new DocIdSetBuilder(context.reader().maxDoc());
+  builder.grow((int)Math.min(Integer.MAX_VALUE,count));
+  if (collectedTerms.isEmpty() == false) {
+    TermsEnum termsEnum2=terms.iterator();
+    for (    TermAndState t : collectedTerms) {
+      termsEnum2.seekExact(t.term,t.state);
+      docs=termsEnum2.postings(docs,PostingsEnum.NONE);
+      builder.add(docs);
+    }
+  }
+  do {
+    docs=termsEnum.postings(docs,PostingsEnum.NONE);
+    builder.add(docs);
+  }
+ while (termsEnum.next() != null);
+  DocIdSet segSet=builder.build();
+  return segStates[context.ord]=new SegState(segSet);
+}
