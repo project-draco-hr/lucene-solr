@@ -2,41 +2,31 @@
   SimpleOrderedMap<Object> info=new SimpleOrderedMap<>();
   OperatingSystemMXBean os=ManagementFactory.getOperatingSystemMXBean();
   info.add(NAME,os.getName());
-  info.add("version",os.getVersion());
-  info.add("arch",os.getArch());
-  info.add("systemLoadAverage",os.getSystemLoadAverage());
   try {
-    final Class<? extends PlatformManagedObject> intf=Class.forName("com.sun.management.OperatingSystemMXBean").asSubclass(PlatformManagedObject.class);
-    final PlatformManagedObject bean=ManagementFactory.getPlatformMXBean(intf);
-    if (bean != null) {
-      addMXBeanProperty(bean,intf,"committedVirtualMemorySize",info);
-      addMXBeanProperty(bean,intf,"freePhysicalMemorySize",info);
-      addMXBeanProperty(bean,intf,"freeSwapSpaceSize",info);
-      addMXBeanProperty(bean,intf,"processCpuTime",info);
-      addMXBeanProperty(bean,intf,"totalPhysicalMemorySize",info);
-      addMXBeanProperty(bean,intf,"totalSwapSpaceSize",info);
+    addMXBeanProperties(os,OperatingSystemMXBean.class,info);
+  }
+ catch (  IntrospectionException|ReflectiveOperationException e) {
+    log.warn("Unable to fetch properties of OperatingSystemMXBean.",e);
+  }
+  for (  String clazz : Arrays.asList("com.sun.management.OperatingSystemMXBean","com.sun.management.UnixOperatingSystemMXBean","com.ibm.lang.management.OperatingSystemMXBean")) {
+    try {
+      final Class<? extends PlatformManagedObject> intf=Class.forName(clazz).asSubclass(PlatformManagedObject.class);
+      addMXBeanProperties(os,intf,info);
+    }
+ catch (    ClassNotFoundException e) {
+    }
+catch (    IntrospectionException|ReflectiveOperationException e) {
+      log.warn("Unable to fetch properties of JVM-specific OperatingSystemMXBean.",e);
     }
   }
- catch (  Exception e) {
-  }
   try {
-    final Class<? extends PlatformManagedObject> intf=Class.forName("com.sun.management.UnixOperatingSystemMXBean").asSubclass(PlatformManagedObject.class);
-    final PlatformManagedObject bean=ManagementFactory.getPlatformMXBean(intf);
-    if (bean != null) {
-      addMXBeanProperty(bean,intf,"openFileDescriptorCount",info);
-      addMXBeanProperty(bean,intf,"maxFileDescriptorCount",info);
-    }
-  }
- catch (  Exception e) {
-  }
-  try {
-    if (!os.getName().toLowerCase(Locale.ROOT).startsWith("windows")) {
+    if (!Constants.WINDOWS) {
       info.add("uname",execute("uname -a"));
       info.add("uptime",execute("uptime"));
     }
   }
  catch (  Exception ex) {
-    log.warn("Unable to execute command line tools.",ex);
+    log.warn("Unable to execute command line tools to get operating system properties.",ex);
   }
   return info;
 }
