@@ -7,19 +7,41 @@
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown RequestHandler (qt): " + qt);
   }
   if (handler instanceof PingRequestHandler) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cannot execute the PingRequestHandler recursively");
+    if (params.getBool(ShardParams.IS_SHARD,false)) {
+      handler=core.getRequestHandler(null);
+      ModifiableSolrParams wparams=new ModifiableSolrParams(params);
+      wparams.remove(CommonParams.QT);
+      req.setParams(wparams);
+    }
+ else {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Cannot execute the PingRequestHandler recursively");
+    }
   }
   Throwable ex=null;
-  try {
-    SolrQueryResponse pingrsp=new SolrQueryResponse();
-    core.execute(handler,req,pingrsp);
-    ex=pingrsp.getException();
+  if (params.getBool(ShardParams.IS_SHARD,false)) {
+    try {
+      core.execute(handler,req,rsp);
+      ex=rsp.getException();
+    }
+ catch (    Exception e) {
+      ex=e;
+    }
+    if (ex != null) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Ping query caused exception: " + ex.getMessage(),ex);
+    }
   }
- catch (  Exception e) {
-    ex=e;
+ else {
+    try {
+      SolrQueryResponse pingrsp=new SolrQueryResponse();
+      core.execute(handler,req,pingrsp);
+      ex=pingrsp.getException();
+    }
+ catch (    Exception e) {
+      ex=e;
+    }
+    if (ex != null) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Ping query caused exception: " + ex.getMessage(),ex);
+    }
+    rsp.add("status","OK");
   }
-  if (ex != null) {
-    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Ping query caused exception: " + ex.getMessage(),ex);
-  }
-  rsp.add("status","OK");
 }

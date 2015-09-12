@@ -1,0 +1,29 @@
+{
+  File solrXml=new File(SolrTestCaseJ4.TEST_HOME(),"solr-no-core.xml");
+  MiniSolrCloudCluster miniCluster=new MiniSolrCloudCluster(NUM_SERVERS,createTempDir().toFile(),solrXml,buildJettyConfig("/solr"));
+  final CloudSolrClient cloudSolrClient=miniCluster.getSolrClient();
+  try {
+    assertNotNull(miniCluster.getZkServer());
+    List<JettySolrRunner> jettys=miniCluster.getJettySolrRunners();
+    assertEquals(NUM_SERVERS,jettys.size());
+    for (    JettySolrRunner jetty : jettys) {
+      assertTrue(jetty.isRunning());
+    }
+    String collectionName="testSolrCloudCollection";
+    String configName="solrCloudCollectionConfig";
+    File configDir=new File(SolrTestCaseJ4.TEST_HOME() + File.separator + "collection1"+ File.separator+ "conf");
+    miniCluster.uploadConfigDir(configDir,configName);
+    miniCluster.createCollection(collectionName,NUM_SHARDS,REPLICATION_FACTOR,configName,null);
+    SolrPingWithDistrib reqDistrib=new SolrPingWithDistrib();
+    reqDistrib.setDistrib(true);
+    SolrPingResponse rsp=reqDistrib.process(cloudSolrClient,collectionName);
+    assertEquals(0,rsp.getStatus());
+    SolrPing reqNonDistrib=new SolrPing();
+    rsp=reqNonDistrib.process(cloudSolrClient,collectionName);
+    assertEquals(0,rsp.getStatus());
+    miniCluster.deleteCollection(collectionName);
+  }
+  finally {
+    miniCluster.shutdown();
+  }
+}
