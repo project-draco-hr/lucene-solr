@@ -1,0 +1,22 @@
+{
+  MockAnalyzer stopAnalyzer=new MockAnalyzer(random(),MockTokenizer.WHITESPACE,true,MockTokenFilter.ENGLISH_STOPSET);
+  final String TEXT="the ab the the cd the the the ef the";
+  final Directory directory=newDirectory();
+  try (IndexWriter indexWriter=new IndexWriter(directory,newIndexWriterConfig(stopAnalyzer))){
+    final Document document=new Document();
+    document.add(newTextField(FIELD,TEXT,Store.YES));
+    indexWriter.addDocument(document);
+  }
+   try (IndexReader indexReader=DirectoryReader.open(directory)){
+    assertEquals(1,indexReader.numDocs());
+    final IndexSearcher indexSearcher=newSearcher(indexReader);
+    final PhraseQuery phraseQuery=new PhraseQuery.Builder().add(new Term(FIELD,"ab"),0).add(new Term(FIELD,"cd"),3).add(new Term(FIELD,"ef"),7).build();
+    TopDocs hits=indexSearcher.search(phraseQuery,100);
+    assertEquals(1,hits.totalHits);
+    final Highlighter highlighter=new Highlighter(new SimpleHTMLFormatter(),new SimpleHTMLEncoder(),new QueryScorer(phraseQuery));
+    assertEquals(1,highlighter.getBestFragments(stopAnalyzer,FIELD,TEXT,10).length);
+  }
+  finally {
+    directory.close();
+  }
+}
