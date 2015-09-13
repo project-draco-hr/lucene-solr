@@ -44,20 +44,6 @@
     }
     if (w == null) {
       IndexWriterConfig iwc=newIndexWriterConfig(new MockAnalyzer(random()));
-      final MergeScheduler ms=iwc.getMergeScheduler();
-      if (ms instanceof ConcurrentMergeScheduler) {
-        final ConcurrentMergeScheduler suppressFakeIOE=new ConcurrentMergeScheduler(){
-          @Override protected void handleMergeException(          Directory dir,          Throwable exc){
-            if (!(exc instanceof FakeIOException)) {
-              super.handleMergeException(dir,exc);
-            }
-          }
-        }
-;
-        final ConcurrentMergeScheduler cms=(ConcurrentMergeScheduler)ms;
-        suppressFakeIOE.setMaxMergesAndThreads(cms.getMaxMergeCount(),cms.getMaxThreadCount());
-        iwc.setMergeScheduler(suppressFakeIOE);
-      }
       w=new RandomIndexWriter(random(),dir,iwc);
       w.setDoRandomForceMergeAssert(false);
     }
@@ -131,6 +117,15 @@
       }
     }
     shouldFail.set(false);
+    if (w != null) {
+      MergeScheduler ms=w.w.getConfig().getMergeScheduler();
+      if (ms instanceof ConcurrentMergeScheduler) {
+        ((ConcurrentMergeScheduler)ms).sync();
+      }
+      if (w.w.getTragicException() != null) {
+        w=null;
+      }
+    }
     IndexReader r;
     if (doClose && w != null) {
       if (VERBOSE) {
