@@ -1,0 +1,45 @@
+{
+  String testCollectionName="collMinRf_1x3";
+  createCollection(testCollectionName,1,3,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  sendDoc(1,2);
+  List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",1,3,maxWaitSecsToSeeAllActive);
+  assertTrue("Expected 2 non-leader replicas for collection " + testCollectionName + " but found "+ notLeaders.size()+ "; clusterState: "+ printClusterStateInfo(testCollectionName),notLeaders.size() == 2);
+  assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,1);
+  SocketProxy proxy0=getProxyForReplica(notLeaders.get(0));
+  proxy0.close();
+  int achievedRf=sendDoc(2,2);
+  assertEquals("Unexpected achieved replication factor",2,achievedRf);
+  Thread.sleep(sleepMsBeforeHealPartition);
+  ZkStateReader zkr=cloudClient.getZkStateReader();
+  zkr.updateClusterState();
+  ClusterState cs=zkr.getClusterState();
+  Collection<Slice> slices=cs.getActiveSlices(testCollectionName);
+  Slice slice=slices.iterator().next();
+  Replica partitionedReplica=slice.getReplica(notLeaders.get(0).getName());
+  assertEquals("The partitioned replica did not get marked down",Replica.State.DOWN.toString(),partitionedReplica.getStr(ZkStateReader.STATE_PROP));
+  proxy0.reopen();
+  notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",1,3,maxWaitSecsToSeeAllActive);
+  assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,2);
+  proxy0=getProxyForReplica(notLeaders.get(0));
+  proxy0.close();
+  SocketProxy proxy1=getProxyForReplica(notLeaders.get(1));
+  proxy1.close();
+  achievedRf=sendDoc(3,2);
+  assertEquals("Unexpected achieved replication factor",1,achievedRf);
+  Thread.sleep(sleepMsBeforeHealPartition);
+  ensureAllReplicasAreActive(testCollectionName,"shard1",1,3,1);
+  proxy0.reopen();
+  proxy1.reopen();
+  notLeaders=ensureAllReplicasAreActive(testCollectionName,"shard1",1,3,maxWaitSecsToSeeAllActive);
+  Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,"shard1",10000);
+  HttpSolrClient leaderSolr=getHttpSolrClient(leader,testCollectionName);
+  assertDocExists(leaderSolr,testCollectionName,"3");
+  for (  Replica notLeader : notLeaders) {
+    HttpSolrClient notLeaderSolr=getHttpSolrClient(notLeader,testCollectionName);
+    assertDocNotExists(notLeaderSolr,testCollectionName,"3");
+  }
+  achievedRf=sendDoc(3,2);
+  assertEquals("Unexpected achieved replication factor",3,achievedRf);
+  assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,3);
+}
