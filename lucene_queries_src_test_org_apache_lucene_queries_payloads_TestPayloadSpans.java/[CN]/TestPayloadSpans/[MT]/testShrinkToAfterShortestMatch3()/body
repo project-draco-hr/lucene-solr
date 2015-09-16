@@ -1,0 +1,37 @@
+{
+  Directory directory=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),directory,newIndexWriterConfig(new TestPayloadAnalyzer()));
+  Document doc=new Document();
+  doc.add(new TextField("content",new StringReader("j k a l f k k p a t a k l k t a")));
+  writer.addDocument(doc);
+  IndexReader reader=writer.getReader();
+  IndexSearcher is=newSearcher(reader);
+  writer.close();
+  SpanTermQuery stq1=new SpanTermQuery(new Term("content","a"));
+  SpanTermQuery stq2=new SpanTermQuery(new Term("content","k"));
+  SpanQuery[] sqs={stq1,stq2};
+  SpanNearQuery snq=new SpanNearQuery(sqs,0,true);
+  Spans spans=MultiSpansWrapper.wrap(is.getIndexReader(),snq,SpanWeight.Postings.PAYLOADS);
+  TopDocs topDocs=is.search(snq,1);
+  Set<String> payloadSet=new HashSet<>();
+  VerifyingCollector collector=new VerifyingCollector();
+  for (int i=0; i < topDocs.scoreDocs.length; i++) {
+    while (spans.nextDoc() != Spans.NO_MORE_DOCS) {
+      while (spans.nextStartPosition() != Spans.NO_MORE_POSITIONS) {
+        collector.reset();
+        spans.collect(collector);
+        for (        final BytesRef payload : collector.payloads) {
+          payloadSet.add(Term.toString(payload));
+        }
+      }
+    }
+  }
+  assertEquals(2,payloadSet.size());
+  if (VERBOSE) {
+    for (    final String payload : payloadSet)     System.out.println("match:" + payload);
+  }
+  assertTrue(payloadSet.contains("a:Noise:10"));
+  assertTrue(payloadSet.contains("k:Noise:11"));
+  reader.close();
+  directory.close();
+}
