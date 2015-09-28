@@ -1,0 +1,80 @@
+{
+  String label=path;
+  if (!fullpath) {
+    int idx=path.lastIndexOf('/');
+    label=idx > 0 ? path.substring(idx + 1) : path;
+  }
+  json.startObject();
+  json.writeString("data");
+  json.writeNameSeparator();
+  json.startObject();
+  writeKeyValue(json,"title",label,true);
+  json.writeValueSeparator();
+  json.writeString("attr");
+  json.writeNameSeparator();
+  json.startObject();
+  writeKeyValue(json,"href","admin/zookeeper?detail=true&path=" + URLEncoder.encode(path,"UTF-8"),true);
+  json.endObject();
+  json.endObject();
+  Stat stat=new Stat();
+  try {
+    byte[] data=zkClient.getData(path,null,stat,true);
+    if (stat.getEphemeralOwner() != 0) {
+      writeKeyValue(json,"ephemeral",true,false);
+      writeKeyValue(json,"version",stat.getVersion(),false);
+    }
+    if (dump) {
+      json.writeValueSeparator();
+      printZnode(json,path);
+    }
+  }
+ catch (  IllegalArgumentException e) {
+    writeKeyValue(json,"warning","(path gone)",false);
+  }
+catch (  KeeperException e) {
+    writeKeyValue(json,"warning",e.toString(),false);
+    log.warn("Keeper Exception",e);
+  }
+catch (  InterruptedException e) {
+    writeKeyValue(json,"warning",e.toString(),false);
+    log.warn("InterruptedException",e);
+  }
+  if (stat.getNumChildren() > 0) {
+    json.writeValueSeparator();
+    if (indent) {
+      json.indent();
+    }
+    json.writeString("children");
+    json.writeNameSeparator();
+    json.startArray();
+    try {
+      List<String> children=zkClient.getChildren(path,null,true);
+      java.util.Collections.sort(children);
+      boolean first=true;
+      for (      String child : children) {
+        if (!first) {
+          json.writeValueSeparator();
+        }
+        String childPath=path + (path.endsWith("/") ? "" : "/") + child;
+        if (!printTree(json,childPath)) {
+          return false;
+        }
+        first=false;
+      }
+    }
+ catch (    KeeperException e) {
+      writeError(500,e.toString());
+      return false;
+    }
+catch (    InterruptedException e) {
+      writeError(500,e.toString());
+      return false;
+    }
+catch (    IllegalArgumentException e) {
+      json.writeString("(children gone)");
+    }
+    json.endArray();
+  }
+  json.endObject();
+  return true;
+}

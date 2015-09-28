@@ -1,0 +1,51 @@
+{
+  final SolrParams params=req.getParams();
+  Map<String,String> map=new HashMap<>(1);
+  map.put(WT,"raw");
+  map.put(OMIT_HEADER,"true");
+  req.setParams(SolrParams.wrapDefaults(new MapSolrParams(map),params));
+synchronized (this) {
+    if (pagingSupport == null) {
+      pagingSupport=new PagedCollectionSupport();
+      ZkController zkController=cores.getZkController();
+      if (zkController != null) {
+        zkController.addOnReconnectListener(pagingSupport);
+      }
+    }
+  }
+  String path=params.get(PATH);
+  String addr=params.get("addr");
+  if (addr != null && addr.length() == 0) {
+    addr=null;
+  }
+  String detailS=params.get("detail");
+  boolean detail=detailS != null && detailS.equals("true");
+  String dumpS=params.get("dump");
+  boolean dump=dumpS != null && dumpS.equals("true");
+  int start=params.getInt("start",0);
+  int rows=params.getInt("rows",-1);
+  String filterType=params.get("filterType");
+  if (filterType != null) {
+    filterType=filterType.trim().toLowerCase(Locale.ROOT);
+    if (filterType.length() == 0)     filterType=null;
+  }
+  FilterType type=(filterType != null) ? FilterType.valueOf(filterType) : FilterType.none;
+  String filter=(type != FilterType.none) ? params.get("filter") : null;
+  if (filter != null) {
+    filter=filter.trim();
+    if (filter.length() == 0)     filter=null;
+  }
+  ZKPrinter printer=new ZKPrinter(cores.getZkController(),addr);
+  printer.detail=detail;
+  printer.dump=dump;
+  boolean isGraphView="graph".equals(params.get("view"));
+  printer.page=(isGraphView && "/clusterstate.json".equals(path)) ? new PageOfCollections(start,rows,type,filter) : null;
+  printer.pagingSupport=pagingSupport;
+  try {
+    printer.print(path);
+  }
+  finally {
+    printer.close();
+  }
+  rsp.getValues().add(RawResponseWriter.CONTENT,printer);
+}
