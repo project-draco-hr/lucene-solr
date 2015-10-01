@@ -1,0 +1,57 @@
+{
+  return new VisitorTemplate(context){
+    private FixedBitSet inside;
+    private FixedBitSet outside;
+    @Override protected void start(){
+      inside=new FixedBitSet(maxDoc);
+      outside=new FixedBitSet(maxDoc);
+    }
+    @Override protected DocIdSet finish(){
+      inside.andNot(outside);
+      return new BitDocIdSet(inside);
+    }
+    @Override protected CellIterator findSubCellsToVisit(    Cell cell){
+      return cell.getNextLevelCells(bufferedQueryShape);
+    }
+    @Override protected boolean visitPrefix(    Cell cell) throws IOException {
+      SpatialRelation visitRelation=cell.getShape().relate(queryShape);
+      if (cell.getLevel() == detailLevel) {
+        collectDocs(visitRelation.intersects() ? inside : outside);
+        return false;
+      }
+ else       if (visitRelation == SpatialRelation.WITHIN) {
+        collectDocs(inside);
+        return false;
+      }
+ else       if (visitRelation == SpatialRelation.DISJOINT) {
+        collectDocs(outside);
+        return false;
+      }
+      return true;
+    }
+    @Override protected void visitLeaf(    Cell cell) throws IOException {
+      if (allCellsIntersectQuery(cell))       collectDocs(inside);
+ else       collectDocs(outside);
+    }
+    /** 
+ * Returns true if the provided cell, and all its sub-cells down to
+ * detailLevel all intersect the queryShape.
+ */
+    private boolean allCellsIntersectQuery(    Cell cell){
+      SpatialRelation relate=cell.getShape().relate(queryShape);
+      if (cell.getLevel() == detailLevel)       return relate.intersects();
+      if (relate == SpatialRelation.WITHIN)       return true;
+      if (relate == SpatialRelation.DISJOINT)       return false;
+      CellIterator subCells=cell.getNextLevelCells(null);
+      while (subCells.hasNext()) {
+        Cell subCell=subCells.next();
+        if (!allCellsIntersectQuery(subCell))         return false;
+      }
+      return true;
+    }
+    @Override protected void visitScanned(    Cell cell) throws IOException {
+      visitLeaf(cell);
+    }
+  }
+.getDocIdSet();
+}
