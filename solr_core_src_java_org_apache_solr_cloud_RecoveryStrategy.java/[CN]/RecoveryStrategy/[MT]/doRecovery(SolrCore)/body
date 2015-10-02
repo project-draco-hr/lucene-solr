@@ -75,6 +75,9 @@
         zkController.publish(core.getCoreDescriptor(),Replica.State.ACTIVE);
         return;
       }
+      log.info("Begin buffering updates. core=" + coreName);
+      ulog.bufferUpdates();
+      replayed=false;
       log.info("Publishing state of core " + core.getName() + " as recovering, leader is "+ leaderUrl+ " and I am "+ ourUrl);
       zkController.publish(core.getCoreDescriptor(),Replica.State.RECOVERING);
       final Slice slice=zkStateReader.getClusterState().getSlice(cloudDesc.getCollectionName(),cloudDesc.getShardId());
@@ -107,7 +110,7 @@
         if (syncSuccess) {
           SolrQueryRequest req=new LocalSolrQueryRequest(core,new ModifiableSolrParams());
           core.getUpdateHandler().commit(new CommitUpdateCommand(req,false));
-          log.info("PeerSync Recovery was successful - registering as Active.");
+          log.info("PeerSync stage of recovery was successful.");
           if (log.isDebugEnabled()) {
             try {
               RefCounted<SolrIndexSearcher> searchHolder=core.getNewestSearcher(false);
@@ -123,9 +126,10 @@
               log.debug("Error in solrcloud_debug block",e);
             }
           }
-          zkController.publish(core.getCoreDescriptor(),Replica.State.ACTIVE);
+          log.info("Replaying updates buffered during PeerSync.");
+          replay(core);
+          replayed=true;
           successfulRecovery=true;
-          close=true;
           return;
         }
         log.info("PeerSync Recovery was not successful - trying replication.");
@@ -135,9 +139,6 @@
         break;
       }
       log.info("Starting Replication Recovery.");
-      log.info("Begin buffering updates.");
-      ulog.bufferUpdates();
-      replayed=false;
       try {
         replicate(zkController.getNodeName(),core,leaderprops);
         if (isClosed()) {
@@ -150,11 +151,8 @@
           log.info("Recovery was cancelled");
           break;
         }
-        log.info("Replication Recovery was successful - registering as Active.");
-        zkController.publish(core.getCoreDescriptor(),Replica.State.ACTIVE);
-        close=true;
+        log.info("Replication Recovery was successful.");
         successfulRecovery=true;
-        recoveryListener.recovered();
       }
  catch (      InterruptedException e) {
         Thread.currentThread().interrupt();
@@ -164,19 +162,33 @@
 catch (      Exception e) {
         SolrException.log(log,"Error while trying to recover",e);
       }
- finally {
-        if (!replayed) {
-          try {
-            ulog.dropBufferedUpdates();
-          }
- catch (          Exception e) {
-            SolrException.log(log,"",e);
-          }
-        }
-      }
     }
  catch (    Exception e) {
-      SolrException.log(log,"Error while trying to recover.",e);
+      SolrException.log(log,"Error while trying to recover. core=" + coreName,e);
+    }
+ finally {
+      if (!replayed) {
+        try {
+          ulog.dropBufferedUpdates();
+        }
+ catch (        Exception e) {
+          SolrException.log(log,"",e);
+        }
+      }
+      if (successfulRecovery) {
+        log.info("Registering as Active after recovery.");
+        try {
+          zkController.publish(core.getCoreDescriptor(),Replica.State.ACTIVE);
+        }
+ catch (        Exception e) {
+          log.error("Could not publish as ACTIVE after succesful recovery",e);
+          successfulRecovery=false;
+        }
+        if (successfulRecovery) {
+          close=true;
+          recoveryListener.recovered();
+        }
+      }
     }
     if (!successfulRecovery) {
       try {
