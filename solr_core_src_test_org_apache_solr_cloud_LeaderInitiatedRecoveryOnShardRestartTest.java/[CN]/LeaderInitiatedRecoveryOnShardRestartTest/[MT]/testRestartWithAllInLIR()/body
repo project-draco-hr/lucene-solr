@@ -1,0 +1,24 @@
+{
+  waitForThingsToLevelOut(30000);
+  String testCollectionName="all_in_lir";
+  String shardId="shard1";
+  createCollection(testCollectionName,1,2,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  Map<String,Object> stateObj=Utils.makeMap();
+  stateObj.put(ZkStateReader.STATE_PROP,"down");
+  stateObj.put("createdByNodeName","test");
+  stateObj.put("createdByCoreNodeName","test");
+  byte[] znodeData=Utils.toJSON(stateObj);
+  SolrZkClient zkClient=cloudClient.getZkStateReader().getZkClient();
+  zkClient.makePath("/collections/" + testCollectionName + "/leader_initiated_recovery/"+ shardId+ "/core_node1",znodeData,true);
+  zkClient.makePath("/collections/" + testCollectionName + "/leader_initiated_recovery/"+ shardId+ "/core_node2",znodeData,true);
+  printLayout();
+  for (  JettySolrRunner jetty : jettys) {
+    ChaosMonkey.stop(jetty);
+  }
+  Thread.sleep(2000);
+  for (  JettySolrRunner jetty : jettys) {
+    ChaosMonkey.start(jetty);
+  }
+  waitForRecoveriesToFinish(testCollectionName,true);
+}

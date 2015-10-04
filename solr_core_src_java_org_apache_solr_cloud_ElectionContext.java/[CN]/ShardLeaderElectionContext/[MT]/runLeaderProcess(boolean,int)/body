@@ -15,8 +15,9 @@
     ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.LEADER.toLower(),ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
     Overseer.getInQueue(zkClient).offer(Utils.toJSON(m));
     int leaderVoteWait=cc.getZkController().getLeaderVoteWait();
+    boolean allReplicasInLine=false;
     if (!weAreReplacement) {
-      waitForReplicasToComeUp(leaderVoteWait);
+      allReplicasInLine=waitForReplicasToComeUp(leaderVoteWait);
     }
     if (isClosed) {
       return;
@@ -106,6 +107,14 @@
         }
        }
       if (isLeader) {
+        if (allReplicasInLine) {
+          try (SolrCore core=cc.getCore(coreName)){
+            final Replica.State lirState=zkController.getLeaderInitiatedRecoveryState(collection,shardId,core.getCoreDescriptor().getCloudDescriptor().getCoreNodeName());
+            if (lirState == Replica.State.DOWN) {
+              zkController.updateLeaderInitiatedRecoveryState(collection,shardId,leaderProps.getStr(ZkStateReader.CORE_NODE_NAME_PROP),Replica.State.ACTIVE,null,true);
+            }
+          }
+         }
         try {
           startLeaderInitiatedRecoveryOnReplicas(coreName);
         }
