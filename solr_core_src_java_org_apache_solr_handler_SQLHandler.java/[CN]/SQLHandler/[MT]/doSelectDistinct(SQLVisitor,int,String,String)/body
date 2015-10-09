@@ -1,0 +1,81 @@
+{
+  Set<String> fieldSet=new HashSet();
+  Bucket[] buckets=getBuckets(sqlVisitor.fields,fieldSet);
+  Metric[] metrics=getMetrics(sqlVisitor.fields,fieldSet);
+  if (metrics.length > 0) {
+    throw new IOException("Select Distinct queries cannot include aggregate functions.");
+  }
+  String fl=fields(fieldSet);
+  String sort=null;
+  StreamEqualitor ecomp=null;
+  StreamComparator comp=null;
+  if (sqlVisitor.sorts != null && sqlVisitor.sorts.size() > 0) {
+    StreamComparator[] adjustedSorts=adjustSorts(sqlVisitor.sorts,buckets);
+    FieldEqualitor[] fieldEqualitors=new FieldEqualitor[adjustedSorts.length];
+    StringBuilder buf=new StringBuilder();
+    for (int i=0; i < adjustedSorts.length; i++) {
+      FieldComparator fieldComparator=(FieldComparator)adjustedSorts[i];
+      fieldEqualitors[i]=new FieldEqualitor(fieldComparator.getFieldName());
+      if (i > 0) {
+        buf.append(",");
+      }
+      buf.append(fieldComparator.getFieldName()).append(" ").append(fieldComparator.getOrder().toString());
+    }
+    sort=buf.toString();
+    if (adjustedSorts.length == 1) {
+      ecomp=fieldEqualitors[0];
+      comp=adjustedSorts[0];
+    }
+ else {
+      ecomp=new MultipleFieldEqualitor(fieldEqualitors);
+      comp=new MultipleFieldComparator(adjustedSorts);
+    }
+  }
+ else {
+    StringBuilder sortBuf=new StringBuilder();
+    FieldEqualitor[] equalitors=new FieldEqualitor[buckets.length];
+    StreamComparator[] streamComparators=new StreamComparator[buckets.length];
+    for (int i=0; i < buckets.length; i++) {
+      equalitors[i]=new FieldEqualitor(buckets[i].toString());
+      streamComparators[i]=new FieldComparator(buckets[i].toString(),ComparatorOrder.ASCENDING);
+      if (i > 0) {
+        sortBuf.append(',');
+      }
+      sortBuf.append(buckets[i].toString()).append(" asc");
+    }
+    sort=sortBuf.toString();
+    if (equalitors.length == 1) {
+      ecomp=equalitors[0];
+      comp=streamComparators[0];
+    }
+ else {
+      ecomp=new MultipleFieldEqualitor(equalitors);
+      comp=new MultipleFieldComparator(streamComparators);
+    }
+  }
+  TableSpec tableSpec=new TableSpec(sqlVisitor.table,defaultZkhost);
+  String zkHost=tableSpec.zkHost;
+  String collection=tableSpec.collection;
+  Map<String,String> params=new HashMap();
+  params.put(CommonParams.FL,fl);
+  params.put(CommonParams.Q,sqlVisitor.query);
+  params.put(CommonParams.QT,"/export");
+  if (numWorkers > 1) {
+    params.put("partitionKeys",getPartitionKeys(buckets));
+  }
+  params.put("sort",sort);
+  TupleStream tupleStream=null;
+  CloudSolrStream cstream=new CloudSolrStream(zkHost,collection,params);
+  tupleStream=new UniqueStream(cstream,ecomp);
+  if (numWorkers > 1) {
+    ParallelStream parallelStream=new ParallelStream(workerZkHost,workerCollection,tupleStream,numWorkers,comp);
+    StreamFactory factory=new StreamFactory().withFunctionName("search",CloudSolrStream.class).withFunctionName("parallel",ParallelStream.class).withFunctionName("unique",UniqueStream.class);
+    parallelStream.setStreamFactory(factory);
+    parallelStream.setObjectSerialize(false);
+    tupleStream=parallelStream;
+  }
+  if (sqlVisitor.limit > 0) {
+    tupleStream=new LimitStream(tupleStream,sqlVisitor.limit);
+  }
+  return tupleStream;
+}

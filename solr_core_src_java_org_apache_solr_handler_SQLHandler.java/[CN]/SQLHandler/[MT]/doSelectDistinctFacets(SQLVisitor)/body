@@ -1,0 +1,33 @@
+{
+  Set<String> fieldSet=new HashSet();
+  Bucket[] buckets=getBuckets(sqlVisitor.fields,fieldSet);
+  Metric[] metrics=getMetrics(sqlVisitor.fields,fieldSet);
+  if (metrics.length > 0) {
+    throw new IOException("Select Distinct queries cannot include aggregate functions.");
+  }
+  TableSpec tableSpec=new TableSpec(sqlVisitor.table,defaultZkhost);
+  String zkHost=tableSpec.zkHost;
+  String collection=tableSpec.collection;
+  Map<String,String> params=new HashMap();
+  params.put(CommonParams.Q,sqlVisitor.query);
+  int limit=sqlVisitor.limit > 0 ? sqlVisitor.limit : 100;
+  FieldComparator[] sorts=null;
+  if (sqlVisitor.sorts == null) {
+    sorts=new FieldComparator[buckets.length];
+    for (int i=0; i < sorts.length; i++) {
+      sorts[i]=new FieldComparator("index",ComparatorOrder.ASCENDING);
+    }
+  }
+ else {
+    StreamComparator[] comps=adjustSorts(sqlVisitor.sorts,buckets);
+    sorts=new FieldComparator[comps.length];
+    for (int i=0; i < comps.length; i++) {
+      sorts[i]=(FieldComparator)comps[i];
+    }
+  }
+  TupleStream tupleStream=new FacetStream(zkHost,collection,params,buckets,metrics,sorts,limit);
+  if (sqlVisitor.limit > 0) {
+    tupleStream=new LimitStream(tupleStream,sqlVisitor.limit);
+  }
+  return new EditStream(tupleStream,remove);
+}
