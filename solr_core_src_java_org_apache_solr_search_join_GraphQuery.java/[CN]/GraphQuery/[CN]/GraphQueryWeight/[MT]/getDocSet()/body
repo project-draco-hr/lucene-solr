@@ -1,0 +1,45 @@
+{
+  DocSet fromSet=null;
+  FixedBitSet seedResultBits=null;
+  int capacity=fromSearcher.getRawReader().maxDoc();
+  FixedBitSet resultBits=new FixedBitSet(capacity);
+  currentDepth=0;
+  Query frontierQuery=q;
+  BooleanQuery.Builder leafNodeQuery=new BooleanQuery.Builder();
+  WildcardQuery edgeQuery=new WildcardQuery(new Term(toField,"*"));
+  leafNodeQuery.add(edgeQuery,Occur.MUST_NOT);
+  DocSet leafNodes=fromSearcher.getDocSet(leafNodeQuery.build());
+  do {
+    GraphTermsCollector graphResultCollector=new GraphTermsCollector(toField,capacity,resultBits,leafNodes);
+    fromSearcher.search(frontierQuery,graphResultCollector);
+    BytesRefHash collectorTerms=graphResultCollector.getCollectorTerms();
+    frontierSize=collectorTerms.size();
+    fromSet=graphResultCollector.getDocSet();
+    if (seedResultBits == null) {
+      seedResultBits=((BitDocSet)fromSet).getBits().clone();
+    }
+    Integer fs=new Integer(frontierSize);
+    FrontierQuery fq=buildFrontierQuery(collectorTerms,fs);
+    if (fq == null) {
+      fq=new FrontierQuery(null,0);
+    }
+    frontierQuery=fq.getQuery();
+    frontierSize=fq.getFrontierSize();
+    resultBits.or(((BitDocSet)fromSet).getBits());
+    currentDepth++;
+    if (currentDepth >= maxDepth && maxDepth != -1) {
+      break;
+    }
+  }
+ while (frontierSize > 0);
+  if (!returnRoot) {
+    resultBits.andNot(seedResultBits);
+  }
+  BitDocSet resultSet=new BitDocSet(resultBits);
+  if (onlyLeafNodes) {
+    return resultSet.intersection(leafNodes);
+  }
+ else {
+    return resultSet;
+  }
+}
