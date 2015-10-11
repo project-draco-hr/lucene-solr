@@ -4,36 +4,27 @@
   this.configuration=configuration;
   fileSystem=FileSystem.get(hdfsDirPath.toUri(),configuration);
   fileContext=FileContext.getFileContext(hdfsDirPath.toUri(),configuration);
-  while (true) {
-    try {
-      if (!fileSystem.exists(hdfsDirPath)) {
-        boolean success=fileSystem.mkdirs(hdfsDirPath);
-        if (!success) {
-          throw new RuntimeException("Could not create directory: " + hdfsDirPath);
-        }
+  if (fileSystem instanceof DistributedFileSystem) {
+    while (((DistributedFileSystem)fileSystem).setSafeMode(SafeModeAction.SAFEMODE_GET,true)) {
+      LOG.warn("The NameNode is in SafeMode - Solr will wait 5 seconds and try again.");
+      try {
+        Thread.sleep(5000);
       }
- else {
-        fileSystem.mkdirs(hdfsDirPath);
+ catch (      InterruptedException e) {
+        Thread.interrupted();
       }
-      break;
     }
- catch (    RemoteException e) {
-      if (e.getClassName().equals("org.apache.hadoop.hdfs.server.namenode.SafeModeException")) {
-        LOG.warn("The NameNode is in SafeMode - Solr will wait 5 seconds and try again.");
-        try {
-          Thread.sleep(5000);
-        }
- catch (        InterruptedException e1) {
-          Thread.interrupted();
-        }
-        continue;
+  }
+  try {
+    if (!fileSystem.exists(hdfsDirPath)) {
+      boolean success=fileSystem.mkdirs(hdfsDirPath);
+      if (!success) {
+        throw new RuntimeException("Could not create directory: " + hdfsDirPath);
       }
-      org.apache.solr.common.util.IOUtils.closeQuietly(fileSystem);
-      throw new RuntimeException("Problem creating directory: " + hdfsDirPath,e);
     }
-catch (    Exception e) {
-      org.apache.solr.common.util.IOUtils.closeQuietly(fileSystem);
-      throw new RuntimeException("Problem creating directory: " + hdfsDirPath,e);
-    }
+  }
+ catch (  Exception e) {
+    org.apache.solr.common.util.IOUtils.closeQuietly(fileSystem);
+    throw new RuntimeException("Problem creating directory: " + hdfsDirPath,e);
   }
 }
