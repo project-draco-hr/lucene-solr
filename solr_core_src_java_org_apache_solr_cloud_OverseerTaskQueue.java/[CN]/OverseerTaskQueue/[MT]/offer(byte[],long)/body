@@ -1,18 +1,20 @@
 {
   TimerContext time=stats.time(dir + "_offer");
   try {
-    String path=createData(dir + "/" + PREFIX,data,CreateMode.PERSISTENT_SEQUENTIAL);
-    String watchID=createData(dir + "/" + response_prefix+ path.substring(path.lastIndexOf("-") + 1),null,CreateMode.EPHEMERAL);
+    String watchID=createData(dir + "/" + response_prefix,null,CreateMode.EPHEMERAL_SEQUENTIAL);
     Object lock=new Object();
     LatchWatcher watcher=new LatchWatcher(lock);
+    Stat stat=zookeeper.exists(watchID,watcher,true);
+    createData(dir + "/" + PREFIX+ watchID.substring(watchID.lastIndexOf("-") + 1),data,CreateMode.PERSISTENT);
 synchronized (lock) {
-      if (zookeeper.exists(watchID,watcher,true) != null) {
+      if (stat != null && watcher.getWatchedEvent() == null) {
         watcher.await(timeout);
       }
     }
     byte[] bytes=zookeeper.getData(watchID,null,null,true);
+    QueueEvent event=new QueueEvent(watchID,bytes,watcher.getWatchedEvent());
     zookeeper.delete(watchID,-1,true);
-    return new QueueEvent(watchID,bytes,watcher.getWatchedEvent());
+    return event;
   }
   finally {
     time.stop();
