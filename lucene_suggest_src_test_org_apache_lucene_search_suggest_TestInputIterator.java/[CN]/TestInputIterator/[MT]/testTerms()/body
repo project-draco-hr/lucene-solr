@@ -33,38 +33,44 @@
     unsortedWithContexts[i]=new Input(key,value,ctxs);
     unsortedWithPayloadAndContext[i]=new Input(key,value,payload,ctxs);
   }
-  InputIterator wrapper=new SortedInputIterator(new InputArrayIterator(unsorted),comparator);
-  Iterator<Map.Entry<BytesRef,SimpleEntry<Long,BytesRef>>> expected=sorted.entrySet().iterator();
-  while (expected.hasNext()) {
-    Map.Entry<BytesRef,SimpleEntry<Long,BytesRef>> entry=expected.next();
-    assertEquals(entry.getKey(),wrapper.next());
-    assertEquals(entry.getValue().getKey().longValue(),wrapper.weight());
-    assertEquals(entry.getValue().getValue(),wrapper.payload());
+  try (Directory tempDir=getDirectory()){
+    InputIterator wrapper=new SortedInputIterator(tempDir,"sorted",new InputArrayIterator(unsorted),comparator);
+    Iterator<Map.Entry<BytesRef,SimpleEntry<Long,BytesRef>>> expected=sorted.entrySet().iterator();
+    while (expected.hasNext()) {
+      Map.Entry<BytesRef,SimpleEntry<Long,BytesRef>> entry=expected.next();
+      assertEquals(entry.getKey(),wrapper.next());
+      assertEquals(entry.getValue().getKey().longValue(),wrapper.weight());
+      assertEquals(entry.getValue().getValue(),wrapper.payload());
+    }
+    assertNull(wrapper.next());
   }
-  assertNull(wrapper.next());
-  wrapper=new SortedInputIterator(new InputArrayIterator(unsortedWithContexts),comparator);
-  Iterator<Map.Entry<BytesRef,SimpleEntry<Long,Set<BytesRef>>>> actualEntries=sortedWithContext.entrySet().iterator();
-  while (actualEntries.hasNext()) {
-    Map.Entry<BytesRef,SimpleEntry<Long,Set<BytesRef>>> entry=actualEntries.next();
-    assertEquals(entry.getKey(),wrapper.next());
-    assertEquals(entry.getValue().getKey().longValue(),wrapper.weight());
-    Set<BytesRef> actualCtxs=entry.getValue().getValue();
-    assertEquals(actualCtxs,wrapper.contexts());
+   try (Directory tempDir=getDirectory()){
+    InputIterator wrapper=new SortedInputIterator(tempDir,"sorted",new InputArrayIterator(unsortedWithContexts),comparator);
+    Iterator<Map.Entry<BytesRef,SimpleEntry<Long,Set<BytesRef>>>> actualEntries=sortedWithContext.entrySet().iterator();
+    while (actualEntries.hasNext()) {
+      Map.Entry<BytesRef,SimpleEntry<Long,Set<BytesRef>>> entry=actualEntries.next();
+      assertEquals(entry.getKey(),wrapper.next());
+      assertEquals(entry.getValue().getKey().longValue(),wrapper.weight());
+      Set<BytesRef> actualCtxs=entry.getValue().getValue();
+      assertEquals(actualCtxs,wrapper.contexts());
+    }
+    assertNull(wrapper.next());
   }
-  assertNull(wrapper.next());
-  wrapper=new SortedInputIterator(new InputArrayIterator(unsortedWithPayloadAndContext),comparator);
-  Iterator<Map.Entry<BytesRef,SimpleEntry<Long,SimpleEntry<BytesRef,Set<BytesRef>>>>> expectedPayloadContextEntries=sortedWithPayloadAndContext.entrySet().iterator();
-  while (expectedPayloadContextEntries.hasNext()) {
-    Map.Entry<BytesRef,SimpleEntry<Long,SimpleEntry<BytesRef,Set<BytesRef>>>> entry=expectedPayloadContextEntries.next();
-    assertEquals(entry.getKey(),wrapper.next());
-    assertEquals(entry.getValue().getKey().longValue(),wrapper.weight());
-    Set<BytesRef> actualCtxs=entry.getValue().getValue().getValue();
-    assertEquals(actualCtxs,wrapper.contexts());
-    BytesRef actualPayload=entry.getValue().getValue().getKey();
-    assertEquals(actualPayload,wrapper.payload());
+   try (Directory tempDir=getDirectory()){
+    InputIterator wrapper=new SortedInputIterator(tempDir,"sorter",new InputArrayIterator(unsortedWithPayloadAndContext),comparator);
+    Iterator<Map.Entry<BytesRef,SimpleEntry<Long,SimpleEntry<BytesRef,Set<BytesRef>>>>> expectedPayloadContextEntries=sortedWithPayloadAndContext.entrySet().iterator();
+    while (expectedPayloadContextEntries.hasNext()) {
+      Map.Entry<BytesRef,SimpleEntry<Long,SimpleEntry<BytesRef,Set<BytesRef>>>> entry=expectedPayloadContextEntries.next();
+      assertEquals(entry.getKey(),wrapper.next());
+      assertEquals(entry.getValue().getKey().longValue(),wrapper.weight());
+      Set<BytesRef> actualCtxs=entry.getValue().getValue().getValue();
+      assertEquals(actualCtxs,wrapper.contexts());
+      BytesRef actualPayload=entry.getValue().getValue().getKey();
+      assertEquals(actualPayload,wrapper.payload());
+    }
+    assertNull(wrapper.next());
   }
-  assertNull(wrapper.next());
-  wrapper=new UnsortedInputIterator(new InputArrayIterator(unsorted));
+   InputIterator wrapper=new UnsortedInputIterator(new InputArrayIterator(unsorted));
   TreeMap<BytesRef,SimpleEntry<Long,BytesRef>> actual=new TreeMap<>();
   BytesRef key;
   while ((key=wrapper.next()) != null) {
@@ -73,16 +79,18 @@
     actual.put(BytesRef.deepCopyOf(key),new SimpleEntry<>(value,BytesRef.deepCopyOf(payload)));
   }
   assertEquals(sorted,actual);
-  InputIterator wrapperWithoutPayload=new SortedInputIterator(new InputArrayIterator(unsortedWithoutPayload),comparator);
-  Iterator<Map.Entry<BytesRef,Long>> expectedWithoutPayload=sortedWithoutPayload.entrySet().iterator();
-  while (expectedWithoutPayload.hasNext()) {
-    Map.Entry<BytesRef,Long> entry=expectedWithoutPayload.next();
-    assertEquals(entry.getKey(),wrapperWithoutPayload.next());
-    assertEquals(entry.getValue().longValue(),wrapperWithoutPayload.weight());
-    assertNull(wrapperWithoutPayload.payload());
+  try (Directory tempDir=getDirectory()){
+    InputIterator wrapperWithoutPayload=new SortedInputIterator(tempDir,"sorted",new InputArrayIterator(unsortedWithoutPayload),comparator);
+    Iterator<Map.Entry<BytesRef,Long>> expectedWithoutPayload=sortedWithoutPayload.entrySet().iterator();
+    while (expectedWithoutPayload.hasNext()) {
+      Map.Entry<BytesRef,Long> entry=expectedWithoutPayload.next();
+      assertEquals(entry.getKey(),wrapperWithoutPayload.next());
+      assertEquals(entry.getValue().longValue(),wrapperWithoutPayload.weight());
+      assertNull(wrapperWithoutPayload.payload());
+    }
+    assertNull(wrapperWithoutPayload.next());
   }
-  assertNull(wrapperWithoutPayload.next());
-  wrapperWithoutPayload=new UnsortedInputIterator(new InputArrayIterator(unsortedWithoutPayload));
+   InputIterator wrapperWithoutPayload=new UnsortedInputIterator(new InputArrayIterator(unsortedWithoutPayload));
   TreeMap<BytesRef,Long> actualWithoutPayload=new TreeMap<>();
   while ((key=wrapperWithoutPayload.next()) != null) {
     long value=wrapperWithoutPayload.weight();
