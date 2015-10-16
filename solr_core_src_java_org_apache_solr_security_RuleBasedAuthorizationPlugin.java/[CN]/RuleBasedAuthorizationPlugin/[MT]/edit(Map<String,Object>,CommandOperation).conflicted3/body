@@ -1,19 +1,35 @@
 {
-  Map<String,Object> roleMap=getMapValue(latestConf,"user-role");
-  Map<String,Object> map=op.getDataMap();
+  String name=op.getStr(NAME);
+  Map<String,Object> dataMap=op.getDataMap();
   if (op.hasError())   return null;
-  for (  Map.Entry<String,Object> e : map.entrySet()) {
-    if (e.getValue() == null) {
-      roleMap.remove(e.getKey());
-      continue;
-    }
-    if (e.getValue() instanceof String || e.getValue() instanceof List) {
-      roleMap.put(e.getKey(),e.getValue());
-    }
- else {
-      op.addError("Unexpected value ");
-      return null;
-    }
+  dataMap=getDeepCopy(dataMap,3);
+  String before=(String)dataMap.remove("before");
+  for (  String key : dataMap.keySet()) {
+    if (!Permission.knownKeys.contains(key))     op.addError("Unknown key, " + key);
   }
+  try {
+    Permission.load(dataMap);
+  }
+ catch (  Exception e) {
+    op.addError(e.getMessage());
+    return null;
+  }
+  List<Map> permissions=getListValue(latestConf,"permissions");
+  List<Map> permissionsCopy=new ArrayList<>();
+  boolean added=false;
+  for (  Map e : permissions) {
+    Object n=e.get(NAME);
+    if (n.equals(before) || n.equals(name)) {
+      added=true;
+      permissionsCopy.add(dataMap);
+    }
+    if (!n.equals(name))     permissionsCopy.add(e);
+  }
+  if (!added && before != null) {
+    op.addError("Invalid 'before' :" + before);
+    return null;
+  }
+  if (!added)   permissionsCopy.add(dataMap);
+  latestConf.put("permissions",permissionsCopy);
   return latestConf;
 }
