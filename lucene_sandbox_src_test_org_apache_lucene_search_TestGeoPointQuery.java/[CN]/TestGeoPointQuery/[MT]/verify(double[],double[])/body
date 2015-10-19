@@ -84,21 +84,28 @@
             GeoBoundingBox bbox=randomBBox();
             double centerLat=bbox.minLat + ((bbox.maxLat - bbox.minLat) / 2.0);
             double centerLon=bbox.minLon + ((bbox.maxLon - bbox.minLon) / 2.0);
-            final double radius=GeoDistanceUtils.vincentyDistance(centerLon,centerLat,centerLon,bbox.minLat);
+            final double radius=random().nextDouble() * (0.05 * GeoProjectionUtils.SEMIMINOR_AXIS);
+            final boolean rangeQuery=random().nextBoolean();
+            final double radiusMax=(rangeQuery) ? radius + random().nextDouble() * (0.05 * GeoProjectionUtils.SEMIMINOR_AXIS) : 0;
             if (VERBOSE) {
-              System.out.println("\t radius = " + radius);
+              System.out.println("\t radius = " + radius + ((rangeQuery) ? " : " + radiusMax : ""));
             }
-            query=new GeoPointDistanceQuery(FIELD_NAME,centerLon,centerLat,radius);
+            if (rangeQuery) {
+              query=new GeoPointDistanceRangeQuery(FIELD_NAME,centerLon,centerLat,radius,radiusMax);
+            }
+ else {
+              query=new GeoPointDistanceQuery(FIELD_NAME,centerLon,centerLat,radius);
+            }
             verifyHits=new VerifyHits(){
               @Override protected Boolean shouldMatch(              double pointLat,              double pointLon){
                 if (Double.isNaN(pointLat) || Double.isNaN(pointLon)) {
                   return null;
                 }
-                if (radiusQueryCanBeWrong(centerLat,centerLon,pointLon,pointLat,radius)) {
+                if (radiusQueryCanBeWrong(centerLat,centerLon,pointLon,pointLat,radius) || (rangeQuery && radiusQueryCanBeWrong(centerLat,centerLon,pointLon,pointLat,radiusMax))) {
                   return null;
                 }
  else {
-                  return distanceContainsPt(centerLon,centerLat,pointLon,pointLat,radius);
+                  return distanceContainsPt(centerLon,centerLat,pointLon,pointLat,radius,(rangeQuery) ? radiusMax : 0);
                 }
               }
             }
