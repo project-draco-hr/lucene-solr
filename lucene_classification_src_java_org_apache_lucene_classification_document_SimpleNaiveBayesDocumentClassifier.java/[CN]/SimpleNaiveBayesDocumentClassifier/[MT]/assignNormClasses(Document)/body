@@ -1,0 +1,24 @@
+{
+  List<ClassificationResult<BytesRef>> assignedClasses=new ArrayList<>();
+  Map<String,List<String[]>> fieldName2tokensArray=new LinkedHashMap<>();
+  Map<String,Float> fieldName2boost=new LinkedHashMap<>();
+  Terms classes=MultiFields.getTerms(leafReader,classFieldName);
+  TermsEnum classesEnum=classes.iterator();
+  BytesRef c;
+  analyzeSeedDocument(inputDocument,fieldName2tokensArray,fieldName2boost);
+  int docsWithClassSize=countDocsWithClass();
+  while ((c=classesEnum.next()) != null) {
+    double classScore=0;
+    for (    String fieldName : textFieldNames) {
+      List<String[]> tokensArrays=fieldName2tokensArray.get(fieldName);
+      double fieldScore=0;
+      for (      String[] fieldTokensArray : tokensArrays) {
+        fieldScore+=calculateLogPrior(c,docsWithClassSize) + calculateLogLikelihood(fieldTokensArray,fieldName,c,docsWithClassSize) * fieldName2boost.get(fieldName);
+      }
+      classScore+=fieldScore;
+    }
+    assignedClasses.add(new ClassificationResult<>(BytesRef.deepCopyOf(c),classScore));
+  }
+  ArrayList<ClassificationResult<BytesRef>> assignedClassesNorm=normClassificationResults(assignedClasses);
+  return assignedClassesNorm;
+}
