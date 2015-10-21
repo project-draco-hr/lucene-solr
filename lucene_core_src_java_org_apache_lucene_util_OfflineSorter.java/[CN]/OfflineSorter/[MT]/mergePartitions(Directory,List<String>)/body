@@ -1,2 +1,40 @@
 {
+  long start=System.currentTimeMillis();
+  PriorityQueue<FileAndTop> queue=new PriorityQueue<FileAndTop>(segments.size()){
+    @Override protected boolean lessThan(    FileAndTop a,    FileAndTop b){
+      return comparator.compare(a.current.get(),b.current.get()) < 0;
+    }
+  }
+;
+  ByteSequencesReader[] streams=new ByteSequencesReader[segments.size()];
+  String newSegmentName=null;
+  try (IndexOutput out=trackingDir.createTempOutput(tempFileNamePrefix,"sort",IOContext.DEFAULT);ByteSequencesWriter writer=getWriter(out)){
+    newSegmentName=out.getName();
+    for (int i=0; i < segments.size(); i++) {
+      streams[i]=getReader(dir.openInput(segments.get(i),IOContext.READONCE));
+      BytesRefBuilder bytes=new BytesRefBuilder();
+      boolean result=streams[i].read(bytes);
+      assert result;
+      queue.insertWithOverflow(new FileAndTop(i,bytes));
+    }
+    FileAndTop top;
+    while ((top=queue.top()) != null) {
+      writer.write(top.current.bytes(),0,top.current.length());
+      if (!streams[top.fd].read(top.current)) {
+        queue.pop();
+      }
+ else {
+        queue.updateTop();
+      }
+    }
+    sortInfo.mergeTime+=System.currentTimeMillis() - start;
+    sortInfo.mergeRounds++;
+  }
+  finally {
+    IOUtils.close(streams);
+  }
+  IOUtils.deleteFiles(trackingDir,segments);
+  segments.clear();
+  segments.add(newSegmentName);
+  sortInfo.tempMergeFiles++;
 }
