@@ -1,0 +1,47 @@
+{
+  int maxDoc=s.getIndexReader().maxDoc();
+  final FixedBitSet hits=new FixedBitSet(maxDoc);
+  s.search(query,new SimpleCollector(){
+    private int docBase;
+    @Override public boolean needsScores(){
+      return false;
+    }
+    @Override protected void doSetNextReader(    LeafReaderContext context) throws IOException {
+      docBase=context.docBase;
+    }
+    @Override public void collect(    int doc){
+      hits.set(docBase + doc);
+    }
+  }
+);
+  boolean fail=false;
+  for (int docID=0; docID < maxDoc; docID++) {
+    int id=(int)docIDToID.get(docID);
+    Boolean expected;
+    if (deleted.contains(id)) {
+      expected=false;
+    }
+ else     if (Double.isNaN(lats[id])) {
+      expected=false;
+    }
+ else {
+      expected=shouldMatch(lats[id],lons[id]);
+    }
+    if (expected != null && hits.get(docID) != expected) {
+      if (expected) {
+        System.out.println(Thread.currentThread().getName() + ": id=" + id+ " should match but did not");
+      }
+ else {
+        System.out.println(Thread.currentThread().getName() + ": id=" + id+ " should not match but did");
+      }
+      System.out.println("  small=" + small + " query="+ query+ " docID="+ docID+ "\n  lat="+ lats[id]+ " lon="+ lons[id]+ "\n  deleted?="+ deleted.contains(id));
+      if (Double.isNaN(lats[id]) == false) {
+        describe(docID,lats[id],lons[id]);
+      }
+      fail=true;
+    }
+  }
+  if (fail) {
+    fail("some hits were wrong");
+  }
+}
