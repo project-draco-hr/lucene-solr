@@ -1,0 +1,69 @@
+{
+  int numDocs=atLeast(1000);
+  boolean useSmallRanges=true;
+  if (VERBOSE) {
+    System.out.println("TEST: " + numDocs + " docs useSmallRanges="+ useSmallRanges);
+  }
+  double[] docLons=new double[numDocs];
+  double[] docLats=new double[numDocs];
+  for (int docID=0; docID < numDocs; docID++) {
+    docLons[docID]=randomLon(useSmallRanges);
+    docLats[docID]=randomLat(useSmallRanges);
+    if (VERBOSE) {
+      System.out.println("  doc=" + docID + ": lon="+ docLons[docID]+ " lat="+ docLats[docID]);
+    }
+  }
+  int iters=atLeast(10);
+  iters=atLeast(50);
+  for (int iter=0; iter < iters; iter++) {
+    Cell.nextCellID=0;
+    double centerLon=randomLon(useSmallRanges);
+    double centerLat=randomLat(useSmallRanges);
+    double radiusMeters;
+    if (true || useSmallRanges) {
+      radiusMeters=random().nextDouble() * 333000;
+    }
+ else {
+      radiusMeters=random().nextDouble() * GeoProjectionUtils.SEMIMAJOR_AXIS * Math.PI / 2.0;
+    }
+    StringWriter sw=new StringWriter();
+    PrintWriter log=new PrintWriter(sw,true);
+    if (VERBOSE) {
+      log.println("\nTEST: iter=" + iter + " radiusMeters="+ radiusMeters+ " centerLon="+ centerLon+ " centerLat="+ centerLat);
+    }
+    GeoRect bbox=GeoUtils.circleToBBox(centerLon,centerLat,radiusMeters);
+    Set<Integer> hits=new HashSet<>();
+    if (bbox.maxLon < bbox.minLon) {
+      log.println("  circle crosses dateline; first right query");
+      findMatches(hits,log,new Cell(null,-180,bbox.minLat,bbox.maxLon,bbox.maxLat,0),centerLon,centerLat,radiusMeters,docLons,docLats);
+      log.println("  circle crosses dateline; now left query");
+      findMatches(hits,log,new Cell(null,bbox.minLon,bbox.minLat,180,bbox.maxLat,0),centerLon,centerLat,radiusMeters,docLons,docLats);
+    }
+ else {
+      findMatches(hits,log,new Cell(null,bbox.minLon,bbox.minLat,bbox.maxLon,bbox.maxLat,0),centerLon,centerLat,radiusMeters,docLons,docLats);
+    }
+    if (VERBOSE) {
+      log.println("  " + hits.size() + " hits");
+    }
+    int failCount=0;
+    for (int docID=0; docID < numDocs; docID++) {
+      double distanceMeters=SloppyMath.haversin(centerLat,centerLon,docLats[docID],docLons[docID]) * 1000.0;
+      boolean expected=distanceMeters <= radiusMeters;
+      boolean actual=hits.contains(docID);
+      if (actual != expected) {
+        if (actual) {
+          log.println("doc=" + docID + " matched but should not");
+        }
+ else {
+          log.println("doc=" + docID + " did not match but should");
+        }
+        log.println("  lon=" + docLons[docID] + " lat="+ docLats[docID]+ " distanceMeters="+ distanceMeters+ " vs radiusMeters="+ radiusMeters);
+        failCount++;
+      }
+    }
+    if (failCount != 0) {
+      System.out.print(sw.toString());
+      fail(failCount + " incorrect hits (see above)");
+    }
+  }
+}
