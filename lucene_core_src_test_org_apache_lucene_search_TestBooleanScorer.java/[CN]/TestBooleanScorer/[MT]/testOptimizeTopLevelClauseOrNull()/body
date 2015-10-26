@@ -1,0 +1,27 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  doc.add(new StringField("foo","bar",Store.NO));
+  w.addDocument(doc);
+  IndexReader reader=w.getReader();
+  IndexSearcher searcher=new IndexSearcher(reader);
+  searcher.setQueryCache(null);
+  final LeafReaderContext ctx=reader.leaves().get(0);
+  Query query=new BooleanQuery.Builder().add(new TermQuery(new Term("foo","bar")),Occur.SHOULD).add(new TermQuery(new Term("foo","baz")),Occur.SHOULD).build();
+  Weight weight=searcher.createNormalizedWeight(query,false);
+  BulkScorer scorer=((BooleanWeight)weight).booleanScorer(ctx);
+  assertTrue(scorer instanceof DefaultBulkScorer);
+  query=new BooleanQuery.Builder().add(new TermQuery(new Term("foo","bar")),Occur.SHOULD).add(new TermQuery(new Term("foo","baz")),Occur.SHOULD).setDisableCoord(true).build();
+  weight=searcher.createNormalizedWeight(query,true);
+  scorer=((BooleanWeight)weight).booleanScorer(ctx);
+  assertTrue(scorer instanceof DefaultBulkScorer);
+  searcher.setSimilarity(new ClassicSimilarity());
+  query=new BooleanQuery.Builder().add(new TermQuery(new Term("foo","bar")),Occur.SHOULD).add(new TermQuery(new Term("foo","baz")),Occur.SHOULD).build();
+  weight=searcher.createNormalizedWeight(query,true);
+  scorer=((BooleanWeight)weight).booleanScorer(ctx);
+  assertTrue(scorer instanceof BooleanTopLevelScorers.BoostedBulkScorer);
+  w.close();
+  reader.close();
+  dir.close();
+}
