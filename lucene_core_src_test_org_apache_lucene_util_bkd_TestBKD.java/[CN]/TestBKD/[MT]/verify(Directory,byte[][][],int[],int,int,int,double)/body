@@ -1,2 +1,122 @@
 {
+  int numValues=docValues.length;
+  if (VERBOSE) {
+    System.out.println("TEST: numValues=" + numValues + " numDims="+ numDims+ " numBytesPerDim="+ numBytesPerDim+ " maxPointsInLeafNode="+ maxPointsInLeafNode+ " maxMB="+ maxMB);
+  }
+  long indexFP;
+  try (BKDWriter w=new BKDWriter(dir,"tmp",numDims,numBytesPerDim,maxPointsInLeafNode,maxMB)){
+    byte[] scratch=new byte[numBytesPerDim * numDims];
+    for (int ord=0; ord < numValues; ord++) {
+      int docID;
+      if (docIDs == null) {
+        docID=ord;
+      }
+ else {
+        docID=docIDs[ord];
+      }
+      if (VERBOSE) {
+        System.out.println("  ord=" + ord + " docID="+ docID);
+      }
+      for (int dim=0; dim < numDims; dim++) {
+        if (VERBOSE) {
+          System.out.println("    " + dim + " -> "+ new BytesRef(docValues[ord][dim]));
+        }
+        System.arraycopy(docValues[ord][dim],0,scratch,dim * numBytesPerDim,numBytesPerDim);
+      }
+      w.add(scratch,docID);
+    }
+    boolean success=false;
+    try (IndexOutput out=dir.createOutput("bkd",IOContext.DEFAULT)){
+      indexFP=w.finish(out);
+      success=true;
+    }
+  finally {
+      if (success == false) {
+        IOUtils.deleteFilesIgnoringExceptions(dir,"bkd");
+      }
+    }
+  }
+   try (IndexInput in=dir.openInput("bkd",IOContext.DEFAULT)){
+    in.seek(indexFP);
+    BKDReader r=new BKDReader(in);
+    int iters=atLeast(100);
+    for (int iter=0; iter < iters; iter++) {
+      if (VERBOSE) {
+        System.out.println("\nTEST: iter=" + iter);
+      }
+      byte[][] queryMin=new byte[numDims][];
+      byte[][] queryMax=new byte[numDims][];
+      for (int dim=0; dim < numDims; dim++) {
+        queryMin[dim]=new byte[numBytesPerDim];
+        random().nextBytes(queryMin[dim]);
+        queryMax[dim]=new byte[numBytesPerDim];
+        random().nextBytes(queryMax[dim]);
+        if (BKDUtil.compare(numBytesPerDim,queryMin[dim],0,queryMax[dim],0) > 0) {
+          byte[] x=queryMin[dim];
+          queryMin[dim]=queryMax[dim];
+          queryMax[dim]=x;
+        }
+      }
+      final BitSet hits=new BitSet();
+      r.intersect(new IntersectVisitor(){
+        @Override public void visit(        int docID){
+          hits.set(docID);
+        }
+        @Override public void visit(        int docID,        byte[] packedValue){
+          for (int dim=0; dim < numDims; dim++) {
+            if (BKDUtil.compare(numBytesPerDim,packedValue,dim,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,packedValue,dim,queryMax[dim],0) > 0) {
+              return;
+            }
+          }
+          hits.set(docID);
+        }
+        @Override public Relation compare(        byte[] minPacked,        byte[] maxPacked){
+          boolean crosses=false;
+          for (int dim=0; dim < numDims; dim++) {
+            if (BKDUtil.compare(numBytesPerDim,maxPacked,dim,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,minPacked,dim,queryMax[dim],0) > 0) {
+              return Relation.QUERY_OUTSIDE_CELL;
+            }
+ else             if (BKDUtil.compare(numBytesPerDim,minPacked,dim,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,maxPacked,dim,queryMax[dim],0) > 0) {
+              crosses=true;
+            }
+          }
+          if (crosses) {
+            return Relation.QUERY_CROSSES_CELL;
+          }
+ else {
+            return Relation.CELL_INSIDE_QUERY;
+          }
+        }
+      }
+);
+      BitSet expected=new BitSet();
+      for (int ord=0; ord < numValues; ord++) {
+        boolean matches=true;
+        for (int dim=0; dim < numDims; dim++) {
+          byte[] x=docValues[ord][dim];
+          if (BKDUtil.compare(numBytesPerDim,x,0,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,x,0,queryMax[dim],0) > 0) {
+            matches=false;
+            break;
+          }
+        }
+        if (matches) {
+          int docID;
+          if (docIDs == null) {
+            docID=ord;
+          }
+ else {
+            docID=docIDs[ord];
+          }
+          expected.set(docID);
+        }
+      }
+      int limit=Math.max(expected.length(),hits.length());
+      for (int docID=0; docID < limit; docID++) {
+        assertEquals("docID=" + docID,expected.get(docID),hits.get(docID));
+      }
+    }
+  }
+  finally {
+    dir.deleteFile("bkd");
+  }
 }

@@ -1,0 +1,159 @@
+{
+  int numValues=docValues.length;
+  if (VERBOSE) {
+    System.out.println("TEST: numValues=" + numValues + " numDims="+ numDims+ " numBytesPerDim="+ numBytesPerDim+ " maxPointsInLeafNode="+ maxPointsInLeafNode+ " maxMB="+ maxMB);
+  }
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  iwc.setCodec(new SimpleTextCodec());
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+  DirectoryReader r=null;
+  try {
+    Document doc=null;
+    int lastID=-1;
+    for (int ord=0; ord < numValues; ord++) {
+      int id;
+      if (ids == null) {
+        id=ord;
+      }
+ else {
+        id=ids[ord];
+      }
+      if (id != lastID) {
+        if (doc != null) {
+          w.addDocument(doc);
+        }
+        doc=new Document();
+        doc.add(new NumericDocValuesField("id",id));
+      }
+      doc.add(new DimensionalField("field",docValues[ord]));
+      lastID=id;
+      if (random().nextInt(30) == 17) {
+        w.addDocument(new Document());
+        if (VERBOSE) {
+          System.out.println("add empty doc");
+        }
+      }
+      if (random().nextInt(30) == 17) {
+        Document xdoc=new Document();
+        xdoc.add(new DimensionalField("field",docValues[ord]));
+        xdoc.add(new StringField("nukeme","yes",Field.Store.NO));
+        w.addDocument(xdoc);
+        if (VERBOSE) {
+          System.out.println("add doc doc-to-delete");
+        }
+      }
+      if (VERBOSE) {
+        System.out.println("  ord=" + ord + " id="+ id);
+        for (int dim=0; dim < numDims; dim++) {
+          System.out.println("    dim=" + dim + " value="+ new BytesRef(docValues[ord][dim]));
+        }
+      }
+    }
+    w.addDocument(doc);
+    w.deleteDocuments(new Term("nukeme","yes"));
+    if (random().nextBoolean()) {
+      if (VERBOSE) {
+        System.out.println("\nTEST: now force merge");
+      }
+      w.forceMerge(1);
+    }
+    r=w.getReader();
+    w.close();
+    DimensionalValues dimValues=MultiDimensionalValues.get(r);
+    if (VERBOSE) {
+      System.out.println("  dimValues=" + dimValues);
+    }
+    assertNotNull(dimValues);
+    NumericDocValues idValues=MultiDocValues.getNumericValues(r,"id");
+    Bits liveDocs=MultiFields.getLiveDocs(r);
+    int iters=atLeast(100);
+    for (int iter=0; iter < iters; iter++) {
+      if (VERBOSE) {
+        System.out.println("\nTEST: iter=" + iter);
+      }
+      byte[][] queryMin=new byte[numDims][];
+      byte[][] queryMax=new byte[numDims][];
+      for (int dim=0; dim < numDims; dim++) {
+        queryMin[dim]=new byte[numBytesPerDim];
+        random().nextBytes(queryMin[dim]);
+        queryMax[dim]=new byte[numBytesPerDim];
+        random().nextBytes(queryMax[dim]);
+        if (BKDUtil.compare(numBytesPerDim,queryMin[dim],0,queryMax[dim],0) > 0) {
+          byte[] x=queryMin[dim];
+          queryMin[dim]=queryMax[dim];
+          queryMax[dim]=x;
+        }
+      }
+      if (VERBOSE) {
+        for (int dim=0; dim < numDims; dim++) {
+          System.out.println("  dim=" + dim + "\n    queryMin="+ new BytesRef(queryMin[dim])+ "\n    queryMax="+ new BytesRef(queryMax[dim]));
+        }
+      }
+      final BitSet hits=new BitSet();
+      dimValues.intersect("field",new DimensionalValues.IntersectVisitor(){
+        @Override public void visit(        int docID){
+          if (liveDocs == null || liveDocs.get(docID)) {
+            hits.set((int)idValues.get(docID));
+          }
+        }
+        @Override public void visit(        int docID,        byte[] packedValue){
+          if (liveDocs != null && liveDocs.get(docID) == false) {
+            return;
+          }
+          for (int dim=0; dim < numDims; dim++) {
+            if (BKDUtil.compare(numBytesPerDim,packedValue,dim,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,packedValue,dim,queryMax[dim],0) > 0) {
+              return;
+            }
+          }
+          hits.set((int)idValues.get(docID));
+        }
+        @Override public Relation compare(        byte[] minPacked,        byte[] maxPacked){
+          boolean crosses=false;
+          for (int dim=0; dim < numDims; dim++) {
+            if (BKDUtil.compare(numBytesPerDim,maxPacked,dim,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,minPacked,dim,queryMax[dim],0) > 0) {
+              return Relation.QUERY_OUTSIDE_CELL;
+            }
+ else             if (BKDUtil.compare(numBytesPerDim,minPacked,dim,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,maxPacked,dim,queryMax[dim],0) > 0) {
+              crosses=true;
+            }
+          }
+          if (crosses) {
+            return Relation.QUERY_CROSSES_CELL;
+          }
+ else {
+            return Relation.CELL_INSIDE_QUERY;
+          }
+        }
+      }
+);
+      BitSet expected=new BitSet();
+      for (int ord=0; ord < numValues; ord++) {
+        boolean matches=true;
+        for (int dim=0; dim < numDims; dim++) {
+          byte[] x=docValues[ord][dim];
+          if (BKDUtil.compare(numBytesPerDim,x,0,queryMin[dim],0) < 0 || BKDUtil.compare(numBytesPerDim,x,0,queryMax[dim],0) > 0) {
+            matches=false;
+            break;
+          }
+        }
+        if (matches) {
+          int id;
+          if (ids == null) {
+            id=ord;
+          }
+ else {
+            id=ids[ord];
+          }
+          expected.set(id);
+        }
+      }
+      int limit=Math.max(expected.length(),hits.length());
+      for (int id=0; id < limit; id++) {
+        assertEquals("docID=" + id,expected.get(id),hits.get(id));
+      }
+    }
+  }
+  finally {
+    IOUtils.closeWhileHandlingException(r,w);
+  }
+}
