@@ -1,0 +1,29 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  w.addDocument(new Document());
+  IndexReader reader=w.getReader();
+  w.close();
+  IndexSearcher searcher=newSearcher(reader);
+  LeafReaderContext leaf=searcher.getIndexReader().leaves().get(0);
+  AtomicBoolean scorerCalled=new AtomicBoolean();
+  AtomicBoolean bulkScorerCalled=new AtomicBoolean();
+  LRUQueryCache cache=new LRUQueryCache(1,Long.MAX_VALUE);
+  Weight weight=searcher.createNormalizedWeight(new MatchAllDocsQuery(),false);
+  weight=new WeightWrapper(weight,scorerCalled,bulkScorerCalled);
+  weight=cache.doCache(weight,NEVER_CACHE);
+  weight.bulkScorer(leaf);
+  assertEquals(true,bulkScorerCalled.get());
+  assertEquals(false,scorerCalled.get());
+  assertEquals(0,cache.getCacheCount());
+  bulkScorerCalled.set(false);
+  weight=searcher.createNormalizedWeight(new MatchAllDocsQuery(),false);
+  weight=new WeightWrapper(weight,scorerCalled,bulkScorerCalled);
+  weight=cache.doCache(weight,QueryCachingPolicy.ALWAYS_CACHE);
+  weight.scorer(leaf);
+  assertEquals(true,bulkScorerCalled.get());
+  assertEquals(false,scorerCalled.get());
+  assertEquals(1,cache.getCacheCount());
+  searcher.getIndexReader().close();
+  dir.close();
+}
