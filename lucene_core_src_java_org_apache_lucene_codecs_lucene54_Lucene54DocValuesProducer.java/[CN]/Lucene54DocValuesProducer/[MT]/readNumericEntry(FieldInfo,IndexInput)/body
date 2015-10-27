@@ -1,0 +1,46 @@
+{
+  NumericEntry entry=new NumericEntry();
+  entry.format=meta.readVInt();
+  entry.missingOffset=meta.readLong();
+  entry.offset=meta.readLong();
+  entry.count=meta.readVLong();
+switch (entry.format) {
+case CONST_COMPRESSED:
+    entry.minValue=meta.readLong();
+  if (entry.count > Integer.MAX_VALUE) {
+    throw new CorruptIndexException("illegal CONST_COMPRESSED count: " + entry.count,meta);
+  }
+break;
+case GCD_COMPRESSED:
+entry.minValue=meta.readLong();
+entry.gcd=meta.readLong();
+entry.bitsPerValue=meta.readVInt();
+break;
+case TABLE_COMPRESSED:
+final int uniqueValues=meta.readVInt();
+if (uniqueValues > 256) {
+throw new CorruptIndexException("TABLE_COMPRESSED cannot have more than 256 distinct values, got=" + uniqueValues,meta);
+}
+entry.table=new long[uniqueValues];
+for (int i=0; i < uniqueValues; ++i) {
+entry.table[i]=meta.readLong();
+}
+ramBytesUsed.addAndGet(RamUsageEstimator.sizeOf(entry.table));
+entry.bitsPerValue=meta.readVInt();
+break;
+case DELTA_COMPRESSED:
+entry.minValue=meta.readLong();
+entry.bitsPerValue=meta.readVInt();
+break;
+case MONOTONIC_COMPRESSED:
+final int blockShift=meta.readVInt();
+entry.monotonicMeta=DirectMonotonicReader.loadMeta(meta,maxDoc,blockShift);
+ramBytesUsed.addAndGet(entry.monotonicMeta.ramBytesUsed());
+directAddressesMeta.put(info.name,entry.monotonicMeta);
+break;
+default :
+throw new CorruptIndexException("Unknown format: " + entry.format + ", input=",meta);
+}
+entry.endOffset=meta.readLong();
+return entry;
+}

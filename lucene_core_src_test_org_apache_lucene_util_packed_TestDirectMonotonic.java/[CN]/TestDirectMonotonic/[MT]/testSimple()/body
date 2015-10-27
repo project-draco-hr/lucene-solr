@@ -1,0 +1,24 @@
+{
+  Directory dir=newDirectory();
+  final int blockShift=2;
+  List<Long> actualValues=Arrays.asList(1L,2L,5L,7L,8L,100L);
+  final int numValues=actualValues.size();
+  final long dataLength;
+  try (IndexOutput metaOut=dir.createOutput("meta",IOContext.DEFAULT);IndexOutput dataOut=dir.createOutput("data",IOContext.DEFAULT)){
+    DirectMonotonicWriter w=DirectMonotonicWriter.getInstance(metaOut,dataOut,numValues,blockShift);
+    for (    long v : actualValues) {
+      w.add(v);
+    }
+    w.finish();
+    dataLength=dataOut.getFilePointer();
+  }
+   try (IndexInput metaIn=dir.openInput("meta",IOContext.READONCE);IndexInput dataIn=dir.openInput("data",IOContext.DEFAULT)){
+    DirectMonotonicReader.Meta meta=DirectMonotonicReader.loadMeta(metaIn,numValues,blockShift);
+    LongValues values=DirectMonotonicReader.getInstance(meta,dataIn.randomAccessSlice(0,dataLength));
+    for (int i=0; i < numValues; ++i) {
+      final long v=values.get(i);
+      assertEquals(actualValues.get(i).longValue(),v);
+    }
+  }
+   dir.close();
+}

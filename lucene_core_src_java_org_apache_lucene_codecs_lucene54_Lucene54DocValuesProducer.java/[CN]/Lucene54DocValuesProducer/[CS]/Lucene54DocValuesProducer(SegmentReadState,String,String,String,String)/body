@@ -1,0 +1,38 @@
+{
+  String metaName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,metaExtension);
+  this.maxDoc=state.segmentInfo.maxDoc();
+  merging=false;
+  ramBytesUsed=new AtomicLong(RamUsageEstimator.shallowSizeOfInstance(getClass()));
+  int version=-1;
+  int numFields=-1;
+  try (ChecksumIndexInput in=state.directory.openChecksumInput(metaName,state.context)){
+    Throwable priorE=null;
+    try {
+      version=CodecUtil.checkIndexHeader(in,metaCodec,Lucene54DocValuesFormat.VERSION_START,Lucene54DocValuesFormat.VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+      numFields=readFields(in,state.fieldInfos);
+    }
+ catch (    Throwable exception) {
+      priorE=exception;
+    }
+ finally {
+      CodecUtil.checkFooter(in,priorE);
+    }
+  }
+   this.numFields=numFields;
+  String dataName=IndexFileNames.segmentFileName(state.segmentInfo.name,state.segmentSuffix,dataExtension);
+  this.data=state.directory.openInput(dataName,state.context);
+  boolean success=false;
+  try {
+    final int version2=CodecUtil.checkIndexHeader(data,dataCodec,Lucene54DocValuesFormat.VERSION_START,Lucene54DocValuesFormat.VERSION_CURRENT,state.segmentInfo.getId(),state.segmentSuffix);
+    if (version != version2) {
+      throw new CorruptIndexException("Format versions mismatch: meta=" + version + ", data="+ version2,data);
+    }
+    CodecUtil.retrieveChecksum(data);
+    success=true;
+  }
+  finally {
+    if (!success) {
+      IOUtils.closeWhileHandlingException(this.data);
+    }
+  }
+}

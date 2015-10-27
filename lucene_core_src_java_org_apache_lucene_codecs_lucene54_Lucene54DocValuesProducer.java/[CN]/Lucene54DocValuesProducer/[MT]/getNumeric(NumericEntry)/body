@@ -1,0 +1,54 @@
+{
+switch (entry.format) {
+case CONST_COMPRESSED:
+{
+      final long constant=entry.minValue;
+      final Bits live=getLiveBits(entry.missingOffset,(int)entry.count);
+      return new LongValues(){
+        @Override public long get(        long index){
+          return live.get((int)index) ? constant : 0;
+        }
+      }
+;
+    }
+case DELTA_COMPRESSED:
+{
+    RandomAccessInput slice=this.data.randomAccessSlice(entry.offset,entry.endOffset - entry.offset);
+    final long delta=entry.minValue;
+    final LongValues values=DirectReader.getInstance(slice,entry.bitsPerValue,0);
+    return new LongValues(){
+      @Override public long get(      long id){
+        return delta + values.get(id);
+      }
+    }
+;
+  }
+case GCD_COMPRESSED:
+{
+  RandomAccessInput slice=this.data.randomAccessSlice(entry.offset,entry.endOffset - entry.offset);
+  final long min=entry.minValue;
+  final long mult=entry.gcd;
+  final LongValues quotientReader=DirectReader.getInstance(slice,entry.bitsPerValue,0);
+  return new LongValues(){
+    @Override public long get(    long id){
+      return min + mult * quotientReader.get(id);
+    }
+  }
+;
+}
+case TABLE_COMPRESSED:
+{
+RandomAccessInput slice=this.data.randomAccessSlice(entry.offset,entry.endOffset - entry.offset);
+final long table[]=entry.table;
+final LongValues ords=DirectReader.getInstance(slice,entry.bitsPerValue,0);
+return new LongValues(){
+  @Override public long get(  long id){
+    return table[(int)ords.get(id)];
+  }
+}
+;
+}
+default :
+throw new AssertionError();
+}
+}
