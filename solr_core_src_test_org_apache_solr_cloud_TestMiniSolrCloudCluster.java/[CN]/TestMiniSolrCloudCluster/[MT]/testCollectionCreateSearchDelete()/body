@@ -1,0 +1,82 @@
+{
+  final String collectionName="testcollection";
+  MiniSolrCloudCluster miniCluster=createMiniSolrCloudCluster();
+  final CloudSolrClient cloudSolrClient=miniCluster.getSolrClient();
+  try {
+    assertNotNull(miniCluster.getZkServer());
+    List<JettySolrRunner> jettys=miniCluster.getJettySolrRunners();
+    assertEquals(NUM_SERVERS,jettys.size());
+    for (    JettySolrRunner jetty : jettys) {
+      assertTrue(jetty.isRunning());
+    }
+    log.info("#### Stopping a server");
+    JettySolrRunner stoppedServer=miniCluster.stopJettySolrRunner(0);
+    assertTrue(stoppedServer.isStopped());
+    assertEquals(NUM_SERVERS - 1,miniCluster.getJettySolrRunners().size());
+    log.info("#### Starting a server");
+    JettySolrRunner startedServer=miniCluster.startJettySolrRunner();
+    assertTrue(startedServer.isRunning());
+    assertEquals(NUM_SERVERS,miniCluster.getJettySolrRunners().size());
+    log.info("#### Creating a collection");
+    final String asyncId=(random().nextBoolean() ? null : "asyncId(" + collectionName + ".create)="+ random().nextInt());
+    createCollection(miniCluster,collectionName,null,asyncId,random().nextBoolean());
+    if (asyncId != null) {
+      assertEquals("did not see async createCollection completion","completed",AbstractFullDistribZkTestBase.getRequestStateAfterCompletion(asyncId,330,cloudSolrClient));
+    }
+    ZkStateReader zkStateReader=miniCluster.getSolrClient().getZkStateReader();
+    AbstractDistribZkTestBase.waitForRecoveriesToFinish(collectionName,zkStateReader,true,true,330);
+    log.info("#### updating a querying collection");
+    cloudSolrClient.setDefaultCollection(collectionName);
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.setField("id","1");
+    cloudSolrClient.add(doc);
+    cloudSolrClient.commit();
+    SolrQuery query=new SolrQuery();
+    query.setQuery("*:*");
+    QueryResponse rsp=cloudSolrClient.query(query);
+    assertEquals(1,rsp.getResults().getNumFound());
+    zkStateReader.updateClusterState();
+    ClusterState clusterState=zkStateReader.getClusterState();
+    HashMap<String,JettySolrRunner> jettyMap=new HashMap<String,JettySolrRunner>();
+    for (    JettySolrRunner jetty : miniCluster.getJettySolrRunners()) {
+      String key=jetty.getBaseUrl().toString().substring((jetty.getBaseUrl().getProtocol() + "://").length());
+      jettyMap.put(key,jetty);
+    }
+    Collection<Slice> slices=clusterState.getSlices(collectionName);
+    for (    Slice slice : slices) {
+      jettyMap.remove(slice.getLeader().getNodeName().replace("_solr","/solr"));
+      for (      Replica replica : slice.getReplicas()) {
+        jettyMap.remove(replica.getNodeName().replace("_solr","/solr"));
+      }
+    }
+    assertTrue("Expected to find a node without a replica",jettyMap.size() > 0);
+    log.info("#### Stopping a server");
+    JettySolrRunner jettyToStop=jettyMap.entrySet().iterator().next().getValue();
+    jettys=miniCluster.getJettySolrRunners();
+    for (int i=0; i < jettys.size(); ++i) {
+      if (jettys.get(i).equals(jettyToStop)) {
+        miniCluster.stopJettySolrRunner(i);
+        assertEquals(NUM_SERVERS - 1,miniCluster.getJettySolrRunners().size());
+      }
+    }
+    log.info("#### Starting a server");
+    startedServer=miniCluster.startJettySolrRunner(jettyToStop);
+    assertTrue(startedServer.isRunning());
+    assertEquals(NUM_SERVERS,miniCluster.getJettySolrRunners().size());
+    miniCluster.deleteCollection(collectionName);
+    AbstractDistribZkTestBase.waitForCollectionToDisappear(collectionName,zkStateReader,true,true,330);
+    String asyncId2=(random().nextBoolean() ? null : "asyncId(" + collectionName + ".create)="+ random().nextInt());
+    createCollection(miniCluster,collectionName,null,asyncId2,random().nextBoolean());
+    if (asyncId2 != null) {
+      assertEquals("did not see async createCollection completion","completed",AbstractFullDistribZkTestBase.getRequestStateAfterCompletion(asyncId2,330,cloudSolrClient));
+    }
+    AbstractDistribZkTestBase.waitForRecoveriesToFinish(collectionName,zkStateReader,true,true,330);
+    assertEquals(0,cloudSolrClient.query(new SolrQuery("*:*")).getResults().getNumFound());
+    cloudSolrClient.add(doc);
+    cloudSolrClient.commit();
+    assertEquals(1,cloudSolrClient.query(new SolrQuery("*:*")).getResults().getNumFound());
+  }
+  finally {
+    miniCluster.shutdown();
+  }
+}
