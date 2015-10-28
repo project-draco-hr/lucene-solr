@@ -1,0 +1,31 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  ContextSuggestField field=new ContextSuggestField("field","input",1,"context1","context2");
+  BytesRef surfaceForm=new BytesRef("input");
+  ByteArrayOutputStream byteArrayOutputStream=new ByteArrayOutputStream();
+  try (OutputStreamDataOutput output=new OutputStreamDataOutput(byteArrayOutputStream)){
+    output.writeVInt(surfaceForm.length);
+    output.writeBytes(surfaceForm.bytes,surfaceForm.offset,surfaceForm.length);
+    output.writeVInt(1 + 1);
+    output.writeByte(ContextSuggestField.TYPE);
+  }
+   BytesRef payload=new BytesRef(byteArrayOutputStream.toByteArray());
+  String[] expectedOutputs=new String[2];
+  CharsRefBuilder builder=new CharsRefBuilder();
+  builder.append("context1");
+  builder.append(((char)ContextSuggestField.CONTEXT_SEPARATOR));
+  builder.append(((char)CompletionAnalyzer.SEP_LABEL));
+  builder.append("input");
+  expectedOutputs[0]=builder.toCharsRef().toString();
+  builder.clear();
+  builder.append("context2");
+  builder.append(((char)ContextSuggestField.CONTEXT_SEPARATOR));
+  builder.append(((char)CompletionAnalyzer.SEP_LABEL));
+  builder.append("input");
+  expectedOutputs[1]=builder.toCharsRef().toString();
+  TokenStream stream=new CompletionTokenStreamTest.PayloadAttrToTypeAttrFilter(field.tokenStream(analyzer,null));
+  assertTokenStreamContents(stream,expectedOutputs,null,null,new String[]{payload.utf8ToString(),payload.utf8ToString()},new int[]{1,1},null,null);
+  CompletionAnalyzer completionAnalyzer=new CompletionAnalyzer(analyzer);
+  stream=new CompletionTokenStreamTest.PayloadAttrToTypeAttrFilter(field.tokenStream(completionAnalyzer,null));
+  assertTokenStreamContents(stream,expectedOutputs,null,null,new String[]{payload.utf8ToString(),payload.utf8ToString()},new int[]{1,1},null,null);
+}
