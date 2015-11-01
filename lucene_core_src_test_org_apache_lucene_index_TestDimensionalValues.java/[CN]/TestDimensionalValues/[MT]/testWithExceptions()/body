@@ -11,7 +11,6 @@
     }
     docValues[docID]=values;
   }
-  double maxMBHeap=0.05;
   boolean done=false;
   while (done == false) {
     try (MockDirectoryWrapper dir=newMockFSDirectory(createTempDir())){
@@ -21,9 +20,23 @@
         if (dir instanceof MockDirectoryWrapper) {
           dir.setEnableVirusScanner(false);
         }
-        verify(dir,docValues,null,numDims,numBytesPerDim,50,maxMBHeap);
+        verify(dir,docValues,null,numDims,numBytesPerDim,true);
       }
- catch (      AssertionError ae) {
+ catch (      IllegalStateException ise) {
+        if (ise.getMessage().contains("this writer hit an unrecoverable error")) {
+          Throwable cause=ise.getCause();
+          if (cause != null && cause.getMessage().contains("a random IOException")) {
+            done=true;
+          }
+ else {
+            throw ise;
+          }
+        }
+ else {
+          throw ise;
+        }
+      }
+catch (      AssertionError ae) {
         if (ae.getMessage().contains("does not exist; files=")) {
           done=true;
         }
@@ -33,11 +46,10 @@
       }
 catch (      IllegalArgumentException iae) {
         assertTrue(iae.getMessage().contains("either increase maxMBSortInHeap or decrease maxPointsInLeafNode"));
-        System.out.println("  more heap");
-        maxMBHeap*=1.25;
       }
 catch (      IOException ioe) {
-        if (ioe.getMessage().contains("a random IOException")) {
+        String message=ioe.getMessage();
+        if (message.contains("a random IOException") || message.contains("background merge hit exception")) {
           done=true;
         }
  else {
