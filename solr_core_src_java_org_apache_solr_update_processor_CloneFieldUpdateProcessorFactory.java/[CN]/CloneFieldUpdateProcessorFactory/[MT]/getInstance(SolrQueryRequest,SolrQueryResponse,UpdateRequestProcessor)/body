@@ -1,19 +1,45 @@
 {
+  final FieldNameSelector srcSelector=getSourceSelector();
   return new UpdateRequestProcessor(next){
     @Override public void processAdd(    AddUpdateCommand cmd) throws IOException {
       final SolrInputDocument doc=cmd.getSolrInputDocument();
-      SolrInputField destField=doc.containsKey(dest) ? doc.getField(dest) : new SolrInputField(dest);
-      boolean modified=false;
+      Map<String,SolrInputField> destMap=new HashMap<>();
       for (      final String fname : doc.getFieldNames()) {
         if (!srcSelector.shouldMutate(fname))         continue;
         Collection<Object> srcFieldValues=doc.getFieldValues(fname);
         if (srcFieldValues == null || srcFieldValues.isEmpty())         continue;
+        String resolvedDest=dest;
+        if (pattern != null) {
+          Matcher matcher=pattern.matcher(fname);
+          if (matcher.find()) {
+            resolvedDest=matcher.replaceAll(dest);
+          }
+ else {
+            log.debug("CloneFieldUpdateProcessor.srcSelector.shouldMutate(\"{}\") returned true, " + "but replacement pattern did not match, field skipped.",fname);
+            continue;
+          }
+        }
+        SolrInputField destField;
+        if (doc.containsKey(resolvedDest)) {
+          destField=doc.getField(resolvedDest);
+        }
+ else {
+          SolrInputField targetField=destMap.get(resolvedDest);
+          if (targetField == null) {
+            destField=new SolrInputField(resolvedDest);
+          }
+ else {
+            destField=targetField;
+          }
+        }
         for (        Object val : srcFieldValues) {
           destField.addValue(val,1.0f);
         }
-        modified=true;
+        destMap.put(resolvedDest,destField);
       }
-      if (modified)       doc.put(dest,destField);
+      for (      String dest : destMap.keySet()) {
+        doc.put(dest,destMap.get(dest));
+      }
       super.processAdd(cmd);
     }
   }
