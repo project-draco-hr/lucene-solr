@@ -1,0 +1,42 @@
+{
+  log.info("Creating collection 'football' with 1 shard and 2 replicas");
+  new CollectionAdminRequest.Create().setCollectionName("football").setNumShards(1).setReplicationFactor(2).setCreateNodeSet(nodeNames.get(0) + ',' + nodeNames.get(1)).process(cloudClient);
+  waitForRecoveriesToFinish("football",true);
+  cloudClient.getZkStateReader().updateClusterState();
+  Replica leader=null;
+  Replica notLeader=null;
+  Collection<Replica> replicas=cloudClient.getZkStateReader().getClusterState().getSlice("football","shard1").getReplicas();
+  for (  Replica replica : replicas) {
+    if (replica.getStr(ZkStateReader.LEADER_PROP) != null) {
+      leader=replica;
+    }
+ else {
+      notLeader=replica;
+    }
+  }
+  ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.BASE_URL_PROP,notLeader.getStr(ZkStateReader.BASE_URL_PROP),ZkStateReader.NODE_NAME_PROP,notLeader.getStr(ZkStateReader.NODE_NAME_PROP),ZkStateReader.COLLECTION_PROP,"football",ZkStateReader.SHARD_ID_PROP,"shard1",ZkStateReader.CORE_NAME_PROP,notLeader.getStr(ZkStateReader.CORE_NAME_PROP),ZkStateReader.ROLES_PROP,"",ZkStateReader.STATE_PROP,Replica.State.DOWN.toString());
+  log.info("Forcing {} to go into 'down' state",notLeader.getStr(ZkStateReader.CORE_NAME_PROP));
+  DistributedQueue q=Overseer.getInQueue(cloudClient.getZkStateReader().getZkClient());
+  q.offer(Utils.toJSON(m));
+  verifyReplicaStatus(cloudClient.getZkStateReader(),"football","shard1",notLeader.getName(),Replica.State.DOWN);
+  String baseUrl=notLeader.getStr(ZkStateReader.BASE_URL_PROP);
+  if (!baseUrl.endsWith("/"))   baseUrl+="/";
+  String path=baseUrl + "football";
+  log.info("Firing query against path=" + path);
+  HttpSolrClient client=new HttpSolrClient(path);
+  client.setSoTimeout(5000);
+  client.setConnectionTimeout(2000);
+  client.query(new SolrQuery("*:*"));
+  client.close();
+  for (  JettySolrRunner jetty : jettys) {
+    CoreContainer container=((SolrDispatchFilter)jetty.getDispatchFilter().getFilter()).getCores();
+    for (    SolrCore core : container.getCores()) {
+      if (core.getName().equals(leader.getStr(ZkStateReader.CORE_NAME_PROP))) {
+        SolrRequestHandler select=core.getRequestHandler("");
+        long c=(long)select.getStatistics().get("requests");
+        assertEquals(core.getName() + " should have got 1 request",1,c);
+        break;
+      }
+    }
+  }
+}
