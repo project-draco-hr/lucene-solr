@@ -1,0 +1,62 @@
+{
+  handle.put("maxScore",SKIPVAL);
+  handle.put("timestamp",SKIPVAL);
+  String testCollectionName="forceleader_test_collection";
+  createCollection(testCollectionName,1,3,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  try {
+    List<Replica> notLeaders=ensureAllReplicasAreActive(testCollectionName,SHARD1,1,3,maxWaitSecsToSeeAllActive);
+    assertEquals("Expected 2 replicas for collection " + testCollectionName + " but found "+ notLeaders.size()+ "; clusterState: "+ printClusterStateInfo(testCollectionName),2,notLeaders.size());
+    Replica leader=cloudClient.getZkStateReader().getLeaderRetry(testCollectionName,SHARD1);
+    JettySolrRunner notLeader0=getJettyOnPort(getReplicaPort(notLeaders.get(0)));
+    ZkController zkController=((SolrDispatchFilter)notLeader0.getDispatchFilter().getFilter()).getCores().getZkController();
+    putNonLeadersIntoLIR(testCollectionName,SHARD1,zkController,leader,notLeaders);
+    cloudClient.getZkStateReader().updateClusterState();
+    ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+    int numActiveReplicas=getNumberOfActiveReplicas(clusterState,testCollectionName,SHARD1);
+    assertEquals("Expected only 0 active replica but found " + numActiveReplicas + "; clusterState: "+ printClusterStateInfo(),0,numActiveReplicas);
+    int numReplicasOnLiveNodes=0;
+    for (    Replica rep : clusterState.getSlice(testCollectionName,SHARD1).getReplicas()) {
+      if (clusterState.getLiveNodes().contains(rep.getNodeName())) {
+        numReplicasOnLiveNodes++;
+      }
+    }
+    assertEquals(2,numReplicasOnLiveNodes);
+    log.info("Before forcing leader: " + printClusterStateInfo());
+    assertNull("Expected no leader right now. State: " + clusterState.getSlice(testCollectionName,SHARD1),clusterState.getSlice(testCollectionName,SHARD1).getLeader());
+    assertSendDocFails(3);
+    doForceLeader(cloudClient,testCollectionName,SHARD1);
+    waitForRecoveriesToFinish(testCollectionName,cloudClient.getZkStateReader(),true);
+    cloudClient.getZkStateReader().updateClusterState();
+    clusterState=cloudClient.getZkStateReader().getClusterState();
+    log.info("After forcing leader: " + clusterState.getSlice(testCollectionName,SHARD1));
+    Replica newLeader=clusterState.getSlice(testCollectionName,SHARD1).getLeader();
+    assertNotNull(newLeader);
+    assertEquals(State.ACTIVE,newLeader.getState());
+    numActiveReplicas=getNumberOfActiveReplicas(clusterState,testCollectionName,SHARD1);
+    assertEquals(2,numActiveReplicas);
+    log.info("Sending doc 4...");
+    sendDoc(4);
+    log.info("Committing...");
+    cloudClient.commit();
+    log.info("Doc 4 sent and commit issued");
+    assertDocsExistInAllReplicas(notLeaders,testCollectionName,1,1);
+    assertDocsExistInAllReplicas(notLeaders,testCollectionName,4,4);
+    log.info("Checking doc counts...");
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.add("q","*:*");
+    assertEquals("Expected only 2 documents in the index",2,cloudClient.query(params).getResults().getNumFound());
+    bringBackOldLeaderAndSendDoc(testCollectionName,leader,notLeaders,5);
+  }
+  finally {
+    log.info("Cleaning up after the test.");
+    try {
+      CollectionAdminRequest.Delete req=new CollectionAdminRequest.Delete();
+      req.setCollectionName(testCollectionName);
+      req.process(cloudClient);
+    }
+ catch (    Exception e) {
+      log.warn("Could not delete collection {} after test completed",testCollectionName);
+    }
+  }
+}

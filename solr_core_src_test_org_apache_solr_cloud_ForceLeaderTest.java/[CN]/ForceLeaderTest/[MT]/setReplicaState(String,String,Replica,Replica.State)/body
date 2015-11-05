@@ -1,0 +1,22 @@
+{
+  DistributedQueue inQueue=Overseer.getInQueue(cloudClient.getZkStateReader().getZkClient());
+  ZkStateReader zkStateReader=cloudClient.getZkStateReader();
+  String baseUrl=zkStateReader.getBaseUrlForNodeName(replica.getNodeName());
+  ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.STATE.toLower(),ZkStateReader.BASE_URL_PROP,baseUrl,ZkStateReader.NODE_NAME_PROP,replica.getNodeName(),ZkStateReader.SHARD_ID_PROP,slice,ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.CORE_NAME_PROP,replica.getStr(CORE_NAME_PROP),ZkStateReader.CORE_NODE_NAME_PROP,replica.getName(),ZkStateReader.STATE_PROP,state.toString());
+  inQueue.offer(Utils.toJSON(m));
+  boolean transition=false;
+  Replica.State replicaState=null;
+  for (int counter=10; counter > 0; counter--) {
+    zkStateReader.updateClusterState();
+    ClusterState clusterState=zkStateReader.getClusterState();
+    replicaState=clusterState.getSlice(collection,slice).getReplica(replica.getName()).getState();
+    if (replicaState == state) {
+      transition=true;
+      break;
+    }
+    Thread.sleep(1000);
+  }
+  if (!transition) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not set replica [" + replica.getName() + "] as "+ state+ ". Last known state of the replica: "+ replicaState);
+  }
+}

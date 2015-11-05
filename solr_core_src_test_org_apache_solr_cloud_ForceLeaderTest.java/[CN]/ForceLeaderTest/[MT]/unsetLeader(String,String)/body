@@ -1,0 +1,21 @@
+{
+  DistributedQueue inQueue=Overseer.getInQueue(cloudClient.getZkStateReader().getZkClient());
+  ZkStateReader zkStateReader=cloudClient.getZkStateReader();
+  ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.LEADER.toLower(),ZkStateReader.SHARD_ID_PROP,slice,ZkStateReader.COLLECTION_PROP,collection);
+  inQueue.offer(Utils.toJSON(m));
+  ClusterState clusterState=null;
+  boolean transition=false;
+  for (int counter=10; counter > 0; counter--) {
+    zkStateReader.updateClusterState();
+    clusterState=zkStateReader.getClusterState();
+    Replica newLeader=clusterState.getSlice(collection,slice).getLeader();
+    if (newLeader == null) {
+      transition=true;
+      break;
+    }
+    Thread.sleep(1000);
+  }
+  if (!transition) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not unset replica leader" + ". Cluster state: " + printClusterStateInfo(collection));
+  }
+}

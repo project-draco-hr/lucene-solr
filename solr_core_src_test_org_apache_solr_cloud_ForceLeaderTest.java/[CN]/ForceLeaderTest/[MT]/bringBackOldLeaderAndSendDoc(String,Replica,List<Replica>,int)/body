@@ -1,0 +1,18 @@
+{
+  log.info("Bringing back originally killed leader...");
+  JettySolrRunner leaderJetty=getJettyOnPort(getReplicaPort(leader));
+  leaderJetty.start();
+  waitForRecoveriesToFinish(collection,cloudClient.getZkStateReader(),true);
+  cloudClient.getZkStateReader().updateClusterState();
+  ClusterState clusterState=cloudClient.getZkStateReader().getClusterState();
+  log.info("After bringing back leader: " + clusterState.getSlice(collection,SHARD1));
+  int numActiveReplicas=getNumberOfActiveReplicas(clusterState,collection,SHARD1);
+  assertEquals(1 + notLeaders.size(),numActiveReplicas);
+  log.info("Sending doc " + docid + "...");
+  sendDoc(docid);
+  log.info("Committing...");
+  cloudClient.commit();
+  log.info("Doc " + docid + " sent and commit issued");
+  assertDocsExistInAllReplicas(notLeaders,collection,docid,docid);
+  assertDocsExistInAllReplicas(Collections.singletonList(leader),collection,docid,docid);
+}

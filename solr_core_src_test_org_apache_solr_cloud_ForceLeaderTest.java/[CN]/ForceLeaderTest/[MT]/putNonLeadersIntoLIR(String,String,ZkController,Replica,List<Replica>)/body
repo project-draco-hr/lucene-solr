@@ -1,0 +1,36 @@
+{
+  SocketProxy[] nonLeaderProxies=new SocketProxy[notLeaders.size()];
+  for (int i=0; i < notLeaders.size(); i++)   nonLeaderProxies[i]=getProxyForReplica(notLeaders.get(i));
+  sendDoc(1);
+  log.info("Closing proxies for the non-leader replicas...");
+  for (  SocketProxy proxy : nonLeaderProxies)   proxy.close();
+  log.info("Sending a doc during the network partition...");
+  sendDoc(2);
+  Thread.sleep(2000);
+  log.info("Killing leader for shard1 of " + collectionName + " on node "+ leader.getNodeName()+ "");
+  JettySolrRunner leaderJetty=getJettyOnPort(getReplicaPort(leader));
+  getProxyForReplica(leader).close();
+  leaderJetty.stop();
+  log.info("Sleep and periodically wake up to check for state...");
+  for (int i=0; i < 20; i++) {
+    Thread.sleep(1000);
+    State lirStates[]=new State[notLeaders.size()];
+    for (int j=0; j < notLeaders.size(); j++)     lirStates[j]=zkController.getLeaderInitiatedRecoveryState(collectionName,shard,notLeaders.get(j).getName());
+    zkController.getZkStateReader().updateClusterState();
+    ClusterState clusterState=zkController.getZkStateReader().getClusterState();
+    boolean allDown=true;
+    for (    State lirState : lirStates)     if (Replica.State.DOWN.equals(lirState) == false)     allDown=false;
+    if (allDown && clusterState.getSlice(collectionName,shard).getLeader() == null) {
+      break;
+    }
+    log.warn("Attempt " + i + ", waiting on for 1 sec to settle down in the steady state. State: "+ printClusterStateInfo(collectionName));
+    log.warn("LIR state: " + getLIRState(zkController,collectionName,shard));
+  }
+  log.info("Waking up...");
+  log.info("Reopening the proxies for the non-leader replicas...");
+  for (  SocketProxy proxy : nonLeaderProxies)   proxy.reopen();
+  log.info("LIR state: " + getLIRState(zkController,collectionName,shard));
+  State lirStates[]=new State[notLeaders.size()];
+  for (int j=0; j < notLeaders.size(); j++)   lirStates[j]=zkController.getLeaderInitiatedRecoveryState(collectionName,shard,notLeaders.get(j).getName());
+  for (  State lirState : lirStates)   assertEquals("Expected that the LIR state would've been down by now",Replica.State.DOWN,(lirState));
+}
