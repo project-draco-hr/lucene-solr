@@ -1,0 +1,67 @@
+{
+  final int iters=atLeast(5);
+  for (int iter=0; iter < iters; ++iter) {
+    final int numDocs=TestUtil.nextInt(random(),0,100);
+    final long[] docIds=new long[numDocs];
+    final long[] values=new long[numDocs];
+    final long maxDoc;
+    if (numDocs == 0) {
+      maxDoc=1 + random().nextInt(10);
+    }
+ else {
+      docIds[0]=random().nextInt(10);
+      for (int i=1; i < docIds.length; ++i) {
+        docIds[i]=docIds[i - 1] + 1 + random().nextInt(100);
+      }
+      maxDoc=docIds[numDocs - 1] + 1 + random().nextInt(10);
+    }
+    for (int i=0; i < values.length; ++i) {
+      values[i]=random().nextLong();
+    }
+    final long missingValue=random().nextLong();
+    final LongValues docIdsValues=new LongValues(){
+      @Override public long get(      long index){
+        return docIds[Math.toIntExact(index)];
+      }
+    }
+;
+    final LongValues valuesValues=new LongValues(){
+      @Override public long get(      long index){
+        return values[Math.toIntExact(index)];
+      }
+    }
+;
+    final SparseBits liveBits=new SparseBits(maxDoc,numDocs,docIdsValues);
+    for (int i=0; i < 2000; ++i) {
+      final long docId=TestUtil.nextLong(random(),0,maxDoc - 1);
+      final boolean exists=liveBits.get(Math.toIntExact(docId));
+      assertEquals(Arrays.binarySearch(docIds,docId) >= 0,exists);
+    }
+    for (int docId=0; docId < maxDoc; docId+=random().nextInt(3)) {
+      final boolean exists=liveBits.get(Math.toIntExact(docId));
+      assertEquals(Arrays.binarySearch(docIds,docId) >= 0,exists);
+    }
+    final SparseLongValues sparseValues=new SparseLongValues(liveBits,valuesValues,missingValue);
+    for (int i=0; i < 2000; ++i) {
+      final long docId=TestUtil.nextLong(random(),0,maxDoc - 1);
+      final int idx=Arrays.binarySearch(docIds,docId);
+      final long value=sparseValues.get(docId);
+      if (idx >= 0) {
+        assertEquals(values[idx],value);
+      }
+ else {
+        assertEquals(missingValue,value);
+      }
+    }
+    for (int docId=0; docId < maxDoc; docId+=random().nextInt(3)) {
+      final int idx=Arrays.binarySearch(docIds,docId);
+      final long value=sparseValues.get(docId);
+      if (idx >= 0) {
+        assertEquals(values[idx],value);
+      }
+ else {
+        assertEquals(missingValue,value);
+      }
+    }
+  }
+}

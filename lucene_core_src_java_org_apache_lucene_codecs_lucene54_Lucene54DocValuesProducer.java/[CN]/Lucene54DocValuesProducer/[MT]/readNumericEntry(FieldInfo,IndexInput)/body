@@ -2,6 +2,13 @@
   NumericEntry entry=new NumericEntry();
   entry.format=meta.readVInt();
   entry.missingOffset=meta.readLong();
+  if (entry.format == SPARSE_COMPRESSED) {
+    entry.numDocsWithValue=meta.readVLong();
+    final int blockShift=meta.readVInt();
+    entry.monotonicMeta=DirectMonotonicReader.loadMeta(meta,entry.numDocsWithValue + 1,blockShift);
+    ramBytesUsed.addAndGet(entry.monotonicMeta.ramBytesUsed());
+    directAddressesMeta.put(info.name,entry.monotonicMeta);
+  }
   entry.offset=meta.readLong();
   entry.count=meta.readVLong();
 switch (entry.format) {
@@ -37,6 +44,28 @@ final int blockShift=meta.readVInt();
 entry.monotonicMeta=DirectMonotonicReader.loadMeta(meta,maxDoc,blockShift);
 ramBytesUsed.addAndGet(entry.monotonicMeta.ramBytesUsed());
 directAddressesMeta.put(info.name,entry.monotonicMeta);
+break;
+case SPARSE_COMPRESSED:
+final byte numberType=meta.readByte();
+switch (numberType) {
+case 0:
+entry.numberType=NumberType.VALUE;
+break;
+case 1:
+entry.numberType=NumberType.ORDINAL;
+break;
+default :
+throw new CorruptIndexException("Number type can only be 0 or 1, got=" + numberType,meta);
+}
+final int fieldNumber=meta.readVInt();
+if (fieldNumber != info.number) {
+throw new CorruptIndexException("Field numbers mistmatch: " + fieldNumber + " != "+ info.number,meta);
+}
+final int dvFormat=meta.readByte();
+if (dvFormat != NUMERIC) {
+throw new CorruptIndexException("Formats mistmatch: " + dvFormat + " != "+ NUMERIC,meta);
+}
+entry.nonMissingValues=readNumericEntry(info,meta);
 break;
 default :
 throw new CorruptIndexException("Unknown format: " + entry.format + ", input=",meta);
