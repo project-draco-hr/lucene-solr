@@ -1,0 +1,34 @@
+{
+  NamedList rsp=invokeCdcrAction(shardToLeaderJetty.get(SOURCE_COLLECTION).get(SHARD1),CdcrParams.CdcrAction.START);
+  NamedList status=(NamedList)rsp.get(CdcrParams.CdcrAction.STATUS.toLower());
+  assertEquals(CdcrParams.ProcessState.STARTED.toLower(),status.get(CdcrParams.ProcessState.getParam()));
+  this.assertState(SOURCE_COLLECTION,CdcrParams.ProcessState.STARTED,CdcrParams.BufferState.ENABLED);
+  this.deleteCollection(TARGET_COLLECTION);
+  index(SOURCE_COLLECTION,getDoc(id,"a"));
+  index(SOURCE_COLLECTION,getDoc(id,"b"));
+  index(SOURCE_COLLECTION,getDoc(id,"c"));
+  index(SOURCE_COLLECTION,getDoc(id,"d"));
+  index(SOURCE_COLLECTION,getDoc(id,"e"));
+  index(SOURCE_COLLECTION,getDoc(id,"f"));
+  assertNumDocs(6,SOURCE_COLLECTION);
+  int cnt=15;
+  AssertionError lastAssertionError=null;
+  while (cnt > 0) {
+    try {
+      rsp=invokeCdcrAction(shardToLeaderJetty.get(SOURCE_COLLECTION).get(SHARD2),CdcrParams.CdcrAction.ERRORS);
+      NamedList collections=(NamedList)((NamedList)rsp.get(CdcrParams.ERRORS)).getVal(0);
+      NamedList errors=(NamedList)collections.get(TARGET_COLLECTION);
+      assertTrue(0 < (Long)errors.get(CdcrParams.CONSECUTIVE_ERRORS));
+      NamedList lastErrors=(NamedList)errors.get(CdcrParams.LAST);
+      assertNotNull(lastErrors);
+      assertTrue(0 < lastErrors.size());
+      return;
+    }
+ catch (    AssertionError e) {
+      lastAssertionError=e;
+      cnt--;
+      Thread.sleep(1000);
+    }
+  }
+  throw new AssertionError("Timeout while trying to assert replication errors",lastAssertionError);
+}

@@ -1,0 +1,24 @@
+{
+  this.invokeCdcrAction(shardToLeaderJetty.get(SOURCE_COLLECTION).get(SHARD1),CdcrParams.CdcrAction.START);
+  this.waitForCdcrStateReplication(SOURCE_COLLECTION);
+  for (int i=0; i < 100; i++) {
+    index(SOURCE_COLLECTION,getDoc(id,Integer.toString(i)));
+  }
+  this.waitForReplicationToComplete(SOURCE_COLLECTION,SHARD1);
+  this.waitForReplicationToComplete(SOURCE_COLLECTION,SHARD2);
+  commit(TARGET_COLLECTION);
+  assertNumDocs(100,SOURCE_COLLECTION);
+  assertNumDocs(100,TARGET_COLLECTION);
+  int nTlogs=getNumberOfTlogFilesOnReplicas(SOURCE_COLLECTION);
+  this.invokeCdcrAction(shardToLeaderJetty.get(SOURCE_COLLECTION).get(SHARD1),CdcrParams.CdcrAction.DISABLEBUFFER);
+  this.waitForCdcrStateReplication(SOURCE_COLLECTION);
+  int cnt=15;
+  while (cnt > 0) {
+    index(SOURCE_COLLECTION,getDoc(id,Integer.toString(50)));
+    int n=getNumberOfTlogFilesOnReplicas(SOURCE_COLLECTION);
+    if (n < nTlogs)     return;
+    cnt--;
+    Thread.sleep(1000);
+  }
+  throw new AssertionError("Timeout while trying to assert update logs @ source_collection");
+}

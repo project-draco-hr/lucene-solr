@@ -7,6 +7,7 @@
   Directory indexDir=null;
   String indexDirPath;
   boolean deleteTmpIdxDir=true;
+  File tmpTlogDir=null;
   if (!solrCore.getSolrCoreState().getLastReplicateIndexSuccess()) {
     forceReplication=true;
   }
@@ -74,6 +75,9 @@
     String tmpIdxDirName="index." + timestamp;
     tmpIndex=solrCore.getDataDir() + tmpIdxDirName;
     tmpIndexDir=solrCore.getDirectoryFactory().get(tmpIndex,DirContext.DEFAULT,solrCore.getSolrConfig().indexConfig.lockType);
+    if (tlogFilesToDownload != null) {
+      tmpTlogDir=new File(solrCore.getUpdateHandler().getUpdateLog().getLogDir(),"tlog." + timestamp);
+    }
     indexDirPath=solrCore.getIndexDir();
     indexDir=solrCore.getDirectoryFactory().get(indexDirPath,DirContext.DEFAULT,solrCore.getSolrConfig().indexConfig.lockType);
     try {
@@ -116,7 +120,8 @@
         successfulInstall=false;
         long bytesDownloaded=downloadIndexFiles(isFullCopyNeeded,indexDir,tmpIndexDir,latestGeneration);
         if (tlogFilesToDownload != null) {
-          bytesDownloaded+=downloadTlogFiles(timestamp,latestGeneration);
+          bytesDownloaded+=downloadTlogFiles(tmpTlogDir,latestGeneration);
+          reloadCore=true;
         }
         final long timeTakenSeconds=getReplicationTimeElapsed();
         final Long bytesDownloadedPerSecond=(timeTakenSeconds != 0 ? new Long(bytesDownloaded / timeTakenSeconds) : null);
@@ -131,6 +136,9 @@
           }
  else {
             successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
+          }
+          if (tlogFilesToDownload != null) {
+            successfulInstall&=moveTlogFiles(tmpTlogDir);
           }
           if (successfulInstall) {
             if (isFullCopyNeeded) {
@@ -152,6 +160,9 @@
           }
  else {
             successfulInstall=moveIndexFiles(tmpIndexDir,indexDir);
+          }
+          if (tlogFilesToDownload != null) {
+            successfulInstall&=moveTlogFiles(tmpTlogDir);
           }
           if (successfulInstall) {
             logReplicationTimeAndConfFiles(modifiedConfFiles,successfulInstall);
@@ -181,7 +192,7 @@
         openNewSearcherAndUpdateCommitPoint();
       }
       if (!isFullCopyNeeded && !forceReplication && !successfulInstall) {
-        cleanup(solrCore,tmpIndexDir,indexDir,deleteTmpIdxDir,successfulInstall);
+        cleanup(solrCore,tmpIndexDir,indexDir,deleteTmpIdxDir,tmpTlogDir,successfulInstall);
         cleanupDone=true;
         LOG.warn("Replication attempt was not successful - trying a full index replication reloadCore={}",reloadCore);
         successfulInstall=fetchLatestIndex(true,reloadCore);
@@ -205,7 +216,7 @@ catch (    Exception e) {
   }
   finally {
     if (!cleanupDone) {
-      cleanup(solrCore,tmpIndexDir,indexDir,deleteTmpIdxDir,successfulInstall);
+      cleanup(solrCore,tmpIndexDir,indexDir,deleteTmpIdxDir,tmpTlogDir,successfulInstall);
     }
   }
 }
