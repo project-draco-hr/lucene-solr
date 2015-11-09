@@ -1,10 +1,31 @@
 {
-  logger.info("Looking for core definitions underneath {}",rootDirectory.getAbsolutePath());
-  List<CoreDescriptor> cds=Lists.newArrayList();
-  if (rootDirectory.canRead() == false) {
-    throw new RuntimeException("Solr home '" + rootDirectory.getAbsolutePath() + "' doesn't have read permissions");
+  logger.info("Looking for core definitions underneath {}",rootDirectory);
+  final List<CoreDescriptor> cds=Lists.newArrayList();
+  try {
+    Files.walkFileTree(this.rootDirectory,new SimpleFileVisitor<Path>(){
+      @Override public FileVisitResult visitFile(      Path file,      BasicFileAttributes attrs) throws IOException {
+        if (file.getFileName().toString().equals(PROPERTIES_FILENAME)) {
+          CoreDescriptor cd=buildCoreDescriptor(file,cc);
+          logger.info("Found core {} in {}",cd.getName(),cd.getInstanceDir());
+          cds.add(cd);
+          return FileVisitResult.SKIP_SIBLINGS;
+        }
+        return FileVisitResult.CONTINUE;
+      }
+      @Override public FileVisitResult visitFileFailed(      Path file,      IOException exc) throws IOException {
+        if (file.equals(rootDirectory)) {
+          logger.error("Error reading core root directory {}: {}",file,exc);
+          throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Error reading core root directory");
+        }
+        logger.warn("Error visiting {}: {}",file,exc);
+        return FileVisitResult.CONTINUE;
+      }
+    }
+);
   }
-  discoverUnder(rootDirectory,cds,cc);
+ catch (  IOException e) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Couldn't walk file tree under " + this.rootDirectory,e);
+  }
   logger.info("Found {} core definitions",cds.size());
   return cds;
 }
