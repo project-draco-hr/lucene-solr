@@ -2,8 +2,8 @@
   waitForRecoveriesToFinish(true);
   final String leaderCoreNodeName=shardToLeaderJetty.get(SHARD1).coreNodeName;
   final CloudJettyRunner leaderRunner=shardToLeaderJetty.get(SHARD1);
-  SolrDispatchFilter filter=(SolrDispatchFilter)leaderRunner.jetty.getDispatchFilter().getFilter();
-  ZkController zkController=filter.getCores().getZkController();
+  CoreContainer coreContainer=leaderRunner.jetty.getCoreContainer();
+  ZkController zkController=coreContainer.getZkController();
   CloudJettyRunner notLeader=null;
   for (  CloudJettyRunner cloudJettyRunner : shardToJetty.get(SHARD1)) {
     if (cloudJettyRunner != leaderRunner) {
@@ -29,7 +29,7 @@
   }
 ;
   try {
-    LeaderInitiatedRecoveryThread thread=new LeaderInitiatedRecoveryThread(zkController,filter.getCores(),DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd);
+    LeaderInitiatedRecoveryThread thread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd);
     assertFalse(zkController.isReplicaInRecoveryHandling(replicaCoreNodeProps.getCoreUrl()));
     thread.run();
     fail("publishDownState should not have succeeded because replica url is not marked in leader initiated recovery in ZkController");
@@ -37,7 +37,7 @@
  catch (  SolrException e) {
     assertTrue(e.code() == SolrException.ErrorCode.INVALID_STATE.code);
   }
-  LeaderInitiatedRecoveryThread thread=new LeaderInitiatedRecoveryThread(zkController,filter.getCores(),DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd);
+  LeaderInitiatedRecoveryThread thread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd);
   int children=cloudClient.getZkStateReader().getZkClient().getChildren("/live_nodes",null,true).size();
   ChaosMonkey.stop(notLeader.jetty);
   TimeOut timeOut=new TimeOut(60,TimeUnit.SECONDS);
@@ -55,7 +55,7 @@
   assertEquals(cversion,getOverseerCversion());
   ChaosMonkey.start(notLeader.jetty);
   waitForRecoveriesToFinish(true);
-  thread=new LeaderInitiatedRecoveryThread(zkController,filter.getCores(),DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd){
+  thread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd){
     @Override protected void updateLIRState(    String replicaCoreNodeName){
       throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"",new KeeperException.ConnectionLossException());
     }
@@ -64,7 +64,7 @@
   assertFalse(thread.publishDownState(replicaCoreNodeProps.getCoreName(),replica.getName(),replica.getNodeName(),replicaCoreNodeProps.getCoreUrl(),false));
   assertFalse(thread.publishDownState(replicaCoreNodeProps.getCoreName(),replica.getName(),replica.getNodeName(),replicaCoreNodeProps.getCoreUrl(),true));
   assertNull(zkController.getLeaderInitiatedRecoveryState(DEFAULT_COLLECTION,SHARD1,replica.getName()));
-  thread=new LeaderInitiatedRecoveryThread(zkController,filter.getCores(),DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd){
+  thread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd){
     @Override protected void updateLIRState(    String replicaCoreNodeName){
       throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"",new KeeperException.SessionExpiredException());
     }
@@ -73,7 +73,7 @@
   assertFalse(thread.publishDownState(replicaCoreNodeProps.getCoreName(),replica.getName(),replica.getNodeName(),replicaCoreNodeProps.getCoreUrl(),false));
   assertFalse(thread.publishDownState(replicaCoreNodeProps.getCoreName(),replica.getName(),replica.getNodeName(),replicaCoreNodeProps.getCoreUrl(),true));
   assertNull(zkController.getLeaderInitiatedRecoveryState(DEFAULT_COLLECTION,SHARD1,replica.getName()));
-  thread=new LeaderInitiatedRecoveryThread(zkController,filter.getCores(),DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd){
+  thread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,cd){
     @Override protected void updateLIRState(    String replicaCoreNodeName){
       throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"bogus exception");
     }
@@ -95,9 +95,9 @@
   }
   assertNull(zkController.getLeaderInitiatedRecoveryState(DEFAULT_COLLECTION,SHARD1,replica.getName()));
   assertEquals(Replica.State.DOWN,cloudClient.getZkStateReader().getClusterState().getReplica(DEFAULT_COLLECTION,replica.getName()).getState());
-  filter=(SolrDispatchFilter)notLeader.jetty.getDispatchFilter().getFilter();
-  zkController=filter.getCores().getZkController();
-  thread=new LeaderInitiatedRecoveryThread(zkController,filter.getCores(),DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,filter.getCores().getCores().iterator().next().getCoreDescriptor()){
+  coreContainer=notLeader.jetty.getCoreContainer();
+  zkController=coreContainer.getZkController();
+  thread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,coreContainer.getCores().iterator().next().getCoreDescriptor()){
     @Override protected void updateLIRState(    String replicaCoreNodeName){
       try {
         super.updateLIRState(replicaCoreNodeName);
@@ -112,9 +112,9 @@
   cversion=getOverseerCversion();
   assertFalse(thread.publishDownState(replicaCoreNodeProps.getCoreName(),replica.getName(),replica.getNodeName(),replicaCoreNodeProps.getCoreUrl(),false));
   assertEquals(cversion,getOverseerCversion());
-  filter=(SolrDispatchFilter)leaderRunner.jetty.getDispatchFilter().getFilter();
-  zkController=filter.getCores().getZkController();
-  thread=new LeaderInitiatedRecoveryThread(zkController,filter.getCores(),DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,filter.getCores().getCores().iterator().next().getCoreDescriptor());
+  coreContainer=leaderRunner.jetty.getCoreContainer();
+  zkController=coreContainer.getZkController();
+  thread=new LeaderInitiatedRecoveryThread(zkController,coreContainer,DEFAULT_COLLECTION,SHARD1,replicaCoreNodeProps,1,coreContainer.getCores().iterator().next().getCoreDescriptor());
   thread.publishDownState(replicaCoreNodeProps.getCoreName(),replica.getName(),replica.getNodeName(),replicaCoreNodeProps.getCoreUrl(),false);
   timeOut=new TimeOut(30,TimeUnit.SECONDS);
   while (!timeOut.hasTimedOut()) {
