@@ -1,0 +1,29 @@
+{
+  clearIndex();
+  TFIDFSimilarity similarity=null;
+{
+    Similarity sim=h.getCore().getLatestSchema().getFieldType("a_tfidf").getSimilarity();
+    assertNotNull("Test needs *_tfidf to use a TFIDFSimilarity ... who broke the config?",sim);
+    assertTrue("Test needs *_tfidf to use a TFIDFSimilarity ... who broke the config: " + sim.getClass(),sim instanceof TFIDFSimilarity);
+    similarity=(TFIDFSimilarity)sim;
+  }
+  assertU(adoc("id","1","a_tdt","2009-08-31T12:10:10.123Z","b_tdt","2009-08-31T12:10:10.124Z"));
+  assertU(adoc("id","2","a_tfidf","how now brown cow"));
+  assertU(commit());
+  assertU(adoc("id","3","a_tfidf","brown cow"));
+  assertU(adoc("id","4"));
+  assertU(commit());
+  assertU(adoc("id","5"));
+  assertU(adoc("id","6","a_tfidf","cow cow cow cow cow"));
+  assertU(commit());
+  assertQ(req("fl","*,score","q","{!func}idf(nofield_tfidf,cow)","fq","id:6"),"//float[@name='score']='" + similarity.idf(0,6) + "'");
+  assertQ(req("fl","*,score","q","{!func}tf(nofield_tfidf,cow)","fq","id:6"),"//float[@name='score']='" + similarity.tf(0) + "'");
+  assertQ(req("fl","*,score","q","{!func}idf(a_tfidf,cow)","fq","id:6"),"//float[@name='score']='" + similarity.idf(3,6) + "'");
+  assertQ(req("fl","*,score","q","{!func}tf(a_tfidf,cow)","fq","id:6"),"//float[@name='score']='" + similarity.tf(5) + "'");
+  FieldInvertState state=new FieldInvertState("a_tfidf");
+  state.setBoost(1.0f);
+  state.setLength(4);
+  long norm=similarity.computeNorm(state);
+  float nrm=similarity.decodeNormValue((byte)norm);
+  assertQ(req("fl","*,score","q","{!func}norm(a_tfidf)","fq","id:2"),"//float[@name='score']='" + nrm + "'");
+}
