@@ -1,0 +1,34 @@
+{
+  List<StreamExpression> streamExpressions=factory.getExpressionOperandsRepresentingTypes(expression,Expressible.class,TupleStream.class);
+  List<StreamExpressionParameter> selectFieldsExpressions=factory.getOperandsOfType(expression,StreamExpressionValue.class);
+  List<StreamExpression> operationExpressions=factory.getExpressionOperandsRepresentingTypes(expression,StreamOperation.class);
+  if (expression.getParameters().size() != streamExpressions.size() + selectFieldsExpressions.size() + operationExpressions.size()) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - unknown operands found",expression));
+  }
+  if (1 != streamExpressions.size()) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting single stream but found %d (must be TupleStream types)",expression,streamExpressions.size()));
+  }
+  if (0 == selectFieldsExpressions.size()) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting at least one select field but found %d",expression,streamExpressions.size()));
+  }
+  stream=factory.constructStream(streamExpressions.get(0));
+  selectedFields=new HashMap<String,String>(selectFieldsExpressions.size());
+  for (  StreamExpressionParameter parameter : selectFieldsExpressions) {
+    StreamExpressionValue selectField=(StreamExpressionValue)parameter;
+    String value=selectField.getValue().trim().toLowerCase(Locale.ROOT);
+    if (value.contains(" as ")) {
+      String[] parts=value.split(" as ");
+      if (2 != parts.length) {
+        throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting select field of form 'fieldA' or 'fieldA as alias' but found %s",expression,value));
+      }
+      selectedFields.put(parts[0].trim(),parts[1].trim());
+    }
+ else {
+      selectedFields.put(value,value);
+    }
+  }
+  operations=new ArrayList<>();
+  for (  StreamExpression expr : operationExpressions) {
+    operations.add(factory.constructOperation(expr));
+  }
+}
