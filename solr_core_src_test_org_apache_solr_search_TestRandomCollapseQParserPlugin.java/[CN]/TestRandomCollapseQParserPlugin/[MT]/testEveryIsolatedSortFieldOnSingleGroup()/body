@@ -1,0 +1,22 @@
+{
+  for (  String sortField : ALL_SORT_FIELD_NAMES) {
+    for (    String dir : Arrays.asList(" asc"," desc")) {
+      final String sort=sortField + dir + ", id"+ dir;
+      final String q=random().nextBoolean() ? "*:*" : CursorPagingTest.buildRandomQuery();
+      final SolrParams sortedP=params("q",q,"rows","1","sort",sort);
+      final QueryResponse sortedRsp=SOLR.query(sortedP);
+      if (0 != sortedRsp.getResults().getNumFound()) {
+        final SolrDocument firstDoc=sortedRsp.getResults().get(0);
+        for (        String p : Arrays.asList("{!collapse field=","{!collapse size='1' field=")) {
+          for (          String fq : Arrays.asList(p + "same_for_all_docs sort='" + sort+ "'}",p + "same_for_all_docs sort='" + sort+ "' nullPolicy=expand}",p + "not_in_any_docs sort='" + sort+ "' nullPolicy=collapse}")) {
+            final SolrParams collapseP=params("q",q,"rows","1","fq",fq);
+            final QueryResponse collapseRsp=SOLR.query(collapseP);
+            assertEquals("collapse should have produced exactly one doc: " + collapseP,1,collapseRsp.getResults().getNumFound());
+            final SolrDocument groupHead=collapseRsp.getResults().get(0);
+            assertEquals(sortedP + " => " + firstDoc+ " :VS: "+ collapseP+ " => "+ groupHead,firstDoc.getFieldValue("id"),groupHead.getFieldValue("id"));
+          }
+        }
+      }
+    }
+  }
+}
