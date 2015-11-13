@@ -35,10 +35,11 @@
       shardId=stdNode.getShardId();
       String leaderCoreNodeName=null;
       Exception getLeaderExc=null;
+      Replica leaderProps=null;
       try {
-        Replica leader=zkController.getZkStateReader().getLeader(collection,shardId);
-        if (leader != null) {
-          leaderCoreNodeName=leader.getName();
+        leaderProps=zkController.getZkStateReader().getLeader(collection,shardId);
+        if (leaderProps != null) {
+          leaderCoreNodeName=leaderProps.getName();
         }
       }
  catch (      Exception exc) {
@@ -60,7 +61,7 @@
       if (replicationTracker != null && replicationTracker.getAchievedRf() < replicationTracker.minRf) {
         continue;
       }
-      if (cloudDesc.getCoreNodeName().equals(leaderCoreNodeName) && foundErrorNodeInReplicaList) {
+      if (leaderCoreNodeName != null && cloudDesc.getCoreNodeName().equals(leaderCoreNodeName) && foundErrorNodeInReplicaList && !stdNode.getNodeProps().getCoreUrl().equals(leaderProps.getCoreUrl())) {
         try {
           Throwable rootCause=SolrException.getRootCause(error.e);
           log.error("Setting up to try to start recovery on replica {}",replicaUrl,rootCause);
@@ -76,7 +77,7 @@
           log.warn("Core " + cloudDesc.getCoreNodeName() + " belonging to "+ collection+ " "+ shardId+ ", does not have error'd node "+ stdNode.getNodeProps().getCoreUrl()+ " as a replica. "+ "No request recovery command will be sent!");
         }
  else {
-          log.warn("Core " + cloudDesc.getCoreNodeName() + " is no longer the leader for "+ collection+ " "+ shardId+ ", no request recovery command will be sent!");
+          log.warn("Core " + cloudDesc.getCoreNodeName() + " is no longer the leader for "+ collection+ " "+ shardId+ " or we tried to put ourself into LIR, no request recovery command will be sent!");
         }
       }
     }
