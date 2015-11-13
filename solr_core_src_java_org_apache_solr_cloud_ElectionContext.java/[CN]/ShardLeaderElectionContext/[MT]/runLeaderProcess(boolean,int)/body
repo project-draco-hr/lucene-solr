@@ -86,13 +86,16 @@
         rejoinLeaderElection(core);
         return;
       }
-      log.info("I am the new leader: " + ZkCoreNodeProps.getCoreUrl(leaderProps) + " "+ shardId);
-      core.getCoreDescriptor().getCloudDescriptor().setLeader(true);
     }
      boolean isLeader=true;
     if (!isClosed) {
       try {
+        checkLIR(coreName,allReplicasInLine);
         super.runLeaderProcess(weAreReplacement,0);
+        try (SolrCore core=cc.getCore(coreName)){
+          core.getCoreDescriptor().getCloudDescriptor().setLeader(true);
+        }
+         log.info("I am the new leader: " + ZkCoreNodeProps.getCoreUrl(leaderProps) + " "+ shardId);
       }
  catch (      Exception e) {
         isLeader=false;
@@ -107,14 +110,6 @@
         }
        }
       if (isLeader) {
-        if (allReplicasInLine) {
-          try (SolrCore core=cc.getCore(coreName)){
-            final Replica.State lirState=zkController.getLeaderInitiatedRecoveryState(collection,shardId,core.getCoreDescriptor().getCloudDescriptor().getCoreNodeName());
-            if (lirState == Replica.State.DOWN) {
-              zkController.updateLeaderInitiatedRecoveryState(collection,shardId,leaderProps.getStr(ZkStateReader.CORE_NODE_NAME_PROP),Replica.State.ACTIVE,null,true);
-            }
-          }
-         }
         try {
           startLeaderInitiatedRecoveryOnReplicas(coreName);
         }
