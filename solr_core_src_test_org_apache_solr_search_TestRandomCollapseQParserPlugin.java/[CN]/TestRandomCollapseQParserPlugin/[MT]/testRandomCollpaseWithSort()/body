@@ -10,24 +10,29 @@
       final String nullPolicy=randomNullPolicy();
       final String nullPs=NULL_IGNORE.equals(nullPolicy) ? (random().nextBoolean() ? "" : " nullPolicy=ignore") : (" nullPolicy=" + nullPolicy);
       final SolrParams collapseP=params("sort",topSort,"rows","200","fq",("{!collapse" + csize + nullPs+ " field="+ collapseField+ " sort='"+ collapseSort+ "'}"));
-      final QueryResponse mainRsp=SOLR.query(SolrParams.wrapDefaults(collapseP,mainP));
-      for (      SolrDocument doc : mainRsp.getResults()) {
-        final Object groupHeadId=doc.getFieldValue("id");
-        final Object collapseVal=doc.getFieldValue(collapseField);
-        if (null == collapseVal) {
-          if (NULL_EXPAND.equals(nullPolicy)) {
-            continue;
+      try {
+        final QueryResponse mainRsp=SOLR.query(SolrParams.wrapDefaults(collapseP,mainP));
+        for (        SolrDocument doc : mainRsp.getResults()) {
+          final Object groupHeadId=doc.getFieldValue("id");
+          final Object collapseVal=doc.getFieldValue(collapseField);
+          if (null == collapseVal) {
+            if (NULL_EXPAND.equals(nullPolicy)) {
+              continue;
+            }
+            assertFalse(groupHeadId + " has null collapseVal but nullPolicy==ignore; " + "mainP: "+ mainP+ ", collapseP: "+ collapseP,NULL_IGNORE.equals(nullPolicy));
           }
-          assertFalse(groupHeadId + " has null collapseVal but nullPolicy==ignore; " + "mainP: "+ mainP+ ", collapseP: "+ collapseP,NULL_IGNORE.equals(nullPolicy));
+          final String checkField=collapseField.replace("float_dv","float");
+          final String checkFQ=((null == collapseVal) ? ("-" + checkField + ":[* TO *]") : ("{!field f=" + checkField + "}"+ collapseVal.toString()));
+          final SolrParams checkP=params("fq",checkFQ,"rows","1","sort",collapseSort);
+          final QueryResponse checkRsp=SOLR.query(SolrParams.wrapDefaults(checkP,mainP));
+          assertTrue("not even 1 match for sanity check query? expected: " + doc,!checkRsp.getResults().isEmpty());
+          final SolrDocument firstMatch=checkRsp.getResults().get(0);
+          final Object firstMatchId=firstMatch.getFieldValue("id");
+          assertEquals("first match for filtered group '" + collapseVal + "' not matching expected group head ... "+ "mainP: "+ mainP+ ", collapseP: "+ collapseP+ ", checkP: "+ checkP,groupHeadId,firstMatchId);
         }
-        final String checkField=collapseField.replace("float_dv","float");
-        final String checkFQ=((null == collapseVal) ? ("-" + checkField + ":[* TO *]") : ("{!field f=" + checkField + "}"+ collapseVal.toString()));
-        final SolrParams checkP=params("fq",checkFQ,"rows","1","sort",collapseSort);
-        final QueryResponse checkRsp=SOLR.query(SolrParams.wrapDefaults(checkP,mainP));
-        assertTrue("not even 1 match for sanity check query? expected: " + doc,!checkRsp.getResults().isEmpty());
-        final SolrDocument firstMatch=checkRsp.getResults().get(0);
-        final Object firstMatchId=firstMatch.getFieldValue("id");
-        assertEquals("first match for filtered group '" + collapseVal + "' not matching expected group head ... "+ "mainP: "+ mainP+ ", collapseP: "+ collapseP+ ", checkP: "+ checkP,groupHeadId,firstMatchId);
+      }
+ catch (      Exception e) {
+        throw new RuntimeException("BUG using params: " + collapseP + " + "+ mainP,e);
       }
     }
   }
