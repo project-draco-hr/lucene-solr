@@ -1,33 +1,27 @@
 {
-  File tmpRoot=createTempDir("testClassLoaderLibs").toFile();
-  File lib=new File(tmpRoot,"lib");
-  lib.mkdirs();
-  JarOutputStream jar1=new JarOutputStream(new FileOutputStream(new File(lib,"jar1.jar")));
-  jar1.putNextEntry(new JarEntry("aLibFile"));
-  jar1.closeEntry();
-  jar1.close();
-  File otherLib=new File(tmpRoot,"otherLib");
-  otherLib.mkdirs();
-  JarOutputStream jar2=new JarOutputStream(new FileOutputStream(new File(otherLib,"jar2.jar")));
-  jar2.putNextEntry(new JarEntry("explicitFile"));
-  jar2.closeEntry();
-  jar2.close();
-  JarOutputStream jar3=new JarOutputStream(new FileOutputStream(new File(otherLib,"jar3.jar")));
-  jar3.putNextEntry(new JarEntry("otherFile"));
-  jar3.closeEntry();
-  jar3.close();
-  SolrResourceLoader loader=new SolrResourceLoader(tmpRoot.getAbsolutePath());
-  assertNotNull(loader.getClassLoader().getResource("aLibFile"));
-  final File explicitFileJar=new File(otherLib,"jar2.jar").getAbsoluteFile();
-  loader.addToClassLoader("otherLib",new FileFilter(){
-    @Override public boolean accept(    File pathname){
-      return pathname.equals(explicitFileJar);
-    }
+  Path tmpRoot=createTempDir("testClassLoaderLibs");
+  Path lib=tmpRoot.resolve("lib");
+  Files.createDirectories(lib);
+  try (JarOutputStream os=new JarOutputStream(Files.newOutputStream(lib.resolve("jar1.jar")))){
+    os.putNextEntry(new JarEntry("aLibFile"));
+    os.closeEntry();
   }
-,false);
+   Path otherLib=tmpRoot.resolve("otherLib");
+  Files.createDirectories(otherLib);
+  try (JarOutputStream os=new JarOutputStream(Files.newOutputStream(otherLib.resolve("jar2.jar")))){
+    os.putNextEntry(new JarEntry("explicitFile"));
+    os.closeEntry();
+  }
+   try (JarOutputStream os=new JarOutputStream(Files.newOutputStream(otherLib.resolve("jar3.jar")))){
+    os.putNextEntry(new JarEntry("otherFile"));
+    os.closeEntry();
+  }
+   SolrResourceLoader loader=new SolrResourceLoader(tmpRoot);
+  assertNotNull(loader.getClassLoader().getResource("aLibFile"));
+  loader.addToClassLoader(otherLib.resolve("jar2.jar").toUri().toURL());
   assertNotNull(loader.getClassLoader().getResource("explicitFile"));
   assertNull(loader.getClassLoader().getResource("otherFile"));
-  loader.addToClassLoader("otherLib",null,false);
+  loader.addToClassLoader(SolrResourceLoader.getURLs(otherLib));
   assertNotNull(loader.getClassLoader().getResource("otherFile"));
   loader.close();
 }

@@ -3,31 +3,37 @@
   if (nodes == null || nodes.getLength() == 0)   return;
   log.info("Adding specified lib dirs to ClassLoader");
   SolrResourceLoader loader=getResourceLoader();
-  try {
-    for (int i=0; i < nodes.getLength(); i++) {
-      Node node=nodes.item(i);
-      String baseDir=DOMUtil.getAttr(node,"dir");
-      String path=DOMUtil.getAttr(node,PATH);
-      if (null != baseDir) {
-        String regex=DOMUtil.getAttr(node,"regex");
-        FileFilter filter=(null == regex) ? null : new RegexFileFilter(regex);
-        loader.addToClassLoader(baseDir,filter,false);
+  List<URL> urls=new ArrayList<>();
+  for (int i=0; i < nodes.getLength(); i++) {
+    Node node=nodes.item(i);
+    String baseDir=DOMUtil.getAttr(node,"dir");
+    String path=DOMUtil.getAttr(node,PATH);
+    if (null != baseDir) {
+      Path dir=loader.getInstancePath().resolve(baseDir);
+      String regex=DOMUtil.getAttr(node,"regex");
+      try {
+        if (regex == null)         urls.addAll(SolrResourceLoader.getURLs(dir));
+ else         urls.addAll(SolrResourceLoader.getFilteredURLs(dir,regex));
       }
- else       if (null != path) {
-        final File file=FileUtils.resolvePath(new File(loader.getInstanceDir()),path);
-        loader.addToClassLoader(file.getParent(),new FileFilter(){
-          @Override public boolean accept(          File pathname){
-            return pathname.equals(file);
-          }
-        }
-,false);
-      }
- else {
-        throw new RuntimeException("lib: missing mandatory attributes: 'dir' or 'path'");
+ catch (      IOException e) {
+        log.warn("Couldn't add files from {} filtered by {} to classpath: {}",dir,regex,e.getMessage());
       }
     }
+ else     if (null != path) {
+      final Path dir=loader.getInstancePath().resolve(path);
+      try {
+        urls.add(dir.toUri().toURL());
+      }
+ catch (      MalformedURLException e) {
+        log.warn("Couldn't add file {} to classpath: {}",dir,e.getMessage());
+      }
+    }
+ else {
+      throw new RuntimeException("lib: missing mandatory attributes: 'dir' or 'path'");
+    }
   }
-  finally {
+  if (urls.size() > 0) {
+    loader.addToClassLoader(urls);
     loader.reloadLuceneSPI();
   }
 }

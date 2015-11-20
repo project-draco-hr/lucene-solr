@@ -1,38 +1,18 @@
 {
-  InputStream is=null;
-  try {
-    File f0=new File(resource), f=f0;
-    if (!f.isAbsolute()) {
-      f=new File(getConfigDir() + resource).getAbsoluteFile();
-    }
-    boolean found=f.isFile() && f.canRead();
-    if (!found) {
-      f=f0.getAbsoluteFile();
-      found=f.isFile() && f.canRead();
-    }
-    if (found) {
-      if (!Boolean.parseBoolean(System.getProperty("solr.allow.unsafe.resourceloading","false"))) {
-        final URI instanceURI=new File(getInstanceDir()).getAbsoluteFile().toURI().normalize();
-        final URI fileURI=f.toURI().normalize();
-        if (instanceURI.relativize(fileURI) == fileURI) {
-          throw new IOException("For security reasons, SolrResourceLoader cannot load files from outside the instance's directory: " + f + "; if you want to override this safety feature and you are sure about the consequences, you can pass the system property "+ "-Dsolr.allow.unsafe.resourceloading=true to your JVM");
-        }
-      }
-      return new FileInputStream(f);
-    }
-    is=classLoader.getResourceAsStream(resource.replace(File.separatorChar,'/'));
-    if (is == null && System.getProperty("jetty.testMode") != null && !new File(getConfigDir()).isAbsolute()) {
-      is=classLoader.getResourceAsStream((getConfigDir() + resource).replace(File.separatorChar,'/'));
-    }
+  Path inConfigDir=getInstancePath().resolve("conf").resolve(resource);
+  if (Files.exists(inConfigDir) && Files.isReadable(inConfigDir)) {
+    return Files.newInputStream(checkPathIsSafe(inConfigDir));
   }
- catch (  IOException ioe) {
-    throw ioe;
+  Path inInstanceDir=getInstancePath().resolve(resource);
+  if (Files.exists(inInstanceDir) && Files.isReadable(inInstanceDir)) {
+    return Files.newInputStream(checkPathIsSafe(inInstanceDir));
   }
-catch (  Exception e) {
-    throw new IOException("Error opening " + resource,e);
+  InputStream is=classLoader.getResourceAsStream(resource.replace(File.separatorChar,'/'));
+  if (is == null && System.getProperty("jetty.testMode") != null) {
+    is=classLoader.getResourceAsStream(("conf/" + resource).replace(File.separatorChar,'/'));
   }
   if (is == null) {
-    throw new SolrResourceNotFoundException("Can't find resource '" + resource + "' in classpath or '"+ new File(getConfigDir()).getAbsolutePath()+ "'");
+    throw new SolrResourceNotFoundException("Can't find resource '" + resource + "' in classpath or '"+ instanceDir+ "'");
   }
   return is;
 }
