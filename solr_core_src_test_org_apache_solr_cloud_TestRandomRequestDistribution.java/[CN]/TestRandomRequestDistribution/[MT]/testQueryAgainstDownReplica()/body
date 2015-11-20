@@ -22,21 +22,44 @@
   String baseUrl=notLeader.getStr(ZkStateReader.BASE_URL_PROP);
   if (!baseUrl.endsWith("/"))   baseUrl+="/";
   String path=baseUrl + "football";
-  log.info("Firing query against path=" + path);
+  log.info("Firing queries against path=" + path);
   HttpSolrClient client=new HttpSolrClient(path);
   client.setSoTimeout(5000);
   client.setConnectionTimeout(2000);
-  client.query(new SolrQuery("*:*"));
-  client.close();
+  SolrCore leaderCore=null;
   for (  JettySolrRunner jetty : jettys) {
     CoreContainer container=jetty.getCoreContainer();
     for (    SolrCore core : container.getCores()) {
       if (core.getName().equals(leader.getStr(ZkStateReader.CORE_NAME_PROP))) {
-        SolrRequestHandler select=core.getRequestHandler("");
-        long c=(long)select.getStatistics().get("requests");
-        assertEquals(core.getName() + " should have got 1 request",1,c);
+        leaderCore=core;
         break;
       }
     }
+  }
+  assertNotNull(leaderCore);
+  long count=0;
+  while (true) {
+    count++;
+    client.query(new SolrQuery("*:*"));
+    SolrRequestHandler select=leaderCore.getRequestHandler("");
+    long c=(long)select.getStatistics().get("requests");
+    if (c == 1) {
+      break;
+    }
+ else {
+      Thread.sleep(100);
+    }
+    if (count > 10000) {
+      fail("After 10k queries we still see all requests being processed by the down replica");
+    }
+  }
+  int moreQueries=TestUtil.nextInt(random(),4,10);
+  count=1;
+  for (int i=0; i < moreQueries; i++) {
+    client.query(new SolrQuery("*:*"));
+    count++;
+    SolrRequestHandler select=leaderCore.getRequestHandler("");
+    long c=(long)select.getStatistics().get("requests");
+    assertEquals("Query wasn't served by leader",count,c);
   }
 }
