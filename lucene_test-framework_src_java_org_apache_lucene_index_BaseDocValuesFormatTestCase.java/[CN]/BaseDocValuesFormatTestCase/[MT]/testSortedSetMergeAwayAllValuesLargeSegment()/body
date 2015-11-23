@@ -1,0 +1,27 @@
+{
+  Directory directory=newDirectory();
+  Analyzer analyzer=new MockAnalyzer(random());
+  IndexWriterConfig iwconfig=newIndexWriterConfig(analyzer);
+  iwconfig.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iwriter=new RandomIndexWriter(random(),directory,iwconfig);
+  Document doc=new Document();
+  doc.add(new StringField("id","1",Field.Store.NO));
+  doc.add(new SortedSetDocValuesField("field",new BytesRef("hello")));
+  iwriter.addDocument(doc);
+  final int numEmptyDocs=atLeast(1024);
+  for (int i=0; i < numEmptyDocs; ++i) {
+    iwriter.addDocument(new Document());
+  }
+  iwriter.commit();
+  iwriter.deleteDocuments(new Term("id","1"));
+  iwriter.forceMerge(1);
+  DirectoryReader ireader=iwriter.getReader();
+  iwriter.close();
+  SortedSetDocValues dv=getOnlySegmentReader(ireader).getSortedSetDocValues("field");
+  for (int i=0; i < numEmptyDocs; ++i) {
+    dv.setDocument(i);
+    assertEquals(-1L,dv.nextOrd());
+  }
+  ireader.close();
+  directory.close();
+}
