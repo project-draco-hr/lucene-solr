@@ -4,6 +4,8 @@
   if (doc == null) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Error completing MLT request. Could not fetch " + "document with id [" + id + "]");
   }
+  String[] qf=localParams.getParams("qf");
+  Map<String,Float> boostFields=new HashMap<>();
   MoreLikeThis mlt=new MoreLikeThis(req.getSearcher().getIndexReader());
   if (localParams.getInt("mintf") != null)   mlt.setMinTermFreq(localParams.getInt("mintf"));
   mlt.setMinDocFreq(localParams.getInt("mindf",0));
@@ -14,8 +16,11 @@
   if (localParams.get("maxdf") != null) {
     mlt.setMaxDocFreq(localParams.getInt("maxdf"));
   }
+  if (localParams.get("boost") != null) {
+    mlt.setBoost(localParams.getBool("boost"));
+    boostFields=SolrPluginUtils.parseFieldBoosts(qf);
+  }
   mlt.setAnalyzer(req.getSchema().getIndexAnalyzer());
-  String[] qf=localParams.getParams("qf");
   Map<String,Collection<Object>> filteredDocument=new HashMap();
   ArrayList<String> fieldNames=new ArrayList();
   if (qf != null) {
@@ -46,7 +51,27 @@
     filteredDocument.put(field,doc.getFieldValues(field));
   }
   try {
-    return mlt.like(filteredDocument);
+    Query rawMLTQuery=mlt.like(filteredDocument);
+    BooleanQuery boostedMLTQuery=(BooleanQuery)rawMLTQuery;
+    if (boostFields.size() > 0) {
+      BooleanQuery.Builder newQ=new BooleanQuery.Builder();
+      newQ.setDisableCoord(boostedMLTQuery.isCoordDisabled());
+      newQ.setMinimumNumberShouldMatch(boostedMLTQuery.getMinimumNumberShouldMatch());
+      for (      BooleanClause clause : boostedMLTQuery) {
+        Query q=clause.getQuery();
+        Float b=boostFields.get(((TermQuery)q).getTerm().field());
+        if (b != null) {
+          q=new BoostQuery(q,b);
+        }
+        newQ.add(q,clause.getOccur());
+      }
+      boostedMLTQuery=newQ.build();
+    }
+    BooleanQuery.Builder realMLTQuery=new BooleanQuery.Builder();
+    realMLTQuery.setDisableCoord(true);
+    realMLTQuery.add(boostedMLTQuery,BooleanClause.Occur.MUST);
+    realMLTQuery.add(createIdQuery("id",id),BooleanClause.Occur.MUST_NOT);
+    return realMLTQuery.build();
   }
  catch (  IOException e) {
     e.printStackTrace();
