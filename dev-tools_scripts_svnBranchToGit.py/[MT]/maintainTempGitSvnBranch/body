@@ -46,38 +46,43 @@ def maintainTempGitSvnBranch(branchName, tempGitBranchName, svnWorkingCopyOfBran
         gitRepo.checkOutBranch(tempGitBranchName)
         print 'Started branch', tempGitBranchName, 'at', branchName
     assert (gitRepo.getCurrentBranch() == tempGitBranchName)
-    lenSvnWorkingCopyPathName = len(svnWorkingCopy.getPathName())
-    patchStripDepth = len(svnWorkingCopy.getPathName().split(os.sep))
+    patchStripDepth = 0
     maxNumLogEntries = (maxCommits + 1)
     svnLogEntries = svnWorkingCopy.getLogEntries(diffBaseRevision, lastSvnRevision, maxNumLogEntries)
+    numCommits = 0
     for (logEntryFrom, logEntryTo) in allSuccessivePairs(svnLogEntries):
-        print ''
         svnWorkingCopy.createPatchFile(logEntryFrom.revision, logEntryTo.revision, patchFileName)
         patchedFileNames = svnWorkingCopy.patchedFileNames(patchFileName)
-        gitRepo.applyPatch(patchFileName, patchStripDepth)
-        print 'Applied patch', patchFileName
+        if (os.path.getsize(patchFileName) > 0):
+            gitRepo.applyPatch(patchFileName, patchStripDepth)
+            print 'Applied patch', patchFileName
+        else:
+            print 'Empty patch', patchFileName
         gitRepo.addAllToIndex()
         for patchedFileName in patchedFileNames:
-            versionControlledFileName = patchedFileName[lenSvnWorkingCopyPathName:]
-            fileNameInGitRepo = (gitRepo.getPathName() + versionControlledFileName)
+            fileNameInGitRepo = os.path.join(gitRepo.getPathName(), patchedFileName)
+            fileNameInSvnWorkingCopy = os.path.join(svnWorkingCopy.getPathName(), patchedFileName)
             if os.path.isdir(fileNameInGitRepo):
                 continue
             if (not os.path.isfile(fileNameInGitRepo)):
-                print 'Already deleted:', fileNameInGitRepo
+                print 'Possibly new binary file in svn, ignored here:', fileNameInGitRepo
                 continue
             fileSize = os.path.getsize(fileNameInGitRepo)
             if (fileSize > 0):
                 continue
-            if os.path.isfile(patchedFileName):
+            if os.path.isfile(fileNameInSvnWorkingCopy):
                 print 'Left empty file:', fileNameInGitRepo
                 continue
             gitRepo.deleteForced(fileNameInGitRepo)
         revisionsRange = svnWorkingCopy.revisionsRange(logEntryFrom.revision, logEntryTo.revision)
         message = ((((logEntryTo.msg + '\n\n') + svnRemote) + ' diff -r ') + revisionsRange)
-        gitRepo.commit(message, logEntryTo.author, logEntryTo.date)
-        print 'Commit  author:', logEntryTo.author
-        print 'Commit    date:', logEntryTo.date
+        authorCommit = gitRepo.getLatestCommitForAuthor(logEntryTo.author)
+        authorName = gitRepo.getCommitAuthorName(authorCommit)
+        authorEmail = gitRepo.getCommitAuthorEmail(authorCommit)
+        gitRepo.commit(message, authorName, authorEmail, logEntryTo.date, authorName, authorEmail, logEntryTo.date)
+        numCommits += 1
         print 'Commit message:', logEntryTo.msg
         gitRepo.cleanDirsForced()
         if (not gitRepo.workingDirectoryClean()):
-            errorExit(gitRepo, 'on branch', gitRepo.getCurrentBranch(), 'not clean')
+            errorExit(gitRepo, 'on branch', gitRepo.getCurrentBranch(), 'not clean, numCommits:', numCommits)
+    print 'Added', numCommits, 'commit(s) to branch', tempGitBranchName
