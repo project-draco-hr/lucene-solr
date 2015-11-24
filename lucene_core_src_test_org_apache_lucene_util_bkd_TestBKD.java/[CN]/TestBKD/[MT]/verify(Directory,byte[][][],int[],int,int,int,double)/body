@@ -3,9 +3,25 @@
   if (VERBOSE) {
     System.out.println("TEST: numValues=" + numValues + " numDims="+ numDims+ " numBytesPerDim="+ numBytesPerDim+ " maxPointsInLeafNode="+ maxPointsInLeafNode+ " maxMB="+ maxMB);
   }
-  long indexFP;
-  try (BKDWriter w=new BKDWriter(dir,"tmp",numDims,numBytesPerDim,maxPointsInLeafNode,maxMB)){
+  List<Long> toMerge=null;
+  List<Integer> docIDBases=null;
+  int seg=0;
+  BKDWriter w=new BKDWriter(dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
+  IndexOutput out=dir.createOutput("bkd",IOContext.DEFAULT);
+  IndexInput in=null;
+  boolean success=false;
+  try {
     byte[] scratch=new byte[numBytesPerDim * numDims];
+    int lastDocIDBase=0;
+    boolean useMerge=numDims == 1 && numValues >= 10 && random().nextBoolean();
+    int valuesInThisSeg;
+    if (useMerge) {
+      valuesInThisSeg=TestUtil.nextInt(random(),numValues / 10,numValues);
+    }
+ else {
+      valuesInThisSeg=0;
+    }
+    int segCount=0;
     for (int ord=0; ord < numValues; ord++) {
       int docID;
       if (docIDs == null) {
@@ -15,7 +31,7 @@
         docID=docIDs[ord];
       }
       if (VERBOSE) {
-        System.out.println("  ord=" + ord + " docID="+ docID);
+        System.out.println("  ord=" + ord + " docID="+ docID+ " lastDocIDBase="+ lastDocIDBase);
       }
       for (int dim=0; dim < numDims; dim++) {
         if (VERBOSE) {
@@ -23,20 +39,51 @@
         }
         System.arraycopy(docValues[ord][dim],0,scratch,dim * numBytesPerDim,numBytesPerDim);
       }
-      w.add(scratch,docID);
-    }
-    boolean success=false;
-    try (IndexOutput out=dir.createOutput("bkd",IOContext.DEFAULT)){
-      indexFP=w.finish(out);
-      success=true;
-    }
-  finally {
-      if (success == false) {
-        IOUtils.deleteFilesIgnoringExceptions(dir,"bkd");
+      w.add(scratch,docID - lastDocIDBase);
+      segCount++;
+      if (useMerge && segCount == valuesInThisSeg) {
+        if (toMerge == null) {
+          toMerge=new ArrayList<>();
+          docIDBases=new ArrayList<>();
+        }
+        docIDBases.add(lastDocIDBase);
+        toMerge.add(w.finish(out));
+        valuesInThisSeg=TestUtil.nextInt(random(),numValues / 10,numValues / 2);
+        segCount=0;
+        seg++;
+        maxPointsInLeafNode=TestUtil.nextInt(random(),50,1000);
+        maxMB=(float)3.0 + (3 * random().nextDouble());
+        w=new BKDWriter(dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
+        lastDocIDBase=docID;
       }
     }
-  }
-   try (IndexInput in=dir.openInput("bkd",IOContext.DEFAULT)){
+    long indexFP;
+    if (toMerge != null) {
+      System.out.println("merge " + toMerge.size());
+      if (segCount > 0) {
+        docIDBases.add(lastDocIDBase);
+        toMerge.add(w.finish(out));
+      }
+      out.close();
+      in=dir.openInput("bkd",IOContext.DEFAULT);
+      seg++;
+      w=new BKDWriter(dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
+      List<BKDReader> readers=new ArrayList<>();
+      for (      long fp : toMerge) {
+        in.seek(fp);
+        readers.add(new BKDReader(in));
+      }
+      out=dir.createOutput("bkd2",IOContext.DEFAULT);
+      indexFP=w.merge(out,null,readers,docIDBases);
+      out.close();
+      in.close();
+      in=dir.openInput("bkd2",IOContext.DEFAULT);
+    }
+ else {
+      indexFP=w.finish(out);
+      out.close();
+      in=dir.openInput("bkd",IOContext.DEFAULT);
+    }
     in.seek(indexFP);
     BKDReader r=new BKDReader(in);
     int iters=atLeast(100);
@@ -115,8 +162,17 @@
         assertEquals("docID=" + docID,expected.get(docID),hits.get(docID));
       }
     }
+    in.close();
+    dir.deleteFile("bkd");
+    if (toMerge != null) {
+      dir.deleteFile("bkd2");
+    }
+    success=true;
   }
   finally {
-    dir.deleteFile("bkd");
+    if (success == false) {
+      IOUtils.closeWhileHandlingException(w,in,out);
+      IOUtils.deleteFilesIgnoringExceptions(dir,"bkd","bkd2");
+    }
   }
 }
