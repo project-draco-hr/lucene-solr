@@ -13,34 +13,23 @@
   }
   List<String> authInfo=StrUtils.splitWS(header,false);
   if (authInfo.size() < 2) {
-    log.error("Invalid SolrAuth Header");
+    log.error("Invalid SolrAuth Header {}",header);
+    filterChain.doFilter(request,response);
     return;
   }
   String nodeName=authInfo.get(0);
   String cipher=authInfo.get(1);
-  byte[] decipher=decipherData(nodeName,cipher);
+  PKIHeaderData decipher=decipherHeader(nodeName,cipher);
   if (decipher == null) {
+    log.error("Could not decipher a header {} . No principal set",header);
+    filterChain.doFilter(request,response);
     return;
   }
-  String s=new String(decipher,StandardCharsets.UTF_8).trim();
-  List<String> pcs=StrUtils.splitWS(s,false);
-  if (pcs.size() < 2) {
+  if ((receivedTime - decipher.timestamp) > MAX_VALIDITY) {
+    log.error("Invalid key ");
+    filterChain.doFilter(request,response);
     return;
   }
-  final String userName=pcs.get(0);
-  String timeStr=pcs.get(1);
-  try {
-    long timeMillis=Long.parseLong(timeStr);
-    if ((receivedTime - timeMillis) > maxValidity) {
-      log.error("Invalid key ");
-      filterChain.doFilter(request,response);
-      return;
-    }
-  }
- catch (  NumberFormatException e) {
-    log.error("Invalid time " + timeStr,e);
-    return;
-  }
-  final Principal principal="$".equals(userName) ? SU : new BasicUserPrincipal(userName);
+  final Principal principal="$".equals(decipher.userName) ? SU : new BasicUserPrincipal(decipher.userName);
   filterChain.doFilter(getWrapper((HttpServletRequest)request,principal),response);
 }
