@@ -6,8 +6,8 @@
   SolrResourceLoader resourceLoader=new SolrResourceLoader(createTempDir());
   System.setProperty("configsets",getFile("solr/configsets").getAbsolutePath());
   final CoreContainer cc=new CoreContainer(SolrXmlConfig.fromString(resourceLoader,CONFIGSETS_SOLR_XML),new Properties(),cl);
-  cl.add(new CoreDescriptor(cc,"col_ok","col_ok","configSet","minimal"));
-  cl.add(new CoreDescriptor(cc,"col_bad","col_bad","configSet","bad-mergepolicy"));
+  cl.add(new CoreDescriptor(cc,"col_ok",resourceLoader.getInstancePath().resolve("col_ok"),"configSet","minimal"));
+  cl.add(new CoreDescriptor(cc,"col_bad",resourceLoader.getInstancePath().resolve("col_bad"),"configSet","bad-mergepolicy"));
   cc.load();
   cores=cc.getCoreNames();
   assertNotNull("core names is null",cores);
@@ -31,8 +31,7 @@
   }
   FileUtils.copyFile(getFile("solr/collection1/conf/solrconfig-defaults.xml"),FileUtils.getFile(cc.getSolrHome(),"col_bad","conf","solrconfig.xml"));
   FileUtils.copyFile(getFile("solr/collection1/conf/schema-minimal.xml"),FileUtils.getFile(cc.getSolrHome(),"col_bad","conf","schema.xml"));
-  final CoreDescriptor fixed=new CoreDescriptor(cc,"col_bad","col_bad");
-  cc.create(fixed);
+  cc.create("col_bad",ImmutableMap.of());
   cores=cc.getCoreNames();
   assertNotNull("core names is null",cores);
   assertEquals("wrong number of cores",2,cores.size());
@@ -41,10 +40,9 @@
   failures=cc.getCoreInitFailures();
   assertNotNull("core failures is a null map",failures);
   assertEquals("wrong number of core failures",0,failures.size());
-  final CoreDescriptor bogus=new CoreDescriptor(cc,"bogus","bogus_path");
   try {
     ignoreException(Pattern.quote("bogus_path"));
-    cc.create(bogus);
+    cc.create("bogus",ImmutableMap.of("configSet","bogus_path"));
     fail("bogus inst dir failed to trigger exception from create");
   }
  catch (  SolrException e) {
@@ -60,7 +58,7 @@
   assertEquals("wrong number of core failures",1,failures.size());
   fail=failures.get("bogus").exception;
   assertNotNull("null failure for test core",fail);
-  assertTrue("init failure doesn't mention problem: " + fail.getCause().getMessage(),0 < fail.getCause().getMessage().indexOf("bogus_path"));
+  assertTrue("init failure doesn't mention problem: " + fail.getMessage(),0 < fail.getMessage().indexOf("bogus_path"));
   assertNull(cc.getCore("does_not_exist"));
   try {
     SolrCore c=cc.getCore("bogus");
@@ -68,7 +66,7 @@
   }
  catch (  SolrException ex) {
     assertEquals(500,ex.code());
-    String cause=ex.getCause().getCause().getMessage();
+    String cause=ex.getCause().getMessage();
     assertTrue("getCore() ex cause doesn't mention init fail: " + cause,0 < cause.indexOf("bogus_path"));
   }
   final long col_bad_old_start=getCoreStartTime(cc,"col_bad");

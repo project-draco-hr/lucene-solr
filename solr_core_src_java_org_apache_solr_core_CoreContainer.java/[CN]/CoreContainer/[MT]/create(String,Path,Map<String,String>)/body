@@ -1,0 +1,49 @@
+{
+  CoreDescriptor cd=new CoreDescriptor(this,coreName,instancePath,parameters);
+  if (getAllCoreNames().contains(coreName)) {
+    log.warn("Creating a core with existing name is not allowed");
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Core with name '" + coreName + "' already exists.");
+  }
+  boolean preExisitingZkEntry=false;
+  try {
+    if (getZkController() != null) {
+      if (!Overseer.isLegacy(getZkController().getZkStateReader().getClusterProps())) {
+        if (cd.getCloudDescriptor().getCoreNodeName() == null) {
+          throw new SolrException(ErrorCode.SERVER_ERROR,"non legacy mode coreNodeName missing " + parameters.toString());
+        }
+      }
+      preExisitingZkEntry=getZkController().checkIfCoreNodeNameAlreadyExists(cd);
+    }
+    SolrCore core=create(cd,true);
+    coresLocator.create(this,cd);
+    return core;
+  }
+ catch (  Exception ex) {
+    if (isZooKeeperAware() && !preExisitingZkEntry) {
+      try {
+        getZkController().unregister(coreName,cd);
+      }
+ catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        SolrException.log(log,null,e);
+      }
+catch (      KeeperException e) {
+        SolrException.log(log,null,e);
+      }
+    }
+    Throwable tc=ex;
+    Throwable c=null;
+    do {
+      tc=tc.getCause();
+      if (tc != null) {
+        c=tc;
+      }
+    }
+ while (tc != null);
+    String rootMsg="";
+    if (c != null) {
+      rootMsg=" Caused by: " + c.getMessage();
+    }
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Error CREATEing SolrCore '" + coreName + "': "+ ex.getMessage()+ rootMsg,ex);
+  }
+}

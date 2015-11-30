@@ -1,51 +1,15 @@
 {
   SolrParams params=req.getParams();
   log.info("core create command {}",params);
-  CoreDescriptor dcore=buildCoreDescriptor(params,coreContainer);
-  if (coreContainer.getAllCoreNames().contains(dcore.getName())) {
-    log.warn("Creating a core with existing name is not allowed");
-    throw new SolrException(ErrorCode.SERVER_ERROR,"Core with name '" + dcore.getName() + "' already exists.");
+  String coreName=params.required().get(CoreAdminParams.NAME);
+  Map<String,String> coreParams=buildCoreParams(params);
+  Path instancePath=coreContainer.getCoreRootDirectory().resolve(coreName);
+  String instanceDir=req.getParams().get(CoreAdminParams.INSTANCE_DIR);
+  if (instanceDir == null)   instanceDir=req.getParams().get("property.instanceDir");
+  if (instanceDir != null) {
+    instanceDir=PropertiesUtil.substituteProperty(instanceDir,coreContainer.getContainerProperties());
+    instancePath=coreContainer.getCoreRootDirectory().resolve(instanceDir).normalize();
   }
-  boolean preExisitingZkEntry=false;
-  try {
-    if (coreContainer.getZkController() != null) {
-      if (!Overseer.isLegacy(coreContainer.getZkController().getZkStateReader().getClusterProps())) {
-        if (dcore.getCloudDescriptor().getCoreNodeName() == null) {
-          throw new SolrException(ErrorCode.SERVER_ERROR,"non legacy mode coreNodeName missing " + params);
-        }
-      }
-      preExisitingZkEntry=checkIfCoreNodeNameAlreadyExists(dcore);
-    }
-    SolrCore core=coreContainer.create(dcore);
-    coreContainer.getCoresLocator().create(coreContainer,dcore);
-    rsp.add("core",core.getName());
-  }
- catch (  Exception ex) {
-    if (coreContainer.isZooKeeperAware() && dcore != null && !preExisitingZkEntry) {
-      try {
-        coreContainer.getZkController().unregister(dcore.getName(),dcore);
-      }
- catch (      InterruptedException e) {
-        Thread.currentThread().interrupt();
-        SolrException.log(log,null,e);
-      }
-catch (      KeeperException e) {
-        SolrException.log(log,null,e);
-      }
-    }
-    Throwable tc=ex;
-    Throwable c=null;
-    do {
-      tc=tc.getCause();
-      if (tc != null) {
-        c=tc;
-      }
-    }
- while (tc != null);
-    String rootMsg="";
-    if (c != null) {
-      rootMsg=" Caused by: " + c.getMessage();
-    }
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Error CREATEing SolrCore '" + dcore.getName() + "': "+ ex.getMessage()+ rootMsg,ex);
-  }
+  coreContainer.create(coreName,instancePath,coreParams);
+  rsp.add("core",coreName);
 }
