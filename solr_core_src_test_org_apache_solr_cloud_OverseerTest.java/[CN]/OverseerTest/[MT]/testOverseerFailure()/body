@@ -6,6 +6,10 @@
   MockZKController mockController=null;
   SolrZkClient zkClient=null;
   try {
+    final String core="core1";
+    final String core_node="core_node1";
+    final String shard="shard1";
+    final int numShards=1;
     server.run();
     AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
     AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
@@ -16,28 +20,28 @@
     mockController=new MockZKController(server.getZkAddress(),"node1");
     overseerClient=electNewOverseer(server.getZkAddress());
     Thread.sleep(1000);
-    mockController.publishState(collection,"core1","core_node1",Replica.State.RECOVERING,1);
+    mockController.publishState(collection,core,core_node,Replica.State.RECOVERING,numShards);
     waitForCollections(reader,collection);
     verifyReplicaStatus(reader,collection,"shard1","core_node1",Replica.State.RECOVERING);
     int version=getClusterStateVersion(zkClient);
-    mockController.publishState(collection,"core1","core_node1",Replica.State.ACTIVE,1);
+    mockController.publishState(collection,core,core_node,Replica.State.ACTIVE,numShards);
     while (version == getClusterStateVersion(zkClient))     ;
     verifyReplicaStatus(reader,collection,"shard1","core_node1",Replica.State.ACTIVE);
     version=getClusterStateVersion(zkClient);
     overseerClient.close();
     Thread.sleep(1000);
-    mockController.publishState(collection,"core1","core_node1",Replica.State.RECOVERING,1);
+    mockController.publishState(collection,core,core_node,Replica.State.RECOVERING,numShards);
     version=getClusterStateVersion(zkClient);
     overseerClient=electNewOverseer(server.getZkAddress());
     while (version == getClusterStateVersion(zkClient))     ;
     verifyReplicaStatus(reader,collection,"shard1","core_node1",Replica.State.RECOVERING);
     assertEquals("Live nodes count does not match",1,reader.getClusterState().getLiveNodes().size());
-    assertEquals("Shard count does not match",1,reader.getClusterState().getSlice(collection,"shard1").getReplicasMap().size());
+    assertEquals(shard + " replica count does not match",1,reader.getClusterState().getSlice(collection,shard).getReplicasMap().size());
     version=getClusterStateVersion(zkClient);
-    mockController.publishState(collection,"core1","core_node1",null,1);
+    mockController.publishState(collection,core,core_node,null,numShards);
     while (version == getClusterStateVersion(zkClient))     ;
     Thread.sleep(500);
-    assertFalse("collection1 should be gone after publishing the null state",reader.getClusterState().hasCollection(collection));
+    assertFalse(collection + " should be gone after publishing the null state",reader.getClusterState().hasCollection(collection));
   }
   finally {
     close(mockController);
