@@ -1,0 +1,53 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  TextField f=new TextField("body","a b c",Store.NO);
+  doc.add(f);
+  w.addDocument(doc);
+  f.setStringValue("");
+  w.addDocument(doc);
+  f.setStringValue("a b");
+  w.addDocument(doc);
+  f.setStringValue("b c");
+  w.addDocument(doc);
+  f.setStringValue("a");
+  w.addDocument(doc);
+  f.setStringValue("c");
+  w.addDocument(doc);
+  final int numRandomDocs=atLeast(3);
+  for (int i=0; i < numRandomDocs; ++i) {
+    final int numTerms=random().nextInt(20);
+    StringBuilder text=new StringBuilder();
+    for (int j=0; j < numTerms; ++j) {
+      text.append((char)('a' + random().nextInt(4))).append(' ');
+    }
+    f.setStringValue(text.toString());
+    w.addDocument(doc);
+  }
+  final IndexReader reader=w.getReader();
+  w.close();
+  final IndexSearcher searcher1=newSearcher(reader);
+  final IndexSearcher searcher2=new IndexSearcher(reader){
+    @Override public Query rewrite(    Query original) throws IOException {
+      return original;
+    }
+  }
+;
+  searcher2.setSimilarity(searcher1.getSimilarity(true));
+  final int iters=atLeast(1000);
+  for (int i=0; i < iters; ++i) {
+    Query query=randomQuery();
+    final TopDocs td1=searcher1.search(query,100);
+    final TopDocs td2=searcher2.search(query,100);
+    try {
+      assertEquals(td1,td2);
+    }
+ catch (    AssertionError e) {
+      System.out.println(query);
+      throw e;
+    }
+  }
+  searcher1.getIndexReader().close();
+  dir.close();
+}

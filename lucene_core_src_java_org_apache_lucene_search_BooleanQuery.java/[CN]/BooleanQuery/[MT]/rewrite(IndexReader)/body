@@ -1,28 +1,114 @@
 {
-  if (minimumNumberShouldMatch == 0 && clauses.size() == 1) {
+  if (clauses.size() == 1) {
     BooleanClause c=clauses.get(0);
-    if (!c.isProhibited()) {
-      Query query=c.getQuery();
-      if (c.isScoring() == false) {
-        query=new BoostQuery(new ConstantScoreQuery(query),0);
-      }
+    Query query=c.getQuery();
+    if (minimumNumberShouldMatch == 1 && c.getOccur() == Occur.SHOULD) {
       return query;
     }
-  }
-  BooleanQuery.Builder builder=new BooleanQuery.Builder();
-  builder.setDisableCoord(isCoordDisabled());
-  builder.setMinimumNumberShouldMatch(getMinimumNumberShouldMatch());
-  boolean actuallyRewritten=false;
-  for (  BooleanClause clause : this) {
-    Query query=clause.getQuery();
-    Query rewritten=query.rewrite(reader);
-    if (rewritten != query) {
-      actuallyRewritten=true;
-    }
-    builder.add(rewritten,clause.getOccur());
-  }
-  if (actuallyRewritten) {
-    return builder.build();
-  }
-  return super.rewrite(reader);
+ else     if (minimumNumberShouldMatch == 0) {
+switch (c.getOccur()) {
+case SHOULD:
+case MUST:
+        return query;
+case FILTER:
+      return new BoostQuery(new ConstantScoreQuery(query),0);
+case MUST_NOT:
+    return new MatchNoDocsQuery();
+default :
+  throw new AssertionError();
+}
+}
+}
+{
+BooleanQuery.Builder builder=new BooleanQuery.Builder();
+builder.setDisableCoord(isCoordDisabled());
+builder.setMinimumNumberShouldMatch(getMinimumNumberShouldMatch());
+boolean actuallyRewritten=false;
+for (BooleanClause clause : this) {
+Query query=clause.getQuery();
+Query rewritten=query.rewrite(reader);
+if (rewritten != query) {
+actuallyRewritten=true;
+}
+builder.add(rewritten,clause.getOccur());
+}
+if (actuallyRewritten) {
+return builder.build();
+}
+}
+{
+int clauseCount=0;
+for (Collection<Query> queries : clauseSets.values()) {
+clauseCount+=queries.size();
+}
+if (clauseCount != clauses.size()) {
+BooleanQuery.Builder rewritten=new BooleanQuery.Builder();
+rewritten.setDisableCoord(disableCoord);
+rewritten.setMinimumNumberShouldMatch(minimumNumberShouldMatch);
+for (Map.Entry<Occur,Collection<Query>> entry : clauseSets.entrySet()) {
+final Occur occur=entry.getKey();
+for (Query query : entry.getValue()) {
+  rewritten.add(query,occur);
+}
+}
+return rewritten.build();
+}
+}
+if (clauseSets.get(Occur.MUST).size() > 0 && clauseSets.get(Occur.FILTER).size() > 0) {
+final Set<Query> filters=new HashSet<Query>(clauseSets.get(Occur.FILTER));
+boolean modified=filters.remove(new MatchAllDocsQuery());
+modified|=filters.removeAll(clauseSets.get(Occur.MUST));
+if (modified) {
+BooleanQuery.Builder builder=new BooleanQuery.Builder();
+builder.setDisableCoord(isCoordDisabled());
+builder.setMinimumNumberShouldMatch(getMinimumNumberShouldMatch());
+for (BooleanClause clause : clauses) {
+if (clause.getOccur() != Occur.FILTER) {
+  builder.add(clause);
+}
+}
+for (Query filter : filters) {
+builder.add(filter,Occur.FILTER);
+}
+return builder.build();
+}
+}
+{
+final Collection<Query> musts=clauseSets.get(Occur.MUST);
+final Collection<Query> filters=clauseSets.get(Occur.FILTER);
+if (musts.size() == 1 && filters.size() > 0) {
+Query must=musts.iterator().next();
+float boost=1f;
+if (must instanceof BoostQuery) {
+BoostQuery boostQuery=(BoostQuery)must;
+must=boostQuery.getQuery();
+boost=boostQuery.getBoost();
+}
+if (must.getClass() == MatchAllDocsQuery.class) {
+BooleanQuery.Builder builder=new BooleanQuery.Builder();
+for (BooleanClause clause : clauses) {
+switch (clause.getOccur()) {
+case FILTER:
+case MUST_NOT:
+    builder.add(clause);
+  break;
+default :
+break;
+}
+}
+Query rewritten=builder.build();
+rewritten=new ConstantScoreQuery(rewritten);
+if (boost != 1f) {
+rewritten=new BoostQuery(rewritten,boost);
+}
+builder=new BooleanQuery.Builder().setDisableCoord(isCoordDisabled()).setMinimumNumberShouldMatch(getMinimumNumberShouldMatch()).add(rewritten,Occur.MUST);
+for (Query query : clauseSets.get(Occur.SHOULD)) {
+builder.add(query,Occur.SHOULD);
+}
+rewritten=builder.build();
+return rewritten;
+}
+}
+}
+return super.rewrite(reader);
 }
