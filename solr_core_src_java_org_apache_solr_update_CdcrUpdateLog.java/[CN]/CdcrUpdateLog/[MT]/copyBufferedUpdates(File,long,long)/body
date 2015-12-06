@@ -1,0 +1,71 @@
+{
+  recoveryInfo=new RecoveryInfo();
+  recoveryInfo.positionOfStart=tlog == null ? 0 : tlog.snapshot();
+  state=State.BUFFERING;
+  operationFlags|=FLAG_GAP;
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set(DistributingUpdateProcessorFactory.DISTRIB_UPDATE_PARAM,DistributedUpdateProcessor.DistribPhase.FROMLEADER.toString());
+  SolrQueryRequest req=new LocalSolrQueryRequest(uhandler.core,params);
+  CdcrTransactionLog src=new CdcrTransactionLog(tlogSrc,null,true);
+  TransactionLog.LogReader tlogReader=src.getReader(offsetSrc);
+  try {
+    int operationAndFlags=0;
+    for (; ; ) {
+      Object o=tlogReader.next();
+      if (o == null)       break;
+      List entry=(List)o;
+      operationAndFlags=(Integer)entry.get(0);
+      int oper=operationAndFlags & OPERATION_MASK;
+      long version=(Long)entry.get(1);
+      if (version <= latestVersion) {
+        log.debug("Dropping buffered operation - version {} < {}",version,latestVersion);
+        continue;
+      }
+switch (oper) {
+case UpdateLog.ADD:
+{
+          SolrInputDocument sdoc=(SolrInputDocument)entry.get(entry.size() - 1);
+          AddUpdateCommand cmd=new AddUpdateCommand(req);
+          cmd.solrDoc=sdoc;
+          cmd.setVersion(version);
+          cmd.setFlags(UpdateCommand.BUFFERING);
+          this.add(cmd);
+          break;
+        }
+case UpdateLog.DELETE:
+{
+        byte[] idBytes=(byte[])entry.get(2);
+        DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+        cmd.setIndexedId(new BytesRef(idBytes));
+        cmd.setVersion(version);
+        cmd.setFlags(UpdateCommand.BUFFERING);
+        this.delete(cmd);
+        break;
+      }
+case UpdateLog.DELETE_BY_QUERY:
+{
+      String query=(String)entry.get(2);
+      DeleteUpdateCommand cmd=new DeleteUpdateCommand(req);
+      cmd.query=query;
+      cmd.setVersion(version);
+      cmd.setFlags(UpdateCommand.BUFFERING);
+      this.deleteByQuery(cmd);
+      break;
+    }
+default :
+  throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Invalid Operation! " + oper);
+}
+}
+}
+ catch (Exception e) {
+throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unable to copy buffered updates",e);
+}
+ finally {
+try {
+tlogReader.close();
+}
+  finally {
+this.doClose(src);
+}
+}
+}
