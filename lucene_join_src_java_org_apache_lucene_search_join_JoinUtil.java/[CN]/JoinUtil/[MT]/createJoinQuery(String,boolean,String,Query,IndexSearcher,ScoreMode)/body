@@ -1,17 +1,12 @@
 {
-switch (scoreMode) {
-case None:
-    TermsCollector termsCollector=TermsCollector.create(fromField,multipleValuesPerDocument);
-  fromSearcher.search(fromQuery,termsCollector);
-return new TermsQuery(toField,fromQuery,termsCollector.getCollectorTerms());
-case Total:
-case Max:
-case Min:
-case Avg:
-TermsWithScoreCollector termsWithScoreCollector=TermsWithScoreCollector.create(fromField,multipleValuesPerDocument,scoreMode);
-fromSearcher.search(fromQuery,termsWithScoreCollector);
-return new TermsIncludingScoreQuery(toField,multipleValuesPerDocument,termsWithScoreCollector.getCollectedTerms(),termsWithScoreCollector.getScoresPerTerm(),fromQuery);
-default :
-throw new IllegalArgumentException(String.format(Locale.ROOT,"Score mode %s isn't supported.",scoreMode));
-}
+  final GenericTermsCollector termsWithScoreCollector;
+  if (multipleValuesPerDocument) {
+    Function<SortedSetDocValues> mvFunction=DocValuesTermsCollector.sortedSetDocValues(fromField);
+    termsWithScoreCollector=GenericTermsCollector.createCollectorMV(mvFunction,scoreMode);
+  }
+ else {
+    Function<BinaryDocValues> svFunction=DocValuesTermsCollector.binaryDocValues(fromField);
+    termsWithScoreCollector=GenericTermsCollector.createCollectorSV(svFunction,scoreMode);
+  }
+  return createJoinQuery(multipleValuesPerDocument,toField,fromQuery,fromSearcher,scoreMode,termsWithScoreCollector);
 }
