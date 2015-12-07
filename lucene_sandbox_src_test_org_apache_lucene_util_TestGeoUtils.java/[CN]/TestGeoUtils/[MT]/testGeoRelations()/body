@@ -1,6 +1,6 @@
 {
   int numDocs=atLeast(1000);
-  boolean useSmallRanges=true;
+  boolean useSmallRanges=random().nextBoolean();
   if (VERBOSE) {
     System.out.println("TEST: " + numDocs + " docs useSmallRanges="+ useSmallRanges);
   }
@@ -34,10 +34,17 @@
     GeoRect bbox=GeoUtils.circleToBBox(centerLon,centerLat,radiusMeters);
     Set<Integer> hits=new HashSet<>();
     if (bbox.maxLon < bbox.minLon) {
-      log.println("  circle crosses dateline; first right query");
-      findMatches(hits,log,new Cell(null,-180,bbox.minLat,bbox.maxLon,bbox.maxLat,0),centerLon,centerLat,radiusMeters,docLons,docLats);
-      log.println("  circle crosses dateline; now left query");
-      findMatches(hits,log,new Cell(null,bbox.minLon,bbox.minLat,180,bbox.maxLat,0),centerLon,centerLat,radiusMeters,docLons,docLats);
+      log.println("  circle crosses dateline; first left query");
+      double unwrappedLon=centerLon;
+      if (unwrappedLon > bbox.maxLon) {
+        unwrappedLon+=-360.0D;
+      }
+      findMatches(hits,log,new Cell(null,-180,bbox.minLat,bbox.maxLon,bbox.maxLat,0),unwrappedLon,centerLat,radiusMeters,docLons,docLats);
+      log.println("  circle crosses dateline; now right query");
+      if (unwrappedLon < bbox.maxLon) {
+        unwrappedLon+=360.0D;
+      }
+      findMatches(hits,log,new Cell(null,bbox.minLon,bbox.minLat,180,bbox.maxLat,0),unwrappedLon,centerLat,radiusMeters,docLons,docLats);
     }
  else {
       findMatches(hits,log,new Cell(null,bbox.minLon,bbox.minLat,bbox.maxLon,bbox.maxLat,0),centerLon,centerLat,radiusMeters,docLons,docLats);
@@ -47,15 +54,15 @@
     }
     int failCount=0;
     for (int docID=0; docID < numDocs; docID++) {
-      double distanceMeters=SloppyMath.haversin(centerLat,centerLon,docLats[docID],docLons[docID]) * 1000.0;
+      double distanceMeters=GeoDistanceUtils.haversin(centerLat,centerLon,docLats[docID],docLons[docID]);
       boolean expected=distanceMeters <= radiusMeters;
       boolean actual=hits.contains(docID);
       if (actual != expected) {
         if (actual) {
-          log.println("doc=" + docID + " matched but should not");
+          log.println("doc=" + docID + " matched but should not on iteration "+ iter);
         }
  else {
-          log.println("doc=" + docID + " did not match but should");
+          log.println("doc=" + docID + " did not match but should on iteration "+ iter);
         }
         log.println("  lon=" + docLons[docID] + " lat="+ docLats[docID]+ " distanceMeters="+ distanceMeters+ " vs radiusMeters="+ radiusMeters);
         failCount++;
