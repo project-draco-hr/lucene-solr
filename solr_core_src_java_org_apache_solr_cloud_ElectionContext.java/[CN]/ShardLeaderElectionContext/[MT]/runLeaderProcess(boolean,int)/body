@@ -11,13 +11,16 @@
    try {
     lt.minimumWaitBetweenActions();
     lt.markAttemptingAction();
-    log.info("Running the leader process for shard " + shardId);
+    int leaderVoteWait=cc.getZkController().getLeaderVoteWait();
+    log.info("Running the leader process for shard={} and weAreReplacement={} and leaderVoteWait={}",shardId,weAreReplacement,leaderVoteWait);
     ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.LEADER.toLower(),ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
     Overseer.getInQueue(zkClient).offer(Utils.toJSON(m));
-    int leaderVoteWait=cc.getZkController().getLeaderVoteWait();
     boolean allReplicasInLine=false;
     if (!weAreReplacement) {
       allReplicasInLine=waitForReplicasToComeUp(leaderVoteWait);
+    }
+ else {
+      allReplicasInLine=areAllReplicasParticipating();
     }
     if (isClosed) {
       return;
@@ -93,6 +96,7 @@
           publishActiveIfRegisteredAndNotActive(core);
         }
          log.info("I am the new leader: " + ZkCoreNodeProps.getCoreUrl(leaderProps) + " "+ shardId);
+        syncStrategy.requestRecoveries();
       }
  catch (      Exception e) {
         isLeader=false;
