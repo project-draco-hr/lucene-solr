@@ -1,0 +1,46 @@
+{
+  float sumMatchCost=0;
+  long sumApproxCost=0;
+  for (  DisiWrapper w : subScorers) {
+    if (w.twoPhaseView != null) {
+      long costWeight=(w.cost <= 1) ? 1 : w.cost;
+      sumMatchCost+=w.twoPhaseView.matchCost() * costWeight;
+      sumApproxCost+=costWeight;
+    }
+  }
+  if (sumApproxCost == 0) {
+    return null;
+  }
+  final float matchCost=sumMatchCost / sumApproxCost;
+  return new TwoPhaseIterator(new DisjunctionDISIApproximation(subScorers)){
+    @Override public boolean matches() throws IOException {
+      DisiWrapper topScorers=subScorers.topList();
+      while (topScorers.twoPhaseView != null && !topScorers.twoPhaseView.matches()) {
+        topScorers=topScorers.next;
+        if (topScorers == null) {
+          return false;
+        }
+      }
+      if (needsScores) {
+        DisiWrapper previous=topScorers;
+        for (DisiWrapper w=topScorers.next; w != null; w=w.next) {
+          if (w.twoPhaseView != null && !w.twoPhaseView.matches()) {
+            previous.next=w.next;
+          }
+ else {
+            previous=w;
+          }
+        }
+      }
+ else {
+        topScorers.next=null;
+      }
+      DisjunctionScorer.this.topScorers=topScorers;
+      return true;
+    }
+    @Override public float matchCost(){
+      return matchCost;
+    }
+  }
+;
+}

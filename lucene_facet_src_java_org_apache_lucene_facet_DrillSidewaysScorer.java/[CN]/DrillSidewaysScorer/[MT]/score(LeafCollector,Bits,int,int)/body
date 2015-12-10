@@ -1,2 +1,45 @@
 {
+  if (min != 0) {
+    throw new IllegalArgumentException("min must be 0, got " + min);
+  }
+  if (maxDoc != Integer.MAX_VALUE) {
+    throw new IllegalArgumentException("maxDoc must be Integer.MAX_VALUE");
+  }
+  FakeScorer scorer=new FakeScorer();
+  collector.setScorer(scorer);
+  if (drillDownCollector != null) {
+    drillDownLeafCollector=drillDownCollector.getLeafCollector(context);
+    drillDownLeafCollector.setScorer(scorer);
+  }
+ else {
+    drillDownLeafCollector=null;
+  }
+  for (  DocsAndCost dim : dims) {
+    dim.sidewaysLeafCollector=dim.sidewaysCollector.getLeafCollector(context);
+    dim.sidewaysLeafCollector.setScorer(scorer);
+  }
+  long baseQueryCost=baseIterator.cost();
+  final int numDims=dims.length;
+  long drillDownCost=0;
+  for (int dim=0; dim < numDims; dim++) {
+    drillDownCost+=dims[dim].approximation.cost();
+  }
+  long drillDownAdvancedCost=0;
+  if (numDims > 1) {
+    drillDownAdvancedCost=dims[1].approximation.cost();
+  }
+  baseIterator.nextDoc();
+  for (  DocsAndCost dim : dims) {
+    dim.approximation.nextDoc();
+  }
+  if (scoreSubDocsAtOnce || baseQueryCost < drillDownCost / 10) {
+    doQueryFirstScoring(acceptDocs,collector,dims);
+  }
+ else   if (numDims > 1 && drillDownAdvancedCost < baseQueryCost / 10) {
+    doDrillDownAdvanceScoring(acceptDocs,collector,dims);
+  }
+ else {
+    doUnionScoring(acceptDocs,collector,dims);
+  }
+  return Integer.MAX_VALUE;
 }
