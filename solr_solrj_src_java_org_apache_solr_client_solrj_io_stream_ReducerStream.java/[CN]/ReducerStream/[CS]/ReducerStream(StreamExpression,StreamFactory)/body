@@ -1,7 +1,8 @@
 {
   List<StreamExpression> streamExpressions=factory.getExpressionOperandsRepresentingTypes(expression,Expressible.class,TupleStream.class);
   StreamExpressionNamedParameter byExpression=factory.getNamedOperand(expression,"by");
-  if (expression.getParameters().size() != streamExpressions.size() + 1) {
+  List<StreamExpression> operationExpressions=factory.getExpressionOperandsRepresentingTypes(expression,ReduceOperation.class);
+  if (expression.getParameters().size() != streamExpressions.size() + 2) {
     throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - unknown operands found",expression));
   }
   if (1 != streamExpressions.size()) {
@@ -10,5 +11,19 @@
   if (null == byExpression || !(byExpression.getParameter() instanceof StreamExpressionValue)) {
     throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting single 'by' parameter listing fields to group by but didn't find one",expression));
   }
-  init(factory.constructStream(streamExpressions.get(0)),factory.constructEqualitor(((StreamExpressionValue)byExpression.getParameter()).getValue(),FieldEqualitor.class));
+  ReduceOperation reduceOperation=null;
+  if (operationExpressions != null && operationExpressions.size() == 1) {
+    StreamExpression ex=operationExpressions.get(0);
+    StreamOperation operation=factory.constructOperation(ex);
+    if (operation instanceof ReduceOperation) {
+      reduceOperation=(ReduceOperation)operation;
+    }
+ else {
+      throw new IOException("The ReducerStream requires a ReduceOperation. A StreamOperation was provided.");
+    }
+  }
+ else {
+    throw new IOException("The ReducerStream requires a ReduceOperation.");
+  }
+  init(factory.constructStream(streamExpressions.get(0)),factory.constructEqualitor(((StreamExpressionValue)byExpression.getParameter()).getValue(),FieldEqualitor.class),reduceOperation);
 }
