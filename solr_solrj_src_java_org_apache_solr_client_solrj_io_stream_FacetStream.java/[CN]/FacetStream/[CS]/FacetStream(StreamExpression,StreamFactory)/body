@@ -1,0 +1,80 @@
+{
+  String collectionName=factory.getValueOperand(expression,0);
+  List<StreamExpressionNamedParameter> namedParams=factory.getNamedOperands(expression);
+  StreamExpressionNamedParameter bucketExpression=factory.getNamedOperand(expression,"buckets");
+  StreamExpressionNamedParameter bucketSortExpression=factory.getNamedOperand(expression,"bucketSorts");
+  List<StreamExpression> metricExpressions=factory.getExpressionOperandsRepresentingTypes(expression,Expressible.class,Metric.class);
+  StreamExpressionNamedParameter limitExpression=factory.getNamedOperand(expression,"bucketSizeLimit");
+  StreamExpressionNamedParameter zkHostExpression=factory.getNamedOperand(expression,"zkHost");
+  if (expression.getParameters().size() != 1 + namedParams.size() + metricExpressions.size()) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - unknown operands found",expression));
+  }
+  if (null == collectionName) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - collectionName expected as first operand",expression));
+  }
+  if (0 == namedParams.size()) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - at least one named parameter expected. eg. 'q=*:*'",expression));
+  }
+  Map<String,String> params=new HashMap<String,String>();
+  for (  StreamExpressionNamedParameter namedParam : namedParams) {
+    if (!namedParam.getName().equals("zkHost") && !namedParam.getName().equals("buckets") && !namedParam.getName().equals("bucketSorts")&& !namedParam.getName().equals("limit")) {
+      params.put(namedParam.getName(),namedParam.getParameter().toString().trim());
+    }
+  }
+  Bucket[] buckets=null;
+  if (null != bucketExpression) {
+    if (bucketExpression.getParameter() instanceof StreamExpressionValue) {
+      String[] keys=((StreamExpressionValue)bucketExpression.getParameter()).getValue().split(",");
+      if (0 != keys.length) {
+        buckets=new Bucket[keys.length];
+        for (int idx=0; idx < keys.length; ++idx) {
+          buckets[idx]=new Bucket(keys[idx].trim());
+        }
+      }
+    }
+  }
+  if (null == buckets) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - at least one bucket expected. eg. 'buckets=\"name\"'",expression,collectionName));
+  }
+  FieldComparator[] bucketSorts=null;
+  if (null != bucketSortExpression) {
+    if (bucketSortExpression.getParameter() instanceof StreamExpressionValue) {
+      bucketSorts=parseBucketSorts(((StreamExpressionValue)bucketSortExpression.getParameter()).getValue());
+    }
+  }
+  if (null == bucketSorts || 0 == bucketSorts.length) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - at least one bucket sort expected. eg. 'bucketSorts=\"name asc\"'",expression,collectionName));
+  }
+  Metric[] metrics=new Metric[metricExpressions.size()];
+  for (int idx=0; idx < metricExpressions.size(); ++idx) {
+    metrics[idx]=factory.constructMetric(metricExpressions.get(idx));
+  }
+  if (0 == metrics.length) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - at least one metric expected.",expression,collectionName));
+  }
+  if (null == limitExpression || null == limitExpression.getParameter() || !(limitExpression.getParameter() instanceof StreamExpressionValue)) {
+    throw new IOException(String.format(Locale.ROOT,"Invalid expression %s - expecting a single 'limit' parameter of type positive integer but didn't find one",expression));
+  }
+  String limitStr=((StreamExpressionValue)limitExpression.getParameter()).getValue();
+  int limitInt=0;
+  try {
+    limitInt=Integer.parseInt(limitStr);
+    if (limitInt <= 0) {
+      throw new IOException(String.format(Locale.ROOT,"invalid expression %s - limit '%s' must be greater than 0.",expression,limitStr));
+    }
+  }
+ catch (  NumberFormatException e) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - limit '%s' is not a valid integer.",expression,limitStr));
+  }
+  String zkHost=null;
+  if (null == zkHostExpression) {
+    zkHost=factory.getCollectionZkHost(collectionName);
+  }
+ else   if (zkHostExpression.getParameter() instanceof StreamExpressionValue) {
+    zkHost=((StreamExpressionValue)zkHostExpression.getParameter()).getValue();
+  }
+  if (null == zkHost) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - zkHost not found for collection '%s'",expression,collectionName));
+  }
+  init(collectionName,params,buckets,bucketSorts,metrics,limitInt,zkHost);
+}
