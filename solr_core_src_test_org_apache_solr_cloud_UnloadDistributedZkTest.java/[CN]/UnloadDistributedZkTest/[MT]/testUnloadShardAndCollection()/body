@@ -1,11 +1,14 @@
 {
+  final int numShards=2;
+  final String collection="test_unload_shard_and_collection";
+  final String coreName1=collection + "_1";
+  final String coreName2=collection + "_2";
   Create createCmd=new Create();
-  createCmd.setCoreName("test_unload_shard_and_collection_1");
-  String collection="test_unload_shard_and_collection";
+  createCmd.setCoreName(coreName1);
   createCmd.setCollection(collection);
   String coreDataDir=createTempDir().toFile().getAbsolutePath();
   createCmd.setDataDir(getDataDir(coreDataDir));
-  createCmd.setNumShards(2);
+  createCmd.setNumShards(numShards);
   SolrClient client=clients.get(0);
   String url1=getBaseUrl(client);
   try (HttpSolrClient adminClient=new HttpSolrClient(url1)){
@@ -13,29 +16,23 @@
     adminClient.setSoTimeout(60000);
     adminClient.request(createCmd);
     createCmd=new Create();
-    createCmd.setCoreName("test_unload_shard_and_collection_2");
-    collection="test_unload_shard_and_collection";
+    createCmd.setCoreName(coreName2);
     createCmd.setCollection(collection);
     coreDataDir=createTempDir().toFile().getAbsolutePath();
     createCmd.setDataDir(getDataDir(coreDataDir));
     adminClient.request(createCmd);
     waitForRecoveriesToFinish(collection,false);
+    final boolean unloadInOrder=random().nextBoolean();
+    final String unloadCmdCoreName1=(unloadInOrder ? coreName1 : coreName2);
+    final String unloadCmdCoreName2=(unloadInOrder ? coreName2 : coreName1);
     Unload unloadCmd=new Unload(false);
-    unloadCmd.setCoreName("test_unload_shard_and_collection_2");
+    unloadCmd.setCoreName(unloadCmdCoreName1);
     adminClient.request(unloadCmd);
-    int slices=getCommonCloudSolrClient().getZkStateReader().getClusterState().getSlices(collection).size();
-    final TimeOut timeout=new TimeOut(45,TimeUnit.SECONDS);
-    while (slices != 1) {
-      if (timeout.hasTimedOut()) {
-        printLayout();
-        fail("Expected to find only one slice in " + collection);
-      }
-      Thread.sleep(1000);
-      slices=getCommonCloudSolrClient().getZkStateReader().getClusterState().getSlices(collection).size();
-    }
+    checkCoreNamePresenceAndSliceCount(collection,unloadCmdCoreName1,false,numShards - 1);
     unloadCmd=new Unload(false);
-    unloadCmd.setCoreName("test_unload_shard_and_collection_1");
+    unloadCmd.setCoreName(unloadCmdCoreName2);
     adminClient.request(unloadCmd);
+    checkCoreNamePresenceAndSliceCount(collection,unloadCmdCoreName2,false,numShards - 2);
   }
    final TimeOut timeout=new TimeOut(30,TimeUnit.SECONDS);
   while (getCommonCloudSolrClient().getZkStateReader().getClusterState().hasCollection(collection)) {
