@@ -1,0 +1,62 @@
+def setGitWorkingTreeViaSvnCheckout(svnWorkingCopy, revision, gitRepo):
+    svnUpdateOutputLines = svnWorkingCopy.updateOutput(revision)
+    " Some example lines:\nU    solr/solrj/src/test/org/apache/solr/client/solrj/io/sql/JdbcTest.java\n U   solr/core\nUpdated to revision 1707390.\n\nFrom svn help update:\n\n  For each updated item a line will be printed with characters reporting\n  the action taken. These characters have the following meaning:\n\n    A  Added\n    D  Deleted\n    U  Updated\n    C  Conflict\n    G  Merged\n    E  Existed\n    R  Replaced\n\n  Characters in the first column report about the item itself.\n  Characters in the second column report about properties of the item.\n  A 'B' in the third column signifies that the lock for the file has\n  been broken or stolen.\n  A 'C' in the fourth column indicates a tree conflict, while a 'C' in\n  the first and second columns indicate textual conflicts in files\n  and in property values, respectively.\n\n  "
+    for svnUpdateLine in nonEmptyLines(svnUpdateOutputLines):
+        if svnUpdateLine.startswith('Updating '):
+            continue
+        if svnUpdateLine.startswith('Updated to'):
+            revisionStr = svnUpdateLine.split()[3][:(-1)]
+            assert (revision == int(revisionStr)), revisionStr
+            continue
+        print(svnUpdateLine)
+        itemChar = svnUpdateLine[0]
+        itemPropChar = svnUpdateLine[1]
+        lockChar = svnUpdateLine[2]
+        treeConflictChar = svnUpdateLine[3]
+        fileName = svnUpdateLine[5:]
+        validItemChars = (' ', 'A', 'D', 'U')
+        assert (itemChar in validItemChars), ('revision %d itemChar %s, fileName %s' % (revision, itemChar, fileName))
+        assert (itemPropChar in validItemChars), ('revision %d itemPropChar %s, working copy not clean fileName %s' % (revision, itemPropChar, fileName))
+        assert (lockChar == ' '), ('revision %d lockChar %s fileName %s' % (revision, lockChar, fileName))
+        assert (treeConflictChar == ' '), ('revision %d treeConflictChar %s fileName %s' % (revision, treeConflictChar, fileName))
+        fileNameInGitRepo = os.path.join(gitRepo.getPathName(), fileName)
+        setFileProtectionBits = False
+        if (itemChar == 'D'):
+            if os.path.isdir(fileNameInGitRepo):
+                print(('Deleting directory %s' % fileNameInGitRepo))
+                shutil.rmtree(fileNameInGitRepo)
+                deleteEmptyDirs(fileNameInGitRepo, gitRepo.getPathName())
+            elif os.path.isfile(fileNameInGitRepo):
+                print(('Deleting file %s' % fileNameInGitRepo))
+                os.remove(fileNameInGitRepo)
+                deleteEmptyDirs(fileNameInGitRepo, gitRepo.getPathName())
+            else:
+                print(('Non deleting non existing file %s' % fileName))
+        elif (itemChar in ('A', 'U')):
+            fileNameInSvnWorkingCopy = os.path.join(svnWorkingCopy.getPathName(), fileName)
+            if os.path.isdir(fileNameInSvnWorkingCopy):
+                if (not os.path.isdir(fileNameInGitRepo)):
+                    print(('Creating directory %s' % fileName))
+                    os.mkdir(fileNameInGitRepo)
+                else:
+                    print(('Not creating existing directory %s' % fileName))
+            elif os.path.isfile(fileNameInSvnWorkingCopy):
+                (head, tail) = os.path.split(fileNameInGitRepo)
+                if (not os.path.isdir(head)):
+                    print(('Creating directory for file %s' % fileNameInGitRepo))
+                    os.mkdir(head)
+                shutil.copyfile(fileNameInSvnWorkingCopy, fileNameInGitRepo)
+                setFileProtectionBits = True
+            else:
+                assert False, ('Cannot add or update non existing file %s' % fileNameInSvnWorkingCopy)
+        else:
+            assert (itemChar == ' ')
+        if (itemPropChar != ' '):
+            print(('At revision %d ignoring svn property change type %s for file %s' % (revision, itemPropChar, fileName)))
+            setFileProtectionBits = True
+        if setFileProtectionBits:
+            statSvn = os.stat(fileNameInSvnWorkingCopy)
+            statGit = os.stat(fileNameInGitRepo)
+            if (statSvn.st_mode != statGit.st_mode):
+                print(('Changing mode from %s to %s for %s' % (octal(statGit.st_mode), octal(statSvn.st_mode), fileNameInGitRepo)))
+                os.chmod(fileNameInGitRepo, statSvn.st_mode)

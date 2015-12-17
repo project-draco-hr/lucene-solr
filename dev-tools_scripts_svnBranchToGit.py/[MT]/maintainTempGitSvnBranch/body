@@ -1,4 +1,4 @@
-def maintainTempGitSvnBranch(branchName, tempGitBranchName, svnWorkingCopyOfBranchPath, svnRepoBranchName, gitRepoPath, gitUpstream, patchFileName, maxCommits=20, testMode=False):
+def maintainTempGitSvnBranch(branchName, tempGitBranchName, svnWorkingCopyOfBranchPath, svnRepoBranchName, gitRepoPath, gitUpstream, maxCommits=20, testMode=False):
     assert (maxCommits >= 1)
     gitRepo = GitRepository(gitRepoPath)
     gitRepo.checkOutBranch(branchName)
@@ -11,78 +11,71 @@ def maintainTempGitSvnBranch(branchName, tempGitBranchName, svnWorkingCopyOfBran
         pass
     else:
         gitRepo.merge(branchName, ((gitUpstream + '/') + branchName))
-    (svnRemote, lastSvnRevisionOnGitSvnBranch) = gitRepo.getSvnRemoteAndRevision(branchName)
-    print 'svnRemote:', svnRemote
+    (gitSvnRemote, gitSvnRepoUuid, lastSvnRevisionOnGitSvnBranch) = gitRepo.getSvnRemoteAndUuidAndRevision(branchName)
+    svnUrl = svnWorkingCopy.getUrl()
+    svnRepoUuid = svnWorkingCopy.getUuid()
+    print('gitSvnRemote:', gitSvnRemote)
+    print('svnUrl:', svnUrl)
+    print('svn repo uuid:', svnRepoUuid)
+    assertUrlsSameExceptScheme(gitSvnRemote, svnUrl)
+    assert (gitSvnRepoUuid == svnRepoUuid)
     diffBaseRevision = lastSvnRevisionOnGitSvnBranch
     svnTempRevision = None
     doCommitOnExistingTempBranch = False
     if gitRepo.branchExists(tempGitBranchName):
-        print tempGitBranchName, 'exists'
+        print(tempGitBranchName, 'exists')
         svnTempRevision = gitRepo.lastTempGitSvnRevision(tempGitBranchName)
         if (svnTempRevision is None):
-            print 'Warning: no svn revision found on branch:', tempGitBranchName
+            print('Warning: no svn revision found on branch:', tempGitBranchName)
         elif (svnTempRevision > lastSvnRevisionOnGitSvnBranch):
             diffBaseRevision = svnTempRevision
             doCommitOnExistingTempBranch = True
             gitRepo.checkOutBranch(tempGitBranchName)
     if (lastSvnRevision == diffBaseRevision):
-        print gitRepo, gitRepo.getCurrentBranch(), 'up to date with', svnWorkingCopy, svnRepoBranchName
+        print(gitRepo, gitRepo.getCurrentBranch(), 'up to date with', svnWorkingCopy, svnRepoBranchName)
+        verifyGitFilesAgainstSvn(gitRepo, svnWorkingCopy)
         return
     if (lastSvnRevision < diffBaseRevision):
-        print gitRepo, gitRepo.getCurrentBranch(), 'later than', svnWorkingCopy, ', nothing to update.'
+        print(gitRepo, gitRepo.getCurrentBranch(), 'later than', svnWorkingCopy, ', nothing to update.')
         return
-    print gitRepo, gitRepo.getCurrentBranch(), 'earlier than', svnWorkingCopy
+    print(gitRepo, gitRepo.getCurrentBranch(), 'earlier than', svnWorkingCopy)
     if (not gitRepo.workingDirectoryClean()):
         errorExit(gitRepo, 'on branch', gitRepo.getCurrentBranch(), 'not clean')
-    print gitRepo, 'on branch', gitRepo.getCurrentBranch(), 'and clean'
+    print(gitRepo, 'on branch', gitRepo.getCurrentBranch(), 'and clean')
     if (not doCommitOnExistingTempBranch):
         assert (gitRepo.getCurrentBranch() == branchName)
         if gitRepo.branchExists(tempGitBranchName):
-            print 'Branch', tempGitBranchName, 'exists, deleting'
+            print('Branch', tempGitBranchName, 'exists, deleting')
             gitRepo.deleteBranch(tempGitBranchName)
             if gitRepo.branchExists(tempGitBranchName):
                 errorExit('Could not delete branch', tempGitBranchName, 'from', gitRepo)
         gitRepo.createBranch(tempGitBranchName)
         gitRepo.checkOutBranch(tempGitBranchName)
-        print 'Started branch', tempGitBranchName, 'at', branchName
+        print('Started branch', tempGitBranchName, 'at', branchName)
     assert (gitRepo.getCurrentBranch() == tempGitBranchName)
-    patchStripDepth = 0
     maxNumLogEntries = (maxCommits + 1)
     svnLogEntries = svnWorkingCopy.getLogEntries(diffBaseRevision, lastSvnRevision, maxNumLogEntries)
     numCommits = 0
+    startRevision = svnLogEntries[0].revision
+    ignore = svnWorkingCopy.updateOutput(startRevision)
     for (logEntryFrom, logEntryTo) in allSuccessivePairs(svnLogEntries):
-        svnWorkingCopy.createPatchFile(logEntryFrom.revision, logEntryTo.revision, patchFileName)
-        patchedFileNames = svnWorkingCopy.patchedFileNames(patchFileName)
-        if (os.path.getsize(patchFileName) > 0):
-            gitRepo.applyPatch(patchFileName, patchStripDepth)
-            print 'Applied patch', patchFileName
-        else:
-            print 'Empty patch', patchFileName
+        setGitWorkingTreeViaSvnCheckout(svnWorkingCopy, logEntryTo.revision, gitRepo)
         gitRepo.addAllToIndex()
-        for patchedFileName in patchedFileNames:
-            fileNameInGitRepo = os.path.join(gitRepo.getPathName(), patchedFileName)
-            fileNameInSvnWorkingCopy = os.path.join(svnWorkingCopy.getPathName(), patchedFileName)
-            if os.path.isdir(fileNameInGitRepo):
-                continue
-            if (not os.path.isfile(fileNameInGitRepo)):
-                print 'Possibly new binary file in svn, ignored here:', fileNameInGitRepo
-                continue
-            fileSize = os.path.getsize(fileNameInGitRepo)
-            if (fileSize > 0):
-                continue
-            if os.path.isfile(fileNameInSvnWorkingCopy):
-                print 'Left empty file:', fileNameInGitRepo
-                continue
-            gitRepo.deleteForced(fileNameInGitRepo)
-        revisionsRange = svnWorkingCopy.revisionsRange(logEntryFrom.revision, logEntryTo.revision)
-        message = ((((logEntryTo.msg + '\n\n') + svnRemote) + ' diff -r ') + revisionsRange)
+        commitMessageMetaData = ((((((gitRepo.svn2gitMarker + ' ') + gitSvnRemote) + '@') + str(logEntryTo.revision)) + ' ') + gitSvnRepoUuid)
+        message = ((logEntryTo.msg + '\n\n') + commitMessageMetaData)
         authorCommit = gitRepo.getLatestCommitForAuthor(logEntryTo.author)
         authorName = gitRepo.getCommitAuthorName(authorCommit)
         authorEmail = gitRepo.getCommitAuthorEmail(authorCommit)
         gitRepo.commit(message, authorName, authorEmail, logEntryTo.date, authorName, authorEmail, logEntryTo.date)
         numCommits += 1
-        print 'Commit message:', logEntryTo.msg
+        print('Commit date:', logEntryTo.date)
         gitRepo.cleanDirsForced()
         if (not gitRepo.workingDirectoryClean()):
             errorExit(gitRepo, 'on branch', gitRepo.getCurrentBranch(), 'not clean, numCommits:', numCommits)
-    print 'Added', numCommits, 'commit(s) to branch', tempGitBranchName
+        diffBaseRevision = logEntryTo.revision
+        print('')
+    print('Added', numCommits, 'commit(s) to branch', tempGitBranchName)
+    if (lastSvnRevision == diffBaseRevision):
+        print(gitRepo, gitRepo.getCurrentBranch(), 'up to date with', svnWorkingCopy, svnRepoBranchName)
+        verifyGitFilesAgainstSvn(gitRepo, svnWorkingCopy)
+        return
