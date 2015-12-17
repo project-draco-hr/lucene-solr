@@ -1,0 +1,45 @@
+{
+  SolrParams params=rb.req.getParams();
+  float maxResultsForSuggestParamValue=params.getFloat(SpellingParams.SPELLCHECK_MAX_RESULTS_FOR_SUGGEST,0.0f);
+  Integer maxResultsForSuggest=null;
+  if (maxResultsForSuggestParamValue > 0.0f) {
+    if (maxResultsForSuggestParamValue == (int)maxResultsForSuggestParamValue) {
+      maxResultsForSuggest=(int)maxResultsForSuggestParamValue;
+    }
+ else {
+      String maxResultsFilterQueryString=params.get(SpellingParams.SPELLCHECK_MAX_RESULTS_FOR_SUGGEST_FQ);
+      int maxResultsByFilters=Integer.MAX_VALUE;
+      SolrIndexSearcher searcher=rb.req.getSearcher();
+      try {
+        if (maxResultsFilterQueryString != null) {
+          QParser parser=QParser.getParser(maxResultsFilterQueryString,QParserPlugin.DEFAULT_QTYPE,rb.req);
+          DocSet s=searcher.getDocSet(parser.getQuery());
+          maxResultsByFilters=s.size();
+        }
+ else {
+          List<Query> filters=rb.getFilters();
+          if (filters != null) {
+            for (            Query query : filters) {
+              DocSet s=searcher.getDocSet(query);
+              if (s != null) {
+                maxResultsByFilters=Math.min(s.size(),maxResultsByFilters);
+              }
+            }
+          }
+        }
+      }
+ catch (      IOException e) {
+        LOG.error(e.toString());
+        return null;
+      }
+catch (      SyntaxError e) {
+        LOG.error(e.toString());
+        return null;
+      }
+      if (maxResultsByFilters != Integer.MAX_VALUE) {
+        maxResultsForSuggest=Math.round(maxResultsByFilters * maxResultsForSuggestParamValue);
+      }
+    }
+  }
+  return maxResultsForSuggest;
+}
