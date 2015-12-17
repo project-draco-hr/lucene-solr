@@ -1,19 +1,41 @@
 {
-  if (reqTwoPhaseIterator == null) {
-    return null;
-  }
-  return new TwoPhaseIterator(reqApproximation){
-    @Override public boolean matches() throws IOException {
-      final int doc=reqApproximation.docID();
-      int exclDoc=exclApproximation.docID();
-      if (exclDoc < doc) {
-        exclDoc=exclApproximation.advance(doc);
+  final float matchCost=matchCost(reqApproximation,reqTwoPhaseIterator,exclApproximation,exclTwoPhaseIterator);
+  if (reqTwoPhaseIterator == null || (exclTwoPhaseIterator != null && reqTwoPhaseIterator.matchCost() <= exclTwoPhaseIterator.matchCost())) {
+    return new TwoPhaseIterator(reqApproximation){
+      @Override public boolean matches() throws IOException {
+        final int doc=reqApproximation.docID();
+        int exclDoc=exclApproximation.docID();
+        if (exclDoc < doc) {
+          exclDoc=exclApproximation.advance(doc);
+        }
+        if (exclDoc != doc) {
+          return matchesOrNull(reqTwoPhaseIterator);
+        }
+        return matchesOrNull(reqTwoPhaseIterator) && !matchesOrNull(exclTwoPhaseIterator);
       }
-      return ReqExclScorer.matches(doc,exclDoc,reqTwoPhaseIterator,exclTwoPhaseIterator);
+      @Override public float matchCost(){
+        return matchCost;
+      }
     }
-    @Override public float matchCost(){
-      return reqTwoPhaseIterator.matchCost();
-    }
-  }
 ;
+  }
+ else {
+    return new TwoPhaseIterator(reqApproximation){
+      @Override public boolean matches() throws IOException {
+        final int doc=reqApproximation.docID();
+        int exclDoc=exclApproximation.docID();
+        if (exclDoc < doc) {
+          exclDoc=exclApproximation.advance(doc);
+        }
+        if (exclDoc != doc) {
+          return matchesOrNull(reqTwoPhaseIterator);
+        }
+        return !matchesOrNull(exclTwoPhaseIterator) && matchesOrNull(reqTwoPhaseIterator);
+      }
+      @Override public float matchCost(){
+        return matchCost;
+      }
+    }
+;
+  }
 }
