@@ -1,42 +1,69 @@
 {
-  MDCLoggingContext.setCoreDescriptor(cd);
-  try {
-    if (SKIP_AUTO_RECOVERY) {
-      log.warn("Skipping recovery according to sys prop solrcloud.skip.autorecovery");
-      return;
-    }
-    if (cc.isShutDown()) {
-      log.warn("Skipping recovery because Solr is shutdown");
-      return;
-    }
-synchronized (recoveryLock) {
-      if (cc.isShutDown()) {
-        log.warn("Skipping recovery because Solr is shutdown");
-        return;
-      }
-      log.info("Running recovery - first canceling any ongoing recovery");
-      cancelRecovery();
-      while (recoveryRunning) {
-        try {
-          recoveryLock.wait(1000);
-        }
- catch (        InterruptedException e) {
+  Thread thread=new Thread(){
+    @Override public void run(){
+      MDCLoggingContext.setCoreDescriptor(cd);
+      try {
+        if (SKIP_AUTO_RECOVERY) {
+          log.warn("Skipping recovery according to sys prop solrcloud.skip.autorecovery");
+          return;
         }
         if (cc.isShutDown()) {
           log.warn("Skipping recovery because Solr is shutdown");
           return;
         }
-        if (closed)         return;
+        boolean locked=recoveryLock.tryLock();
+        try {
+          if (!locked) {
+            if (recoveryWaiting.get() > 0) {
+              return;
+            }
+            recoveryWaiting.incrementAndGet();
+          }
+ else {
+            recoveryWaiting.incrementAndGet();
+            cancelRecovery();
+          }
+          recoveryLock.lock();
+          try {
+            recoveryWaiting.decrementAndGet();
+            if (cc.isShutDown()) {
+              log.warn("Skipping recovery because Solr is shutdown");
+              return;
+            }
+            log.info("Running recovery");
+            recoveryThrottle.minimumWaitBetweenActions();
+            recoveryThrottle.markAttemptingAction();
+            recoveryStrat=new RecoveryStrategy(cc,cd,DefaultSolrCoreState.this);
+            recoveryStrat.setRecoveringAfterStartup(recoveringAfterStartup);
+            future=cc.getUpdateShardHandler().getRecoveryExecutor().submit(recoveryStrat);
+            try {
+              future.get();
+            }
+ catch (            InterruptedException e) {
+              Thread.currentThread().interrupt();
+              throw new SolrException(ErrorCode.SERVER_ERROR,e);
+            }
+catch (            ExecutionException e) {
+              throw new SolrException(ErrorCode.SERVER_ERROR,e);
+            }
+          }
+  finally {
+            recoveryLock.unlock();
+          }
+        }
+  finally {
+          if (locked)           recoveryLock.unlock();
+        }
       }
-      recoveryThrottle.minimumWaitBetweenActions();
-      recoveryThrottle.markAttemptingAction();
-      recoveryStrat=new RecoveryStrategy(cc,cd,this);
-      recoveryStrat.setRecoveringAfterStartup(recoveringAfterStartup);
-      future=cc.getUpdateShardHandler().getUpdateExecutor().submit(recoveryStrat);
-      recoveryRunning=true;
+  finally {
+        MDCLoggingContext.clear();
+      }
     }
   }
-  finally {
-    MDCLoggingContext.clear();
+;
+  try {
+    cc.getUpdateShardHandler().getUpdateExecutor().submit(thread);
+  }
+ catch (  RejectedExecutionException e) {
   }
 }
