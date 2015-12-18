@@ -1,6 +1,6 @@
 {
   if (rb.stage == ResponseBuilder.STAGE_GET_FIELDS) {
-    NamedList<Object> termVectors=new NamedList<>();
+    NamedList<Object> termVectorsNL=new NamedList<>();
     Map.Entry<String,Object>[] arr=new NamedList.NamedListEntry[rb.resultIds.size()];
     for (    ShardRequest sreq : rb.finished) {
       if ((sreq.purpose & ShardRequest.PURPOSE_GET_FIELDS) == 0 || !sreq.params.getBool(COMPONENT_NAME,false)) {
@@ -8,22 +8,21 @@
       }
       for (      ShardResponse srsp : sreq.responses) {
         NamedList<Object> nl=(NamedList<Object>)srsp.getSolrResponse().getResponse().get(TERM_VECTORS);
+        Object warningsNL=nl.get(TV_KEY_WARNINGS);
+        if (warningsNL != null && termVectorsNL.indexOf(TV_KEY_WARNINGS,0) < 0) {
+          termVectorsNL.add(TV_KEY_WARNINGS,warningsNL);
+        }
         for (int i=0; i < nl.size(); i++) {
           String key=nl.getName(i);
           ShardDoc sdoc=rb.resultIds.get(key);
-          if (null == sdoc) {
-            if (termVectors.indexOf(key,0) < 0) {
-              termVectors.add(key,nl.getVal(i));
-            }
-          }
- else {
+          if (sdoc != null) {
             int idx=sdoc.positionInResponse;
             arr[idx]=new NamedList.NamedListEntry<>(key,nl.getVal(i));
           }
         }
       }
     }
-    termVectors.addAll(SolrPluginUtils.removeNulls(arr,new NamedList<Object>()));
-    rb.rsp.add(TERM_VECTORS,termVectors);
+    SolrPluginUtils.removeNulls(arr,termVectorsNL);
+    rb.rsp.add(TERM_VECTORS,termVectorsNL);
   }
 }
