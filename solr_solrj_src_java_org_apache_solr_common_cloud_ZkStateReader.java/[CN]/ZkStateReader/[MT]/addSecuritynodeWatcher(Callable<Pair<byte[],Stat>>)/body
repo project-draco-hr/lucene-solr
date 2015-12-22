@@ -1,0 +1,35 @@
+{
+  zkClient.exists(SOLR_SECURITY_CONF_PATH,new Watcher(){
+    @Override public void process(    WatchedEvent event){
+      if (EventType.None.equals(event.getType())) {
+        return;
+      }
+      try {
+synchronized (ZkStateReader.this.getUpdateLock()) {
+          LOG.info("Updating [{}] ... ",SOLR_SECURITY_CONF_PATH);
+          final Watcher thisWatch=this;
+          final Stat stat=new Stat();
+          final byte[] data=getZkClient().getData(SOLR_SECURITY_CONF_PATH,thisWatch,stat,true);
+          try {
+            callback.call(new Pair<>(data,stat));
+          }
+ catch (          Exception e) {
+            LOG.error("Error running collections node listener",e);
+          }
+        }
+      }
+ catch (      KeeperException.ConnectionLossException|KeeperException.SessionExpiredException e) {
+        LOG.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK: [{}]",e.getMessage());
+      }
+catch (      KeeperException e) {
+        LOG.error("A ZK error has occurred",e);
+        throw new ZooKeeperException(ErrorCode.SERVER_ERROR,"",e);
+      }
+catch (      InterruptedException e) {
+        Thread.currentThread().interrupt();
+        LOG.warn("Interrupted",e);
+      }
+    }
+  }
+,true);
+}

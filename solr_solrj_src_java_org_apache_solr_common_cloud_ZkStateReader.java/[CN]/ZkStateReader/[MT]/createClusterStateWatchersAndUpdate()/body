@@ -1,5 +1,5 @@
 {
-  log.info("Updating cluster state from ZooKeeper... ");
+  LOG.info("Updating cluster state from ZooKeeper... ");
   if (!zkClient.exists(CLUSTER_STATE,true)) {
     throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,"Cannot connect to cluster at " + zkClient.getZkServerAddress() + ": cluster not found/not ready");
   }
@@ -16,26 +16,23 @@ synchronized (ZkStateReader.this.getUpdateLock()) {
         }
         try {
 synchronized (ZkStateReader.this.getUpdateLock()) {
-            log.info("Updating aliases... ");
+            LOG.info("Updating aliases... ");
             final Watcher thisWatch=this;
-            Stat stat=new Stat();
-            byte[] data=zkClient.getData(ALIASES,thisWatch,stat,true);
-            Aliases aliases=ClusterState.load(data);
-            ZkStateReader.this.aliases=aliases;
+            final Stat stat=new Stat();
+            final byte[] data=zkClient.getData(ALIASES,thisWatch,stat,true);
+            ZkStateReader.this.aliases=ClusterState.load(data);
           }
         }
- catch (        KeeperException e) {
-          if (e.code() == KeeperException.Code.SESSIONEXPIRED || e.code() == KeeperException.Code.CONNECTIONLOSS) {
-            log.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK");
-            return;
-          }
-          log.error("",e);
-          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"",e);
+ catch (        KeeperException.ConnectionLossException|KeeperException.SessionExpiredException e) {
+          LOG.warn("ZooKeeper watch triggered, but Solr cannot talk to ZK: [{}]",e.getMessage());
+        }
+catch (        KeeperException e) {
+          LOG.error("A ZK error has occurred",e);
+          throw new ZooKeeperException(SolrException.ErrorCode.SERVER_ERROR,"A ZK error has occurred",e);
         }
 catch (        InterruptedException e) {
           Thread.currentThread().interrupt();
-          log.warn("",e);
-          return;
+          LOG.warn("Interrupted",e);
         }
       }
     }
@@ -43,7 +40,7 @@ catch (        InterruptedException e) {
   }
   updateAliases();
   if (securityNodeListener != null) {
-    addSecuritynodeWatcher(SOLR_SECURITY_CONF_PATH,new Callable<Pair<byte[],Stat>>(){
+    addSecuritynodeWatcher(new Callable<Pair<byte[],Stat>>(){
       @Override public void call(      Pair<byte[],Stat> pair){
         ConfigData cd=new ConfigData();
         cd.data=pair.getKey() == null || pair.getKey().length == 0 ? EMPTY_MAP : Utils.getDeepCopy((Map)fromJSON(pair.getKey()),4,false);
