@@ -7,6 +7,7 @@
   final int deleteByQueryPercent=1 + random().nextInt(5);
   final int optimisticPercent=1 + random().nextInt(50);
   final int optimisticCorrectPercent=25 + random().nextInt(70);
+  final int filteredGetPercent=random().nextInt(random().nextInt(20) + 1);
   final int ndocs=5 + (random().nextBoolean() ? random().nextInt(25) : random().nextInt(200));
   int nWriteThreads=5 + random().nextInt(25);
   final int maxConcurrentCommits=nWriteThreads;
@@ -195,9 +196,16 @@ synchronized (TestRealTimeGet.this) {
             if (VERBOSE) {
               verbose("querying id",id);
             }
+            boolean filteredOut=false;
             SolrQueryRequest sreq;
             if (realTime) {
-              sreq=req("wt","json","qt","/get","ids",Integer.toString(id));
+              ModifiableSolrParams p=params("wt","json","qt","/get","ids",Integer.toString(id));
+              if (rand.nextInt(100) < filteredGetPercent) {
+                int idToFilter=rand.nextBoolean() ? id : rand.nextInt(ndocs);
+                filteredOut=idToFilter != id;
+                p.add("fq","id:" + idToFilter);
+              }
+              sreq=req(p);
             }
  else {
               sreq=req("wt","json","q","id:" + Integer.toString(id),"omitHeader","true");
@@ -211,7 +219,7 @@ synchronized (TestRealTimeGet.this) {
               assertEquals(1,doclist.size());
               long foundVal=(Long)(((Map)doclist.get(0)).get(field));
               long foundVer=(Long)(((Map)doclist.get(0)).get("_version_"));
-              if (foundVal < Math.abs(info.val) || (foundVer == info.version && foundVal != info.val)) {
+              if (filteredOut || foundVal < Math.abs(info.val) || (foundVer == info.version && foundVal != info.val)) {
                 verbose("ERROR, id=",id,"found=",response,"model",info);
                 assertTrue(false);
               }
