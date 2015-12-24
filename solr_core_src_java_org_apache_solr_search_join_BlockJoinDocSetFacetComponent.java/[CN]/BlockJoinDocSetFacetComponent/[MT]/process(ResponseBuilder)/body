@@ -1,0 +1,25 @@
+{
+  final BlockJoinParentQParser.AllParentsAware bjq=(BlockJoinParentQParser.AllParentsAware)rb.req.getContext().get(bjqKey);
+  if (bjq != null) {
+    final DocSet parentResult=rb.getResults().docSet;
+    final BitDocSet allParentsBitsDocSet=rb.req.getSearcher().getDocSetBits(bjq.getParentQuery());
+    final DocSet allChildren=BlockJoin.toChildren(parentResult,allParentsBitsDocSet,rb.req.getSearcher().getDocSetBits(new MatchAllDocsQuery()),QueryContext.newContext(rb.req.getSearcher()));
+    final DocSet childQueryDocSet=rb.req.getSearcher().getDocSet(bjq.getChildQuery());
+    final DocSet selectedChildren=allChildren.intersection(childQueryDocSet);
+    final List<LeafReaderContext> leaves=rb.req.getSearcher().getIndexReader().leaves();
+    Filter filter=selectedChildren.getTopFilter();
+    final BlockJoinFacetCollector facetCounter=new NoDelegateFacetCollector(rb.req);
+    for (int subIdx=0; subIdx < leaves.size(); subIdx++) {
+      LeafReaderContext subCtx=leaves.get(subIdx);
+      DocIdSet dis=filter.getDocIdSet(subCtx,null);
+      AggregatableDocIter iter=new SegmentChildren(subCtx,dis,allParentsBitsDocSet);
+      if (iter.hasNext()) {
+        facetCounter.doSetNextReader(subCtx);
+        facetCounter.countFacets(iter);
+      }
+    }
+    facetCounter.finish();
+    rb.req.getContext().put(COLLECTOR_CONTEXT_PARAM,facetCounter);
+    super.process(rb);
+  }
+}
