@@ -1,0 +1,34 @@
+{
+  Directory dir=newDirectory();
+  IndexWriter iw=new IndexWriter(dir,newIndexWriterConfig(null));
+  Document doc=new Document();
+  BytesRef idBytes=new BytesRef("id");
+  doc.add(new StringField("id",idBytes,Store.YES));
+  doc.add(new LegacyIntField("int",5,Store.YES));
+  doc.add(new NumericDocValuesField("dv",5));
+  doc.add(new DimensionalIntField("dint",5));
+  doc.add(new StoredField("stored",5));
+  iw.addDocument(doc);
+  iw.forceMerge(1);
+  iw.close();
+  Map<String,Type> uninvertingMap=new HashMap<>();
+  uninvertingMap.put("int",Type.INTEGER);
+  uninvertingMap.put("dv",Type.INTEGER);
+  DirectoryReader ir=UninvertingReader.wrap(DirectoryReader.open(dir),uninvertingMap);
+  LeafReader leafReader=ir.leaves().get(0).reader();
+  FieldInfo intFInfo=leafReader.getFieldInfos().fieldInfo("int");
+  assertEquals(DocValuesType.NUMERIC,intFInfo.getDocValuesType());
+  assertEquals(0,intFInfo.getDimensionCount());
+  assertEquals(0,intFInfo.getDimensionNumBytes());
+  FieldInfo dintFInfo=leafReader.getFieldInfos().fieldInfo("dint");
+  assertEquals(1,dintFInfo.getDimensionCount());
+  assertEquals(4,dintFInfo.getDimensionNumBytes());
+  FieldInfo dvFInfo=leafReader.getFieldInfos().fieldInfo("dv");
+  assertEquals(DocValuesType.NUMERIC,dvFInfo.getDocValuesType());
+  assertEquals("0",dvFInfo.getAttribute("PerFieldDocValuesFormat.suffix"));
+  FieldInfo storedFInfo=leafReader.getFieldInfos().fieldInfo("stored");
+  assertEquals(DocValuesType.NONE,storedFInfo.getDocValuesType());
+  TestUtil.checkReader(ir);
+  ir.close();
+  dir.close();
+}
