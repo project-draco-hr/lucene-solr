@@ -1,36 +1,51 @@
 {
-  if (query.getClauses(Occur.MUST).isEmpty() == false || query.getClauses(Occur.FILTER).isEmpty() == false) {
+  final int numOptionalClauses=query.getClauses(Occur.SHOULD).size();
+  final int numRequiredClauses=query.getClauses(Occur.MUST).size() + query.getClauses(Occur.FILTER).size();
+  BulkScorer positiveScorer;
+  if (numRequiredClauses == 0) {
+    positiveScorer=optionalBulkScorer(context);
+    if (positiveScorer == null) {
+      return null;
+    }
+    final long costThreshold;
+    if (query.getMinimumNumberShouldMatch() <= 1) {
+      costThreshold=-1;
+    }
+ else {
+      costThreshold=context.reader().maxDoc() / 3;
+    }
+    if (positiveScorer.cost() < costThreshold) {
+      return null;
+    }
+  }
+ else   if (numRequiredClauses == 1 && numOptionalClauses == 0 && query.getMinimumNumberShouldMatch() == 0) {
+    positiveScorer=requiredBulkScorer(context);
+  }
+ else {
     return null;
   }
- else   if (query.getClauses(Occur.MUST_NOT).isEmpty() == false) {
+  if (positiveScorer == null) {
     return null;
   }
-  List<BulkScorer> optional=new ArrayList<BulkScorer>();
+  List<Scorer> prohibited=new ArrayList<>();
   Iterator<BooleanClause> cIter=query.iterator();
   for (  Weight w : weights) {
     BooleanClause c=cIter.next();
-    if (c.getOccur() != Occur.SHOULD) {
-      throw new AssertionError();
-    }
-    BulkScorer subScorer=w.bulkScorer(context);
-    if (subScorer != null) {
-      optional.add(subScorer);
+    if (c.isProhibited()) {
+      Scorer scorer=w.scorer(context);
+      if (scorer != null) {
+        prohibited.add(scorer);
+      }
     }
   }
-  if (optional.size() == 0) {
-    return null;
+  if (prohibited.isEmpty()) {
+    return positiveScorer;
   }
-  if (query.getMinimumNumberShouldMatch() > optional.size()) {
-    return null;
-  }
-  if (optional.size() == 1) {
-    BulkScorer opt=optional.get(0);
-    if (!disableCoord && maxCoord > 1) {
-      return new BooleanTopLevelScorers.BoostedBulkScorer(opt,coord(1,maxCoord));
-    }
  else {
-      return opt;
+    Scorer prohibitedScorer=opt(prohibited,1,true);
+    if (prohibitedScorer.twoPhaseIterator() != null) {
+      return null;
     }
+    return new ReqExclBulkScorer(positiveScorer,prohibitedScorer.iterator());
   }
-  return new BooleanScorer(this,disableCoord,maxCoord,optional,Math.max(1,query.getMinimumNumberShouldMatch()),needsScores);
 }
