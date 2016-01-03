@@ -4,9 +4,9 @@
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Core container instance missing");
   }
   final String taskId=req.getParams().get(CommonAdminParams.ASYNC);
-  TaskObject taskObject=new TaskObject(taskId);
+  final TaskObject taskObject=new TaskObject(taskId);
   if (taskId != null) {
-    if (getMap(RUNNING).containsKey(taskId) || getMap(COMPLETED).containsKey(taskId) || getMap(FAILED).containsKey(taskId)) {
+    if (getRequestStatusMap(RUNNING).containsKey(taskId) || getRequestStatusMap(COMPLETED).containsKey(taskId) || getRequestStatusMap(FAILED).containsKey(taskId)) {
       throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Duplicate request with the same requestid found.");
     }
     addTask(RUNNING,taskObject);
@@ -14,23 +14,41 @@
   SolrParams params=req.getParams();
   CoreAdminAction action=CoreAdminAction.STATUS;
   String a=params.get(CoreAdminParams.ACTION);
-  if (a != null) {
-    action=CoreAdminAction.get(a);
-    if (action == null) {
-      this.handleCustomAction(req,rsp);
-    }
+  if (a == null)   throw new SolrException(ErrorCode.BAD_REQUEST,"No action");
+  CoreAdminOperation op=opMap.get(a.toLowerCase(Locale.ROOT));
+  if (op == null) {
+    this.handleCustomAction(req,rsp);
+    return;
   }
+  final CallInfo callInfo=new CallInfo(this,req,rsp,op);
   if (taskId == null) {
-    handleRequestInternal(req,rsp,action);
+    callInfo.call();
   }
  else {
-    ParallelCoreAdminHandlerThread parallelHandlerThread=new ParallelCoreAdminHandlerThread(req,rsp,action,taskObject);
     try {
       MDC.put("CoreAdminHandler.asyncId",taskId);
-      if (action != null) {
-        MDC.put("CoreAdminHandler.action",action.name());
+      MDC.put("CoreAdminHandler.action",action.name());
+      parallelExecutor.execute(new Runnable(){
+        @Override public void run(){
+          boolean exceptionCaught=false;
+          try {
+            callInfo.call();
+            taskObject.setRspObject(callInfo.rsp);
+          }
+ catch (          Exception e) {
+            exceptionCaught=true;
+            taskObject.setRspObjectFromException(e);
+          }
+ finally {
+            removeTask("running",taskObject.taskId);
+            if (exceptionCaught) {
+              addTask("failed",taskObject,true);
+            }
+ else             addTask("completed",taskObject,true);
+          }
+        }
       }
-      parallelExecutor.execute(parallelHandlerThread);
+);
     }
   finally {
       MDC.remove("CoreAdminHandler.asyncId");
