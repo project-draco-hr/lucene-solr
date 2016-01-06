@@ -1,0 +1,23 @@
+{
+  assertEquals("Default Solr compression mode changed. Is this expected?",SchemaCodecFactory.SOLR_DEFAULT_COMPRESSION_MODE,Mode.valueOf("BEST_SPEED"));
+  String previousCoreName=h.coreName;
+  String newCoreName="core_with_default_compression";
+  SolrCore c=null;
+  SolrConfig config=TestHarness.createConfig(testSolrHome,previousCoreName,"solrconfig_codec2.xml");
+  assertEquals("Unexpected codec factory for this test.","solr.SchemaCodecFactory",config.get("codecFactory/@class"));
+  assertNull("Unexpected configuration of codec factory for this test. Expecting empty element",config.getNode("codecFactory",false).getFirstChild());
+  IndexSchema schema=IndexSchemaFactory.buildIndexSchema("schema_codec.xml",config);
+  try {
+    c=new SolrCore(new CoreDescriptor(h.getCoreContainer(),newCoreName,testSolrHome.resolve(newCoreName)),new ConfigSet("fakeConfigset",config,schema,null));
+    assertNull(h.getCoreContainer().registerCore(newCoreName,c,false));
+    h.coreName=newCoreName;
+    assertEquals("We are not using the correct core","solrconfig_codec2.xml",h.getCore().getConfigResource());
+    assertU(add(doc("string_f","foo")));
+    assertU(commit());
+    assertCompressionMode(SchemaCodecFactory.SOLR_DEFAULT_COMPRESSION_MODE.name(),h.getCore());
+  }
+  finally {
+    h.coreName=previousCoreName;
+    h.getCoreContainer().unload(newCoreName);
+  }
+}
