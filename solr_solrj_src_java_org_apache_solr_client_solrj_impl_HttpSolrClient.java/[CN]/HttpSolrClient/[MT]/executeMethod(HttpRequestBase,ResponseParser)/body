@@ -1,12 +1,13 @@
 {
   method.addHeader("User-Agent",AGENT);
+  HttpEntity entity=null;
   InputStream respBody=null;
   boolean shouldClose=true;
-  boolean success=false;
   try {
     final HttpResponse response=httpClient.execute(method);
     int httpStatus=response.getStatusLine().getStatusCode();
-    respBody=response.getEntity().getContent();
+    entity=response.getEntity();
+    respBody=entity.getContent();
     Header ctHeader=response.getLastHeader("content-type");
     String contentType;
     if (ctHeader != null) {
@@ -35,7 +36,6 @@ if (processor == null || processor instanceof InputStreamResponseParser) {
 NamedList<Object> rsp=new NamedList<>();
 rsp.add("stream",respBody);
 shouldClose=false;
-success=true;
 return rsp;
 }
 String procCt=processor.getContentType();
@@ -93,7 +93,6 @@ RemoteSolrException rss=new RemoteSolrException(baseUrl,httpStatus,reason,null);
 if (metadata != null) rss.setMetadata(metadata);
 throw rss;
 }
-success=true;
 return rsp;
 }
  catch (ConnectException e) {
@@ -106,17 +105,12 @@ catch (IOException e) {
 throw new SolrServerException("IOException occured when talking to server at: " + getBaseURL(),e);
 }
  finally {
-if (respBody != null && shouldClose) {
+if (shouldClose) {
 try {
-respBody.close();
+EntityUtils.consume(entity);
 }
  catch (IOException e) {
-log.error("",e);
-}
- finally {
-if (!success) {
-  method.abort();
-}
+log.error("Error consuming and closing http response stream.",e);
 }
 }
 }
