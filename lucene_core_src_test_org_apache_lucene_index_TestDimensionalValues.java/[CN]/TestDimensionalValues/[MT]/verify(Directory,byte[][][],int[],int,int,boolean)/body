@@ -20,6 +20,26 @@
   }
   RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
   DirectoryReader r=null;
+  byte[][] expectedMinValues=new byte[numDims][];
+  byte[][] expectedMaxValues=new byte[numDims][];
+  for (int ord=0; ord < docValues.length; ord++) {
+    for (int dim=0; dim < numDims; dim++) {
+      if (ord == 0) {
+        expectedMinValues[dim]=new byte[numBytesPerDim];
+        System.arraycopy(docValues[ord][dim],0,expectedMinValues[dim],0,numBytesPerDim);
+        expectedMaxValues[dim]=new byte[numBytesPerDim];
+        System.arraycopy(docValues[ord][dim],0,expectedMaxValues[dim],0,numBytesPerDim);
+      }
+ else {
+        if (StringHelper.compare(numBytesPerDim,docValues[ord][dim],0,expectedMinValues[dim],0) < 0) {
+          System.arraycopy(docValues[ord][dim],0,expectedMinValues[dim],0,numBytesPerDim);
+        }
+        if (StringHelper.compare(numBytesPerDim,docValues[ord][dim],0,expectedMaxValues[dim],0) > 0) {
+          System.arraycopy(docValues[ord][dim],0,expectedMaxValues[dim],0,numBytesPerDim);
+        }
+      }
+    }
+  }
   Directory saveDir;
   RandomIndexWriter saveW;
   int addIndexesAt;
@@ -140,6 +160,15 @@
     assertNotNull(dimValues);
     NumericDocValues idValues=MultiDocValues.getNumericValues(r,"id");
     Bits liveDocs=MultiFields.getLiveDocs(r);
+    byte[] minValues=dimValues.getMinPackedValue("field");
+    byte[] maxValues=dimValues.getMaxPackedValue("field");
+    byte[] scratch=new byte[numBytesPerDim];
+    for (int dim=0; dim < numDims; dim++) {
+      System.arraycopy(minValues,dim * numBytesPerDim,scratch,0,scratch.length);
+      assertTrue(Arrays.equals(expectedMinValues[dim],scratch));
+      System.arraycopy(maxValues,dim * numBytesPerDim,scratch,0,scratch.length);
+      assertTrue(Arrays.equals(expectedMaxValues[dim],scratch));
+    }
     int iters=atLeast(100);
     for (int iter=0; iter < iters; iter++) {
       if (VERBOSE) {
