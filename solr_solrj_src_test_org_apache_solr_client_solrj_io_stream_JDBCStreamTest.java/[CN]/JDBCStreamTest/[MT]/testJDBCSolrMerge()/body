@@ -1,0 +1,31 @@
+{
+  clearData();
+  Connection connection=DriverManager.getConnection("jdbc:hsqldb:mem:.");
+  Statement statement=connection.createStatement();
+  statement.executeUpdate("insert into COUNTRIES (CODE,COUNTRY_NAME) values ('US', 'United States')");
+  statement.executeUpdate("insert into COUNTRIES (CODE,COUNTRY_NAME) values ('NL', 'Netherlands')");
+  statement.executeUpdate("insert into COUNTRIES (CODE,COUNTRY_NAME) values ('NP', 'Nepal')");
+  statement.executeUpdate("insert into COUNTRIES (CODE,COUNTRY_NAME) values ('NO', 'Norway')");
+  statement.executeUpdate("insert into COUNTRIES (CODE,COUNTRY_NAME) values ('AL', 'Algeria')");
+  statement.close();
+  connection.close();
+  indexr(id,"0","code_s","GB","name_s","Great Britian");
+  indexr(id,"1","code_s","CA","name_s","Canada");
+  commit();
+  StreamFactory factory=new StreamFactory().withCollectionZkHost("collection1",zkServer.getZkAddress()).withFunctionName("search",CloudSolrStream.class);
+  List<Tuple> tuples;
+  TupleStream jdbcStream=new JDBCStream("jdbc:hsqldb:mem:.","select CODE,COUNTRY_NAME from COUNTRIES order by CODE",new FieldComparator("CODE",ComparatorOrder.ASCENDING));
+  TupleStream selectStream=new SelectStream(jdbcStream,new HashMap<String,String>(){
+{
+      put("CODE","code_s");
+      put("COUNTRY_NAME","name_s");
+    }
+  }
+);
+  TupleStream searchStream=factory.constructStream("search(collection1, fl=\"code_s,name_s\",q=\"*:*\",sort=\"code_s asc\")");
+  TupleStream mergeStream=new MergeStream(new FieldComparator("code_s",ComparatorOrder.ASCENDING),new TupleStream[]{selectStream,searchStream});
+  tuples=getTuples(mergeStream);
+  assertEquals(7,tuples.size());
+  assertOrderOf(tuples,"code_s","AL","CA","GB","NL","NO","NP","US");
+  assertOrderOf(tuples,"name_s","Algeria","Canada","Great Britian","Netherlands","Norway","Nepal","United States");
+}
