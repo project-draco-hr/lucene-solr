@@ -8,25 +8,24 @@
   this.core=core;
   this.schema=schema;
   this.name="Searcher@" + Integer.toHexString(hashCode()) + "["+ core.getName()+ "]"+ (name != null ? " " + name : "");
-  log.info("Opening " + this.name);
+  log.info("Opening [{}]",this.name);
   if (directoryFactory.searchersReserveCommitPoints()) {
     core.getDeletionPolicy().saveCommitPoint(reader.getIndexCommit().getGeneration());
   }
-  Directory dir=getIndexReader().directory();
-  this.reserveDirectory=reserveDirectory;
   if (reserveDirectory) {
-    directoryFactory.incRef(dir);
+    directoryFactory.incRef(getIndexReader().directory());
+    this.releaseDirectory=true;
   }
   this.closeReader=closeReader;
   setSimilarity(schema.getSimilarity());
-  SolrConfig solrConfig=core.getSolrConfig();
-  queryResultWindowSize=solrConfig.queryResultWindowSize;
-  queryResultMaxDocsCached=solrConfig.queryResultMaxDocsCached;
-  useFilterForSortedQuery=solrConfig.useFilterForSortedQuery;
-  enableLazyFieldLoading=solrConfig.enableLazyFieldLoading;
-  cachingEnabled=enableCache;
+  final SolrConfig solrConfig=core.getSolrConfig();
+  this.queryResultWindowSize=solrConfig.queryResultWindowSize;
+  this.queryResultMaxDocsCached=solrConfig.queryResultMaxDocsCached;
+  this.useFilterForSortedQuery=solrConfig.useFilterForSortedQuery;
+  this.enableLazyFieldLoading=solrConfig.enableLazyFieldLoading;
+  this.cachingEnabled=enableCache;
   if (cachingEnabled) {
-    ArrayList<SolrCache> clist=new ArrayList<>();
+    final ArrayList<SolrCache> clist=new ArrayList<>();
     fieldValueCache=solrConfig.fieldValueCacheConfig == null ? null : solrConfig.fieldValueCacheConfig.newInstance();
     if (fieldValueCache != null)     clist.add(fieldValueCache);
     filterCache=solrConfig.filterCacheConfig == null ? null : solrConfig.filterCacheConfig.newInstance();
@@ -36,7 +35,7 @@
     documentCache=solrConfig.documentCacheConfig == null ? null : solrConfig.documentCacheConfig.newInstance();
     if (documentCache != null)     clist.add(documentCache);
     if (solrConfig.userCacheConfigs == null) {
-      cacheMap=noGenericCaches;
+      cacheMap=NO_GENERIC_CACHES;
     }
  else {
       cacheMap=new HashMap<>(solrConfig.userCacheConfigs.length);
@@ -52,20 +51,18 @@
     cacheList=clist.toArray(new SolrCache[clist.size()]);
   }
  else {
-    filterCache=null;
-    queryResultCache=null;
-    documentCache=null;
-    fieldValueCache=null;
-    cacheMap=noGenericCaches;
-    cacheList=noCaches;
+    this.filterCache=null;
+    this.queryResultCache=null;
+    this.documentCache=null;
+    this.fieldValueCache=null;
+    this.cacheMap=NO_GENERIC_CACHES;
+    this.cacheList=NO_CACHES;
   }
-  fieldNames=new HashSet<>();
-  Set<String> nonStoredDVsUsedAsStored=new HashSet<>();
-  Set<String> allNonStoredDVs=new HashSet<>();
-  fieldInfos=leafReader.getFieldInfos();
+  final Set<String> nonStoredDVsUsedAsStored=new HashSet<>();
+  final Set<String> allNonStoredDVs=new HashSet<>();
+  this.fieldInfos=leafReader.getFieldInfos();
   for (  FieldInfo fieldInfo : fieldInfos) {
-    fieldNames.add(fieldInfo.name);
-    SchemaField schemaField=schema.getFieldOrNull(fieldInfo.name);
+    final SchemaField schemaField=schema.getFieldOrNull(fieldInfo.name);
     if (schemaField != null && !schemaField.stored() && schemaField.hasDocValues()) {
       if (schemaField.useDocValuesAsStored()) {
         nonStoredDVsUsedAsStored.add(fieldInfo.name);

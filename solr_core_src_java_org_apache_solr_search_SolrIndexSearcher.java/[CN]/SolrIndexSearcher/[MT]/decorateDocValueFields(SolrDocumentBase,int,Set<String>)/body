@@ -1,78 +1,66 @@
 {
+  final LeafReader reader=getLeafReader();
   for (  String fieldName : fields) {
-    SchemaField schemaField=schema.getFieldOrNull(fieldName);
+    final SchemaField schemaField=schema.getFieldOrNull(fieldName);
     if (schemaField == null || !schemaField.hasDocValues() || doc.containsKey(fieldName)) {
-      log.warn("Couldn't decorate docValues for field: {}, schemaField: {}",fieldName,schemaField);
+      log.warn("Couldn't decorate docValues for field: [{}], schemaField: [{}]",fieldName,schemaField);
+      continue;
+    }
+    if (!DocValues.getDocsWithField(leafReader,fieldName).get(docid)) {
       continue;
     }
     if (schemaField.multiValued()) {
-      SortedSetDocValues values=getLeafReader().getSortedSetDocValues(fieldName);
-      if (values != null && values.getValueCount() > 0 && DocValues.getDocsWithField(leafReader,fieldName).get(docid)) {
+      final SortedSetDocValues values=reader.getSortedSetDocValues(fieldName);
+      if (values != null && values.getValueCount() > 0) {
         values.setDocument(docid);
-        List<Object> outValues=new LinkedList<Object>();
+        final List<Object> outValues=new LinkedList<Object>();
         for (long ord=values.nextOrd(); ord != SortedSetDocValues.NO_MORE_ORDS; ord=values.nextOrd()) {
-          if (schemaField.getType() instanceof TrieIntField) {
-            outValues.add(LegacyNumericUtils.prefixCodedToInt(values.lookupOrd(ord)));
-          }
- else           if (schemaField.getType() instanceof TrieLongField) {
-            outValues.add(LegacyNumericUtils.prefixCodedToLong(values.lookupOrd(ord)));
-          }
- else           if (schemaField.getType() instanceof TrieFloatField) {
-            outValues.add(LegacyNumericUtils.sortableIntToFloat(LegacyNumericUtils.prefixCodedToInt(values.lookupOrd(ord))));
-          }
- else           if (schemaField.getType() instanceof TrieDoubleField) {
-            outValues.add(LegacyNumericUtils.sortableLongToDouble(LegacyNumericUtils.prefixCodedToLong(values.lookupOrd(ord))));
-          }
- else           if (schemaField.getType() instanceof TrieDateField) {
-            outValues.add(new Date(LegacyNumericUtils.prefixCodedToLong(values.lookupOrd(ord))));
-          }
- else           if (schemaField.getType() instanceof EnumField) {
-            outValues.add(((EnumField)schemaField.getType()).intValueToStringValue(LegacyNumericUtils.prefixCodedToInt(values.lookupOrd(ord))));
-          }
- else           if (schemaField.getType() instanceof StrField) {
-            outValues.add(values.lookupOrd(ord).utf8ToString());
-          }
+          final BytesRef value=values.lookupOrd(ord);
+          outValues.add(schemaField.getType().toObject(schemaField,value));
         }
         if (outValues.size() > 0)         doc.addField(fieldName,outValues);
       }
     }
  else {
-      DocValuesType dvType=fieldInfos.fieldInfo(fieldName).getDocValuesType();
+      final DocValuesType dvType=fieldInfos.fieldInfo(fieldName).getDocValuesType();
 switch (dvType) {
 case NUMERIC:
-        if (DocValues.getDocsWithField(leafReader,fieldName).get(docid)) {
-          NumericDocValues ndv=leafReader.getNumericDocValues(fieldName);
-          Object val=ndv.get(docid);
-          if (schemaField.getType() instanceof TrieIntField) {
-            val=((Long)val).intValue();
-          }
- else           if (schemaField.getType() instanceof TrieFloatField) {
-            val=NumericUtils.sortableIntToFloat(((Long)val).intValue());
-          }
- else           if (schemaField.getType() instanceof TrieDoubleField) {
-            val=NumericUtils.sortableLongToDouble((long)val);
-          }
- else           if (schemaField.getType() instanceof TrieDateField) {
-            val=new Date((long)val);
-          }
- else           if (schemaField.getType() instanceof EnumField) {
-            val=((EnumField)schemaField.getType()).intValueToStringValue(((Long)val).intValue());
-          }
-          doc.addField(fieldName,val);
-        }
-      break;
+        final NumericDocValues ndv=leafReader.getNumericDocValues(fieldName);
+      Long val=ndv.get(docid);
+    Object newVal=val;
+  if (schemaField.getType() instanceof TrieIntField) {
+    newVal=val.intValue();
+  }
+ else   if (schemaField.getType() instanceof TrieFloatField) {
+    newVal=NumericUtils.sortableIntToFloat(val.intValue());
+  }
+ else   if (schemaField.getType() instanceof TrieDoubleField) {
+    newVal=NumericUtils.sortableLongToDouble(val);
+  }
+ else   if (schemaField.getType() instanceof TrieDateField) {
+    newVal=new Date(val);
+  }
+ else   if (schemaField.getType() instanceof EnumField) {
+    newVal=((EnumField)schemaField.getType()).intValueToStringValue(val.intValue());
+  }
+doc.addField(fieldName,newVal);
+break;
 case BINARY:
-    if (DocValues.getDocsWithField(leafReader,fieldName).get(docid)) {
-      BinaryDocValues bdv=leafReader.getBinaryDocValues(fieldName);
-      doc.addField(fieldName,bdv.get(docid));
-    }
-  break;
+BinaryDocValues bdv=leafReader.getBinaryDocValues(fieldName);
+doc.addField(fieldName,bdv.get(docid));
+break;
 case SORTED:
 SortedDocValues sdv=leafReader.getSortedDocValues(fieldName);
 if (sdv.getOrd(docid) >= 0) {
 doc.addField(fieldName,sdv.get(docid).utf8ToString());
 }
 break;
+case SORTED_NUMERIC:
+throw new AssertionError("SORTED_NUMERIC not supported yet!");
+case SORTED_SET:
+throw new AssertionError("SORTED_SET fields should be multi-valued!");
+case NONE:
+throw new AssertionError("Document does not have a DocValues field with the name '" + fieldName + "'!");
 }
 }
 }
