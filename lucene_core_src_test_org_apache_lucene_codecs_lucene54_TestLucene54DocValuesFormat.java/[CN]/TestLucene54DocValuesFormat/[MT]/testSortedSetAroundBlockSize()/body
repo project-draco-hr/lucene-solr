@@ -1,0 +1,50 @@
+{
+  final int frontier=1 << Lucene54DocValuesFormat.DIRECT_MONOTONIC_BLOCK_SHIFT;
+  for (int maxDoc=frontier - 1; maxDoc <= frontier + 1; ++maxDoc) {
+    final Directory dir=newDirectory();
+    IndexWriter w=new IndexWriter(dir,newIndexWriterConfig().setMergePolicy(newLogMergePolicy()));
+    RAMFile buffer=new RAMFile();
+    RAMOutputStream out=new RAMOutputStream(buffer,false);
+    Document doc=new Document();
+    SortedSetDocValuesField field1=new SortedSetDocValuesField("sset",new BytesRef());
+    doc.add(field1);
+    SortedSetDocValuesField field2=new SortedSetDocValuesField("sset",new BytesRef());
+    doc.add(field2);
+    for (int i=0; i < maxDoc; ++i) {
+      BytesRef s1=new BytesRef(TestUtil.randomSimpleString(random(),2));
+      BytesRef s2=new BytesRef(TestUtil.randomSimpleString(random(),2));
+      field1.setBytesValue(s1);
+      field2.setBytesValue(s2);
+      w.addDocument(doc);
+      Set<BytesRef> set=new TreeSet<>(Arrays.asList(s1,s2));
+      out.writeVInt(set.size());
+      for (      BytesRef ref : set) {
+        out.writeVInt(ref.length);
+        out.writeBytes(ref.bytes,ref.offset,ref.length);
+      }
+    }
+    out.close();
+    w.forceMerge(1);
+    DirectoryReader r=DirectoryReader.open(w,false);
+    w.close();
+    SegmentReader sr=getOnlySegmentReader(r);
+    assertEquals(maxDoc,sr.maxDoc());
+    SortedSetDocValues values=sr.getSortedSetDocValues("sset");
+    assertNotNull(values);
+    RAMInputStream in=new RAMInputStream("",buffer);
+    BytesRefBuilder b=new BytesRefBuilder();
+    for (int i=0; i < maxDoc; ++i) {
+      values.setDocument(i);
+      final int numValues=in.readVInt();
+      for (int j=0; j < numValues; ++j) {
+        b.setLength(in.readVInt());
+        b.grow(b.length());
+        in.readBytes(b.bytes(),0,b.length());
+        assertEquals(b.get(),values.lookupOrd(values.nextOrd()));
+      }
+      assertEquals(SortedSetDocValues.NO_MORE_ORDS,values.nextOrd());
+    }
+    r.close();
+    dir.close();
+  }
+}
