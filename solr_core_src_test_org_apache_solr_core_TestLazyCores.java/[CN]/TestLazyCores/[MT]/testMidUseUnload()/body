@@ -1,0 +1,42 @@
+{
+  final int maximumSleepMillis=random().nextInt(10000);
+  if (VERBOSE) {
+    System.out.println("TestLazyCores.testMidUseUnload maximumSleepMillis=" + maximumSleepMillis);
+  }
+class TestThread extends Thread {
+    SolrCore core_to_use=null;
+    @Override public void run(){
+      final int sleep_millis=random().nextInt(maximumSleepMillis);
+      try {
+        if (sleep_millis > 0) {
+          if (VERBOSE) {
+            System.out.println("TestLazyCores.testMidUseUnload Thread.run sleeping for " + sleep_millis + " ms");
+          }
+          Thread.sleep(sleep_millis);
+        }
+      }
+ catch (      InterruptedException ie) {
+        if (VERBOSE) {
+          System.out.println("TestLazyCores.testMidUseUnload Thread.run caught " + ie + " whilst sleeping for "+ sleep_millis+ " ms");
+        }
+      }
+      assertFalse(core_to_use.isClosed());
+      core_to_use.close();
+    }
+  }
+  ;
+  CoreContainer cc=init();
+  try {
+    TestThread thread=new TestThread();
+    thread.core_to_use=cc.getCore("collection1");
+    assertNotNull(thread.core_to_use);
+    assertFalse(thread.core_to_use.isClosed());
+    thread.start();
+    unloadViaAdmin(cc,"collection1");
+    assertTrue(thread.core_to_use.isClosed());
+    thread.join();
+  }
+  finally {
+    cc.shutdown();
+  }
+}
