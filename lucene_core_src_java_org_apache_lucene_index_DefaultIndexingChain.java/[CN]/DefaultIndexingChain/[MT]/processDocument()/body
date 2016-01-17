@@ -2,24 +2,24 @@
   int fieldCount=0;
   long fieldGen=nextFieldGen++;
   termsHash.startDocument();
+  fillStoredFields(docState.docID);
+  startStoredFields();
+  boolean aborting=false;
   try {
-    for (    IndexableField field : docState.doc.indexableFields()) {
-      IndexableFieldType fieldType=field.fieldType();
-      if (fieldType.omitNorms() && field.boost() != 1.0f) {
-        throw new UnsupportedOperationException("You cannot set an index-time boost: norms are omitted for field '" + field.name() + "'");
-      }
-      PerField fp=getOrAddField(field.name(),fieldType,true);
-      boolean first=fp.fieldGen != fieldGen;
-      fp.invert(field,first);
-      if (first) {
-        fields[fieldCount++]=fp;
-        fp.fieldGen=fieldGen;
-      }
+    for (    IndexableField field : docState.doc) {
+      fieldCount=processField(field,fieldGen,fieldCount);
     }
   }
-  finally {
-    for (int i=0; i < fieldCount; i++) {
-      fields[i].finish();
+ catch (  AbortingException ae) {
+    aborting=true;
+    throw ae;
+  }
+ finally {
+    if (aborting == false) {
+      for (int i=0; i < fieldCount; i++) {
+        fields[i].finish();
+      }
+      finishStoredFields();
     }
   }
   try {
@@ -27,40 +27,5 @@
   }
  catch (  Throwable th) {
     throw AbortingException.wrap(th);
-  }
-  fillStoredFields(docState.docID);
-  startStoredFields();
-  boolean abort=false;
-  try {
-    for (    StorableField field : docState.doc.storableFields()) {
-      String fieldName=field.name();
-      IndexableFieldType fieldType=field.fieldType();
-      verifyFieldType(fieldName,fieldType);
-      PerField fp=getOrAddField(fieldName,fieldType,false);
-      if (fieldType.stored()) {
-        try {
-          storedFieldsWriter.writeField(fp.fieldInfo,field);
-        }
- catch (        Throwable th) {
-          abort=true;
-          throw AbortingException.wrap(th);
-        }
-      }
-      DocValuesType dvType=fieldType.docValuesType();
-      if (dvType == null) {
-        throw new NullPointerException("docValuesType cannot be null (field: \"" + fieldName + "\")");
-      }
-      if (dvType != DocValuesType.NONE) {
-        indexDocValue(fp,dvType,field);
-      }
-      if (fieldType.dimensionCount() != 0) {
-        indexDimensionalValue(fp,field);
-      }
-    }
-  }
-  finally {
-    if (abort == false) {
-      finishStoredFields();
-    }
   }
 }
