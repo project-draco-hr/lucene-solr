@@ -1,0 +1,35 @@
+{
+  long avgLength=750;
+  long docCount=500000;
+  long numTokens=docCount * avgLength;
+  CollectionStatistics collectionStats=new CollectionStatistics("body",docCount,docCount,numTokens,numTokens);
+  long docFreq=2000;
+  long totalTermFreq=2000 * avgLength;
+  TermStatistics termStats=new TermStatistics(new BytesRef("term"),docFreq,totalTermFreq);
+  for (  SimilarityBase sim : sims) {
+    if (sim instanceof IBSimilarity) {
+      if (((IBSimilarity)sim).getDistribution() instanceof DistributionSPL) {
+        continue;
+      }
+    }
+ else     if (sim instanceof DFRSimilarity) {
+      BasicModel model=((DFRSimilarity)sim).getBasicModel();
+      if (model instanceof BasicModelD || model instanceof BasicModelP) {
+        continue;
+      }
+ else       if (model instanceof BasicModelBE) {
+        continue;
+      }
+    }
+    BasicStats stats=(BasicStats)sim.computeWeight(collectionStats,termStats);
+    for (float tf=1.0f; tf <= 10.0f; tf+=1.0f) {
+      for (int i=0; i < 256; i++) {
+        float len=sim.decodeNormValue((byte)i);
+        float score=sim.score(stats,tf,len);
+        assertFalse("negative score for " + sim + ", len="+ len+ ",score="+ score,score < 0.0f);
+        assertFalse("inf score for " + sim + ", len="+ len,Float.isInfinite(score));
+        assertFalse("nan score for " + sim + ", len="+ len,Float.isNaN(score));
+      }
+    }
+  }
+}
