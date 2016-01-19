@@ -19,6 +19,11 @@
   }
   if (!created)   throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully create shard: " + message.getStr(NAME));
   String configName=message.getStr(COLL_CONF);
+  String async=message.getStr(ASYNC);
+  Map<String,String> requestMap=null;
+  if (async != null) {
+    requestMap=new HashMap<>(repFactor,1.0f);
+  }
   for (int j=1; j <= repFactor; j++) {
     String nodeName=sortedNodeList.get(((j - 1)) % sortedNodeList.size()).nodeName;
     String shardName=collectionName + "_" + sliceName+ "_replica"+ j;
@@ -31,16 +36,9 @@
     params.set(CoreAdminParams.SHARD,sliceName);
     params.set(ZkStateReader.NUM_SHARDS_PROP,numSlices);
     addPropertyParams(message,params);
-    ShardRequest sreq=new ShardRequest();
-    params.set("qt",adminPath);
-    sreq.purpose=1;
-    String replica=zkStateReader.getBaseUrlForNodeName(nodeName);
-    sreq.shards=new String[]{replica};
-    sreq.actualShards=sreq.shards;
-    sreq.params=params;
-    shardHandler.submit(sreq,replica,sreq.params);
+    sendShardRequest(nodeName,params,shardHandler,async,requestMap);
   }
-  processResponses(results,shardHandler);
+  processResponses(results,shardHandler,true,"Failed to create shard",async,requestMap);
   log.info("Finished create command on all shards for collection: " + collectionName);
   return true;
 }

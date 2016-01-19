@@ -1,56 +1,17 @@
 {
-  CoreContainer coreContainer=h.coreContainer;
-  req.getParams().required().check(REQUESTID);
-  String requestId=req.getParams().get(REQUESTID);
-  if (requestId.equals("-1")) {
-    if (requestId.equals("-1")) {
-      coreContainer.getZkController().getOverseerCompletedMap().clear();
-      coreContainer.getZkController().getOverseerFailureMap().clear();
-      return null;
-    }
+  String name=req.getParams().required().get(COLLECTION_PROP);
+  String shard=req.getParams().get(SHARD_ID_PROP);
+  String rangesStr=req.getParams().get(CoreAdminParams.RANGES);
+  String splitKey=req.getParams().get("split.key");
+  if (splitKey == null && shard == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Missing required parameter: shard");
   }
- else {
-    NamedList<Object> results=new NamedList<>();
-    if (coreContainer.getZkController().getOverseerCompletedMap().contains(requestId)) {
-      DistributedMap.MapEvent mapEvent=coreContainer.getZkController().getOverseerCompletedMap().get(requestId);
-      SimpleOrderedMap success=new SimpleOrderedMap();
-      if (mapEvent != null) {
-        rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
-      }
-      success.add("state","completed");
-      success.add("msg","found " + requestId + " in completed tasks");
-      results.add("status",success);
-    }
- else     if (coreContainer.getZkController().getOverseerFailureMap().contains(requestId)) {
-      SimpleOrderedMap success=new SimpleOrderedMap();
-      DistributedMap.MapEvent mapEvent=coreContainer.getZkController().getOverseerFailureMap().get(requestId);
-      if (mapEvent != null) {
-        rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
-      }
-      success.add("state","failed");
-      success.add("msg","found " + requestId + " in failed tasks");
-      results.add("status",success);
-    }
- else     if (coreContainer.getZkController().getOverseerRunningMap().contains(requestId)) {
-      SimpleOrderedMap success=new SimpleOrderedMap();
-      success.add("state","running");
-      success.add("msg","found " + requestId + " in running tasks");
-      results.add("status",success);
-    }
- else     if (h.overseerCollectionQueueContains(requestId)) {
-      SimpleOrderedMap success=new SimpleOrderedMap();
-      success.add("state","submitted");
-      success.add("msg","found " + requestId + " in submitted tasks");
-      results.add("status",success);
-    }
- else {
-      SimpleOrderedMap failure=new SimpleOrderedMap();
-      failure.add("state","notfound");
-      failure.add("msg","Did not find taskid [" + requestId + "] in any tasks queue");
-      results.add("status",failure);
-    }
-    SolrResponse response=new OverseerSolrResponse(results);
-    rsp.getValues().addAll(response.getResponse());
+  if (splitKey != null && shard != null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'shard' or 'split.key' should be specified");
   }
-  return null;
+  if (splitKey != null && rangesStr != null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'ranges' or 'split.key' should be specified");
+  }
+  Map<String,Object> map=req.getParams().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,"split.key",CoreAdminParams.RANGES);
+  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
 }

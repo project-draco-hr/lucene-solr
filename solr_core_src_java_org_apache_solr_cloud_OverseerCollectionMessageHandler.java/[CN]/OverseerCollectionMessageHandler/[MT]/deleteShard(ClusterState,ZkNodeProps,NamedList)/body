@@ -16,12 +16,17 @@
     throw new SolrException(ErrorCode.BAD_REQUEST,"The slice: " + slice.getName() + " is currently "+ state+ ". Only non-active (or custom-hashed) slices can be deleted.");
   }
   ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
+  String asyncId=message.getStr(ASYNC);
+  Map<String,String> requestMap=null;
+  if (asyncId != null) {
+    requestMap=new HashMap<>(slice.getReplicas().size(),1.0f);
+  }
   try {
     ModifiableSolrParams params=new ModifiableSolrParams();
     params.set(CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString());
     params.set(CoreAdminParams.DELETE_INDEX,"true");
-    sliceCmd(clusterState,params,null,slice,shardHandler);
-    processResponses(results,shardHandler);
+    sliceCmd(clusterState,params,null,slice,shardHandler,asyncId,requestMap);
+    processResponses(results,shardHandler,true,"Failed to delete shard",asyncId,requestMap);
     ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,DELETESHARD.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,sliceId);
     Overseer.getInQueue(zkStateReader.getZkClient()).offer(Utils.toJSON(m));
     TimeOut timeout=new TimeOut(30,TimeUnit.SECONDS);

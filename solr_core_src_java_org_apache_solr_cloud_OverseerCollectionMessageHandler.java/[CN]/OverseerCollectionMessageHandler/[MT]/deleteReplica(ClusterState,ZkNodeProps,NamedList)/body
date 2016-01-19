@@ -5,7 +5,6 @@
   String replicaName=message.getStr(REPLICA_PROP);
   DocCollection coll=clusterState.getCollection(collectionName);
   Slice slice=coll.getSlice(shard);
-  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
   if (slice == null) {
     throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid shard name : " + shard + " in collection : "+ collectionName);
   }
@@ -18,21 +17,20 @@
   if (Boolean.parseBoolean(message.getStr(ONLY_IF_DOWN)) && replica.getState() != Replica.State.DOWN) {
     throw new SolrException(ErrorCode.BAD_REQUEST,"Attempted to remove replica : " + collectionName + "/"+ shard+ "/"+ replicaName+ " with onlyIfDown='true', but state is '"+ replica.getStr(ZkStateReader.STATE_PROP)+ "'");
   }
-  String baseUrl=replica.getStr(ZkStateReader.BASE_URL_PROP);
+  ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
   String core=replica.getStr(ZkStateReader.CORE_NAME_PROP);
-  Map m=makeMap("qt",adminPath,CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString(),CoreAdminParams.CORE,core,CoreAdminParams.DELETE_INSTANCE_DIR,"true",CoreAdminParams.DELETE_DATA_DIR,"true");
-  ShardRequest sreq=new ShardRequest();
-  sreq.purpose=1;
-  sreq.shards=new String[]{baseUrl};
-  sreq.actualShards=sreq.shards;
-  sreq.params=new ModifiableSolrParams(new MapSolrParams(m));
-  try {
-    shardHandler.submit(sreq,baseUrl,sreq.params);
+  String asyncId=message.getStr(ASYNC);
+  Map<String,String> requestMap=null;
+  if (asyncId != null) {
+    requestMap=new HashMap<>(1,1.0f);
   }
- catch (  Exception e) {
-    log.warn("Exception trying to unload core " + sreq,e);
-  }
-  collectShardResponses(replica.getState() != Replica.State.ACTIVE ? new NamedList() : results,false,null,shardHandler);
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.add(CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString());
+  params.add(CoreAdminParams.CORE,core);
+  params.add(CoreAdminParams.DELETE_INSTANCE_DIR,"true");
+  params.add(CoreAdminParams.DELETE_DATA_DIR,"true");
+  sendShardRequest(replica.getNodeName(),params,shardHandler,asyncId,requestMap);
+  processResponses(results,shardHandler,false,null,asyncId,requestMap);
   if (waitForCoreNodeGone(collectionName,shard,replicaName,5000))   return;
   deleteCoreNode(collectionName,replicaName,replica,core);
   if (waitForCoreNodeGone(collectionName,shard,replicaName,30000))   return;
