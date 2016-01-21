@@ -1,0 +1,38 @@
+{
+  PointWriter pointWriter=null;
+  boolean success=false;
+  try {
+    for (int i=0; i < fieldHash.length; i++) {
+      PerField perField=fieldHash[i];
+      while (perField != null) {
+        if (perField.pointValuesWriter != null) {
+          if (perField.fieldInfo.getPointDimensionCount() == 0) {
+            throw new AssertionError("segment=" + state.segmentInfo + ": field=\""+ perField.fieldInfo.name+ "\" has no points but wrote them");
+          }
+          if (pointWriter == null) {
+            PointFormat fmt=state.segmentInfo.getCodec().pointFormat();
+            if (fmt == null) {
+              throw new IllegalStateException("field=\"" + perField.fieldInfo.name + "\" was indexed as points but codec does not support points");
+            }
+            pointWriter=fmt.fieldsWriter(state);
+          }
+          perField.pointValuesWriter.flush(state,pointWriter);
+          perField.pointValuesWriter=null;
+        }
+ else         if (perField.fieldInfo.getPointDimensionCount() != 0) {
+          throw new AssertionError("segment=" + state.segmentInfo + ": field=\""+ perField.fieldInfo.name+ "\" has points but did not write them");
+        }
+        perField=perField.next;
+      }
+    }
+    success=true;
+  }
+  finally {
+    if (success) {
+      IOUtils.close(pointWriter);
+    }
+ else {
+      IOUtils.closeWhileHandlingException(pointWriter);
+    }
+  }
+}

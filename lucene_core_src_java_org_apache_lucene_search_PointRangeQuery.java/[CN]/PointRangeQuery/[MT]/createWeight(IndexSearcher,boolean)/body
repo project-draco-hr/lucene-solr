@@ -1,0 +1,109 @@
+{
+  return new ConstantScoreWeight(this){
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      LeafReader reader=context.reader();
+      PointValues values=reader.getPointValues();
+      if (values == null) {
+        return null;
+      }
+      FieldInfo fieldInfo=reader.getFieldInfos().fieldInfo(field);
+      if (fieldInfo == null) {
+        return null;
+      }
+      if (fieldInfo.getPointDimensionCount() != numDims) {
+        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with numDims="+ fieldInfo.getPointDimensionCount()+ " but this query has numDims="+ numDims);
+      }
+      if (bytesPerDim != null && bytesPerDim.intValue() != fieldInfo.getPointNumBytes()) {
+        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with bytesPerDim="+ fieldInfo.getPointNumBytes()+ " but this query has bytesPerDim="+ bytesPerDim);
+      }
+      int bytesPerDim=fieldInfo.getPointNumBytes();
+      byte[] packedLowerIncl=new byte[numDims * bytesPerDim];
+      byte[] packedUpperIncl=new byte[numDims * bytesPerDim];
+      byte[] minValue=new byte[bytesPerDim];
+      byte[] maxValue=new byte[bytesPerDim];
+      Arrays.fill(maxValue,(byte)0xff);
+      byte[] one=new byte[bytesPerDim];
+      one[bytesPerDim - 1]=1;
+      for (int dim=0; dim < numDims; dim++) {
+        if (lowerPoint[dim] != null) {
+          if (lowerInclusive[dim] == false) {
+            if (Arrays.equals(lowerPoint[dim],maxValue)) {
+              return null;
+            }
+ else {
+              byte[] value=new byte[bytesPerDim];
+              NumericUtils.add(bytesPerDim,0,lowerPoint[dim],one,value);
+              System.arraycopy(value,0,packedLowerIncl,dim * bytesPerDim,bytesPerDim);
+            }
+          }
+ else {
+            System.arraycopy(lowerPoint[dim],0,packedLowerIncl,dim * bytesPerDim,bytesPerDim);
+          }
+        }
+ else {
+        }
+        if (upperPoint[dim] != null) {
+          if (upperInclusive[dim] == false) {
+            if (Arrays.equals(upperPoint[dim],minValue)) {
+              return null;
+            }
+ else {
+              byte[] value=new byte[bytesPerDim];
+              NumericUtils.subtract(bytesPerDim,0,upperPoint[dim],one,value);
+              System.arraycopy(value,0,packedUpperIncl,dim * bytesPerDim,bytesPerDim);
+            }
+          }
+ else {
+            System.arraycopy(upperPoint[dim],0,packedUpperIncl,dim * bytesPerDim,bytesPerDim);
+          }
+        }
+ else {
+          System.arraycopy(maxValue,0,packedUpperIncl,dim * bytesPerDim,bytesPerDim);
+        }
+      }
+      DocIdSetBuilder result=new DocIdSetBuilder(reader.maxDoc());
+      int[] hitCount=new int[1];
+      values.intersect(field,new IntersectVisitor(){
+        @Override public void grow(        int count){
+          result.grow(count);
+        }
+        @Override public void visit(        int docID){
+          hitCount[0]++;
+          result.add(docID);
+        }
+        @Override public void visit(        int docID,        byte[] packedValue){
+          for (int dim=0; dim < numDims; dim++) {
+            int offset=dim * bytesPerDim;
+            if (StringHelper.compare(bytesPerDim,packedValue,offset,packedLowerIncl,offset) < 0) {
+              return;
+            }
+            if (StringHelper.compare(bytesPerDim,packedValue,offset,packedUpperIncl,offset) > 0) {
+              return;
+            }
+          }
+          hitCount[0]++;
+          result.add(docID);
+        }
+        @Override public Relation compare(        byte[] minPackedValue,        byte[] maxPackedValue){
+          boolean crosses=false;
+          for (int dim=0; dim < numDims; dim++) {
+            int offset=dim * bytesPerDim;
+            if (StringHelper.compare(bytesPerDim,minPackedValue,offset,packedUpperIncl,offset) > 0 || StringHelper.compare(bytesPerDim,maxPackedValue,offset,packedLowerIncl,offset) < 0) {
+              return Relation.CELL_OUTSIDE_QUERY;
+            }
+            crosses|=StringHelper.compare(bytesPerDim,minPackedValue,offset,packedLowerIncl,offset) < 0 || StringHelper.compare(bytesPerDim,maxPackedValue,offset,packedUpperIncl,offset) > 0;
+          }
+          if (crosses) {
+            return Relation.CELL_CROSSES_QUERY;
+          }
+ else {
+            return Relation.CELL_INSIDE_QUERY;
+          }
+        }
+      }
+);
+      return new ConstantScoreScorer(this,score(),result.build(hitCount[0]).iterator());
+    }
+  }
+;
+}

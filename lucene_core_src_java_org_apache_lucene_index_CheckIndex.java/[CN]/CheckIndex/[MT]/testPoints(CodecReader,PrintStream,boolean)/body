@@ -1,0 +1,75 @@
+{
+  FieldInfos fieldInfos=reader.getFieldInfos();
+  Status.PointsStatus status=new Status.PointsStatus();
+  try {
+    if (fieldInfos.hasPointValues()) {
+      PointReader values=reader.getPointReader();
+      if (values == null) {
+        throw new RuntimeException("there are fields with points, but reader.getPointReader() is null");
+      }
+      for (      FieldInfo fieldInfo : fieldInfos) {
+        if (fieldInfo.getPointDimensionCount() > 0) {
+          status.totalValueFields++;
+          int dimCount=fieldInfo.getPointDimensionCount();
+          int bytesPerDim=fieldInfo.getPointNumBytes();
+          byte[] lastMinPackedValue=new byte[dimCount * bytesPerDim];
+          BytesRef lastMinPacked=new BytesRef(lastMinPackedValue);
+          byte[] lastMaxPackedValue=new byte[dimCount * bytesPerDim];
+          BytesRef lastMaxPacked=new BytesRef(lastMaxPackedValue);
+          BytesRef scratch=new BytesRef();
+          lastMaxPacked.length=bytesPerDim;
+          lastMinPacked.length=bytesPerDim;
+          scratch.length=bytesPerDim;
+          values.intersect(fieldInfo.name,new PointValues.IntersectVisitor(){
+            @Override public void visit(            int docID){
+              throw new RuntimeException("codec called IntersectVisitor.visit without a packed value for docID=" + docID);
+            }
+            @Override public void visit(            int docID,            byte[] packedValue){
+              checkPackedValue("packed value",packedValue,docID);
+              scratch.bytes=packedValue;
+              for (int dim=0; dim < dimCount; dim++) {
+                lastMaxPacked.offset=bytesPerDim * dim;
+                lastMinPacked.offset=bytesPerDim * dim;
+                scratch.offset=bytesPerDim * dim;
+                if (scratch.compareTo(lastMinPacked) < 0) {
+                  throw new RuntimeException("packed value " + Arrays.toString(packedValue) + " for docID="+ docID+ " is out-of-bounds of the last cell min="+ Arrays.toString(lastMinPackedValue)+ " max="+ Arrays.toString(lastMaxPackedValue)+ " dim="+ dim);
+                }
+                if (scratch.compareTo(lastMaxPacked) > 0) {
+                  throw new RuntimeException("packed value " + Arrays.toString(packedValue) + " for docID="+ docID+ " is out-of-bounds of the last cell min="+ Arrays.toString(lastMinPackedValue)+ " max="+ Arrays.toString(lastMaxPackedValue)+ " dim="+ dim);
+                }
+              }
+              status.totalValuePoints++;
+            }
+            @Override public PointValues.Relation compare(            byte[] minPackedValue,            byte[] maxPackedValue){
+              checkPackedValue("min packed value",minPackedValue,-1);
+              System.arraycopy(minPackedValue,0,lastMinPackedValue,0,minPackedValue.length);
+              checkPackedValue("max packed value",maxPackedValue,-1);
+              System.arraycopy(maxPackedValue,0,lastMaxPackedValue,0,maxPackedValue.length);
+              return PointValues.Relation.CELL_CROSSES_QUERY;
+            }
+            private void checkPackedValue(            String desc,            byte[] packedValue,            int docID){
+              if (packedValue == null) {
+                throw new RuntimeException(desc + " is null for docID=" + docID);
+              }
+              if (packedValue.length != dimCount * bytesPerDim) {
+                throw new RuntimeException(desc + " has incorrect length=" + packedValue.length+ " vs expected="+ (dimCount * bytesPerDim)+ " for docID="+ docID);
+              }
+            }
+          }
+);
+        }
+      }
+    }
+  }
+ catch (  Throwable e) {
+    if (failFast) {
+      IOUtils.reThrow(e);
+    }
+    msg(infoStream,"ERROR: " + e);
+    status.error=e;
+    if (infoStream != null) {
+      e.printStackTrace(infoStream);
+    }
+  }
+  return status;
+}

@@ -1,0 +1,37 @@
+{
+  Directory dir=getDirectory(20);
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  iwc.setMergePolicy(newLogMergePolicy());
+  IndexWriter w=new IndexWriter(dir,iwc);
+  byte[] point=new byte[4];
+  for (int i=0; i < 20; i++) {
+    Document doc=new Document();
+    NumericUtils.intToBytes(i,point,0);
+    doc.add(new BinaryPoint("dim",point));
+    w.addDocument(doc);
+    if (i == 10) {
+      w.commit();
+    }
+  }
+  w.forceMerge(1);
+  w.close();
+  DirectoryReader r=DirectoryReader.open(dir);
+  LeafReader sub=getOnlySegmentReader(r);
+  PointValues values=sub.getPointValues();
+  BitSet seen=new BitSet();
+  values.intersect("dim",new IntersectVisitor(){
+    @Override public Relation compare(    byte[] minPacked,    byte[] maxPacked){
+      return Relation.CELL_CROSSES_QUERY;
+    }
+    public void visit(    int docID){
+      throw new IllegalStateException();
+    }
+    public void visit(    int docID,    byte[] packedValue){
+      seen.set(docID);
+      assertEquals(docID,NumericUtils.bytesToInt(packedValue,0));
+    }
+  }
+);
+  assertEquals(20,seen.cardinality());
+  IOUtils.close(r,dir);
+}
