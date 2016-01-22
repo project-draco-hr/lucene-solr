@@ -1,3 +1,34 @@
 {
-  return req.getParams().required().getAll(null,NAME);
+  req.getParams().required().check(REQUESTID);
+  final CoreContainer coreContainer=h.coreContainer;
+  final String requestId=req.getParams().get(REQUESTID);
+  final ZkController zkController=coreContainer.getZkController();
+  if (requestId.equals("-1")) {
+    zkController.getOverseerCompletedMap().clear();
+    zkController.getOverseerFailureMap().clear();
+    return null;
+  }
+  final NamedList<Object> results=new NamedList<>();
+  if (zkController.getOverseerCompletedMap().contains(requestId)) {
+    final DistributedMap.MapEvent mapEvent=zkController.getOverseerCompletedMap().get(requestId);
+    rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
+    addStatusToResponse(results,COMPLETED,"found [" + requestId + "] in completed tasks");
+  }
+ else   if (zkController.getOverseerFailureMap().contains(requestId)) {
+    final DistributedMap.MapEvent mapEvent=zkController.getOverseerFailureMap().get(requestId);
+    rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
+    addStatusToResponse(results,FAILED,"found [" + requestId + "] in failed tasks");
+  }
+ else   if (zkController.getOverseerRunningMap().contains(requestId)) {
+    addStatusToResponse(results,RUNNING,"found [" + requestId + "] in running tasks");
+  }
+ else   if (h.overseerCollectionQueueContains(requestId)) {
+    addStatusToResponse(results,SUBMITTED,"found [" + requestId + "] in submitted tasks");
+  }
+ else {
+    addStatusToResponse(results,NOT_FOUND,"Did not find [" + requestId + "] in any tasks queue");
+  }
+  final SolrResponse response=new OverseerSolrResponse(results);
+  rsp.getValues().addAll(response.getResponse());
+  return null;
 }
