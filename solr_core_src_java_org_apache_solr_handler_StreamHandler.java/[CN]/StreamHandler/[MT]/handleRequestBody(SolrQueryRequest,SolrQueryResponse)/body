@@ -2,6 +2,10 @@
   SolrParams params=req.getParams();
   params=adjustParams(params);
   req.setParams(params);
+  if (params.get("action") != null) {
+    handleAdmin(req,rsp,params);
+    return;
+  }
   TupleStream tupleStream=null;
   try {
     tupleStream=this.streamFactory.constructStream(params.get("expr"));
@@ -19,5 +23,16 @@
   context.setSolrClientCache(clientCache);
   context.put("core",this.coreName);
   tupleStream.setStreamContext(context);
-  rsp.add("result-set",new TimerStream(new ExceptionStream(tupleStream)));
+  if (tupleStream instanceof DaemonStream) {
+    DaemonStream daemonStream=(DaemonStream)tupleStream;
+    if (daemons.containsKey(daemonStream.getId())) {
+      daemons.remove(daemonStream.getId()).close();
+    }
+    daemonStream.open();
+    daemons.put(daemonStream.getId(),daemonStream);
+    rsp.add("result-set",new DaemonResponseStream("Deamon:" + daemonStream.getId() + " started on "+ coreName));
+  }
+ else {
+    rsp.add("result-set",new TimerStream(new ExceptionStream(tupleStream)));
+  }
 }

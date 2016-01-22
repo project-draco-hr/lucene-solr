@@ -1,0 +1,68 @@
+{
+  indexr(id,"0","a_s","hello0","a_i","0","a_f","1");
+  indexr(id,"2","a_s","hello0","a_i","2","a_f","2");
+  indexr(id,"3","a_s","hello3","a_i","3","a_f","3");
+  indexr(id,"4","a_s","hello4","a_i","4","a_f","4");
+  indexr(id,"1","a_s","hello0","a_i","1","a_f","5");
+  indexr(id,"5","a_s","hello3","a_i","10","a_f","6");
+  indexr(id,"6","a_s","hello4","a_i","11","a_f","7");
+  indexr(id,"7","a_s","hello3","a_i","12","a_f","8");
+  indexr(id,"8","a_s","hello3","a_i","13","a_f","9");
+  indexr(id,"9","a_s","hello0","a_i","14","a_f","10");
+  commit();
+  StreamFactory factory=new StreamFactory().withCollectionZkHost("collection1",zkServer.getZkAddress()).withFunctionName("search",CloudSolrStream.class).withFunctionName("rollup",RollupStream.class).withFunctionName("sum",SumMetric.class).withFunctionName("min",MinMetric.class).withFunctionName("max",MaxMetric.class).withFunctionName("avg",MeanMetric.class).withFunctionName("count",CountMetric.class).withFunctionName("daemon",DaemonStream.class);
+  StreamExpression expression;
+  DaemonStream daemonStream;
+  expression=StreamExpressionParser.parse("daemon(rollup(" + "search(collection1, q=*:*, fl=\"a_i,a_s\", sort=\"a_s asc\")," + "over=\"a_s\","+ "sum(a_i)"+ "), id=\"test\", runInterval=\"1000\", queueSize=\"9\")");
+  daemonStream=(DaemonStream)factory.constructStream(expression);
+  daemonStream.open();
+  for (int i=0; i < 4; i++) {
+    Tuple tuple=daemonStream.read();
+    String bucket=tuple.getString("a_s");
+    Double sumi=tuple.getDouble("sum(a_i)");
+    assertTrue(bucket.equals("hello0"));
+    assertTrue(sumi.doubleValue() == 17.0D);
+    tuple=daemonStream.read();
+    bucket=tuple.getString("a_s");
+    sumi=tuple.getDouble("sum(a_i)");
+    assertTrue(bucket.equals("hello3"));
+    assertTrue(sumi.doubleValue() == 38.0D);
+    tuple=daemonStream.read();
+    bucket=tuple.getString("a_s");
+    sumi=tuple.getDouble("sum(a_i)");
+    assertTrue(bucket.equals("hello4"));
+    assertTrue(sumi.longValue() == 15);
+  }
+  while (daemonStream.remainingCapacity() > 0) {
+    try {
+      Thread.sleep(1000);
+    }
+ catch (    Exception e) {
+    }
+  }
+  indexr(id,"10","a_s","hello0","a_i","1","a_f","10");
+  commit();
+  for (int i=0; i < 12; i++) {
+    daemonStream.read();
+  }
+  for (int i=0; i < 4; i++) {
+    Tuple tuple=daemonStream.read();
+    String bucket=tuple.getString("a_s");
+    Double sumi=tuple.getDouble("sum(a_i)");
+    assertTrue(bucket.equals("hello0"));
+    assertTrue(sumi.doubleValue() == 18.0D);
+    tuple=daemonStream.read();
+    bucket=tuple.getString("a_s");
+    sumi=tuple.getDouble("sum(a_i)");
+    assertTrue(bucket.equals("hello3"));
+    assertTrue(sumi.doubleValue() == 38.0D);
+    tuple=daemonStream.read();
+    bucket=tuple.getString("a_s");
+    sumi=tuple.getDouble("sum(a_i)");
+    assertTrue(bucket.equals("hello4"));
+    assertTrue(sumi.longValue() == 15);
+  }
+  daemonStream.close();
+  del("*:*");
+  commit();
+}

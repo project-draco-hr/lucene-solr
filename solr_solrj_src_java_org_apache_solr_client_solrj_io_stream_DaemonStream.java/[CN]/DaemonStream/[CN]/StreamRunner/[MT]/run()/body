@@ -1,0 +1,58 @@
+{
+  setStartTime(new Date().getTime());
+  OUTER:   while (!getShutdown()) {
+    long now=new Date().getTime();
+    if ((now - lastRun) > this.runInterval) {
+      lastRun=now;
+      try {
+        tupleStream.open();
+        INNER:         while (true) {
+          Tuple tuple=tupleStream.read();
+          if (tuple.EOF) {
+            break INNER;
+          }
+ else           if (!eatTuples) {
+            try {
+              queue.put(tuple);
+            }
+ catch (            InterruptedException e) {
+              break OUTER;
+            }
+          }
+        }
+      }
+ catch (      IOException e) {
+        exception=e;
+        logger.error("Error in DaemonStream",e);
+        break OUTER;
+      }
+ finally {
+        try {
+          tupleStream.close();
+        }
+ catch (        IOException e1) {
+          if (exception == null) {
+            exception=e1;
+            logger.error("Error in DaemonStream",e1);
+            break OUTER;
+          }
+        }
+      }
+    }
+    incrementIterations();
+    try {
+      Thread.sleep(sleepMillis);
+    }
+ catch (    InterruptedException e) {
+      logger.error("Error in DaemonStream",e);
+      break OUTER;
+    }
+  }
+  if (!eatTuples) {
+    Map m=new HashMap();
+    m.put("EOF",true);
+    Tuple tuple=new Tuple(m);
+    queue.offer(tuple);
+  }
+  setStopTime(new Date().getTime());
+}
