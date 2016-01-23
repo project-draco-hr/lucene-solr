@@ -1,0 +1,115 @@
+{
+  EntityProcessorWrapper entityProcessor=getEntityProcessor(entity);
+  ContextImpl ctx=new ContextImpl(entity,vr,null,pk == null ? Context.FULL_DUMP : Context.DELTA_DUMP,session,parentCtx,this);
+  entityProcessor.init(ctx);
+  Context.CURRENT_CONTEXT.set(ctx);
+  if (requestParameters.start > 0) {
+    writer.log(SolrWriter.DISABLE_LOGGING,null,null);
+  }
+  if (verboseDebug) {
+    writer.log(SolrWriter.START_ENTITY,entity.name,null);
+  }
+  int seenDocCount=0;
+  try {
+    while (true) {
+      if (stop.get())       return;
+      if (importStatistics.docCount.get() > (requestParameters.start + requestParameters.rows))       break;
+      try {
+        seenDocCount++;
+        if (seenDocCount > requestParameters.start) {
+          writer.log(SolrWriter.ENABLE_LOGGING,null,null);
+        }
+        if (verboseDebug && entity.isDocRoot) {
+          writer.log(SolrWriter.START_DOC,entity.name,null);
+        }
+        if (doc == null && entity.isDocRoot) {
+          doc=new DocWrapper();
+          ctx.setDoc(doc);
+          DataConfig.Entity e=entity;
+          while (e.parentEntity != null) {
+            addFields(e.parentEntity,doc,(Map<String,Object>)vr.resolve(e.parentEntity.name),vr);
+            e=e.parentEntity;
+          }
+        }
+        Map<String,Object> arow=entityProcessor.nextRow();
+        if (arow == null) {
+          break;
+        }
+        if (entity.isDocRoot) {
+          if (seenDocCount <= requestParameters.start)           continue;
+          if (seenDocCount > requestParameters.start + requestParameters.rows) {
+            LOG.info("Indexing stopped at docCount = " + importStatistics.docCount);
+            break;
+          }
+        }
+        if (verboseDebug) {
+          writer.log(SolrWriter.ENTITY_OUT,entity.name,arow);
+        }
+        importStatistics.rowsCount.incrementAndGet();
+        if (doc != null) {
+          handleSpecialCommands(arow,doc);
+          addFields(entity,doc,arow,vr);
+        }
+        if (entity.entities != null) {
+          vr.addNamespace(entity.name,arow);
+          for (          DataConfig.Entity child : entity.entities) {
+            buildDocument(vr,doc,null,child,false,ctx);
+          }
+          vr.removeNamespace(entity.name);
+        }
+        Context.CURRENT_CONTEXT.set(ctx);
+        if (entity.isDocRoot) {
+          if (stop.get())           return;
+          if (!doc.isEmpty()) {
+            boolean result=writer.upload(doc);
+            doc=null;
+            if (result) {
+              importStatistics.docCount.incrementAndGet();
+            }
+ else {
+              importStatistics.failedDocCount.incrementAndGet();
+            }
+          }
+        }
+      }
+ catch (      DataImportHandlerException e) {
+        if (verboseDebug) {
+          writer.log(SolrWriter.ENTITY_EXCEPTION,entity.name,e);
+        }
+        if (e.getErrCode() == DataImportHandlerException.SKIP_ROW) {
+          continue;
+        }
+        if (isRoot) {
+          if (e.getErrCode() == DataImportHandlerException.SKIP) {
+            importStatistics.skipDocCount.getAndIncrement();
+            doc=null;
+          }
+ else {
+            LOG.error("Exception while processing: " + entity.name + " document : "+ doc,e);
+          }
+          if (e.getErrCode() == DataImportHandlerException.SEVERE)           throw e;
+        }
+ else         throw e;
+      }
+catch (      Throwable t) {
+        if (verboseDebug) {
+          writer.log(SolrWriter.ENTITY_EXCEPTION,entity.name,t);
+        }
+        throw new DataImportHandlerException(DataImportHandlerException.SEVERE,t);
+      }
+ finally {
+        if (verboseDebug) {
+          writer.log(SolrWriter.ROW_END,entity.name,null);
+          if (entity.isDocRoot)           writer.log(SolrWriter.END_DOC,null,null);
+          Context.CURRENT_CONTEXT.remove();
+        }
+      }
+    }
+  }
+  finally {
+    if (verboseDebug) {
+      writer.log(SolrWriter.END_ENTITY,null,null);
+    }
+    entityProcessor.destroy();
+  }
+}

@@ -1,0 +1,21 @@
+{
+  List<MBeanServer> servers=MBeanServerFactory.findMBeanServer(null);
+  System.err.println("Servers in testJmxUpdate: " + servers);
+  System.err.println(h.getCore().getInfoRegistry());
+  SolrInfoMBean bean=null;
+  for (int i=0; i < 100; i++) {
+    bean=h.getCore().getInfoRegistry().get("searcher");
+    if (bean != null)     break;
+    Thread.sleep(250);
+  }
+  if (bean == null)   throw new RuntimeException("searcher was never registered");
+  ObjectName searcher=getObjectName("searcher",bean);
+  MBeanServer mbeanServer=servers.get(0);
+  System.err.println("Mbeans in server: " + mbeanServer.queryNames(null,null));
+  assertFalse("No mbean found for SolrIndexSearcher",mbeanServer.queryMBeans(searcher,null).isEmpty());
+  int oldNumDocs=Integer.valueOf((String)mbeanServer.getAttribute(searcher,"numDocs"));
+  assertU(adoc("id","1"));
+  assertU("commit",commit());
+  int numDocs=Integer.valueOf((String)mbeanServer.getAttribute(searcher,"numDocs"));
+  assertTrue("New numDocs is same as old numDocs as reported by JMX",numDocs > oldNumDocs);
+}

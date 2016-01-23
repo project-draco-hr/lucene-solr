@@ -1,0 +1,43 @@
+{
+  if (hasMulticore) {
+    response.sendError(400,"Missing solr core name in path");
+    return;
+  }
+  final SolrCore core=SolrCore.getSolrCore();
+  SolrServletRequest solrReq=new SolrServletRequest(core,request);
+  ;
+  SolrQueryResponse solrRsp=new SolrQueryResponse();
+  try {
+    SolrRequestHandler handler=core.getRequestHandler(solrReq.getQueryType());
+    if (handler == null) {
+      log.warn("Unknown Request Handler '" + solrReq.getQueryType() + "' :"+ solrReq);
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown Request Handler '" + solrReq.getQueryType() + "'",true);
+    }
+    core.execute(handler,solrReq,solrRsp);
+    if (solrRsp.getException() == null) {
+      QueryResponseWriter responseWriter=core.getQueryResponseWriter(solrReq);
+      response.setContentType(responseWriter.getContentType(solrReq,solrRsp));
+      PrintWriter out=response.getWriter();
+      responseWriter.write(out,solrReq,solrRsp);
+    }
+ else {
+      Exception e=solrRsp.getException();
+      int rc=500;
+      if (e instanceof SolrException) {
+        rc=((SolrException)e).code();
+      }
+      sendErr(rc,SolrException.toStr(e),request,response);
+    }
+  }
+ catch (  SolrException e) {
+    if (!e.logged)     SolrException.log(log,e);
+    sendErr(e.code(),SolrException.toStr(e),request,response);
+  }
+catch (  Throwable e) {
+    SolrException.log(log,e);
+    sendErr(500,SolrException.toStr(e),request,response);
+  }
+ finally {
+    solrReq.close();
+  }
+}

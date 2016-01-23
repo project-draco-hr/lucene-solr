@@ -1,0 +1,48 @@
+{
+  String path=null;
+  SolrParams params=null;
+  int idx=pathAndParams.indexOf('?');
+  if (idx > 0) {
+    path=pathAndParams.substring(0,idx);
+    params=SolrRequestParsers.parseQueryString(pathAndParams.substring(idx + 1));
+  }
+ else {
+    path=pathAndParams;
+    params=new MapSolrParams(new HashMap<String,String>());
+  }
+  SolrRequestHandler handler=core.getRequestHandler(path);
+  if (handler == null) {
+    if ("/select".equals(path) || "/select/".equalsIgnoreCase(path)) {
+      String qt=params.get(CommonParams.QT);
+      handler=core.getRequestHandler(qt);
+      if (handler == null) {
+        throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + qt);
+      }
+    }
+  }
+  if (handler == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"unknown handler: " + path);
+  }
+  List<ContentStream> streams=new ArrayList<ContentStream>(1);
+  if (body != null && body.length() > 0) {
+    streams.add(new ContentStreamBase.StringStream(body));
+  }
+  SolrQueryRequest req=null;
+  try {
+    req=parser.buildRequestFrom(core,params,streams);
+    SolrQueryResponse rsp=new SolrQueryResponse();
+    core.execute(handler,req,rsp);
+    if (rsp.getException() != null) {
+      throw rsp.getException();
+    }
+    QueryResponseWriter responseWriter=core.getQueryResponseWriter(req);
+    StringWriter out=new StringWriter();
+    responseWriter.write(out,req,rsp);
+    return out.toString();
+  }
+  finally {
+    if (req != null) {
+      req.close();
+    }
+  }
+}

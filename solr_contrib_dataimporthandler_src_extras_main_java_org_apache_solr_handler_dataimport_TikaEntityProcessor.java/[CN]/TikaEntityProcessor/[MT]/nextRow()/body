@@ -1,0 +1,51 @@
+{
+  if (done)   return null;
+  Map<String,Object> row=new HashMap<String,Object>();
+  DataSource<InputStream> dataSource=context.getDataSource();
+  InputStream is=dataSource.getData(context.getResolvedEntityAttribute(URL));
+  ContentHandler contentHandler=null;
+  Metadata metadata=new Metadata();
+  StringWriter sw=new StringWriter();
+  try {
+    if ("html".equals(format)) {
+      contentHandler=getHtmlHandler(sw);
+    }
+ else     if ("xml".equals(format)) {
+      contentHandler=getXmlContentHandler(sw);
+    }
+ else     if ("text".equals(format)) {
+      contentHandler=getTextContentHandler(sw);
+    }
+ else     if ("none".equals(format)) {
+      contentHandler=new DefaultHandler();
+    }
+  }
+ catch (  TransformerConfigurationException e) {
+    wrapAndThrow(SEVERE,e,"Unable to create content handler");
+  }
+  Parser tikaParser=null;
+  if (parser.equals(AUTO_PARSER)) {
+    AutoDetectParser parser=new AutoDetectParser();
+    parser.setConfig(tikaConfig);
+    tikaParser=parser;
+  }
+ else {
+    tikaParser=(Parser)context.getSolrCore().getResourceLoader().newInstance(parser);
+  }
+  try {
+    tikaParser.parse(is,contentHandler,metadata,new ParseContext());
+  }
+ catch (  Exception e) {
+    wrapAndThrow(SEVERE,e,"Unable to read content");
+  }
+  IOUtils.closeQuietly(is);
+  for (  Map<String,String> field : context.getAllEntityFields()) {
+    if (!"true".equals(field.get("meta")))     continue;
+    String col=field.get(COLUMN);
+    String s=metadata.get(col);
+    if (s != null)     row.put(col,s);
+  }
+  if (!"none".equals(format))   row.put("text",sw.toString());
+  done=true;
+  return row;
+}

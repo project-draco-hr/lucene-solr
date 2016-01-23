@@ -1,0 +1,64 @@
+{
+  SolrHighlighter highlighter=null;
+  SolrParams solrParams=sreq.getParams();
+  SolrCore core=sreq.getCore();
+  String urlField=solrParams.get(CarrotParams.URL_FIELD_NAME,"url");
+  String titleField=solrParams.get(CarrotParams.TITLE_FIELD_NAME,"title");
+  String snippetField=solrParams.get(CarrotParams.SNIPPET_FIELD_NAME,titleField);
+  if (StringUtils.isBlank(snippetField)) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,CarrotParams.SNIPPET_FIELD_NAME + " must not be blank.");
+  }
+  Set<String> fieldsToLoad=Sets.newHashSet(urlField,titleField,snippetField,idFieldName);
+  DocIterator docsIter=docList.iterator();
+  boolean produceSummary=solrParams.getBool(CarrotParams.PRODUCE_SUMMARY,false);
+  SolrQueryRequest req=null;
+  String[] snippetFieldAry=null;
+  if (produceSummary == true) {
+    highlighter=core.getHighlighter();
+    if (highlighter != null) {
+      Map args=new HashMap();
+      snippetFieldAry=new String[]{snippetField};
+      args.put(HighlightParams.FIELDS,snippetFieldAry);
+      args.put(HighlightParams.HIGHLIGHT,"true");
+      args.put(HighlightParams.SIMPLE_PRE,"");
+      args.put(HighlightParams.SIMPLE_POST,"");
+      args.put(HighlightParams.FRAGSIZE,solrParams.getInt(CarrotParams.SUMMARY_FRAGSIZE,solrParams.getInt(HighlightParams.FRAGSIZE,100)));
+      req=new LocalSolrQueryRequest(core,query.toString(),"",0,1,args){
+        @Override public SolrIndexSearcher getSearcher(){
+          return sreq.getSearcher();
+        }
+      }
+;
+    }
+ else {
+      log.warn("No highlighter configured, cannot produce summary");
+      produceSummary=false;
+    }
+  }
+  SolrIndexSearcher searcher=sreq.getSearcher();
+  List<Document> result=new ArrayList<Document>(docList.size());
+  float[] scores={1.0f};
+  int[] docsHolder=new int[1];
+  Query theQuery=query;
+  while (docsIter.hasNext()) {
+    Integer id=docsIter.next();
+    org.apache.lucene.document.Document doc=searcher.doc(id,fieldsToLoad);
+    String snippet=getValue(doc,snippetField);
+    if (produceSummary == true) {
+      docsHolder[0]=id.intValue();
+      DocList docAsList=new DocSlice(0,1,docsHolder,scores,1,1.0f);
+      NamedList highlights=highlighter.doHighlighting(docAsList,theQuery,req,snippetFieldAry);
+      if (highlights != null && highlights.size() == 1) {
+        NamedList tmp=(NamedList)highlights.getVal(0);
+        String[] highlt=(String[])tmp.get(snippetField);
+        if (highlt != null && highlt.length == 1) {
+          snippet=highlt[0];
+        }
+      }
+    }
+    Document carrotDocument=new Document(getValue(doc,titleField),snippet,doc.get(urlField));
+    carrotDocument.setField("solrId",doc.get(idFieldName));
+    result.add(carrotDocument);
+  }
+  return result;
+}
