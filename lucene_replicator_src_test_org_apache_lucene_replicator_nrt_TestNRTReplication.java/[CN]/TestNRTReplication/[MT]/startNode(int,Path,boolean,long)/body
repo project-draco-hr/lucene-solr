@@ -1,0 +1,161 @@
+{
+  nodeTimeStamps[id]=System.nanoTime();
+  List<String> cmd=new ArrayList<>();
+  NodeProcess curPrimary=primary;
+  cmd.add(System.getProperty("java.home") + System.getProperty("file.separator") + "bin"+ System.getProperty("file.separator")+ "java");
+  cmd.add("-Xmx512m");
+  if (curPrimary != null) {
+    cmd.add("-Dtests.nrtreplication.primaryTCPPort=" + curPrimary.tcpPort);
+  }
+ else   if (isPrimary == false) {
+    return null;
+  }
+  cmd.add("-Dtests.nrtreplication.node=true");
+  cmd.add("-Dtests.nrtreplication.nodeid=" + id);
+  cmd.add("-Dtests.nrtreplication.startNS=" + Node.globalStartNS);
+  cmd.add("-Dtests.nrtreplication.indexpath=" + indexPath);
+  if (isPrimary) {
+    cmd.add("-Dtests.nrtreplication.isPrimary=true");
+    cmd.add("-Dtests.nrtreplication.forcePrimaryVersion=" + forcePrimaryVersion);
+  }
+  long myPrimaryGen=primaryGen;
+  cmd.add("-Dtests.nrtreplication.primaryGen=" + myPrimaryGen);
+  long seed=random().nextLong() * nodeStartCounter.incrementAndGet();
+  cmd.add("-Dtests.seed=" + SeedUtils.formatSeed(seed));
+  cmd.add("-ea");
+  cmd.add("-cp");
+  cmd.add(System.getProperty("java.class.path"));
+  cmd.add("org.junit.runner.JUnitCore");
+  cmd.add(getClass().getName().replace(getClass().getSimpleName(),"SimpleServer"));
+  Writer childLog;
+  if (SEPARATE_CHILD_OUTPUT) {
+    Path childOut=childTempDir.resolve(id + ".log");
+    message("logging to " + childOut);
+    childLog=Files.newBufferedWriter(childOut,StandardCharsets.UTF_8,StandardOpenOption.APPEND,StandardOpenOption.CREATE);
+    childLog.write("\n\nSTART NEW CHILD:\n");
+  }
+ else {
+    childLog=null;
+  }
+  message("child process command: " + cmd);
+  ProcessBuilder pb=new ProcessBuilder(cmd);
+  pb.redirectErrorStream(true);
+  pb.directory(childTempDir.toFile());
+  Process p=pb.start();
+  BufferedReader r;
+  try {
+    r=new BufferedReader(new InputStreamReader(p.getInputStream(),IOUtils.UTF_8));
+  }
+ catch (  UnsupportedEncodingException uee) {
+    throw new RuntimeException(uee);
+  }
+  int tcpPort=-1;
+  long initCommitVersion=-1;
+  long initInfosVersion=-1;
+  Pattern logTimeStart=Pattern.compile("^[0-9\\.]+s .*");
+  boolean willCrash=false;
+  boolean sawExistingSegmentsFile=false;
+  while (true) {
+    String l=r.readLine();
+    if (l == null) {
+      message("top: node=" + id + " failed to start");
+      try {
+        p.waitFor();
+      }
+ catch (      InterruptedException ie) {
+        throw new RuntimeException(ie);
+      }
+      message("exit value=" + p.exitValue());
+      if (isPrimary == false) {
+        if (sawExistingSegmentsFile) {
+          message("failed to remove segments_N; skipping");
+          return null;
+        }
+        for (int i=0; i < 10; i++) {
+          if (primaryGen != myPrimaryGen || primary == null) {
+            message("primary crashed/closed while replica R" + id + " tried to start; skipping");
+            return null;
+          }
+ else {
+            try {
+              Thread.sleep(10);
+            }
+ catch (            InterruptedException ie) {
+              throw new ThreadInterruptedException(ie);
+            }
+          }
+        }
+      }
+      message("top: now fail test replica R" + id + " failed to start");
+      failed.set(true);
+      throw new RuntimeException("replica R" + id + " failed to start");
+    }
+    if (childLog != null) {
+      childLog.write(l);
+      childLog.write("\n");
+      childLog.flush();
+    }
+ else     if (logTimeStart.matcher(l).matches()) {
+      System.out.println(l);
+    }
+ else {
+      message(l);
+    }
+    if (l.startsWith("PORT: ")) {
+      tcpPort=Integer.parseInt(l.substring(6).trim());
+    }
+ else     if (l.startsWith("COMMIT VERSION: ")) {
+      initCommitVersion=Integer.parseInt(l.substring(16).trim());
+    }
+ else     if (l.startsWith("INFOS VERSION: ")) {
+      initInfosVersion=Integer.parseInt(l.substring(15).trim());
+    }
+ else     if (l.contains("will crash after")) {
+      willCrash=true;
+    }
+ else     if (l.startsWith("NODE STARTED")) {
+      break;
+    }
+ else     if (l.contains("replica cannot start: existing segments file=")) {
+      sawExistingSegmentsFile=true;
+    }
+  }
+  final boolean finalWillCrash=willCrash;
+  Thread pumper=ThreadPumper.start(new Runnable(){
+    @Override public void run(){
+      message("now wait for process " + p);
+      try {
+        p.waitFor();
+      }
+ catch (      Throwable t) {
+        throw new RuntimeException(t);
+      }
+      message("done wait for process " + p);
+      int exitValue=p.exitValue();
+      message("exit value=" + exitValue + " willCrash="+ finalWillCrash);
+      if (childLog != null) {
+        try {
+          childLog.write("process done; exitValue=" + exitValue + "\n");
+          childLog.close();
+        }
+ catch (        IOException ioe) {
+          throw new RuntimeException(ioe);
+        }
+      }
+      if (exitValue != 0 && finalWillCrash == false && crashingNodes.remove(id) == false) {
+        failed.set(true);
+        if (childLog != null) {
+          throw new RuntimeException("node " + id + " process had unexpected non-zero exit status="+ exitValue+ "; see "+ childLog+ " for details");
+        }
+ else {
+          throw new RuntimeException("node " + id + " process had unexpected non-zero exit status="+ exitValue);
+        }
+      }
+      nodeClosed(id);
+    }
+  }
+,r,System.out,childLog);
+  pumper.setName("pump" + id);
+  message("top: node=" + id + " started at tcpPort="+ tcpPort+ " initCommitVersion="+ initCommitVersion+ " initInfosVersion="+ initInfosVersion);
+  return new NodeProcess(p,id,tcpPort,pumper,isPrimary,initCommitVersion,initInfosVersion);
+}

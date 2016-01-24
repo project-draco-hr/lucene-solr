@@ -1,0 +1,73 @@
+{
+  Thread.currentThread().setName("send");
+  int replicaID=destIn.readVInt();
+  message("top: start fetch for R" + replicaID + " socket="+ socket);
+  byte b=destIn.readByte();
+  CopyState copyState;
+  if (b == 0) {
+    copyState=null;
+  }
+ else   if (b == 1) {
+    copyState=getCopyState();
+    Thread.currentThread().setName("send-R" + replicaID + "-"+ copyState.version);
+  }
+ else {
+    throw new IllegalArgumentException("invalid CopyState byte=" + b);
+  }
+  try {
+    if (copyState != null) {
+      writeCopyState(copyState,destOut);
+      bos.flush();
+    }
+    byte[] buffer=new byte[16384];
+    int fileCount=0;
+    long totBytesSent=0;
+    while (true) {
+      byte done=destIn.readByte();
+      if (done == 1) {
+        break;
+      }
+ else       if (done != 0) {
+        throw new IllegalArgumentException("expected 0 or 1 byte but got " + done);
+      }
+      String fileName=destIn.readString();
+      long fpStart=destIn.readVLong();
+      try (IndexInput in=dir.openInput(fileName,IOContext.DEFAULT)){
+        long len=in.length();
+        destOut.writeVLong(len);
+        in.seek(fpStart);
+        long upto=fpStart;
+        while (upto < len) {
+          int chunk=(int)Math.min(buffer.length,(len - upto));
+          in.readBytes(buffer,0,chunk);
+          if (TestNRTReplication.DO_BIT_FLIPS_DURING_COPY) {
+            if (random.nextInt(3000) == 17 && bitFlipped.contains(fileName) == false) {
+              bitFlipped.add(fileName);
+              message("file " + fileName + " to R"+ replicaID+ ": now randomly flipping a bit at byte="+ upto);
+              int x=random.nextInt(chunk);
+              int bit=random.nextInt(8);
+              buffer[x]^=1 << bit;
+            }
+          }
+          destOut.writeBytes(buffer,0,chunk);
+          upto+=chunk;
+          totBytesSent+=chunk;
+        }
+      }
+       fileCount++;
+    }
+    message("top: done fetch files for R" + replicaID + ": sent "+ fileCount+ " files; sent "+ totBytesSent+ " bytes");
+  }
+ catch (  Throwable t) {
+    message("top: exception during fetch: " + t.getMessage() + "; now close socket");
+    socket.close();
+    return false;
+  }
+ finally {
+    if (copyState != null) {
+      message("top: fetch: now release CopyState");
+      releaseCopyState(copyState);
+    }
+  }
+  return true;
+}

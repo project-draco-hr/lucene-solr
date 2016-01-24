@@ -1,0 +1,107 @@
+{
+  try {
+    LineFileDocs docs=new LineFileDocs(random());
+    int docCount=0;
+    double updatePct=random().nextDouble();
+    int sleepChance=TestUtil.nextInt(random(),4,100);
+    message("top: indexer: updatePct=" + updatePct + " sleepChance="+ sleepChance);
+    long lastTransLogLoc=transLog.getNextLocation();
+    NodeProcess curPrimary=null;
+    Connection c=null;
+    while (stop.get() == false) {
+      try {
+        while (stop.get() == false && curPrimary == null) {
+          Thread.sleep(10);
+          curPrimary=primary;
+          if (curPrimary != null) {
+            c=new Connection(curPrimary.tcpPort);
+            c.out.writeByte(SimplePrimaryNode.CMD_INDEXING);
+            break;
+          }
+        }
+        if (stop.get()) {
+          break;
+        }
+        Thread.currentThread().setName("indexer p" + curPrimary.id);
+        if (random().nextInt(10) == 7) {
+          Document doc=new Document();
+          int id=markerUpto.getAndIncrement();
+          String idString="m" + id;
+          doc.add(newStringField("docid",idString,Field.Store.YES));
+          doc.add(newStringField("marker","marker",Field.Store.YES));
+          curPrimary.addOrUpdateDocument(c,doc,false);
+          transLog.addDocument(idString,doc);
+          message("index marker=" + idString + "; translog is "+ Node.bytesToString(Files.size(transLogPath)));
+        }
+        if (docCount > 0 && random().nextDouble() < updatePct) {
+          int randomID=random().nextInt(docCount);
+          String randomIDString=Integer.toString(randomID);
+          if (random().nextBoolean()) {
+            Document doc=docs.nextDoc();
+            ((Field)doc.getField("docid")).setStringValue(randomIDString);
+            curPrimary.addOrUpdateDocument(c,doc,true);
+            transLog.updateDocument(randomIDString,doc);
+          }
+ else {
+            curPrimary.deleteDocument(c,randomIDString);
+            transLog.deleteDocuments(randomIDString);
+          }
+        }
+ else {
+          Document doc=docs.nextDoc();
+          String idString=Integer.toString(docCount++);
+          ((Field)doc.getField("docid")).setStringValue(idString);
+          curPrimary.addOrUpdateDocument(c,doc,false);
+          transLog.addDocument(idString,doc);
+          if (DO_RANDOM_XLOG_REPLAY && random().nextInt(10) == 7) {
+            long curLoc=transLog.getNextLocation();
+            message("now randomly replay translog from " + lastTransLogLoc + " to "+ curLoc);
+            transLog.replay(curPrimary,lastTransLogLoc,curLoc);
+            lastTransLogLoc=curLoc;
+          }
+        }
+      }
+ catch (      IOException se) {
+        message("top: indexer lost connection to primary");
+        try {
+          c.close();
+        }
+ catch (        Throwable t) {
+        }
+        curPrimary=null;
+        c=null;
+      }
+      if (random().nextInt(sleepChance) == 0) {
+        Thread.sleep(1);
+      }
+      if (random().nextInt(100) == 17) {
+        System.out.println("Indexer: now pause for a bit...");
+        Thread.sleep(TestUtil.nextInt(random(),500,2000));
+        System.out.println("Indexer: done pause for a bit...");
+      }
+    }
+    if (curPrimary != null) {
+      try {
+        c.out.writeByte(SimplePrimaryNode.CMD_INDEXING_DONE);
+        c.flush();
+        c.in.readByte();
+      }
+ catch (      IOException se) {
+        message("top: indexer lost connection to primary");
+        try {
+          c.close();
+        }
+ catch (        Throwable t) {
+        }
+        curPrimary=null;
+        c=null;
+      }
+    }
+    System.out.println("Indexer: now stop");
+  }
+ catch (  Throwable t) {
+    failed.set(true);
+    stop.set(true);
+    throw new RuntimeException(t);
+  }
+}

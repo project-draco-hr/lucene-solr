@@ -1,0 +1,91 @@
+{
+  int[] replicaTCPPorts=this.replicaTCPPorts;
+  if (replicaTCPPorts == null) {
+    message("no replicas; skip warming " + info);
+    return;
+  }
+  message("top: warm merge " + info + " to "+ replicaTCPPorts.length+ " replicas: files="+ files.keySet());
+  MergePreCopy preCopy=new MergePreCopy(files);
+  warmingSegments.add(preCopy);
+  try {
+    Set<String> fileNames=files.keySet();
+    for (    int replicaTCPPort : replicaTCPPorts) {
+      try {
+        Connection c=new Connection(replicaTCPPort);
+        c.out.writeByte(SimpleReplicaNode.CMD_PRE_COPY_MERGE);
+        c.out.writeVLong(primaryGen);
+        c.out.writeVInt(tcpPort);
+        SimpleServer.writeFilesMetaData(c.out,files);
+        c.flush();
+        c.s.shutdownOutput();
+        message("warm connection " + c.s);
+        preCopy.connections.add(c);
+      }
+ catch (      Throwable t) {
+        message("top: ignore exception trying to warm to replica port " + replicaTCPPort + ": "+ t);
+      }
+    }
+    long startNS=System.nanoTime();
+    long lastWarnNS=startNS;
+    while (preCopy.finished() == false) {
+      try {
+        Thread.sleep(10);
+      }
+ catch (      InterruptedException ie) {
+        throw new ThreadInterruptedException(ie);
+      }
+      if (isClosed()) {
+        message("top: primary is closing: now cancel segment warming");
+synchronized (preCopy.connections) {
+          IOUtils.closeWhileHandlingException(preCopy.connections);
+        }
+        return;
+      }
+      long ns=System.nanoTime();
+      if (ns - lastWarnNS > 1000000000L) {
+        message(String.format(Locale.ROOT,"top: warning: still warming merge " + info + " to "+ preCopy.connections.size()+ " replicas for %.1f sec...",(ns - startNS) / 1000000000.0));
+        lastWarnNS=ns;
+      }
+synchronized (preCopy.connections) {
+        Iterator<Connection> it=preCopy.connections.iterator();
+        while (it.hasNext()) {
+          Connection c=it.next();
+          try {
+            long nowNS=System.nanoTime();
+            boolean done=false;
+            while (c.sockIn.available() > 0) {
+              byte b=c.in.readByte();
+              if (b == 0) {
+                c.lastKeepAliveNS=nowNS;
+                message("keep-alive for socket=" + c.s + " merge files="+ files.keySet());
+              }
+ else {
+                if (b != 1) {
+                  throw new IllegalArgumentException();
+                }
+                message("connection socket=" + c.s + " is done warming its merge "+ info+ " files="+ files.keySet());
+                IOUtils.closeWhileHandlingException(c);
+                it.remove();
+                done=true;
+                break;
+              }
+            }
+            if (done == false && nowNS - c.lastKeepAliveNS > 2000000000L) {
+              message("top: warning: replica socket=" + c.s + " for segment="+ info+ " seems to be dead; closing files="+ files.keySet());
+              IOUtils.closeWhileHandlingException(c);
+              it.remove();
+            }
+          }
+ catch (          Throwable t) {
+            message("top: ignore exception trying to read byte during warm for segment=" + info + " to replica socket="+ c.s+ ": "+ t+ " files="+ files.keySet());
+            IOUtils.closeWhileHandlingException(c);
+            it.remove();
+          }
+        }
+      }
+    }
+  }
+  finally {
+    warmingSegments.remove(preCopy);
+  }
+}

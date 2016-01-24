@@ -1,0 +1,110 @@
+{
+  List<Thread> startupThreads=Collections.synchronizedList(new ArrayList<>());
+  try {
+    while (stop.get() == false) {
+      Thread.sleep(TestUtil.nextInt(random(),50,500));
+      message("top: restarter cycle");
+      if (DO_FULL_CLUSTER_CRASH && random().nextInt(50) == 17) {
+        message("top: full cluster crash");
+        for (int i=0; i < nodes.length; i++) {
+          if (starting[i]) {
+            message("N" + i + ": top: wait for startup so we can crash...");
+            while (starting[i]) {
+              Thread.sleep(10);
+            }
+            message("N" + i + ": top: done wait for startup");
+          }
+          NodeProcess node=nodes[i];
+          if (node != null) {
+            crashingNodes.add(i);
+            message("top: N" + node.id + ": top: now crash node");
+            node.crash();
+            message("top: N" + node.id + ": top: done crash node");
+          }
+        }
+      }
+      List<Integer> downNodes=new ArrayList<>();
+      StringBuilder b=new StringBuilder();
+      long nowNS=System.nanoTime();
+      for (int i=0; i < nodes.length; i++) {
+        b.append(' ');
+        double sec=(nowNS - nodeTimeStamps[i]) / 1000000000.0;
+        String prefix;
+        if (nodes[i] == null) {
+          downNodes.add(i);
+          if (starting[i]) {
+            prefix="s";
+          }
+ else {
+            prefix="x";
+          }
+        }
+ else {
+          prefix="";
+        }
+        if (primary != null && nodes[i] == primary) {
+          prefix+="p";
+        }
+        b.append(String.format(Locale.ROOT,"%s%d(%.1fs)",prefix,i,sec));
+      }
+      message("node status" + b.toString());
+      message("downNodes=" + downNodes);
+      if (primary == null) {
+        if (anyNodesStarting()) {
+          message("top: skip promote replica: nodes are still starting");
+          continue;
+        }
+        promoteReplica();
+      }
+      if (downNodes.isEmpty() == false) {
+        int idx=downNodes.get(random().nextInt(downNodes.size()));
+        if (starting[idx] == false) {
+          if (primary == null) {
+            if (downNodes.size() == nodes.length) {
+              message("N" + idx + ": top: cold start as primary");
+              startPrimary(idx);
+            }
+          }
+ else           if (random().nextDouble() < ((double)downNodes.size()) / nodes.length) {
+            starting[idx]=true;
+            message("N" + idx + ": top: start up: launch thread");
+            Thread t=new Thread(){
+              @Override public void run(){
+                try {
+                  message("N" + idx + ": top: start up thread");
+                  nodes[idx]=startNode(idx,indexPaths[idx],false,-1);
+                  sendReplicasToPrimary();
+                }
+ catch (                Throwable t) {
+                  failed.set(true);
+                  stop.set(true);
+                  throw new RuntimeException(t);
+                }
+ finally {
+                  starting[idx]=false;
+                  startupThreads.remove(Thread.currentThread());
+                }
+              }
+            }
+;
+            t.setName("start R" + idx);
+            t.start();
+            startupThreads.add(t);
+          }
+        }
+ else {
+          message("node " + idx + " still starting");
+        }
+      }
+    }
+    System.out.println("Restarter: now stop: join " + startupThreads.size() + " startup threads");
+    while (startupThreads.size() > 0) {
+      Thread.sleep(10);
+    }
+  }
+ catch (  Throwable t) {
+    failed.set(true);
+    stop.set(true);
+    throw new RuntimeException(t);
+  }
+}

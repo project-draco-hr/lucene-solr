@@ -1,0 +1,41 @@
+{
+  Map<String,FileMetaData> cache=lastFileMetaData;
+  FileMetaData result;
+  if (cache != null) {
+    result=cache.get(fileName);
+  }
+ else {
+    result=null;
+  }
+  if (result == null) {
+    long checksum;
+    long length;
+    byte[] header;
+    byte[] footer;
+    try (IndexInput in=dir.openInput(fileName,IOContext.DEFAULT)){
+      try {
+        length=in.length();
+        header=CodecUtil.readIndexHeader(in);
+        footer=CodecUtil.readFooter(in);
+        checksum=CodecUtil.retrieveChecksum(in);
+      }
+ catch (      EOFException|CorruptIndexException cie) {
+        if (VERBOSE_FILES) {
+          message("file " + fileName + ": will copy [existing file is corrupt]");
+        }
+        return null;
+      }
+      if (VERBOSE_FILES) {
+        message("file " + fileName + " has length="+ bytesToString(length));
+      }
+    }
+ catch (    FileNotFoundException|NoSuchFileException e) {
+      if (VERBOSE_FILES) {
+        message("file " + fileName + ": will copy [file does not exist]");
+      }
+      return null;
+    }
+    result=new FileMetaData(header,footer,length,checksum);
+  }
+  return result;
+}

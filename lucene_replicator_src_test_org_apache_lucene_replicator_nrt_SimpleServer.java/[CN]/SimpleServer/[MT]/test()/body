@@ -1,0 +1,128 @@
+{
+  int id=Integer.parseInt(System.getProperty("tests.nrtreplication.nodeid"));
+  Thread.currentThread().setName("init child " + id);
+  Path indexPath=Paths.get(System.getProperty("tests.nrtreplication.indexpath"));
+  boolean isPrimary=System.getProperty("tests.nrtreplication.isPrimary") != null;
+  int primaryTCPPort;
+  long forcePrimaryVersion;
+  if (isPrimary == false) {
+    forcePrimaryVersion=-1;
+    primaryTCPPort=Integer.parseInt(System.getProperty("tests.nrtreplication.primaryTCPPort"));
+  }
+ else {
+    primaryTCPPort=-1;
+    forcePrimaryVersion=Long.parseLong(System.getProperty("tests.nrtreplication.forcePrimaryVersion"));
+  }
+  long primaryGen=Long.parseLong(System.getProperty("tests.nrtreplication.primaryGen"));
+  Node.globalStartNS=Long.parseLong(System.getProperty("tests.nrtreplication.startNS"));
+  boolean doRandomCrash=isPrimary ? TestNRTReplication.DO_CRASH_PRIMARY : TestNRTReplication.DO_CRASH_REPLICA;
+  boolean doRandomClose=isPrimary ? false : TestNRTReplication.DO_CLOSE_REPLICA;
+  try (final ServerSocket ss=new ServerSocket(0)){
+    int tcpPort=((InetSocketAddress)ss.getLocalSocketAddress()).getPort();
+    System.out.println("\nPORT: " + tcpPort);
+    final Node node;
+    if (isPrimary) {
+      node=new SimplePrimaryNode(random(),indexPath,id,tcpPort,primaryGen,forcePrimaryVersion,null);
+      System.out.println("\nCOMMIT VERSION: " + ((PrimaryNode)node).getLastCommitVersion());
+    }
+ else {
+      node=new SimpleReplicaNode(random(),id,tcpPort,indexPath,primaryGen,primaryTCPPort,null);
+    }
+    System.out.println("\nINFOS VERSION: " + node.getCurrentSearchingVersion());
+    if (doRandomClose || doRandomCrash) {
+      final int waitForMS;
+      if (isPrimary) {
+        waitForMS=TestUtil.nextInt(random(),20000,60000);
+      }
+ else {
+        waitForMS=TestUtil.nextInt(random(),5000,60000);
+      }
+      boolean doClose;
+      if (doRandomCrash == false) {
+        doClose=true;
+      }
+ else       if (doRandomClose) {
+        doClose=random().nextBoolean();
+      }
+ else {
+        doClose=false;
+      }
+      if (doClose) {
+        node.message("top: will close after " + (waitForMS / 1000.0) + " seconds");
+      }
+ else {
+        node.message("top: will crash after " + (waitForMS / 1000.0) + " seconds");
+      }
+      Thread t=new Thread(){
+        @Override public void run(){
+          long endTime=System.nanoTime() + waitForMS * 1000000L;
+          while (System.nanoTime() < endTime) {
+            try {
+              Thread.sleep(10);
+            }
+ catch (            InterruptedException e) {
+            }
+            if (stop.get()) {
+              break;
+            }
+          }
+          if (stop.get() == false) {
+            if (doClose) {
+              try {
+                node.message("top: now force close server socket after " + (waitForMS / 1000.0) + " seconds");
+                node.state="top-closing";
+                ss.close();
+              }
+ catch (              IOException ioe) {
+                throw new RuntimeException(ioe);
+              }
+            }
+ else {
+              node.message("top: now crash JVM after " + (waitForMS / 1000.0) + " seconds");
+              crashJRE();
+            }
+          }
+        }
+      }
+;
+      if (isPrimary) {
+        t.setName("crasher P" + id);
+      }
+ else {
+        t.setName("crasher R" + id);
+      }
+      t.setDaemon(true);
+      t.start();
+    }
+    System.out.println("\nNODE STARTED");
+    while (true) {
+      Socket socket;
+      try {
+        socket=ss.accept();
+      }
+ catch (      SocketException se) {
+        node.message("top: server socket exc; now exit");
+        break;
+      }
+      Thread thread=new ClientHandler(ss,node,socket);
+      thread.setDaemon(true);
+      thread.start();
+      clientThreads.add(thread);
+      Iterator<Thread> it=clientThreads.iterator();
+      while (it.hasNext()) {
+        Thread t=it.next();
+        if (t.isAlive() == false) {
+          it.remove();
+        }
+      }
+    }
+    stop.set(true);
+    for (    Thread clientThread : clientThreads) {
+      node.message("top: join clientThread=" + clientThread);
+      clientThread.join();
+      node.message("top: done join clientThread=" + clientThread);
+    }
+    node.message("done join all client threads; now close node");
+    node.close();
+  }
+ }

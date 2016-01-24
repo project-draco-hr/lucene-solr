@@ -1,0 +1,67 @@
+{
+  ensureOpen();
+  if (writeAllDeletes && applyAllDeletes == false) {
+    throw new IllegalArgumentException("applyAllDeletes must be true when writeAllDeletes=true");
+  }
+  final long tStart=System.currentTimeMillis();
+  if (infoStream.isEnabled("IW")) {
+    infoStream.message("IW","flush at getReader");
+  }
+  poolReaders=true;
+  DirectoryReader r=null;
+  doBeforeFlush();
+  boolean anyChanges=false;
+  boolean success2=false;
+  try {
+    boolean success=false;
+synchronized (fullFlushLock) {
+      try {
+        anyChanges=docWriter.flushAllThreads();
+        if (!anyChanges) {
+          flushCount.incrementAndGet();
+        }
+synchronized (this) {
+          anyChanges|=maybeApplyDeletes(applyAllDeletes);
+          if (writeAllDeletes) {
+            System.out.println("IW: now readerPool.commit");
+            readerPool.commit(segmentInfos);
+          }
+          r=StandardDirectoryReader.open(this,segmentInfos,applyAllDeletes,writeAllDeletes);
+          if (infoStream.isEnabled("IW")) {
+            infoStream.message("IW","return reader version=" + r.getVersion() + " reader="+ r);
+          }
+        }
+        success=true;
+      }
+  finally {
+        docWriter.finishFullFlush(this,success);
+        if (success) {
+          processEvents(false,true);
+          doAfterFlush();
+        }
+ else {
+          if (infoStream.isEnabled("IW")) {
+            infoStream.message("IW","hit exception during NRT reader");
+          }
+        }
+      }
+    }
+    if (anyChanges) {
+      maybeMerge(config.getMergePolicy(),MergeTrigger.FULL_FLUSH,UNBOUNDED_MAX_MERGE_SEGMENTS);
+    }
+    if (infoStream.isEnabled("IW")) {
+      infoStream.message("IW","getReader took " + (System.currentTimeMillis() - tStart) + " msec");
+    }
+    success2=true;
+  }
+ catch (  AbortingException|VirtualMachineError tragedy) {
+    tragicEvent(tragedy,"getReader");
+    return null;
+  }
+ finally {
+    if (!success2) {
+      IOUtils.closeWhileHandlingException(r);
+    }
+  }
+  return r;
+}
