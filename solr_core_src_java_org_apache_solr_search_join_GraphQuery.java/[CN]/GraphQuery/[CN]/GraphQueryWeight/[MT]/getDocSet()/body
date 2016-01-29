@@ -1,39 +1,42 @@
 {
-  DocSet fromSet=null;
-  FixedBitSet seedResultBits=null;
   int capacity=fromSearcher.getRawReader().maxDoc();
   FixedBitSet resultBits=new FixedBitSet(capacity);
-  currentDepth=0;
+  BitDocSet fromSet=null;
+  FixedBitSet rootBits=null;
   Query frontierQuery=q;
-  BooleanQuery.Builder leafNodeQuery=new BooleanQuery.Builder();
-  WildcardQuery edgeQuery=new WildcardQuery(new Term(toField,"*"));
-  leafNodeQuery.add(edgeQuery,Occur.MUST_NOT);
-  DocSet leafNodes=fromSearcher.getDocSet(leafNodeQuery.build());
+  DocSet leafNodes=resolveLeafNodes(toField);
   do {
-    GraphTermsCollector graphResultCollector=new GraphTermsCollector(toField,capacity,resultBits,leafNodes);
-    fromSearcher.search(frontierQuery,graphResultCollector);
-    BytesRefHash collectorTerms=graphResultCollector.getCollectorTerms();
-    frontierSize=collectorTerms.size();
-    fromSet=graphResultCollector.getDocSet();
-    if (seedResultBits == null) {
-      seedResultBits=((BitDocSet)fromSet).getBits().clone();
-    }
-    Integer fs=new Integer(frontierSize);
-    FrontierQuery fq=buildFrontierQuery(collectorTerms,fs);
-    if (fq == null) {
-      fq=new FrontierQuery(null,0);
-    }
-    frontierQuery=fq.getQuery();
-    frontierSize=fq.getFrontierSize();
-    resultBits.or(((BitDocSet)fromSet).getBits());
     currentDepth++;
-    if (currentDepth >= maxDepth && maxDepth != -1) {
+    if (maxDepth != -1 && currentDepth >= maxDepth) {
+      fromSet=fromSearcher.getDocSetBits(frontierQuery);
+      frontierSize=0;
+    }
+ else {
+      GraphTermsCollector graphResultCollector=new GraphTermsCollector(toField,capacity,resultBits,leafNodes);
+      fromSearcher.search(frontierQuery,graphResultCollector);
+      fromSet=graphResultCollector.getDocSet();
+      BytesRefHash collectorTerms=graphResultCollector.getCollectorTerms();
+      frontierSize=collectorTerms.size();
+      FrontierQuery fq=buildFrontierQuery(collectorTerms,frontierSize);
+      if (fq == null) {
+        frontierSize=0;
+      }
+ else {
+        frontierQuery=fq.getQuery();
+        frontierSize=fq.getFrontierSize();
+      }
+    }
+    if (currentDepth == 0 && !returnRoot) {
+      rootBits=fromSet.getBits();
+    }
+    resultBits.or(fromSet.getBits());
+    if ((maxDepth != -1 && currentDepth >= maxDepth)) {
       break;
     }
   }
  while (frontierSize > 0);
   if (!returnRoot) {
-    resultBits.andNot(seedResultBits);
+    resultBits.andNot(rootBits);
   }
   BitDocSet resultSet=new BitDocSet(resultBits);
   if (onlyLeafNodes) {
