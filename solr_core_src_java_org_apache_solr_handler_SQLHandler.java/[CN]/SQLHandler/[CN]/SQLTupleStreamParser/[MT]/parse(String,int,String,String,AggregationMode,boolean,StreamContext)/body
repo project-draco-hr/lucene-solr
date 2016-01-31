@@ -1,0 +1,34 @@
+{
+  SqlParser parser=new SqlParser();
+  Statement statement=parser.createStatement(sql);
+  SQLVisitor sqlVistor=new SQLVisitor(new StringBuilder());
+  sqlVistor.process(statement,new Integer(0));
+  sqlVistor.reverseAliases();
+  TupleStream sqlStream=null;
+  if (sqlVistor.groupByQuery) {
+    if (aggregationMode == AggregationMode.FACET) {
+      sqlStream=doGroupByWithAggregatesFacets(sqlVistor);
+    }
+ else {
+      context.numWorkers=numWorkers;
+      sqlStream=doGroupByWithAggregates(sqlVistor,numWorkers,workerCollection,workerZkhost);
+    }
+  }
+ else   if (sqlVistor.isDistinct) {
+    if (aggregationMode == AggregationMode.FACET) {
+      sqlStream=doSelectDistinctFacets(sqlVistor);
+    }
+ else {
+      context.numWorkers=numWorkers;
+      sqlStream=doSelectDistinct(sqlVistor,numWorkers,workerCollection,workerZkhost);
+    }
+  }
+ else {
+    sqlStream=doSelect(sqlVistor);
+  }
+  if (includeMetadata) {
+    sqlStream=new MetadataStream(sqlStream,sqlVistor);
+  }
+  sqlStream.setStreamContext(context);
+  return sqlStream;
+}
