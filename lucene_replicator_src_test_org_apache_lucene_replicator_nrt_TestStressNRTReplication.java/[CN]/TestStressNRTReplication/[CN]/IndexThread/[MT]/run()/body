@@ -25,13 +25,13 @@
         Thread.currentThread().setName("indexer p" + curPrimary.id);
         if (random().nextInt(10) == 7) {
           Document doc=new Document();
-          int id=markerUpto.getAndIncrement();
+          int id=markerID.getAndIncrement();
           String idString="m" + id;
           doc.add(newStringField("docid",idString,Field.Store.YES));
           doc.add(newStringField("marker","marker",Field.Store.YES));
           curPrimary.addOrUpdateDocument(c,doc,false);
           transLog.addDocument(idString,doc);
-          message("index marker=" + idString + "; translog is "+ Node.bytesToString(Files.size(transLogPath)));
+          markerUpto.getAndIncrement();
         }
         if (docCount > 0 && random().nextDouble() < updatePct) {
           int randomID=random().nextInt(docCount);
@@ -53,12 +53,6 @@
           ((Field)doc.getField("docid")).setStringValue(idString);
           curPrimary.addOrUpdateDocument(c,doc,false);
           transLog.addDocument(idString,doc);
-          if (DO_RANDOM_XLOG_REPLAY && random().nextInt(10) == 7) {
-            long curLoc=transLog.getNextLocation();
-            message("now randomly replay translog from " + lastTransLogLoc + " to "+ curLoc);
-            transLog.replay(curPrimary,lastTransLogLoc,curLoc);
-            lastTransLogLoc=curLoc;
-          }
         }
       }
  catch (      IOException se) {
@@ -72,11 +66,12 @@
         c=null;
       }
       if (random().nextInt(sleepChance) == 0) {
-        Thread.sleep(1);
+        Thread.sleep(10);
       }
       if (random().nextInt(100) == 17) {
-        System.out.println("Indexer: now pause for a bit...");
-        Thread.sleep(TestUtil.nextInt(random(),500,2000));
+        int pauseMS=TestUtil.nextInt(random(),500,2000);
+        System.out.println("Indexer: now pause for " + pauseMS + " msec...");
+        Thread.sleep(pauseMS);
         System.out.println("Indexer: done pause for a bit...");
       }
     }

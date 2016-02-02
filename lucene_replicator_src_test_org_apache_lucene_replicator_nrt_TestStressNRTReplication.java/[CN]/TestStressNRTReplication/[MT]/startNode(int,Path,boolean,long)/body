@@ -20,6 +20,9 @@
     if (DO_CRASH_PRIMARY) {
       cmd.add("-Dtests.nrtreplication.doRandomCrash=true");
     }
+    if (DO_CLOSE_PRIMARY) {
+      cmd.add("-Dtests.nrtreplication.doRandomClose=true");
+    }
   }
  else {
     if (DO_CRASH_REPLICA) {
@@ -51,7 +54,6 @@
  else {
     childLog=null;
   }
-  message("child process command: " + cmd);
   ProcessBuilder pb=new ProcessBuilder(cmd);
   pb.redirectErrorStream(true);
   pb.directory(childTempDir.toFile());
@@ -80,13 +82,18 @@
         throw new RuntimeException(ie);
       }
       message("exit value=" + p.exitValue());
+      if (p.exitValue() == 0) {
+        message("zero exit status; assuming failed to remove segments_N; skipping");
+        return null;
+      }
       if (isPrimary == false) {
         if (sawExistingSegmentsFile) {
           message("failed to remove segments_N; skipping");
           return null;
         }
-        for (int i=0; i < 10; i++) {
-          if (primaryGen != myPrimaryGen || primary == null) {
+        for (int i=0; i < 100; i++) {
+          NodeProcess primary2=primary;
+          if (primaryGen != myPrimaryGen || primary2 == null || primary2.nodeIsClosing.get()) {
             message("primary crashed/closed while replica R" + id + " tried to start; skipping");
             return null;
           }
@@ -135,6 +142,7 @@
     }
   }
   final boolean finalWillCrash=willCrash;
+  final AtomicBoolean nodeIsClosing=new AtomicBoolean();
   Thread pumper=ThreadPumper.start(new Runnable(){
     @Override public void run(){
       message("now wait for process " + p);
@@ -168,8 +176,8 @@
       nodeClosed(id);
     }
   }
-,r,System.out,childLog);
+,r,System.out,childLog,nodeIsClosing);
   pumper.setName("pump" + id);
   message("top: node=" + id + " started at tcpPort="+ tcpPort+ " initCommitVersion="+ initCommitVersion+ " initInfosVersion="+ initInfosVersion);
-  return new NodeProcess(p,id,tcpPort,pumper,isPrimary,initCommitVersion,initInfosVersion);
+  return new NodeProcess(p,id,tcpPort,pumper,isPrimary,initCommitVersion,initInfosVersion,nodeIsClosing);
 }

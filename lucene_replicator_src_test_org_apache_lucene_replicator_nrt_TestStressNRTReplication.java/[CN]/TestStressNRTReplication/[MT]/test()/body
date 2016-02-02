@@ -4,7 +4,7 @@
   Thread.currentThread().setName("main");
   childTempDir=createTempDir("child");
   versionToTransLogLocation.put(0L,0L);
-  versionToTransLogLocation.put(1L,0L);
+  versionToMarker.put(0L,0);
   int numNodes;
   if (NUM_NODES == null) {
     numNodes=TestUtil.nextInt(random(),2,10);
@@ -56,20 +56,21 @@
   while (failed.get() == false && System.nanoTime() < endTime) {
     Thread.sleep(TestUtil.nextInt(random(),Math.min(runTimeSec * 4,200),runTimeSec * 4));
     if (primary != null && random().nextBoolean()) {
-      message("top: now flush primary");
       NodeProcess curPrimary=primary;
       if (curPrimary != null) {
         long nextTransLogLoc=transLog.getNextLocation();
         int markerUptoSav=markerUpto.get();
+        message("top: now flush primary; at least marker count=" + markerUptoSav);
         long result;
         try {
-          result=primary.flush();
+          result=primary.flush(markerUptoSav);
         }
  catch (        Throwable t) {
           message("top: flush failed; skipping: " + t.getMessage());
           result=-1;
         }
         if (result > 0) {
+          message("top: flush finished with changed; new primary version=" + result);
           lastPrimaryVersion=result;
           addTransLogLoc(lastPrimaryVersion,nextTransLogLoc);
           addVersionMarker(lastPrimaryVersion,markerUptoSav);
@@ -97,7 +98,7 @@
     message("PG=" + (primary == null ? "X" : primaryGen) + " "+ liveCount+ " (of "+ nodes.length+ ") nodes running: "+ sb);
 {
       NodeProcess node=nodes[random().nextInt(nodes.length)];
-      if (node != null) {
+      if (node != null && node.nodeIsClosing.get() == false) {
         message("top: now commit node=" + node);
         node.commitAsync();
       }

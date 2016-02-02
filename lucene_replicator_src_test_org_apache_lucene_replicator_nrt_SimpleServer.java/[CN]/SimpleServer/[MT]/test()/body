@@ -1,6 +1,6 @@
 {
   int id=Integer.parseInt(System.getProperty("tests.nrtreplication.nodeid"));
-  Thread.currentThread().setName("init child " + id);
+  Thread.currentThread().setName("main child " + id);
   Path indexPath=Paths.get(System.getProperty("tests.nrtreplication.indexpath"));
   boolean isPrimary=System.getProperty("tests.nrtreplication.isPrimary") != null;
   int primaryTCPPort;
@@ -18,7 +18,7 @@
   boolean doRandomCrash="true".equals(System.getProperty("tests.nrtreplication.doRandomCrash"));
   boolean doRandomClose="true".equals(System.getProperty("tests.nrtreplication.doRandomClose"));
   boolean doFlipBitsDuringCopy="true".equals(System.getProperty("tests.nrtreplication.doFlipBitsDuringCopy"));
-  try (final ServerSocket ss=new ServerSocket(0)){
+  try (final ServerSocket ss=new ServerSocket(0,0,InetAddress.getLoopbackAddress())){
     int tcpPort=((InetSocketAddress)ss.getLocalSocketAddress()).getPort();
     System.out.println("\nPORT: " + tcpPort);
     final Node node;
@@ -27,7 +27,15 @@
       System.out.println("\nCOMMIT VERSION: " + ((PrimaryNode)node).getLastCommitVersion());
     }
  else {
-      node=new SimpleReplicaNode(random(),id,tcpPort,indexPath,primaryGen,primaryTCPPort,null);
+      try {
+        node=new SimpleReplicaNode(random(),id,tcpPort,indexPath,primaryGen,primaryTCPPort,null);
+      }
+ catch (      RuntimeException re) {
+        if (re.getMessage().startsWith("replica cannot start")) {
+          assumeTrue(re.getMessage(),false);
+        }
+        throw re;
+      }
     }
     System.out.println("\nINFOS VERSION: " + node.getCurrentSearchingVersion());
     if (doRandomClose || doRandomCrash) {

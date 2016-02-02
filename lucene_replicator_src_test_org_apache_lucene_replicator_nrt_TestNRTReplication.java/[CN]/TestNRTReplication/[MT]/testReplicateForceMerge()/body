@@ -1,0 +1,52 @@
+{
+  Node.globalStartNS=System.nanoTime();
+  childTempDir=createTempDir("child");
+  message("change thread name from " + Thread.currentThread().getName());
+  Thread.currentThread().setName("main");
+  Path primaryPath=createTempDir("primary");
+  NodeProcess primary=startNode(-1,0,primaryPath,true,-1);
+  Path replicaPath=createTempDir("replica");
+  NodeProcess replica=startNode(primary.tcpPort,1,replicaPath,false,-1);
+  try (Connection c=new Connection(primary.tcpPort)){
+    c.out.writeByte(SimplePrimaryNode.CMD_SET_REPLICAS);
+    c.out.writeVInt(1);
+    c.out.writeVInt(replica.id);
+    c.out.writeVInt(replica.tcpPort);
+    c.flush();
+    c.in.readByte();
+  }
+   LineFileDocs docs=new LineFileDocs(random());
+  Connection primaryC=new Connection(primary.tcpPort);
+  primaryC.out.writeByte(SimplePrimaryNode.CMD_INDEXING);
+  for (int i=0; i < 10; i++) {
+    Document doc=docs.nextDoc();
+    primary.addOrUpdateDocument(primaryC,doc,false);
+  }
+  long primaryVersion1=primary.flush();
+  assertTrue(primaryVersion1 > 0);
+  for (int i=0; i < 10; i++) {
+    Document doc=docs.nextDoc();
+    primary.addOrUpdateDocument(primaryC,doc,false);
+  }
+  long primaryVersion2=primary.flush();
+  assertTrue(primaryVersion2 > primaryVersion1);
+  primary.forceMerge(primaryC);
+  long primaryVersion3=primary.flush();
+  assertTrue(primaryVersion3 > primaryVersion2);
+  Connection replicaC=new Connection(replica.tcpPort);
+  while (true) {
+    replicaC.out.writeByte(SimplePrimaryNode.CMD_SEARCH_ALL);
+    replicaC.flush();
+    long version=replicaC.in.readVLong();
+    int hitCount=replicaC.in.readVInt();
+    if (version == primaryVersion3) {
+      assertEquals(20,hitCount);
+      break;
+    }
+    Thread.sleep(10);
+  }
+  replicaC.close();
+  primaryC.close();
+  replica.close();
+  primary.close();
+}
