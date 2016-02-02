@@ -1,5 +1,4 @@
 {
-  crashed=true;
   openFiles=new HashMap<>();
   openFilesForWrite=new HashSet<>();
   openFilesDeleted=new HashSet<>();
@@ -19,7 +18,7 @@
     String action=null;
     if (damage == 0) {
       action="deleted";
-      deleteFile(name,true);
+      deleteFiles(Collections.singleton(name));
     }
  else     if (damage == 1) {
       action="zeroed";
@@ -48,25 +47,42 @@
       tempOut.copyBytes(ii,ii.length() / 2);
       tempOut.close();
       ii.close();
-      deleteFile(name,true);
-      final IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState));
-      ii=in.openInput(tempFileName,LuceneTestCase.newIOContext(randomState));
-      out.copyBytes(ii,ii.length());
-      out.close();
-      ii.close();
-      deleteFile(tempFileName,true);
+      deleteFiles(Collections.singleton(name));
+      try (IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState))){
+        ii=in.openInput(tempFileName,LuceneTestCase.newIOContext(randomState));
+        out.copyBytes(ii,ii.length());
+        ii.close();
+      }
+ catch (      IOException ioe) {
+        if (ioe.getMessage().equals("file \"" + name + "\" is pending delete and cannot be overwritten")) {
+          action="deleted";
+        }
+ else {
+          throw ioe;
+        }
+      }
+      deleteFiles(Collections.singleton(tempFileName));
     }
  else     if (damage == 3) {
       action="didn't change";
     }
  else {
       action="fully truncated";
-      deleteFile(name,true);
-      IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState));
-      out.close();
+      deleteFiles(Collections.singleton(name));
+      try (IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState))){
+      }
+ catch (      IOException ioe) {
+        if (ioe.getMessage().equals("file \"" + name + "\" is pending delete and cannot be overwritten")) {
+          action="deleted";
+        }
+ else {
+          throw ioe;
+        }
+      }
     }
     if (LuceneTestCase.VERBOSE) {
       System.out.println("MockDirectoryWrapper: " + action + " unsynced file: "+ name);
     }
   }
+  crashed=true;
 }
