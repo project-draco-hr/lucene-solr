@@ -11,9 +11,17 @@
   final File instPropFile=new File(workDir,"instProp");
   FileUtils.copyDirectory(instDir.toFile(),instPropFile);
   SolrQueryResponse resp=new SolrQueryResponse();
+  try {
+    admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.INSTANCE_DIR,instPropFile.getAbsolutePath(),CoreAdminParams.NAME,"ugly$core=name"),resp);
+  }
+ catch (  SolrException se) {
+    assertTrue("Expected error message for bad core name.",se.toString().contains("Invalid core name"));
+  }
+  CoreDescriptor cd=cores.getCoreDescriptor("ugly$core=name");
+  assertNull("Should NOT have added this core!",cd);
   admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.CREATE.toString(),CoreAdminParams.INSTANCE_DIR,instPropFile.getAbsolutePath(),CoreAdminParams.NAME,"props",CoreAdminParams.PROPERTY_PREFIX + "hoss","man",CoreAdminParams.PROPERTY_PREFIX + "foo","baz"),resp);
   assertNull("Exception on create",resp.getException());
-  CoreDescriptor cd=cores.getCoreDescriptor("props");
+  cd=cores.getCoreDescriptor("props");
   assertNotNull("Core not added!",cd);
   assertEquals(cd.getCoreProperty("hoss",null),"man");
   assertEquals(cd.getCoreProperty("foo",null),"baz");
@@ -37,4 +45,19 @@
   assertNotNull("null failure for test core",fail);
   assertTrue("init failure doesn't mention problem: " + fail.getCause().getMessage(),0 < fail.getCause().getMessage().indexOf("dir_does_not_exist"));
   assertEquals("bogus_dir_core status isn't empty",0,((NamedList)status.get("bogus_dir_core")).size());
+  cd=cores.getCoreDescriptor("props");
+  assertNotNull("Core disappeared!",cd);
+  admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.RENAME.toString(),CoreAdminParams.CORE,"props",CoreAdminParams.OTHER,"rename_me"),resp);
+  cd=cores.getCoreDescriptor("rename_me");
+  assertNotNull("Core should have been renamed!",cd);
+  try {
+    admin.handleRequestBody(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.RENAME.toString(),CoreAdminParams.CORE,"rename_me",CoreAdminParams.OTHER,"bad$name"),resp);
+  }
+ catch (  IllegalArgumentException iae) {
+    assertTrue("Expected error message for bad core name.",iae.getMessage().contains("Invalid core name"));
+  }
+  cd=cores.getCoreDescriptor("bad$name");
+  assertNull("Core should NOT exist!",cd);
+  cd=cores.getCoreDescriptor("rename_me");
+  assertNotNull("Core should have been renamed!",cd);
 }
