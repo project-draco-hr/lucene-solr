@@ -1,25 +1,16 @@
 {
-  MockDirectoryWrapper dir=newMockDirectory();
-  dir.setPreventDoubleWrite(false);
+  Path path=createTempDir();
+  VirusCheckingFS fs=new VirusCheckingFS(path.getFileSystem(),random());
+  FileSystem filesystem=fs.getFileSystem(URI.create("file:///"));
+  fs.disable();
+  Path path2=new FilterPath(path,filesystem);
+  Directory dir=newFSDirectory(path2);
   new IndexWriter(dir,new IndexWriterConfig(null)).close();
   dir.createOutput("_0.si",IOContext.DEFAULT).close();
-  final AtomicBoolean stopScanning=new AtomicBoolean();
-  dir.failOn(new MockDirectoryWrapper.Failure(){
-    @Override public void eval(    MockDirectoryWrapper dir) throws IOException {
-      if (stopScanning.get()) {
-        return;
-      }
-      for (      StackTraceElement f : new Exception().getStackTrace()) {
-        if ("deleteFile".equals(f.getMethodName())) {
-          throw new IOException("temporarily cannot delete file");
-        }
-      }
-    }
-  }
-);
+  fs.enable();
   IndexWriter iw=new IndexWriter(dir,new IndexWriterConfig(null));
   iw.addDocument(new Document());
-  stopScanning.set(true);
+  fs.disable();
   iw.commit();
   iw.close();
   dir.close();
