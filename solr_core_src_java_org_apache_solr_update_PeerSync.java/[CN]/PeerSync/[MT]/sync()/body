@@ -37,6 +37,7 @@
         }
       }
       ourUpdates=newList;
+      Collections.sort(ourUpdates,absComparator);
     }
  else {
       if (ourUpdates.size() > 0) {
@@ -48,8 +49,9 @@
         return false;
       }
     }
+    ourHighest=ourUpdates.get(0);
     ourUpdateSet=new HashSet<>(ourUpdates);
-    requestedUpdateSet=new HashSet<>(ourUpdates);
+    requestedUpdateSet=new HashSet<>();
     for (; ; ) {
       ShardResponse srsp=shardHandler.takeCompletedOrError();
       if (srsp == null)       break;
@@ -60,8 +62,15 @@
         return false;
       }
     }
-    log.info(msg() + "DONE. sync succeeded");
-    return true;
+    boolean success=true;
+    for (    SyncShardRequest sreq : requests) {
+      if (sreq.doFingerprintComparison) {
+        success=compareFingerprint(sreq);
+        if (!success)         break;
+      }
+    }
+    log.info(msg() + "DONE. sync " + (success ? "succeeded" : "failed"));
+    return success;
   }
   finally {
     MDCLoggingContext.clear();
