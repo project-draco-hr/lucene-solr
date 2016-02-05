@@ -1,0 +1,29 @@
+{
+  RTimer timer=new RTimer();
+  SchemaField versionField=VersionInfo.getAndCheckVersionField(searcher.getSchema());
+  IndexFingerprint f=new IndexFingerprint();
+  f.maxVersionSpecified=maxVersion;
+  f.maxDoc=searcher.maxDoc();
+  ValueSource vs=versionField.getType().getValueSource(versionField,null);
+  Map funcContext=ValueSource.newContext(searcher);
+  vs.createWeight(funcContext,searcher);
+  for (  LeafReaderContext ctx : searcher.getTopReaderContext().leaves()) {
+    int maxDoc=ctx.reader().maxDoc();
+    f.numDocs+=ctx.reader().numDocs();
+    Bits liveDocs=ctx.reader().getLiveDocs();
+    FunctionValues fv=vs.getValues(funcContext,ctx);
+    for (int doc=0; doc < maxDoc; doc++) {
+      if (liveDocs != null && !liveDocs.get(doc))       continue;
+      long v=fv.longVal(doc);
+      f.maxVersionEncountered=Math.max(v,f.maxVersionEncountered);
+      if (v <= f.maxVersionSpecified) {
+        f.maxInHash=Math.max(v,f.maxInHash);
+        f.versionsHash+=Hash.fmix64(v);
+        f.numVersions++;
+      }
+    }
+  }
+  final double duration=timer.stop();
+  log.info("IndexFingerprint millis:" + duration + " result:"+ f);
+  return f;
+}
