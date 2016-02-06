@@ -1,8 +1,10 @@
 {
   assumeFalse("test relies on exact filenames",Codec.getDefault() instanceof SimpleTextCodec);
   for (int iter=0; iter < 2; iter++) {
-    MockDirectoryWrapper dir=newMockDirectory();
-    dir.setEnableVirusScanner(false);
+    Path path=createTempDir();
+    FileSystem fs=new WindowsFS(path.getFileSystem()).getFileSystem(URI.create("file:///"));
+    Path indexPath=new FilterPath(path,fs);
+    FSDirectory dir=new NIOFSDirectory(indexPath);
     MergePolicy mergePolicy=newLogMergePolicy(true);
     mergePolicy.setNoCFSRatio(1.0);
     mergePolicy.setMaxCFSSegmentSizeMB(Double.POSITIVE_INFINITY);
@@ -18,16 +20,14 @@
       w.commit();
       r=DirectoryReader.open(dir);
     }
-    List<String> files=new ArrayList<>(Arrays.asList(dir.listAll()));
-    files.remove("write.lock");
-    assertTrue(files.contains("_0.cfs"));
-    assertTrue(files.contains("_0.cfe"));
-    assertTrue(files.contains("_0.si"));
+    assertTrue(Files.exists(indexPath.resolve("_0.cfs")));
+    assertTrue(Files.exists(indexPath.resolve("_0.cfe")));
+    assertTrue(Files.exists(indexPath.resolve("_0.si")));
     if (iter == 1) {
-      assertTrue(files.contains("segments_1"));
+      assertTrue(Files.exists(indexPath.resolve("segments_1")));
     }
  else {
-      assertFalse(files.contains("segments_1"));
+      assertFalse(Files.exists(indexPath.resolve("segments_1")));
     }
     w.addDocument(doc);
     w.forceMerge(1);
@@ -37,20 +37,16 @@
     IndexReader r2=DirectoryReader.openIfChanged(r);
     assertNotNull(r2);
     assertTrue(r != r2);
-    files=Arrays.asList(dir.listAll());
-    assertTrue(files.contains("_0.cfs"));
+    assertTrue(Files.exists(indexPath.resolve("_0.cfs")));
     w.deleteUnusedFiles();
-    files=Arrays.asList(dir.listAll());
-    assertTrue(files.contains("_0.cfs"));
+    assertTrue(Files.exists(indexPath.resolve("_0.cfs")));
     r.close();
     if (iter == 0) {
-      files=Arrays.asList(dir.listAll());
-      assertFalse(files.contains("_0.cfs"));
+      assertFalse(Files.exists(indexPath.resolve("_0.cfs")));
     }
  else {
-      w.deleteUnusedFiles();
-      files=Arrays.asList(dir.listAll());
-      assertFalse(files.contains("_0.cfs"));
+      dir.deletePendingFiles();
+      assertFalse(Files.exists(indexPath.resolve("_0.cfs")));
     }
     w.close();
     r2.close();
