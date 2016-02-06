@@ -1,48 +1,20 @@
 {
-  Node.globalStartNS=System.nanoTime();
-  childTempDir=createTempDir("child");
-  message("change thread name from " + Thread.currentThread().getName());
-  Thread.currentThread().setName("main");
   Path primaryPath=createTempDir("primary");
-  NodeProcess primary=startNode(-1,0,primaryPath,true,-1);
+  NodeProcess primary=startNode(-1,0,primaryPath,-1,false);
   Path replicaPath=createTempDir("replica");
-  NodeProcess replica=startNode(primary.tcpPort,1,replicaPath,false,-1);
-  try (Connection c=new Connection(primary.tcpPort)){
-    c.out.writeByte(SimplePrimaryNode.CMD_SET_REPLICAS);
-    c.out.writeVInt(1);
-    c.out.writeVInt(replica.id);
-    c.out.writeVInt(replica.tcpPort);
-    c.flush();
-    c.in.readByte();
-  }
-   LineFileDocs docs=new LineFileDocs(random());
+  NodeProcess replica=startNode(primary.tcpPort,1,replicaPath,-1,false);
+  sendReplicasToPrimary(primary,replica);
+  LineFileDocs docs=new LineFileDocs(random());
   Connection primaryC=new Connection(primary.tcpPort);
   primaryC.out.writeByte(SimplePrimaryNode.CMD_INDEXING);
   for (int i=0; i < 10; i++) {
     Document doc=docs.nextDoc();
     primary.addOrUpdateDocument(primaryC,doc,false);
   }
-  Connection replicaC=new Connection(replica.tcpPort);
-  replicaC.out.writeByte(SimplePrimaryNode.CMD_SEARCH_ALL);
-  replicaC.flush();
-  long version1=replicaC.in.readVLong();
-  assertEquals(0L,version1);
-  int hitCount=replicaC.in.readVInt();
-  assertEquals(0,hitCount);
+  assertVersionAndHits(replica,0,0);
   long primaryVersion1=primary.flush(0);
   assertTrue(primaryVersion1 > 0);
-  long version2;
-  while (true) {
-    replicaC.out.writeByte(SimplePrimaryNode.CMD_SEARCH_ALL);
-    replicaC.flush();
-    version2=replicaC.in.readVLong();
-    hitCount=replicaC.in.readVInt();
-    if (version2 == primaryVersion1) {
-      assertEquals(10,hitCount);
-      break;
-    }
-    Thread.sleep(10);
-  }
+  waitForVersionAndHits(replica,primaryVersion1,10);
   if (random().nextBoolean()) {
     for (int id=0; id < 10; id++) {
       primary.deleteDocument(primaryC,Integer.toString(id));
@@ -51,46 +23,17 @@
  else {
     primary.deleteAllDocuments(primaryC);
   }
-  replicaC.out.writeByte(SimplePrimaryNode.CMD_SEARCH_ALL);
-  replicaC.flush();
-  long version3=replicaC.in.readVLong();
-  assertEquals(version2,version3);
-  hitCount=replicaC.in.readVInt();
-  assertEquals(10,hitCount);
+  assertVersionAndHits(replica,primaryVersion1,10);
   long primaryVersion2=primary.flush(0);
   assertTrue(primaryVersion2 > primaryVersion1);
-  long version4;
-  while (true) {
-    replicaC.out.writeByte(SimplePrimaryNode.CMD_SEARCH_ALL);
-    replicaC.flush();
-    version4=replicaC.in.readVLong();
-    hitCount=replicaC.in.readVInt();
-    if (version4 == primaryVersion2) {
-      assertTrue(version4 > version3);
-      assertEquals(0,hitCount);
-      break;
-    }
-    Thread.sleep(10);
-  }
+  waitForVersionAndHits(replica,primaryVersion2,0);
   for (int i=0; i < 10; i++) {
     Document doc=docs.nextDoc();
     primary.addOrUpdateDocument(primaryC,doc,false);
   }
   long primaryVersion3=primary.flush(0);
   assertTrue(primaryVersion3 > primaryVersion2);
-  while (true) {
-    replicaC.out.writeByte(SimplePrimaryNode.CMD_SEARCH_ALL);
-    replicaC.flush();
-    long version5=replicaC.in.readVLong();
-    hitCount=replicaC.in.readVInt();
-    if (version5 == primaryVersion3) {
-      assertEquals(10,hitCount);
-      assertTrue(version5 > version4);
-      break;
-    }
-    Thread.sleep(10);
-  }
-  replicaC.close();
+  waitForVersionAndHits(replica,primaryVersion3,10);
   primaryC.close();
   replica.close();
   primary.close();

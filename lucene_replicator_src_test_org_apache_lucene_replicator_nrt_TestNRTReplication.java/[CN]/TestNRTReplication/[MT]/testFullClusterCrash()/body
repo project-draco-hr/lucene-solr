@@ -1,0 +1,46 @@
+{
+  Path path1=createTempDir("1");
+  NodeProcess primary=startNode(-1,0,path1,-1,true);
+  Path path2=createTempDir("2");
+  NodeProcess replica1=startNode(primary.tcpPort,1,path2,-1,true);
+  Path path3=createTempDir("3");
+  NodeProcess replica2=startNode(primary.tcpPort,2,path3,-1,true);
+  sendReplicasToPrimary(primary,replica1,replica2);
+  LineFileDocs docs=new LineFileDocs(random());
+  long primaryVersion1=0;
+  for (int iter=0; iter < 5; iter++) {
+    try (Connection c=new Connection(primary.tcpPort)){
+      c.out.writeByte(SimplePrimaryNode.CMD_INDEXING);
+      for (int i=0; i < 10; i++) {
+        Document doc=docs.nextDoc();
+        primary.addOrUpdateDocument(c,doc,false);
+      }
+    }
+     primaryVersion1=primary.flush(0);
+    assertTrue(primaryVersion1 > 0);
+  }
+  waitForVersionAndHits(replica1,primaryVersion1,50);
+  waitForVersionAndHits(replica2,primaryVersion1,50);
+  primary.commit();
+  replica1.commit();
+  replica2.commit();
+  try (Connection c=new Connection(primary.tcpPort)){
+    c.out.writeByte(SimplePrimaryNode.CMD_INDEXING);
+    for (int i=0; i < 10; i++) {
+      Document doc=docs.nextDoc();
+      primary.addOrUpdateDocument(c,doc,false);
+    }
+  }
+   primary.crash();
+  replica1.crash();
+  replica2.crash();
+  primary=startNode(-1,0,path1,-1,true);
+  replica1=startNode(primary.tcpPort,1,path2,-1,true);
+  replica2=startNode(primary.tcpPort,2,path3,-1,true);
+  assertVersionAndHits(primary,-1,50);
+  assertVersionAndHits(replica1,primaryVersion1,50);
+  assertVersionAndHits(replica2,primaryVersion1,50);
+  primary.close();
+  replica1.close();
+  replica2.close();
+}
