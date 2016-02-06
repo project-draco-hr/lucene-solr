@@ -1,0 +1,49 @@
+{
+  try (Connection con=DriverManager.getConnection(connectionString,properties)){
+    assertTrue(con.isValid(DEFAULT_CONNECTION_TIMEOUT));
+    assertEquals(zkServer.getZkAddress(),con.getCatalog());
+    assertEquals(collection,con.getSchema());
+    DatabaseMetaData databaseMetaData=con.getMetaData();
+    assertNotNull(databaseMetaData);
+    assertEquals(con,databaseMetaData.getConnection());
+    assertEquals(connectionString,databaseMetaData.getURL());
+    try (ResultSet rs=databaseMetaData.getCatalogs()){
+      assertTrue(rs.next());
+      assertEquals(zkServer.getZkAddress(),rs.getString("TABLE_CAT"));
+      assertFalse(rs.next());
+    }
+     List<String> collections=new ArrayList<>();
+    collections.addAll(cloudClient.getZkStateReader().getClusterState().getCollections());
+    Collections.sort(collections);
+    try (ResultSet rs=databaseMetaData.getSchemas()){
+      for (      String acollection : collections) {
+        assertTrue(rs.next());
+        assertEquals(acollection,rs.getString("TABLE_SCHEM"));
+        assertEquals(zkServer.getZkAddress(),rs.getString("TABLE_CATALOG"));
+      }
+      assertFalse(rs.next());
+    }
+     assertNull(con.getWarnings());
+    con.clearWarnings();
+    assertNull(con.getWarnings());
+    try (Statement statement=con.createStatement()){
+      assertEquals(con,statement.getConnection());
+      assertNull(statement.getWarnings());
+      statement.clearWarnings();
+      assertNull(statement.getWarnings());
+      try (ResultSet rs=statement.executeQuery(sql)){
+        assertEquals(statement,rs.getStatement());
+        checkResultSetMetadata(rs);
+        checkResultSet(rs);
+      }
+       assertTrue(statement.execute(sql));
+      assertEquals(-1,statement.getUpdateCount());
+      try (ResultSet rs=statement.getResultSet()){
+        assertEquals(statement,rs.getStatement());
+        checkResultSetMetadata(rs);
+        checkResultSet(rs);
+      }
+       assertFalse(statement.getMoreResults());
+    }
+   }
+ }

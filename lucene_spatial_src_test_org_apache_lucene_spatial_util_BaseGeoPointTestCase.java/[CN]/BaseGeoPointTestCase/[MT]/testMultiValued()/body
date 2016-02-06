@@ -1,0 +1,90 @@
+{
+  assumeTrue("GeoPoint*Query is too slow otherwise",TEST_NIGHTLY || forceSmall() == false);
+  int numPoints=atLeast(10000);
+  double[] lats=new double[2 * numPoints];
+  double[] lons=new double[2 * numPoints];
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  initIndexWriterConfig(FIELD_NAME,iwc);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir,iwc);
+  boolean small=random().nextBoolean();
+  for (int id=0; id < numPoints; id++) {
+    Document doc=new Document();
+    lats[2 * id]=randomLat(small);
+    lons[2 * id]=randomLon(small);
+    doc.add(newStringField("id","" + id,Field.Store.YES));
+    addPointToDoc(FIELD_NAME,doc,lats[2 * id],lons[2 * id]);
+    lats[2 * id + 1]=randomLat(small);
+    lons[2 * id + 1]=randomLon(small);
+    addPointToDoc(FIELD_NAME,doc,lats[2 * id + 1],lons[2 * id + 1]);
+    if (VERBOSE) {
+      System.out.println("id=" + id);
+      System.out.println("  lat=" + lats[2 * id] + " lon="+ lons[2 * id]);
+      System.out.println("  lat=" + lats[2 * id + 1] + " lon="+ lons[2 * id + 1]);
+    }
+    w.addDocument(doc);
+  }
+  if (random().nextBoolean()) {
+    w.forceMerge(1);
+  }
+  IndexReader r=w.getReader();
+  w.close();
+  IndexSearcher s=newSearcher(r,false);
+  int iters=atLeast(75);
+  for (int iter=0; iter < iters; iter++) {
+    GeoRect rect=randomRect(small,small == false);
+    if (VERBOSE) {
+      System.out.println("\nTEST: iter=" + iter + " rect="+ rect);
+    }
+    Query query=newRectQuery(FIELD_NAME,rect);
+    final FixedBitSet hits=new FixedBitSet(r.maxDoc());
+    s.search(query,new SimpleCollector(){
+      private int docBase;
+      @Override public boolean needsScores(){
+        return false;
+      }
+      @Override protected void doSetNextReader(      LeafReaderContext context) throws IOException {
+        docBase=context.docBase;
+      }
+      @Override public void collect(      int doc){
+        hits.set(docBase + doc);
+      }
+    }
+);
+    boolean fail=false;
+    for (int docID=0; docID < lats.length / 2; docID++) {
+      double latDoc1=lats[2 * docID];
+      double lonDoc1=lons[2 * docID];
+      double latDoc2=lats[2 * docID + 1];
+      double lonDoc2=lons[2 * docID + 1];
+      Boolean result1=rectContainsPoint(rect,latDoc1,lonDoc1);
+      if (result1 == null) {
+        continue;
+      }
+      Boolean result2=rectContainsPoint(rect,latDoc2,lonDoc2);
+      if (result2 == null) {
+        continue;
+      }
+      boolean expected=result1 == Boolean.TRUE || result2 == Boolean.TRUE;
+      if (hits.get(docID) != expected) {
+        String id=s.doc(docID).get("id");
+        if (expected) {
+          System.out.println(Thread.currentThread().getName() + ": id=" + id+ " docID="+ docID+ " should match but did not");
+        }
+ else {
+          System.out.println(Thread.currentThread().getName() + ": id=" + id+ " docID="+ docID+ " should not match but did");
+        }
+        System.out.println("  rect=" + rect);
+        System.out.println("  lat=" + latDoc1 + " lon="+ lonDoc1+ "\n  lat="+ latDoc2+ " lon="+ lonDoc2);
+        System.out.println("  result1=" + result1 + " result2="+ result2);
+        fail=true;
+      }
+    }
+    if (fail) {
+      fail("some hits were wrong");
+    }
+  }
+  r.close();
+  dir.close();
+}

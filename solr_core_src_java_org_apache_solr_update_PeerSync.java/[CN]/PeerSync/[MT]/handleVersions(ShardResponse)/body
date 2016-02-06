@@ -2,7 +2,11 @@
   List<Long> otherVersions=(List<Long>)srsp.getSolrResponse().getResponse().get("versions");
   SyncShardRequest sreq=(SyncShardRequest)srsp.getShardRequest();
   sreq.reportedVersions=otherVersions;
-  log.info(msg() + " Received " + otherVersions.size()+ " versions from "+ sreq.shards[0]);
+  Object fingerprint=srsp.getSolrResponse().getResponse().get("fingerprint");
+  log.info(msg() + " Received " + otherVersions.size()+ " versions from "+ sreq.shards[0]+ " fingerprint:"+ fingerprint);
+  if (fingerprint != null) {
+    sreq.fingerprint=IndexFingerprint.fromObject(fingerprint);
+  }
   if (otherVersions.size() == 0) {
     return getNoVersionsIsSuccess;
   }
@@ -13,12 +17,13 @@
   }
   long otherHigh=percentile(otherVersions,.2f);
   long otherLow=percentile(otherVersions,.8f);
+  long otherHighest=otherVersions.get(0);
   if (ourHighThreshold < otherLow) {
-    log.info(msg() + " Our versions are too old. ourHighThreshold=" + ourHighThreshold+ " otherLowThreshold="+ otherLow);
+    log.info(msg() + " Our versions are too old. ourHighThreshold=" + ourHighThreshold+ " otherLowThreshold="+ otherLow+ " ourHighest="+ ourHighest+ " otherHighest="+ otherHighest);
     return false;
   }
   if (ourLowThreshold > otherHigh) {
-    log.info(msg() + " Our versions are newer. ourLowThreshold=" + ourLowThreshold+ " otherHigh="+ otherHigh);
+    log.info(msg() + " Our versions are newer. ourLowThreshold=" + ourLowThreshold+ " otherHigh="+ otherHigh+ " ourHighest="+ ourHighest+ " otherHighest="+ otherHighest);
     return true;
   }
   List<Long> toRequest=new ArrayList<>();
@@ -32,7 +37,10 @@
   }
   sreq.requestedUpdates=toRequest;
   if (toRequest.isEmpty()) {
-    log.info(msg() + " Our versions are newer. ourLowThreshold=" + ourLowThreshold+ " otherHigh="+ otherHigh);
+    log.info(msg() + " No additional versions requested. ourLowThreshold=" + ourLowThreshold+ " otherHigh="+ otherHigh+ " ourHighest="+ ourHighest+ " otherHighest="+ otherHighest);
+    if (doFingerprint) {
+      sreq.doFingerprintComparison=true;
+    }
     return true;
   }
   if (toRequest.size() > maxUpdates) {

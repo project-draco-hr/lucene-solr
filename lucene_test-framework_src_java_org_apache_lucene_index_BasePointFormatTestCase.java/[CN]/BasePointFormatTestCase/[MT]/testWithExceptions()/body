@@ -1,0 +1,58 @@
+{
+  int numDocs=atLeast(10000);
+  int numBytesPerDim=TestUtil.nextInt(random(),2,PointValues.MAX_NUM_BYTES);
+  int numDims=TestUtil.nextInt(random(),1,PointValues.MAX_DIMENSIONS);
+  byte[][][] docValues=new byte[numDocs][][];
+  for (int docID=0; docID < numDocs; docID++) {
+    byte[][] values=new byte[numDims][];
+    for (int dim=0; dim < numDims; dim++) {
+      values[dim]=new byte[numBytesPerDim];
+      random().nextBytes(values[dim]);
+    }
+    docValues[docID]=values;
+  }
+  boolean done=false;
+  while (done == false) {
+    try (MockDirectoryWrapper dir=newMockFSDirectory(createTempDir())){
+      try {
+        dir.setRandomIOExceptionRate(0.05);
+        dir.setRandomIOExceptionRateOnOpen(0.05);
+        verify(dir,docValues,null,numDims,numBytesPerDim,true);
+      }
+ catch (      IllegalStateException ise) {
+        if (ise.getMessage().contains("this writer hit an unrecoverable error")) {
+          Throwable cause=ise.getCause();
+          if (cause != null && cause.getMessage().contains("a random IOException")) {
+            done=true;
+          }
+ else {
+            throw ise;
+          }
+        }
+ else {
+          throw ise;
+        }
+      }
+catch (      AssertionError ae) {
+        if (ae.getMessage().contains("does not exist; files=")) {
+          done=true;
+        }
+ else {
+          throw ae;
+        }
+      }
+catch (      IllegalArgumentException iae) {
+        assertTrue(iae.getMessage().contains("either increase maxMBSortInHeap or decrease maxPointsInLeafNode"));
+      }
+catch (      IOException ioe) {
+        String message=ioe.getMessage();
+        if (message.contains("a random IOException") || message.contains("background merge hit exception")) {
+          done=true;
+        }
+ else {
+          throw ioe;
+        }
+      }
+    }
+   }
+}
