@@ -112,21 +112,18 @@
   }
   ModifiableSolrParams params=new ModifiableSolrParams();
   params.set("commitWithin",10);
-  add(cloudClient,params,getDoc("id",300));
-  final List<SolrClient> clientsToCheck=new ArrayList<>(clients);
-  TimeOut timeout=new TimeOut(45,TimeUnit.SECONDS);
-  do {
-    final Iterator<SolrClient> it=clientsToCheck.iterator();
-    while (it.hasNext()) {
-      final SolrClient sc=it.next();
-      if ((before + 1) == sc.query(new SolrQuery("*:*")).getResults().getNumFound()) {
-        it.remove();
-      }
-    }
-    Thread.sleep(100);
-  }
- while (!clientsToCheck.isEmpty() && !timeout.hasTimedOut());
-  assertTrue("commitWithin did not work on some nodes: " + clientsToCheck,clientsToCheck.isEmpty());
+  add(cloudClient,params,getDoc("id",300),getDoc("id",301));
+  waitForDocCount(before + 2,30000,"add commitWithin did not work");
+  UpdateRequest deleteByIdReq=new UpdateRequest();
+  deleteByIdReq.deleteById("300");
+  deleteByIdReq.setCommitWithin(10);
+  deleteByIdReq.process(cloudClient);
+  waitForDocCount(before + 1,30000,"deleteById commitWithin did not work");
+  UpdateRequest deleteByQueryReq=new UpdateRequest();
+  deleteByQueryReq.deleteByQuery("id:301");
+  deleteByQueryReq.setCommitWithin(10);
+  deleteByQueryReq.process(cloudClient);
+  waitForDocCount(before,30000,"deleteByQuery commitWithin did not work");
   doOptimisticLockingAndUpdating();
   testShardParamVariations();
   testMultipleCollections();
