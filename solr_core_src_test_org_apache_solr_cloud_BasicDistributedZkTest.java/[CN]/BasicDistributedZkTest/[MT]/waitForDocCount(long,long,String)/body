@@ -1,12 +1,16 @@
 {
   RTimer timer=new RTimer();
   long timeout=(long)timer.getTime() + waitMillis;
-  while (cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound() != expectedNumFound) {
-    if (timeout <= (long)timer.getTime()) {
-      fail(failureMessage);
+  ClusterState clusterState=getCommonCloudSolrClient().getZkStateReader().getClusterState();
+  DocCollection dColl=clusterState.getCollection(DEFAULT_COLLECTION);
+  long docTotal=-1;
+  while (docTotal != expectedNumFound && timeout > (long)timer.getTime()) {
+    docTotal=checkSlicesSameCounts(dColl);
+    if (docTotal != expectedNumFound) {
+      Thread.sleep(100);
     }
-    Thread.sleep(100);
   }
+  assertEquals(failureMessage,expectedNumFound,docTotal);
   for (  SolrClient client : clients) {
     assertEquals(failureMessage,expectedNumFound,client.query(new SolrQuery("*:*")).getResults().getNumFound());
   }
