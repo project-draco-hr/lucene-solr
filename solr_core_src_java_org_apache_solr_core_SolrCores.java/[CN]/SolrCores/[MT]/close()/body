@@ -11,18 +11,30 @@ synchronized (modifyLock) {
       pendingCloses.clear();
     }
     for (    SolrCore core : coreList) {
-      MDCLoggingContext.setCore(core);
+      ExecutorService coreCloseExecutor=ExecutorUtil.newMDCAwareFixedThreadPool(Integer.MAX_VALUE,new DefaultSolrThreadFactory("coreCloseExecutor"));
       try {
-        core.close();
-      }
- catch (      Throwable e) {
-        SolrException.log(log,"Error shutting down core",e);
-        if (e instanceof Error) {
-          throw (Error)e;
-        }
-      }
+        coreCloseExecutor.submit(new Callable<SolrCore>(){
+          @Override public SolrCore call() throws Exception {
+            MDCLoggingContext.setCore(core);
+            try {
+              core.close();
+            }
+ catch (            Throwable e) {
+              SolrException.log(log,"Error shutting down core",e);
+              if (e instanceof Error) {
+                throw (Error)e;
+              }
+            }
  finally {
-        MDCLoggingContext.clear();
+              MDCLoggingContext.clear();
+            }
+            return core;
+          }
+        }
+);
+      }
+  finally {
+        ExecutorUtil.shutdownAndAwaitTermination(coreCloseExecutor);
       }
     }
   }
