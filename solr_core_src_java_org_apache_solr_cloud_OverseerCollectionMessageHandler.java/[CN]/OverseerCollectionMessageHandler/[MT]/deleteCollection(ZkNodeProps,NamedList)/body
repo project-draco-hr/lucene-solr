@@ -1,6 +1,11 @@
 {
   final String collection=message.getStr(NAME);
   try {
+    if (zkStateReader.getClusterState().getCollectionOrNull(collection) == null) {
+      if (zkStateReader.getZkClient().exists(ZkStateReader.COLLECTIONS_ZKNODE + "/" + collection,true)) {
+        return;
+      }
+    }
     ModifiableSolrParams params=new ModifiableSolrParams();
     params.set(CoreAdminParams.ACTION,CoreAdminAction.UNLOAD.toString());
     params.set(CoreAdminParams.DELETE_INSTANCE_DIR,true);
@@ -10,7 +15,9 @@
     if (asyncId != null) {
       requestMap=new HashMap<>();
     }
-    collectionCmd(message,params,results,null,asyncId,requestMap);
+    Set<String> okayExceptions=new HashSet<>(1);
+    okayExceptions.add(NonExistentCoreException.class.getName());
+    collectionCmd(message,params,results,null,asyncId,requestMap,okayExceptions);
     ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,DELETE.toLower(),NAME,collection);
     Overseer.getInQueue(zkStateReader.getZkClient()).offer(Utils.toJSON(m));
     TimeOut timeout=new TimeOut(30,TimeUnit.SECONDS);
