@@ -1,0 +1,29 @@
+{
+  List<ZkWriteCommand> zkWriteCommands=new ArrayList<ZkWriteCommand>();
+  String nodeName=message.getStr(ZkStateReader.NODE_NAME_PROP);
+  log.info("DownNode state invoked for node: " + nodeName);
+  Set<String> collections=clusterState.getCollections();
+  for (  String collection : collections) {
+    Map<String,Slice> slicesCopy=new LinkedHashMap<>(clusterState.getSlicesMap(collection));
+    Set<Entry<String,Slice>> entries=slicesCopy.entrySet();
+    for (    Entry<String,Slice> entry : entries) {
+      Slice slice=clusterState.getSlice(collection,entry.getKey());
+      Map<String,Replica> newReplicas=new HashMap<String,Replica>();
+      Collection<Replica> replicas=slice.getReplicas();
+      for (      Replica replica : replicas) {
+        Map<String,Object> props=replica.shallowCopy();
+        String rNodeName=replica.getNodeName();
+        if (rNodeName.equals(nodeName)) {
+          log.info("Update replica state for " + replica + " to "+ Replica.State.DOWN.toString());
+          props.put(ZkStateReader.STATE_PROP,Replica.State.DOWN.toString());
+        }
+        Replica newReplica=new Replica(replica.getName(),props);
+        newReplicas.put(replica.getName(),newReplica);
+      }
+      Slice newSlice=new Slice(slice.getName(),newReplicas,slice.shallowCopy());
+      slicesCopy.put(slice.getName(),newSlice);
+    }
+    zkWriteCommands.add(new ZkWriteCommand(collection,clusterState.getCollection(collection).copyWithSlices(slicesCopy)));
+  }
+  return zkWriteCommands;
+}
