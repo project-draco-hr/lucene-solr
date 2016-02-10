@@ -23,39 +23,45 @@
         log.warn("Exception running beforeReconnect command",e);
       }
     }
-    try {
-      connectionStrategy.reconnect(zkServerAddress,client.getZkClientTimeout(),this,new ZkClientConnectionStrategy.ZkUpdate(){
-        @Override public void update(        SolrZooKeeper keeper){
-          try {
-            waitForConnected(Long.MAX_VALUE);
-          }
- catch (          Exception e1) {
-            closeKeeper(keeper);
-            throw new RuntimeException(e1);
-          }
-          log.info("Connection with ZooKeeper reestablished.");
-          try {
-            client.updateKeeper(keeper);
-          }
- catch (          InterruptedException e) {
-            closeKeeper(keeper);
-            Thread.currentThread().interrupt();
-            throw new RuntimeException(e);
-          }
-catch (          Exception t) {
-            closeKeeper(keeper);
-            throw new RuntimeException(t);
-          }
-          if (onReconnect != null) {
-            onReconnect.command();
+    do {
+      try {
+        connectionStrategy.reconnect(zkServerAddress,client.getZkClientTimeout(),this,new ZkClientConnectionStrategy.ZkUpdate(){
+          @Override public void update(          SolrZooKeeper keeper){
+            try {
+              waitForConnected(Long.MAX_VALUE);
+            }
+ catch (            Exception e1) {
+              closeKeeper(keeper);
+              throw new RuntimeException(e1);
+            }
+            log.info("Connection with ZooKeeper reestablished.");
+            try {
+              client.updateKeeper(keeper);
+            }
+ catch (            InterruptedException e) {
+              closeKeeper(keeper);
+              Thread.currentThread().interrupt();
+              throw new RuntimeException(e);
+            }
+catch (            Exception t) {
+              closeKeeper(keeper);
+              throw new RuntimeException(t);
+            }
+            if (onReconnect != null) {
+              onReconnect.command();
+            }
           }
         }
-      }
 );
+        break;
+      }
+ catch (      Exception e) {
+        SolrException.log(log,"",e);
+        log.info("Could not connect due to error, sleeping for 5s and trying agian");
+        waitSleep(1000);
+      }
     }
- catch (    Exception e) {
-      SolrException.log(log,"",e);
-    }
+ while (!isClosed);
     log.info("Connected:" + connected);
   }
  else   if (state == KeeperState.Disconnected) {
