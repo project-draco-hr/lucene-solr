@@ -1,0 +1,45 @@
+{
+  message("top: primary crashed; now pick replica to promote");
+  long maxSearchingVersion=-1;
+  NodeProcess replicaToPromote=null;
+  for (  NodeProcess node : nodes) {
+    if (node != null) {
+      message("ask " + node + " for its current searching version");
+      long searchingVersion;
+      try {
+        searchingVersion=node.getSearchingVersion();
+      }
+ catch (      Throwable t) {
+        message("top: hit SocketException during getSearchingVersion with R" + node.id + "; skipping");
+        t.printStackTrace(System.out);
+        continue;
+      }
+      message(node + " has searchingVersion=" + searchingVersion);
+      if (searchingVersion > maxSearchingVersion) {
+        maxSearchingVersion=searchingVersion;
+        replicaToPromote=node;
+      }
+    }
+  }
+  if (replicaToPromote == null) {
+    message("top: no replicas running; skipping primary promotion");
+    return;
+  }
+  message("top: promote " + replicaToPromote + " version="+ maxSearchingVersion+ "; now commit");
+  try {
+    replicaToPromote.commit();
+  }
+ catch (  Throwable t) {
+    message("top: hit exception during commit with R" + replicaToPromote.id + "; skipping");
+    t.printStackTrace(System.out);
+    return;
+  }
+  message("top: now shutdown " + replicaToPromote);
+  if (replicaToPromote.shutdown() == false) {
+    message("top: shutdown failed for R" + replicaToPromote.id + "; skipping primary promotion");
+    return;
+  }
+  int id=replicaToPromote.id;
+  message("top: now startPrimary " + replicaToPromote);
+  startPrimary(replicaToPromote.id);
+}

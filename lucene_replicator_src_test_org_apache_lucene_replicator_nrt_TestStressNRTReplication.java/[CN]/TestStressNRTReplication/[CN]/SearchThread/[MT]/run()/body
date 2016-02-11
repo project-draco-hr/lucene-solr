@@ -1,0 +1,122 @@
+{
+  Query theQuery=new TermQuery(new Term("body","the"));
+  Map<Integer,Connection> connections=new HashMap<>();
+  while (stop.get() == false) {
+    NodeProcess node=nodes[random().nextInt(nodes.length)];
+    if (node == null || node.isOpen == false) {
+      continue;
+    }
+    if (node.lock.tryLock() == false) {
+      continue;
+    }
+    boolean nodeIsPrimary=node == primary;
+    try {
+      Thread.currentThread().setName("Searcher node=" + node);
+      Connection c=connections.get(node.id);
+      long version;
+      try {
+        if (c == null) {
+          c=new Connection(node.tcpPort);
+          connections.put(node.id,c);
+        }
+ else {
+        }
+        c.out.writeByte(SimplePrimaryNode.CMD_SEARCH);
+        c.flush();
+        while (c.sockIn.available() == 0) {
+          if (stop.get()) {
+            break;
+          }
+          if (node.isOpen == false) {
+            throw new IOException("node closed");
+          }
+          Thread.sleep(1);
+        }
+        version=c.in.readVLong();
+        while (c.sockIn.available() == 0) {
+          if (stop.get()) {
+            break;
+          }
+          if (node.isOpen == false) {
+            throw new IOException("node closed");
+          }
+          Thread.sleep(1);
+        }
+        int hitCount=c.in.readVInt();
+        Integer oldHitCount=hitCounts.get(version);
+        if (oldHitCount == null) {
+          hitCounts.put(version,hitCount);
+          message("top: searcher: record search hitCount version=" + version + " hitCount="+ hitCount+ " node="+ node);
+          if (nodeIsPrimary && version > lastPrimaryVersion) {
+            message("top: searcher: set lastPrimaryVersion=" + lastPrimaryVersion + " vs "+ version);
+            lastPrimaryVersion=version;
+          }
+        }
+ else {
+          if (oldHitCount.intValue() != hitCount) {
+            failed.set(true);
+            stop.set(true);
+            message("top: searcher: wrong version hitCount: version=" + version + " oldHitCount="+ oldHitCount.intValue()+ " hitCount="+ hitCount);
+            fail("version=" + version + " oldHitCount="+ oldHitCount.intValue()+ " hitCount="+ hitCount);
+          }
+        }
+      }
+ catch (      IOException ioe) {
+        IOUtils.closeWhileHandlingException(c);
+        connections.remove(node.id);
+        continue;
+      }
+      Integer expectedAtLeastHitCount=versionToMarker.get(version);
+      if (expectedAtLeastHitCount != null && expectedAtLeastHitCount > 0 && random().nextInt(10) == 7) {
+        try {
+          c.out.writeByte(SimplePrimaryNode.CMD_MARKER_SEARCH);
+          c.out.writeVInt(expectedAtLeastHitCount);
+          c.flush();
+          while (c.sockIn.available() == 0) {
+            if (stop.get()) {
+              break;
+            }
+            if (node.isOpen == false) {
+              throw new IOException("node died");
+            }
+            Thread.sleep(1);
+          }
+          version=c.in.readVLong();
+          while (c.sockIn.available() == 0) {
+            if (stop.get()) {
+              break;
+            }
+            if (node.isOpen == false) {
+              throw new IOException("node died");
+            }
+            Thread.sleep(1);
+          }
+          int hitCount=c.in.readVInt();
+          if (hitCount < expectedAtLeastHitCount) {
+            String failMessage="node=" + node + ": documents were lost version="+ version+ " hitCount="+ hitCount+ " vs expectedAtLeastHitCount="+ expectedAtLeastHitCount;
+            message(failMessage);
+            failed.set(true);
+            stop.set(true);
+            fail(failMessage);
+          }
+        }
+ catch (        IOException ioe) {
+          IOUtils.closeWhileHandlingException(c);
+          connections.remove(node.id);
+          continue;
+        }
+      }
+      Thread.sleep(10);
+    }
+ catch (    Throwable t) {
+      failed.set(true);
+      stop.set(true);
+      throw new RuntimeException(t);
+    }
+ finally {
+      node.lock.unlock();
+    }
+  }
+  System.out.println("Searcher: now stop");
+  IOUtils.closeWhileHandlingException(connections.values());
+}

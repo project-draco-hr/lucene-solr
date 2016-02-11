@@ -1,0 +1,34 @@
+{
+  Path path1=createTempDir("1");
+  NodeProcess primary=startNode(-1,0,path1,-1,true);
+  Path path2=createTempDir("2");
+  NodeProcess replica=startNode(primary.tcpPort,1,path2,-1,true);
+  sendReplicasToPrimary(primary,replica);
+  LineFileDocs docs=new LineFileDocs(random());
+  try (Connection c=new Connection(primary.tcpPort)){
+    c.out.writeByte(SimplePrimaryNode.CMD_INDEXING);
+    for (int i=0; i < 100; i++) {
+      Document doc=docs.nextDoc();
+      primary.addOrUpdateDocument(c,doc,false);
+    }
+  }
+   long primaryVersion1=primary.flush(0);
+  assertTrue(primaryVersion1 > 0);
+  Thread.sleep(TestUtil.nextInt(random(),1,30));
+  primary.crash();
+  try (Connection c=new Connection(replica.tcpPort)){
+    c.out.writeByte(SimplePrimaryNode.CMD_SEARCH_ALL);
+    c.flush();
+    long version=c.in.readVLong();
+    int hitCount=c.in.readVInt();
+    if (version == 0) {
+      assertEquals(0,hitCount);
+    }
+ else {
+      assertEquals(primaryVersion1,version);
+      assertEquals(100,hitCount);
+    }
+  }
+   primary.close();
+  replica.close();
+}

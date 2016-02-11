@@ -1,0 +1,41 @@
+{
+  super(id,writer.getDirectory(),searcherFactory,printStream);
+  message("top: now init primary");
+  this.writer=writer;
+  this.primaryGen=primaryGen;
+  try {
+    writer.getConfig().setMergedSegmentWarmer(new PreCopyMergedSegmentWarmer(this));
+    message("IWC:\n" + writer.getConfig());
+    message("dir:\n" + writer.getDirectory());
+    message("commitData: " + writer.getCommitData());
+    Map<String,String> commitData=new HashMap<>(writer.getCommitData());
+    commitData.put(PRIMARY_GEN_KEY,Long.toString(primaryGen));
+    if (commitData.get(VERSION_KEY) == null) {
+      commitData.put(VERSION_KEY,"0");
+      message("add initial commitData version=0");
+    }
+ else {
+      message("keep current commitData version=" + commitData.get(VERSION_KEY));
+    }
+    writer.setCommitData(commitData,false);
+    if (forcePrimaryVersion != -1) {
+      message("now forcePrimaryVersion to version=" + forcePrimaryVersion);
+      writer.advanceSegmentInfosVersion(forcePrimaryVersion);
+    }
+    mgr=new SearcherManager(writer,true,true,searcherFactory);
+    setCurrentInfos(Collections.<String>emptySet());
+    message("init: infos version=" + curInfos.getVersion());
+    IndexSearcher s=mgr.acquire();
+    try {
+      message("init: marker count: " + s.count(new TermQuery(new Term("marker","marker"))));
+    }
+  finally {
+      mgr.release(s);
+    }
+  }
+ catch (  Throwable t) {
+    message("init: exception");
+    t.printStackTrace(printStream);
+    throw new RuntimeException(t);
+  }
+}

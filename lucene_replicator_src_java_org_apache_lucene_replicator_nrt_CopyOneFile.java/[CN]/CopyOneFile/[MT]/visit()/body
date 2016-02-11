@@ -1,0 +1,28 @@
+{
+  for (int i=0; i < 10; i++) {
+    long bytesLeft=bytesToCopy - bytesCopied;
+    if (bytesLeft == 0) {
+      long checksum=out.getChecksum();
+      if (checksum != metaData.checksum) {
+        dest.message("file " + tmpName + ": checksum mismatch after copy (bits flipped during network copy?) after-copy checksum="+ checksum+ " vs expected="+ metaData.checksum+ "; cancel job");
+        throw new IOException("file " + name + ": checksum mismatch after file copy");
+      }
+      long actualChecksumIn=in.readLong();
+      if (actualChecksumIn != checksum) {
+        dest.message("file " + tmpName + ": checksum claimed by primary disagrees with the file's footer: claimed checksum="+ checksum+ " vs actual="+ actualChecksumIn);
+        throw new IOException("file " + name + ": checksum mismatch after file copy");
+      }
+      out.writeLong(checksum);
+      close();
+      if (Node.VERBOSE_FILES) {
+        dest.message(String.format(Locale.ROOT,"file %s: done copying [%s, %.3fms]",name,Node.bytesToString(metaData.length),(System.nanoTime() - copyStartNS) / 1000000.0));
+      }
+      return true;
+    }
+    int toCopy=(int)Math.min(bytesLeft,buffer.length);
+    in.readBytes(buffer,0,toCopy);
+    out.writeBytes(buffer,0,toCopy);
+    bytesCopied+=toCopy;
+  }
+  return false;
+}

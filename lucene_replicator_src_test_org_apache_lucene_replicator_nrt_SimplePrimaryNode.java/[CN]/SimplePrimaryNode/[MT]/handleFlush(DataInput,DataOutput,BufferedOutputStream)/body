@@ -1,0 +1,35 @@
+{
+  Thread.currentThread().setName("flush");
+  int atLeastMarkerCount=topIn.readVInt();
+  int[] replicaTCPPorts;
+  int[] replicaIDs;
+synchronized (this) {
+    replicaTCPPorts=this.replicaTCPPorts;
+    replicaIDs=this.replicaIDs;
+  }
+  message("now flush; " + replicaIDs.length + " replicas");
+  if (flushAndRefresh()) {
+    verifyAtLeastMarkerCount(atLeastMarkerCount,null);
+    long version=getCopyStateVersion();
+    message("send flushed version=" + version);
+    topOut.writeLong(version);
+    bos.flush();
+    for (int i=0; i < replicaIDs.length; i++) {
+      int replicaID=replicaIDs[i];
+      try (Connection c=new Connection(replicaTCPPorts[i])){
+        message("send NEW_NRT_POINT to R" + replicaID + " at tcpPort="+ replicaTCPPorts[i]);
+        c.out.writeByte(SimpleReplicaNode.CMD_NEW_NRT_POINT);
+        c.out.writeVLong(version);
+        c.out.writeVLong(primaryGen);
+        c.out.writeInt(tcpPort);
+        c.flush();
+      }
+ catch (      Throwable t) {
+        message("top: failed to connect R" + replicaID + " for newNRTPoint; skipping: "+ t.getMessage());
+      }
+    }
+  }
+ else {
+    topOut.writeLong(-getCopyStateVersion());
+  }
+}

@@ -1,0 +1,138 @@
+{
+  outer:   while (true) {
+    byte cmd;
+    while (true) {
+      if (is.available() > 0) {
+        break;
+      }
+      if (stop.get()) {
+        return;
+      }
+      Thread.sleep(10);
+    }
+    try {
+      cmd=in.readByte();
+    }
+ catch (    EOFException eofe) {
+      break;
+    }
+switch (cmd) {
+case CMD_FLUSH:
+      handleFlush(in,out,bos);
+    break;
+case CMD_FETCH_FILES:
+  handleFetchFiles(random,socket,in,out,bos);
+break;
+case CMD_INDEXING:
+handleIndexing(socket,stop,is,in,out,bos);
+break;
+case CMD_GET_SEARCHING_VERSION:
+out.writeVLong(getCurrentSearchingVersion());
+break;
+case CMD_SEARCH:
+{
+Thread.currentThread().setName("search");
+IndexSearcher searcher=mgr.acquire();
+try {
+long version=((DirectoryReader)searcher.getIndexReader()).getVersion();
+int hitCount=searcher.count(new TermQuery(new Term("body","the")));
+out.writeVLong(version);
+out.writeVInt(hitCount);
+bos.flush();
+}
+  finally {
+mgr.release(searcher);
+}
+bos.flush();
+}
+continue outer;
+case CMD_SEARCH_ALL:
+{
+Thread.currentThread().setName("search all");
+IndexSearcher searcher=mgr.acquire();
+try {
+long version=((DirectoryReader)searcher.getIndexReader()).getVersion();
+int hitCount=searcher.count(new MatchAllDocsQuery());
+out.writeVLong(version);
+out.writeVInt(hitCount);
+bos.flush();
+}
+  finally {
+mgr.release(searcher);
+}
+}
+continue outer;
+case CMD_MARKER_SEARCH:
+{
+Thread.currentThread().setName("msearch");
+int expectedAtLeastCount=in.readVInt();
+verifyAtLeastMarkerCount(expectedAtLeastCount,out);
+bos.flush();
+}
+continue outer;
+case CMD_COMMIT:
+Thread.currentThread().setName("commit");
+commit();
+out.writeByte((byte)1);
+break;
+case CMD_CLOSE:
+Thread.currentThread().setName("close");
+message("top close: now close server socket");
+ss.close();
+out.writeByte((byte)1);
+message("top close: done close server socket");
+break;
+case CMD_SET_REPLICAS:
+Thread.currentThread().setName("set repls");
+int count=in.readVInt();
+int[] replicaIDs=new int[count];
+int[] replicaTCPPorts=new int[count];
+for (int i=0; i < count; i++) {
+replicaIDs[i]=in.readVInt();
+replicaTCPPorts[i]=in.readVInt();
+}
+out.writeByte((byte)1);
+setReplicas(replicaIDs,replicaTCPPorts);
+break;
+case CMD_NEW_REPLICA:
+Thread.currentThread().setName("new repl");
+int replicaTCPPort=in.readVInt();
+message("new replica: " + warmingSegments.size() + " current warming merges");
+synchronized (warmingSegments) {
+for (MergePreCopy preCopy : warmingSegments) {
+message("warming segment " + preCopy.files.keySet());
+boolean found=false;
+synchronized (preCopy.connections) {
+for (Connection c : preCopy.connections) {
+if (c.destTCPPort == replicaTCPPort) {
+found=true;
+break;
+}
+}
+}
+if (found) {
+message("this replica is already warming this segment; skipping");
+continue;
+}
+Connection c=new Connection(replicaTCPPort);
+if (preCopy.tryAddConnection(c) == false) {
+message("failed to add connection to segment warmer (too late); closing");
+c.close();
+}
+c.out.writeByte(SimpleReplicaNode.CMD_PRE_COPY_MERGE);
+c.out.writeVLong(primaryGen);
+c.out.writeVInt(tcpPort);
+SimpleServer.writeFilesMetaData(c.out,preCopy.files);
+c.flush();
+c.s.shutdownOutput();
+message("successfully started warming");
+}
+}
+break;
+default :
+throw new IllegalArgumentException("unrecognized cmd=" + cmd + " via socket="+ socket);
+}
+bos.flush();
+break;
+}
+}

@@ -1,0 +1,54 @@
+{
+  CodecUtil.writeIndexHeader(out,"segments",VERSION_CURRENT,StringHelper.randomId(),Long.toString(generation,Character.MAX_RADIX));
+  out.writeVInt(Version.LATEST.major);
+  out.writeVInt(Version.LATEST.minor);
+  out.writeVInt(Version.LATEST.bugfix);
+  out.writeLong(version);
+  out.writeInt(counter);
+  out.writeInt(size());
+  if (size() > 0) {
+    Version minSegmentVersion=null;
+    for (    SegmentCommitInfo siPerCommit : this) {
+      Version segmentVersion=siPerCommit.info.getVersion();
+      if (minSegmentVersion == null || segmentVersion.onOrAfter(minSegmentVersion) == false) {
+        minSegmentVersion=segmentVersion;
+      }
+    }
+    out.writeVInt(minSegmentVersion.major);
+    out.writeVInt(minSegmentVersion.minor);
+    out.writeVInt(minSegmentVersion.bugfix);
+  }
+  for (  SegmentCommitInfo siPerCommit : this) {
+    SegmentInfo si=siPerCommit.info;
+    out.writeString(si.name);
+    byte segmentID[]=si.getId();
+    if (segmentID == null) {
+      out.writeByte((byte)0);
+    }
+ else {
+      if (segmentID.length != StringHelper.ID_LENGTH) {
+        throw new IllegalStateException("cannot write segment: invalid id segment=" + si.name + "id="+ StringHelper.idToString(segmentID));
+      }
+      out.writeByte((byte)1);
+      out.writeBytes(segmentID,segmentID.length);
+    }
+    out.writeString(si.getCodec().getName());
+    out.writeLong(siPerCommit.getDelGen());
+    int delCount=siPerCommit.getDelCount();
+    if (delCount < 0 || delCount > si.maxDoc()) {
+      throw new IllegalStateException("cannot write segment: invalid maxDoc segment=" + si.name + " maxDoc="+ si.maxDoc()+ " delCount="+ delCount);
+    }
+    out.writeInt(delCount);
+    out.writeLong(siPerCommit.getFieldInfosGen());
+    out.writeLong(siPerCommit.getDocValuesGen());
+    out.writeSetOfStrings(siPerCommit.getFieldInfosFiles());
+    final Map<Integer,Set<String>> dvUpdatesFiles=siPerCommit.getDocValuesUpdatesFiles();
+    out.writeInt(dvUpdatesFiles.size());
+    for (    Entry<Integer,Set<String>> e : dvUpdatesFiles.entrySet()) {
+      out.writeInt(e.getKey());
+      out.writeSetOfStrings(e.getValue());
+    }
+  }
+  out.writeMapOfStrings(userData);
+  CodecUtil.writeFooter(out);
+}

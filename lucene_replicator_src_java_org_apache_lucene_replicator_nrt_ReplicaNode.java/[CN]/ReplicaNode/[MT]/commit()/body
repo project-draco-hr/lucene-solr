@@ -1,0 +1,30 @@
+{
+synchronized (commitLock) {
+    SegmentInfos infos;
+    Collection<String> indexFiles;
+synchronized (this) {
+      infos=((SegmentInfosSearcherManager)mgr).getCurrentInfos();
+      indexFiles=infos.files(false);
+      deleter.incRef(indexFiles);
+    }
+    message("top: commit primaryGen=" + lastPrimaryGen + " infos="+ infos.toString()+ " files="+ indexFiles);
+    dir.sync(indexFiles);
+    Map<String,String> commitData=new HashMap<>();
+    commitData.put(PRIMARY_GEN_KEY,Long.toString(lastPrimaryGen));
+    commitData.put(VERSION_KEY,Long.toString(getCurrentSearchingVersion()));
+    infos.setUserData(commitData,false);
+    infos.commit(dir);
+    if (mgr != null) {
+      ((SegmentInfosSearcherManager)mgr).getCurrentInfos().updateGeneration(infos);
+    }
+    String segmentsFileName=infos.getSegmentsFileName();
+    message("top: commit wrote segments file " + segmentsFileName + " version="+ infos.getVersion()+ " sis="+ infos.toString()+ " commitData="+ commitData);
+    deleter.incRef(Collections.singletonList(segmentsFileName));
+    message("top: commit decRef lastCommitFiles=" + lastCommitFiles);
+    deleter.decRef(lastCommitFiles);
+    lastCommitFiles.clear();
+    lastCommitFiles.addAll(indexFiles);
+    lastCommitFiles.add(segmentsFileName);
+    message("top: commit version=" + infos.getVersion() + " files now "+ lastCommitFiles);
+  }
+}

@@ -1,0 +1,103 @@
+{
+  for (  String name : new ArrayList<>(files)) {
+    int damage=randomState.nextInt(6);
+    String action=null;
+switch (damage) {
+case 0:
+      action="deleted";
+    deleteFile(name);
+  break;
+case 1:
+action="zeroed";
+long length;
+try {
+length=fileLength(name);
+}
+ catch (IOException ioe) {
+continue;
+}
+byte[] zeroes=new byte[256];
+long upto=0;
+try (IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState))){
+while (upto < length) {
+final int limit=(int)Math.min(length - upto,zeroes.length);
+out.writeBytes(zeroes,0,limit);
+upto+=limit;
+}
+}
+ catch (IOException ioe) {
+}
+break;
+case 2:
+{
+action="partially truncated";
+String tempFileName=null;
+try (IndexOutput tempOut=in.createTempOutput("name","mdw_corrupt",LuceneTestCase.newIOContext(randomState));IndexInput ii=in.openInput(name,LuceneTestCase.newIOContext(randomState))){
+tempFileName=tempOut.getName();
+tempOut.copyBytes(ii,ii.length() / 2);
+}
+ catch (IOException ioe) {
+}
+deleteFile(name);
+try (IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState));IndexInput ii=in.openInput(tempFileName,LuceneTestCase.newIOContext(randomState))){
+out.copyBytes(ii,ii.length());
+}
+ catch (IOException ioe) {
+}
+deleteFile(tempFileName);
+}
+break;
+case 3:
+action="didn't change";
+break;
+case 4:
+{
+String tempFileName=null;
+try (IndexOutput tempOut=in.createTempOutput("name","mdw_corrupt",LuceneTestCase.newIOContext(randomState));IndexInput ii=in.openInput(name,LuceneTestCase.newIOContext(randomState))){
+tempFileName=tempOut.getName();
+if (ii.length() > 0) {
+long byteToCorrupt=(long)(randomState.nextDouble() * ii.length());
+if (byteToCorrupt > 0) {
+tempOut.copyBytes(ii,byteToCorrupt);
+}
+byte b=ii.readByte();
+int bitToFlip=randomState.nextInt(8);
+b=(byte)(b ^ (1 << bitToFlip));
+tempOut.writeByte(b);
+action="flip bit " + bitToFlip + " of byte "+ byteToCorrupt+ " out of "+ ii.length()+ " bytes";
+long bytesLeft=ii.length() - byteToCorrupt - 1;
+if (bytesLeft > 0) {
+tempOut.copyBytes(ii,bytesLeft);
+}
+}
+ else {
+action="didn't change";
+}
+}
+ catch (IOException ioe) {
+}
+deleteFile(name);
+try (IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState));IndexInput ii=in.openInput(tempFileName,LuceneTestCase.newIOContext(randomState))){
+out.copyBytes(ii,ii.length());
+}
+ catch (IOException ioe) {
+}
+deleteFile(tempFileName);
+}
+break;
+case 5:
+action="fully truncated";
+deleteFile(name);
+try (IndexOutput out=in.createOutput(name,LuceneTestCase.newIOContext(randomState))){
+}
+ catch (IOException ioe) {
+}
+break;
+default :
+throw new AssertionError();
+}
+if (LuceneTestCase.VERBOSE) {
+System.out.println("MockDirectoryWrapper: " + action + " unsynced file: "+ name);
+}
+}
+}

@@ -1,0 +1,159 @@
+{
+  outer:   while (true) {
+    byte cmd;
+    while (true) {
+      if (is.available() > 0) {
+        break;
+      }
+      if (stop.get()) {
+        return;
+      }
+      Thread.sleep(10);
+    }
+    try {
+      cmd=in.readByte();
+    }
+ catch (    EOFException eofe) {
+      break;
+    }
+switch (cmd) {
+case CMD_NEW_NRT_POINT:
+{
+        long version=in.readVLong();
+        long newPrimaryGen=in.readVLong();
+        Thread.currentThread().setName("recv-" + version);
+        curPrimaryTCPPort=in.readInt();
+        message("newNRTPoint primaryTCPPort=" + curPrimaryTCPPort + " version="+ version+ " newPrimaryGen="+ newPrimaryGen);
+        newNRTPoint(newPrimaryGen,version);
+      }
+    break;
+case SimplePrimaryNode.CMD_GET_SEARCHING_VERSION:
+  if (isCopying()) {
+    message("top: getSearchingVersion: now wait for finish sync");
+    while (isCopying() && stop.get() == false) {
+      Thread.sleep(10);
+      message("top: curNRTCopy=" + curNRTCopy);
+    }
+    message("top: getSearchingVersion: done wait for finish sync");
+  }
+if (stop.get() == false) {
+  out.writeVLong(getCurrentSearchingVersion());
+}
+ else {
+  message("top: getSearchingVersion: stop waiting for finish sync: stop is set");
+}
+break;
+case SimplePrimaryNode.CMD_SEARCH:
+{
+Thread.currentThread().setName("search");
+IndexSearcher searcher=mgr.acquire();
+try {
+long version=((DirectoryReader)searcher.getIndexReader()).getVersion();
+int hitCount=searcher.search(new TermQuery(new Term("body","the")),1).totalHits;
+out.writeVLong(version);
+out.writeVInt(hitCount);
+bos.flush();
+}
+  finally {
+mgr.release(searcher);
+}
+}
+continue outer;
+case SimplePrimaryNode.CMD_SEARCH_ALL:
+{
+Thread.currentThread().setName("search all");
+IndexSearcher searcher=mgr.acquire();
+try {
+long version=((DirectoryReader)searcher.getIndexReader()).getVersion();
+int hitCount=searcher.search(new MatchAllDocsQuery(),1).totalHits;
+out.writeVLong(version);
+out.writeVInt(hitCount);
+bos.flush();
+}
+  finally {
+mgr.release(searcher);
+}
+}
+continue outer;
+case SimplePrimaryNode.CMD_MARKER_SEARCH:
+{
+Thread.currentThread().setName("msearch");
+int expectedAtLeastCount=in.readVInt();
+IndexSearcher searcher=mgr.acquire();
+try {
+long version=((DirectoryReader)searcher.getIndexReader()).getVersion();
+int hitCount=searcher.count(new TermQuery(new Term("marker","marker")));
+if (hitCount < expectedAtLeastCount) {
+message("marker search: expectedAtLeastCount=" + expectedAtLeastCount + " but hitCount="+ hitCount);
+TopDocs hits=searcher.search(new TermQuery(new Term("marker","marker")),expectedAtLeastCount);
+List<Integer> seen=new ArrayList<>();
+for (ScoreDoc hit : hits.scoreDocs) {
+Document doc=searcher.doc(hit.doc);
+seen.add(Integer.parseInt(doc.get("docid").substring(1)));
+}
+Collections.sort(seen);
+message("saw markers:");
+for (int marker : seen) {
+message("saw m" + marker);
+}
+}
+out.writeVLong(version);
+out.writeVInt(hitCount);
+bos.flush();
+}
+  finally {
+mgr.release(searcher);
+}
+}
+continue outer;
+case SimplePrimaryNode.CMD_COMMIT:
+Thread.currentThread().setName("commit");
+commit();
+out.writeByte((byte)1);
+break;
+case SimplePrimaryNode.CMD_CLOSE:
+Thread.currentThread().setName("close");
+ss.close();
+out.writeByte((byte)1);
+break outer;
+case CMD_PRE_COPY_MERGE:
+Thread.currentThread().setName("merge copy");
+long newPrimaryGen=in.readVLong();
+curPrimaryTCPPort=in.readVInt();
+Map<String,FileMetaData> files=SimpleServer.readFilesMetaData(in);
+message("done reading files to copy files=" + files.keySet());
+AtomicBoolean finished=new AtomicBoolean();
+CopyJob job=launchPreCopyMerge(finished,newPrimaryGen,files);
+message("done launching copy job files=" + files.keySet());
+boolean success=false;
+try {
+int count=0;
+while (true) {
+if (finished.get() || stop.get()) {
+break;
+}
+Thread.sleep(10);
+count++;
+if (count == 100) {
+message("send merge pre copy keep alive... files=" + files.keySet());
+if (random.nextBoolean()) {
+out.writeByte((byte)0);
+count=0;
+}
+}
+}
+out.writeByte((byte)1);
+bos.flush();
+success=true;
+}
+  finally {
+message("done merge copy files=" + files.keySet() + " success="+ success);
+}
+break;
+default :
+throw new IllegalArgumentException("unrecognized cmd=" + cmd);
+}
+bos.flush();
+break;
+}
+}
