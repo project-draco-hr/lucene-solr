@@ -1,0 +1,21 @@
+{
+  TestMiniSolrCloudCluster.assertFalse(maxTimestampDocKeys.isEmpty());
+  TestMiniSolrCloudCluster.assertTrue("numDocs=" + numDocs + " is not even",(numDocs % 2) == 0);
+  final Long oddFieldValue=new Long(maxTimestampDocKeys.iterator().next().intValue() % 2);
+  final SolrQuery query=new SolrQuery(oddField + ":" + oddFieldValue);
+  query.setSort(timestampField,SolrQuery.ORDER.desc);
+  query.setFields(keyField,oddField,timestampField);
+  query.setRows(1);
+  query.set(CommonParams.SEGMENT_TERMINATE_EARLY,true);
+  TestMiniSolrCloudCluster.assertTrue("numDocs=" + numDocs + " is not quad-able",(numDocs % 4) == 0);
+  query.add("group.field",quadField);
+  query.set("group",true);
+  final QueryResponse rsp=cloudSolrClient.query(query);
+  TestMiniSolrCloudCluster.assertEquals("matches",numDocs / 2,rsp.getGroupResponse().getValues().get(0).getMatches());
+  if (rsp.getGroupResponse().getValues().get(0).getMatches() > 0) {
+    final SolrDocument solrDocument=rsp.getGroupResponse().getValues().get(0).getValues().get(0).getResult().get(0);
+    TestMiniSolrCloudCluster.assertTrue(keyField + " of (" + solrDocument+ ") is not in maxTimestampDocKeys("+ maxTimestampDocKeys+ ")",maxTimestampDocKeys.contains(solrDocument.getFieldValue(keyField)));
+    TestMiniSolrCloudCluster.assertEquals(oddField,oddFieldValue,solrDocument.getFieldValue(oddField));
+  }
+  TestMiniSolrCloudCluster.assertFalse("responseHeader.segmentTerminatedEarly present/true in " + rsp.getResponseHeader(),Boolean.TRUE.equals(rsp.getResponseHeader().get(SolrQueryResponse.RESPONSE_HEADER_SEGMENT_TERMINATED_EARLY_KEY)));
+}

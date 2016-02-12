@@ -1,0 +1,37 @@
+{
+  final String collectionName="testSegmentTerminateEarlyCollection";
+  final TestSegmentTerminateEarlyState tstes=new TestSegmentTerminateEarlyState();
+  File solrXml=new File(SolrTestCaseJ4.TEST_HOME(),"solr-no-core.xml");
+  Builder jettyConfig=JettyConfig.builder();
+  jettyConfig.waitForLoadingCoresToFinish(null);
+  final MiniSolrCloudCluster miniCluster=createMiniSolrCloudCluster();
+  final CloudSolrClient cloudSolrClient=miniCluster.getSolrClient();
+  cloudSolrClient.setDefaultCollection(collectionName);
+  try {
+{
+      final String asyncId=(random().nextBoolean() ? null : "asyncId(" + collectionName + ".create)="+ random().nextInt());
+      final Map<String,String> collectionProperties=new HashMap<>();
+      collectionProperties.put(CoreDescriptor.CORE_CONFIG,"solrconfig-sortingmergepolicyfactory.xml");
+      createCollection(miniCluster,collectionName,null,asyncId,Boolean.TRUE,collectionProperties);
+      if (asyncId != null) {
+        final RequestStatusState state=AbstractFullDistribZkTestBase.getRequestStateAfterCompletion(asyncId,330,cloudSolrClient);
+        assertSame("did not see async createCollection completion",RequestStatusState.COMPLETED,state);
+      }
+    }
+    try (SolrZkClient zkClient=new SolrZkClient(miniCluster.getZkServer().getZkAddress(),AbstractZkTestCase.TIMEOUT,45000,null);ZkStateReader zkStateReader=new ZkStateReader(zkClient)){
+      AbstractDistribZkTestBase.waitForRecoveriesToFinish(collectionName,zkStateReader,true,true,330);
+      tstes.addDocuments(cloudSolrClient,10,10,true);
+      tstes.queryTimestampDescending(cloudSolrClient);
+      tstes.addDocuments(cloudSolrClient,2,10,false);
+      tstes.queryTimestampDescendingSegmentTerminateEarlyYes(cloudSolrClient);
+      tstes.queryTimestampDescendingSegmentTerminateEarlyNo(cloudSolrClient);
+      tstes.queryTimestampDescendingSegmentTerminateEarlyYesGrouped(cloudSolrClient);
+      tstes.queryTimestampAscendingSegmentTerminateEarlyYes(cloudSolrClient);
+      miniCluster.deleteCollection(collectionName);
+      AbstractDistribZkTestBase.waitForCollectionToDisappear(collectionName,zkStateReader,true,true,330);
+    }
+   }
+  finally {
+    miniCluster.shutdown();
+  }
+}

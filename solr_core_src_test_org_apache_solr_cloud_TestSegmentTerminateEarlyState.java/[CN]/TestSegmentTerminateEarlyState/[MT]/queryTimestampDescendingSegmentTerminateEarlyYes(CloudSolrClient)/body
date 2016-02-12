@@ -1,0 +1,39 @@
+{
+  TestMiniSolrCloudCluster.assertFalse(maxTimestampDocKeys.isEmpty());
+  TestMiniSolrCloudCluster.assertTrue("numDocs=" + numDocs + " is not even",(numDocs % 2) == 0);
+  final Long oddFieldValue=new Long(maxTimestampDocKeys.iterator().next().intValue() % 2);
+  final SolrQuery query=new SolrQuery(oddField + ":" + oddFieldValue);
+  query.setSort(timestampField,SolrQuery.ORDER.desc);
+  query.setFields(keyField,oddField,timestampField);
+  final int rowsWanted=1;
+  query.setRows(rowsWanted);
+  final Boolean shardsInfoWanted=(TestMiniSolrCloudCluster.random().nextBoolean() ? null : new Boolean(TestMiniSolrCloudCluster.random().nextBoolean()));
+  if (shardsInfoWanted != null) {
+    query.set(ShardParams.SHARDS_INFO,shardsInfoWanted.booleanValue());
+  }
+  query.set(CommonParams.SEGMENT_TERMINATE_EARLY,true);
+  final QueryResponse rsp=cloudSolrClient.query(query);
+  TestMiniSolrCloudCluster.assertTrue("numFound",rowsWanted <= rsp.getResults().getNumFound());
+  TestMiniSolrCloudCluster.assertTrue("numFound",rsp.getResults().getNumFound() <= numDocs / 2);
+  if (rsp.getResults().getNumFound() > 0) {
+    final SolrDocument solrDocument0=rsp.getResults().get(0);
+    TestMiniSolrCloudCluster.assertTrue(keyField + " of (" + solrDocument0+ ") is not in maxTimestampDocKeys("+ maxTimestampDocKeys+ ")",maxTimestampDocKeys.contains(solrDocument0.getFieldValue(keyField)));
+    TestMiniSolrCloudCluster.assertEquals(oddField,oddFieldValue,rsp.getResults().get(0).getFieldValue(oddField));
+  }
+  TestMiniSolrCloudCluster.assertNotNull("responseHeader.segmentTerminatedEarly missing in " + rsp.getResponseHeader(),rsp.getResponseHeader().get(SolrQueryResponse.RESPONSE_HEADER_SEGMENT_TERMINATED_EARLY_KEY));
+  TestMiniSolrCloudCluster.assertTrue("responseHeader.segmentTerminatedEarly missing/false in " + rsp.getResponseHeader(),Boolean.TRUE.equals(rsp.getResponseHeader().get(SolrQueryResponse.RESPONSE_HEADER_SEGMENT_TERMINATED_EARLY_KEY)));
+  final Object shardsInfo=rsp.getResponse().get(ShardParams.SHARDS_INFO);
+  if (!Boolean.TRUE.equals(shardsInfoWanted)) {
+    TestMiniSolrCloudCluster.assertNull(ShardParams.SHARDS_INFO,shardsInfo);
+  }
+ else {
+    TestMiniSolrCloudCluster.assertNotNull(ShardParams.SHARDS_INFO,shardsInfo);
+    int segmentTerminatedEarlyShardsCount=0;
+    for (    Map.Entry<String,?> si : (SimpleOrderedMap<?>)shardsInfo) {
+      if (Boolean.TRUE.equals(((SimpleOrderedMap)si.getValue()).get(SolrQueryResponse.RESPONSE_HEADER_SEGMENT_TERMINATED_EARLY_KEY))) {
+        segmentTerminatedEarlyShardsCount+=1;
+      }
+    }
+    TestMiniSolrCloudCluster.assertTrue(segmentTerminatedEarlyShardsCount + " shards reported " + SolrQueryResponse.RESPONSE_HEADER_SEGMENT_TERMINATED_EARLY_KEY,(0 < segmentTerminatedEarlyShardsCount));
+  }
+}
