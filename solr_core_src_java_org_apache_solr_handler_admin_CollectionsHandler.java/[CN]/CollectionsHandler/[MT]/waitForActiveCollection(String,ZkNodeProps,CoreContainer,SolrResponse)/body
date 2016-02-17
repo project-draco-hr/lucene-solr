@@ -1,0 +1,51 @@
+{
+  if (response.getResponse().get("exception") != null) {
+    log.info("Not waiting for active collection due to exception: " + response.getResponse().get("exception"));
+    return;
+  }
+  if (response.getResponse().get("failure") != null) {
+  }
+  String replicaNotAlive=null;
+  String replicaState=null;
+  String nodeNotLive=null;
+  CloudConfig ccfg=cc.getConfig().getCloudConfig();
+  Integer numRetries=ccfg.getCreateCollectionWaitTimeTillActive();
+  Boolean checkLeaderOnly=ccfg.isCreateCollectionCheckLeaderActive();
+  log.info("Wait for new collection to be active for at most " + numRetries + " seconds. Check all shard "+ (checkLeaderOnly ? "leaders" : "replicas"));
+  ZkStateReader zkStateReader=cc.getZkController().getZkStateReader();
+  for (int i=0; i < numRetries; i++) {
+    zkStateReader.updateClusterState();
+    ClusterState clusterState=zkStateReader.getClusterState();
+    Collection<Slice> shards=clusterState.getSlices(collectionName);
+    if (shards != null) {
+      replicaNotAlive=null;
+      for (      Slice shard : shards) {
+        Collection<Replica> replicas;
+        if (!checkLeaderOnly)         replicas=shard.getReplicas();
+ else {
+          replicas=new ArrayList<Replica>();
+          replicas.add(shard.getLeader());
+        }
+        for (        Replica replica : replicas) {
+          String state=replica.getStr(ZkStateReader.STATE_PROP);
+          log.debug("Checking replica status, collection={} replica={} state={}",collectionName,replica.getCoreUrl(),state);
+          if (!clusterState.liveNodesContain(replica.getNodeName()) || !state.equals(Replica.State.ACTIVE.toString())) {
+            replicaNotAlive=replica.getCoreUrl();
+            nodeNotLive=replica.getNodeName();
+            replicaState=state;
+            break;
+          }
+        }
+        if (replicaNotAlive != null)         break;
+      }
+      if (replicaNotAlive == null)       return;
+    }
+    Thread.sleep(1000);
+  }
+  if (nodeNotLive != null && replicaState != null) {
+    log.error("Timed out waiting for new collection's replicas to become ACTIVE " + (replicaState.equals(Replica.State.ACTIVE.toString()) ? "node " + nodeNotLive + " is not live" : "replica " + replicaNotAlive + " is in state of "+ replicaState.toString()) + " with timeout="+ numRetries);
+  }
+ else {
+    log.error("Timed out waiting for new collection's replicas to become ACTIVE with timeout=" + numRetries);
+  }
+}
