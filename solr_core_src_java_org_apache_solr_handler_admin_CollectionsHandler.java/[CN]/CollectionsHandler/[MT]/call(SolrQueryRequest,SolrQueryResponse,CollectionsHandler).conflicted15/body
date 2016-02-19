@@ -1,11 +1,30 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,SHARD_ID_PROP);
-  ClusterState clusterState=handler.coreContainer.getZkController().getClusterState();
-  final String newShardName=req.getParams().get(SHARD_ID_PROP);
-  if (!SolrIdentifierValidator.validateShardName(newShardName)) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid shard: " + newShardName + ". Shard names must consist entirely of periods, underscores, and alphanumerics");
+  final CoreContainer coreContainer=h.coreContainer;
+  final String requestId=req.getParams().get(REQUESTID);
+  final ZkController zkController=coreContainer.getZkController();
+  Boolean flush=req.getParams().getBool(CollectionAdminParams.FLUSH,false);
+  if (requestId == null && !flush) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Either requestid or flush parameter must be specified.");
   }
-  if (!ImplicitDocRouter.NAME.equals(((Map)clusterState.getCollection(req.getParams().get(COLLECTION_PROP)).get(DOC_ROUTER)).get(NAME)))   throw new SolrException(ErrorCode.BAD_REQUEST,"shards can be added only to 'implicit' collections");
-  req.getParams().getAll(map,REPLICATION_FACTOR,CREATE_NODE_SET);
-  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
+  if (requestId != null && flush) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Both requestid and flush parameters can not be specified together.");
+  }
+  if (flush) {
+    zkController.getOverseerCompletedMap().clear();
+    zkController.getOverseerFailureMap().clear();
+    rsp.getValues().add("status","successfully cleared stored collection api responses");
+    return null;
+  }
+ else {
+    if (zkController.getOverseerCompletedMap().remove(requestId)) {
+      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
+    }
+ else     if (zkController.getOverseerFailureMap().remove(requestId)) {
+      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
+    }
+ else {
+      rsp.getValues().add("status","[" + requestId + "] not found in stored responses");
+    }
+  }
+  return null;
 }

@@ -1,12 +1,17 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,PROPERTY_PROP);
-  Boolean shardUnique=Boolean.parseBoolean(req.getParams().get(SHARD_UNIQUE));
-  String prop=req.getParams().get(PROPERTY_PROP).toLowerCase(Locale.ROOT);
-  if (!StringUtils.startsWith(prop,COLL_PROP_PREFIX)) {
-    prop=COLL_PROP_PREFIX + prop;
+  String name=req.getParams().required().get(COLLECTION_PROP);
+  String shard=req.getParams().get(SHARD_ID_PROP);
+  String rangesStr=req.getParams().get(CoreAdminParams.RANGES);
+  String splitKey=req.getParams().get("split.key");
+  if (splitKey == null && shard == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Missing required parameter: shard");
   }
-  if (!shardUnique && !SliceMutator.SLICE_UNIQUE_BOOLEAN_PROPERTIES.contains(prop)) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Balancing properties amongst replicas in a slice requires that" + " the property be pre-defined as a unique property (e.g. 'preferredLeader') or that 'shardUnique' be set to 'true'. " + " Property: " + prop + " shardUnique: "+ Boolean.toString(shardUnique));
+  if (splitKey != null && shard != null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'shard' or 'split.key' should be specified");
   }
-  return req.getParams().getAll(map,ONLY_ACTIVE_NODES,SHARD_UNIQUE);
+  if (splitKey != null && rangesStr != null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'ranges' or 'split.key' should be specified");
+  }
+  Map<String,Object> map=req.getParams().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,"split.key",CoreAdminParams.RANGES);
+  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
 }
