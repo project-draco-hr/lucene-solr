@@ -3,36 +3,27 @@
   final String holdElectionPath=context.electionPath + ELECTION_NODE;
   List<String> seqs=zkClient.getChildren(holdElectionPath,null,true);
   sortSeqs(seqs);
-  List<Integer> intSeqs=getSeqs(seqs);
-  if (intSeqs.size() == 0) {
+  String leaderSeqNodeName=context.leaderSeqPath.substring(context.leaderSeqPath.lastIndexOf('/') + 1);
+  if (!seqs.contains(leaderSeqNodeName)) {
     log.warn("Our node is no longer in line to be leader");
     return;
   }
-  int seq=-1;
-  String newLeaderSeq="";
-  for (  String elec : seqs) {
-    if (getNodeName(elec).equals(getNodeName(context.leaderSeqPath)) && seq < getSeq(elec)) {
-      seq=getSeq(elec);
-      newLeaderSeq=elec;
-      break;
-    }
-  }
-  if (StringUtils.isNotBlank(newLeaderSeq) && seq > getSeq(context.leaderSeqPath)) {
-    log.info("Node " + context.leaderSeqPath + " already in queue as "+ newLeaderSeq+ " nothing to do.");
-    return;
-  }
-  if (seq == -1) {
-    seq=getSeq(context.leaderSeqPath);
-  }
-  if (seq <= intSeqs.get(0)) {
-    if (seq == intSeqs.get(0) && !context.leaderSeqPath.equals(holdElectionPath + "/" + seqs.get(0))) {
-      log.info("was going to be leader {} , seq(0) {}",context.leaderSeqPath,holdElectionPath + "/" + seqs.get(0));
-      if (getNodeName(context.leaderSeqPath).equals(getNodeName(seqs.get(0)))) {
-        return;
+  String prefix=zkClient.getSolrZooKeeper().getSessionId() + "-" + context.id;
+  Iterator<String> it=seqs.iterator();
+  while (it.hasNext()) {
+    String elec=it.next();
+    if (!elec.equals(leaderSeqNodeName) && elec.startsWith(prefix)) {
+      try {
+        String toDelete=holdElectionPath + "/" + elec;
+        log.warn("Deleting duplicate registration: {}",toDelete);
+        zkClient.delete(toDelete,-1,true);
       }
-      retryElection(context,false);
-      return;
+ catch (      KeeperException.NoNodeException e) {
+      }
+      it.remove();
     }
+  }
+  if (leaderSeqNodeName.equals(seqs.get(0))) {
     try {
       runIamLeaderProcess(context,replacement);
     }
@@ -43,26 +34,23 @@
     }
   }
  else {
-    int toWatch=-1;
-    for (int idx=0; idx < intSeqs.size(); idx++) {
-      if (intSeqs.get(idx) < seq && !getNodeName(context.leaderSeqPath).equals(getNodeName(seqs.get(idx)))) {
-        toWatch=idx;
-      }
-      if (intSeqs.get(idx) >= seq) {
+    String toWatch=seqs.get(0);
+    for (    String node : seqs) {
+      if (leaderSeqNodeName.equals(node)) {
         break;
       }
-    }
-    if (toWatch < 0) {
-      log.warn("Our node is no longer in line to be leader");
-      return;
+      toWatch=node;
     }
     try {
-      String watchedNode=holdElectionPath + "/" + seqs.get(toWatch);
-      zkClient.getData(watchedNode,watcher=new ElectionWatcher(context.leaderSeqPath,watchedNode,seq,context),null,true);
+      String watchedNode=holdElectionPath + "/" + toWatch;
+      zkClient.getData(watchedNode,watcher=new ElectionWatcher(context.leaderSeqPath,watchedNode,getSeq(context.leaderSeqPath),context),null,true);
       log.info("Watching path {} to know if I could be the leader",watchedNode);
     }
  catch (    KeeperException.SessionExpiredException e) {
       throw e;
+    }
+catch (    KeeperException.NoNodeException e) {
+      checkIfIamLeader(context,true);
     }
 catch (    KeeperException e) {
       log.warn("Failed setting watch",e);
