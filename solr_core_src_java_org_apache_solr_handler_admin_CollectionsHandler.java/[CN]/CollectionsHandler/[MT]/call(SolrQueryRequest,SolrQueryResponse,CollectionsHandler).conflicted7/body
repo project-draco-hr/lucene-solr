@@ -1,30 +1,17 @@
 {
-  final CoreContainer coreContainer=h.coreContainer;
-  final String requestId=req.getParams().get(REQUESTID);
-  final ZkController zkController=coreContainer.getZkController();
-  Boolean flush=req.getParams().getBool(CollectionAdminParams.FLUSH,false);
-  if (requestId == null && !flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Either requestid or flush parameter must be specified.");
+  String collection=req.getParams().required().get("collection");
+  String shard=req.getParams().required().get("shard");
+  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
+  ZkNodeProps leaderProps=clusterState.getLeader(collection,shard);
+  ZkCoreNodeProps nodeProps=new ZkCoreNodeProps(leaderProps);
+  try (HttpSolrClient client=new HttpSolrClient(nodeProps.getBaseUrl())){
+    client.setConnectionTimeout(15000);
+    client.setSoTimeout(60000);
+    RequestSyncShard reqSyncShard=new CoreAdminRequest.RequestSyncShard();
+    reqSyncShard.setCollection(collection);
+    reqSyncShard.setShard(shard);
+    reqSyncShard.setCoreName(nodeProps.getCoreName());
+    client.request(reqSyncShard);
   }
-  if (requestId != null && flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Both requestid and flush parameters can not be specified together.");
-  }
-  if (flush) {
-    zkController.getOverseerCompletedMap().clear();
-    zkController.getOverseerFailureMap().clear();
-    rsp.getValues().add("status","successfully cleared stored collection api responses");
-    return null;
-  }
- else {
-    if (zkController.getOverseerCompletedMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else     if (zkController.getOverseerFailureMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else {
-      rsp.getValues().add("status","[" + requestId + "] not found in stored responses");
-    }
-  }
-  return null;
+   return null;
 }

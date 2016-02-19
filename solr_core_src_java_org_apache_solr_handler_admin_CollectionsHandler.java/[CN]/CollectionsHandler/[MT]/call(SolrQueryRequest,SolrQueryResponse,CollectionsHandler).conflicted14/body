@@ -1,29 +1,17 @@
 {
-  req.getParams().required().check(REQUESTID);
-  final CoreContainer coreContainer=h.coreContainer;
-  final String requestId=req.getParams().get(REQUESTID);
-  final ZkController zkController=coreContainer.getZkController();
-  final NamedList<Object> results=new NamedList<>();
-  if (zkController.getOverseerCompletedMap().contains(requestId)) {
-    final DistributedMap.MapEvent mapEvent=zkController.getOverseerCompletedMap().get(requestId);
-    rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
-    addStatusToResponse(results,COMPLETED,"found [" + requestId + "] in completed tasks");
+  String name=req.getParams().required().get(COLLECTION_PROP);
+  String shard=req.getParams().get(SHARD_ID_PROP);
+  String rangesStr=req.getParams().get(CoreAdminParams.RANGES);
+  String splitKey=req.getParams().get("split.key");
+  if (splitKey == null && shard == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Missing required parameter: shard");
   }
- else   if (zkController.getOverseerFailureMap().contains(requestId)) {
-    final DistributedMap.MapEvent mapEvent=zkController.getOverseerFailureMap().get(requestId);
-    rsp.getValues().addAll(SolrResponse.deserialize(mapEvent.getBytes()).getResponse());
-    addStatusToResponse(results,FAILED,"found [" + requestId + "] in failed tasks");
+  if (splitKey != null && shard != null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'shard' or 'split.key' should be specified");
   }
- else   if (zkController.getOverseerRunningMap().contains(requestId)) {
-    addStatusToResponse(results,RUNNING,"found [" + requestId + "] in running tasks");
+  if (splitKey != null && rangesStr != null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'ranges' or 'split.key' should be specified");
   }
- else   if (h.overseerCollectionQueueContains(requestId)) {
-    addStatusToResponse(results,SUBMITTED,"found [" + requestId + "] in submitted tasks");
-  }
- else {
-    addStatusToResponse(results,NOT_FOUND,"Did not find [" + requestId + "] in any tasks queue");
-  }
-  final SolrResponse response=new OverseerSolrResponse(results);
-  rsp.getValues().addAll(response.getResponse());
-  return null;
+  Map<String,Object> map=req.getParams().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,"split.key",CoreAdminParams.RANGES);
+  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
 }
