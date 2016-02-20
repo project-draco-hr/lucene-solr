@@ -1,0 +1,28 @@
+{
+  ZkStateReader zkStateReader=cloudSolrClient.getZkStateReader();
+  ClusterState clusterState=zkStateReader.getClusterState();
+  Collection<Slice> slices=clusterState.getActiveSlices(checkpointCollection);
+  Set<String> liveNodes=clusterState.getLiveNodes();
+  OUTER:   for (  Slice slice : slices) {
+    Collection<Replica> replicas=slice.getReplicas();
+    for (    Replica replica : replicas) {
+      if (replica.getState() == Replica.State.ACTIVE && liveNodes.contains(replica.getNodeName())) {
+        HttpSolrClient httpClient=cache.getHttpSolrClient(replica.getCoreUrl());
+        try {
+          SolrDocument doc=httpClient.getById(id);
+          if (doc != null) {
+            List<String> checkpoints=(List<String>)doc.getFieldValue("checkpoint_ss");
+            for (            String checkpoint : checkpoints) {
+              String[] pair=checkpoint.split("~");
+              this.checkpoints.put(pair[0],Long.parseLong(pair[1]));
+            }
+          }
+        }
+ catch (        Exception e) {
+          throw new IOException(e);
+        }
+        break OUTER;
+      }
+    }
+  }
+}

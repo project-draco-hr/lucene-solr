@@ -1,0 +1,49 @@
+{
+  try {
+    ZkStateReader zkStateReader=cloudSolrClient.getZkStateReader();
+    ClusterState clusterState=zkStateReader.getClusterState();
+    Set<String> liveNodes=clusterState.getLiveNodes();
+    Collection<Slice> slices=clusterState.getActiveSlices(this.collection);
+    if (slices == null) {
+      for (      String col : clusterState.getCollections()) {
+        if (col.equalsIgnoreCase(collection)) {
+          slices=clusterState.getActiveSlices(col);
+          break;
+        }
+      }
+      if (slices == null) {
+        throw new Exception("Collection not found:" + this.collection);
+      }
+    }
+    params.put("distrib","false");
+    String fl=params.get("fl");
+    params.put("sort","_version_ asc");
+    fl+=",_version_";
+    params.put("fl",fl);
+    Random random=new Random();
+    for (    Slice slice : slices) {
+      Map localParams=new HashMap();
+      localParams.putAll(params);
+      long checkpoint=checkpoints.get(slice.getName());
+      Collection<Replica> replicas=slice.getReplicas();
+      List<Replica> shuffler=new ArrayList();
+      for (      Replica replica : replicas) {
+        if (replica.getState() == Replica.State.ACTIVE && liveNodes.contains(replica.getNodeName()))         shuffler.add(replica);
+      }
+      Replica rep=shuffler.get(random.nextInt(shuffler.size()));
+      ZkCoreNodeProps zkProps=new ZkCoreNodeProps(rep);
+      String url=zkProps.getCoreUrl();
+      SolrStream solrStream=new SolrStream(url,localParams);
+      solrStream.setSlice(slice.getName());
+      solrStream.setCheckpoint(checkpoint);
+      solrStream.setTrace(true);
+      if (streamContext != null) {
+        solrStream.setStreamContext(streamContext);
+      }
+      solrStreams.add(solrStream);
+    }
+  }
+ catch (  Exception e) {
+    throw new IOException(e);
+  }
+}
