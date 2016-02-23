@@ -9,7 +9,7 @@ case UPDATE:
         for (        Map.Entry<String,Object> entry : map.entrySet()) {
           Map val=null;
           String key=entry.getKey();
-          if (key == null || key.trim().isEmpty()) {
+          if (isNullOrEmpty(key)) {
             op.addError("null key ");
             continue;
           }
@@ -30,13 +30,18 @@ case UPDATE:
             op.addError("Empty keys are not allowed in params");
             continue;
           }
-          MapSolrParams old=params.getParams(key);
+          RequestParams.ParamSet old=params.getParams(key);
           if (op.name.equals(UPDATE)) {
-            LinkedHashMap m=new LinkedHashMap(old.getMap());
-            m.putAll(val);
-            val=m;
+            if (old == null) {
+              op.addError(formatString("unknown paramset {} cannot update ",key));
+              continue;
+            }
+            params=params.setParams(key,old.update(val));
           }
-          params=params.setParams(key,val);
+ else {
+            Long version=old == null ? 0 : old.getVersion() + 1;
+            params=params.setParams(key,RequestParams.createParamSet(val,version));
+          }
         }
         break;
       }
@@ -65,7 +70,7 @@ if (ops.isEmpty()) {
   ZkController.touchConfDir(zkLoader);
 }
  else {
-  log.info("persisting params version : {}",params.toMap());
+  log.debug("persisting params version : {}",Utils.toJSONString(params.toMap()));
   int latestVersion=ZkController.persistConfigResourceToZooKeeper(zkLoader,params.getZnodeVersion(),RequestParams.RESOURCE,params.toByteArray(),true);
   waitForAllReplicasState(req.getCore().getCoreDescriptor().getCloudDescriptor().getCollectionName(),req.getCore().getCoreDescriptor().getCoreContainer().getZkController(),RequestParams.NAME,latestVersion,30);
 }
