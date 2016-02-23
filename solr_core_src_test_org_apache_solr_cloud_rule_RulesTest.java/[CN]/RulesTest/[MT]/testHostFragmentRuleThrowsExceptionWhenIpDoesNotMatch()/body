@@ -1,0 +1,24 @@
+{
+  String rulesColl="ipRuleColl";
+  String baseUrl=getBaseUrl((HttpSolrClient)clients.get(0));
+  String ip_1="-1";
+  String ip_2="-1";
+  Matcher hostAndPortMatcher=Pattern.compile("(?:https?://)?([^:]+):(\\d+)").matcher(baseUrl);
+  if (hostAndPortMatcher.find()) {
+    String[] ipFragments=hostAndPortMatcher.group(1).split("\\.");
+    ip_1=ipFragments[ipFragments.length - 1];
+    ip_2=ipFragments[ipFragments.length - 2];
+  }
+  try (SolrClient client=createNewSolrClient("",baseUrl)){
+    CollectionAdminRequest.Create create=new CollectionAdminRequest.Create();
+    create.setCollectionName(rulesColl);
+    create.setShards("shard1");
+    create.setRouterName(ImplicitDocRouter.NAME);
+    create.setReplicationFactor(2);
+    create.setRule("ip_2:" + ip_2,"ip_1:" + ip_1 + "9999");
+    create.setSnitch("class:ImplicitSnitch");
+    expectedException.expect(HttpSolrClient.RemoteSolrException.class);
+    expectedException.expectMessage(containsString("ip_1"));
+    create.process(client);
+  }
+ }
