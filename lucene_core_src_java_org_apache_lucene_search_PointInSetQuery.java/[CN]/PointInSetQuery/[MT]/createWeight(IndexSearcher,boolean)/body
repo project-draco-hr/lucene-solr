@@ -1,2 +1,37 @@
 {
+  return new ConstantScoreWeight(this){
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      LeafReader reader=context.reader();
+      PointValues values=reader.getPointValues();
+      if (values == null) {
+        return null;
+      }
+      FieldInfo fieldInfo=reader.getFieldInfos().fieldInfo(field);
+      if (fieldInfo == null) {
+        return null;
+      }
+      if (fieldInfo.getPointDimensionCount() != numDims) {
+        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with numDims="+ fieldInfo.getPointDimensionCount()+ " but this query has numDims="+ numDims);
+      }
+      if (bytesPerDim != fieldInfo.getPointNumBytes()) {
+        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with bytesPerDim="+ fieldInfo.getPointNumBytes()+ " but this query has bytesPerDim="+ bytesPerDim);
+      }
+      int bytesPerDim=fieldInfo.getPointNumBytes();
+      DocIdSetBuilder result=new DocIdSetBuilder(reader.maxDoc());
+      int[] hitCount=new int[1];
+      if (numDims == 1) {
+        values.intersect(field,new MergePointVisitor(sortedPackedPoints.iterator(),hitCount,result));
+      }
+ else {
+        SinglePointVisitor visitor=new SinglePointVisitor(hitCount,result);
+        TermIterator iterator=sortedPackedPoints.iterator();
+        for (BytesRef point=iterator.next(); point != null; point=iterator.next()) {
+          visitor.setPoint(point);
+          values.intersect(field,visitor);
+        }
+      }
+      return new ConstantScoreScorer(this,score(),result.build(hitCount[0]).iterator());
+    }
+  }
+;
 }
