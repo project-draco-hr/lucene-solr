@@ -1,29 +1,11 @@
 {
-  req.getParams().required().check(REQUESTID);
-  final CoreContainer coreContainer=h.coreContainer;
-  final String requestId=req.getParams().get(REQUESTID);
-  final ZkController zkController=coreContainer.getZkController();
-  final NamedList<Object> results=new NamedList<>();
-  if (zkController.getOverseerCompletedMap().contains(requestId)) {
-    final byte[] mapEntry=zkController.getOverseerCompletedMap().get(requestId);
-    rsp.getValues().addAll(SolrResponse.deserialize(mapEntry).getResponse());
-    addStatusToResponse(results,COMPLETED,"found [" + requestId + "] in completed tasks");
+  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,SHARD_ID_PROP);
+  ClusterState clusterState=handler.coreContainer.getZkController().getClusterState();
+  final String newShardName=req.getParams().get(SHARD_ID_PROP);
+  if (!SolrIdentifierValidator.validateShardName(newShardName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Invalid shard: " + newShardName + ". Shard names must consist entirely of periods, underscores, and alphanumerics");
   }
- else   if (zkController.getOverseerFailureMap().contains(requestId)) {
-    final byte[] mapEntry=zkController.getOverseerFailureMap().get(requestId);
-    rsp.getValues().addAll(SolrResponse.deserialize(mapEntry).getResponse());
-    addStatusToResponse(results,FAILED,"found [" + requestId + "] in failed tasks");
-  }
- else   if (zkController.getOverseerRunningMap().contains(requestId)) {
-    addStatusToResponse(results,RUNNING,"found [" + requestId + "] in running tasks");
-  }
- else   if (h.overseerCollectionQueueContains(requestId)) {
-    addStatusToResponse(results,SUBMITTED,"found [" + requestId + "] in submitted tasks");
-  }
- else {
-    addStatusToResponse(results,NOT_FOUND,"Did not find [" + requestId + "] in any tasks queue");
-  }
-  final SolrResponse response=new OverseerSolrResponse(results);
-  rsp.getValues().addAll(response.getResponse());
-  return null;
+  if (!ImplicitDocRouter.NAME.equals(((Map)clusterState.getCollection(req.getParams().get(COLLECTION_PROP)).get(DOC_ROUTER)).get(NAME)))   throw new SolrException(ErrorCode.BAD_REQUEST,"shards can be added only to 'implicit' collections");
+  req.getParams().getAll(map,REPLICATION_FACTOR,CREATE_NODE_SET);
+  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
 }
