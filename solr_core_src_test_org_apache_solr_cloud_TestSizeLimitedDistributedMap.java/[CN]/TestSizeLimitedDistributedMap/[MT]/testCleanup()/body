@@ -1,0 +1,28 @@
+{
+  String zkDir=createTempDir("TestSizeLimitedDistributedMap").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    try (SolrZkClient zkClient=new SolrZkClient(server.getZkAddress(),10000)){
+      DistributedMap map=Overseer.getCompletedMap(zkClient);
+      assertTrue(map instanceof SizeLimitedDistributedMap);
+      for (int i=0; i < Overseer.NUM_RESPONSES_TO_STORE; i++) {
+        map.put("xyz_" + i,new byte[0]);
+      }
+      assertEquals("Number of items do not match",Overseer.NUM_RESPONSES_TO_STORE,map.size());
+      map.put("xyz_10000",new byte[0]);
+      assertEquals("Distributed queue was not cleaned up",Overseer.NUM_RESPONSES_TO_STORE - (Overseer.NUM_RESPONSES_TO_STORE / 10) + 1,map.size());
+      for (int i=Overseer.NUM_RESPONSES_TO_STORE; i >= Overseer.NUM_RESPONSES_TO_STORE / 10; i--) {
+        assertTrue(map.contains("xyz_" + i));
+      }
+      for (int i=Overseer.NUM_RESPONSES_TO_STORE / 10 - 1; i >= 0; i--) {
+        assertFalse(map.contains("xyz_" + i));
+      }
+    }
+   }
+  finally {
+    server.shutdown();
+  }
+}
