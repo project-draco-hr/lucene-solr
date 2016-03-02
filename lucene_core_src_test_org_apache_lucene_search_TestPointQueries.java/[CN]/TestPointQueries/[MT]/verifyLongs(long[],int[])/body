@@ -94,18 +94,16 @@
         startingGun.await();
         NumericDocValues docIDToID=MultiDocValues.getNumericValues(r,"id");
         for (int iter=0; iter < iters && failed.get() == false; iter++) {
-          Long lower=randomValue(true);
-          Long upper=randomValue(true);
-          if (lower != null && upper != null && upper < lower) {
+          Long lower=randomValue();
+          Long upper=randomValue();
+          if (upper < lower) {
             long x=lower;
             lower=upper;
             upper=x;
           }
-          boolean includeLower=random().nextBoolean();
-          boolean includeUpper=random().nextBoolean();
           Query query;
           if (VERBOSE) {
-            System.out.println("\n" + Thread.currentThread().getName() + ": TEST: iter="+ iter+ " value="+ lower+ " (inclusive?="+ includeLower+ ") TO "+ upper+ " (inclusive?="+ includeUpper+ ")");
+            System.out.println("\n" + Thread.currentThread().getName() + ": TEST: iter="+ iter+ " value="+ lower+ " TO "+ upper);
             byte[] tmp=new byte[8];
             if (lower != null) {
               NumericUtils.longToBytes(lower,tmp,0);
@@ -117,26 +115,14 @@
             }
           }
           if (random().nextBoolean()) {
-            query=LongPoint.newRangeQuery("sn_value",lower,includeLower,upper,includeUpper);
+            query=LongPoint.newRangeQuery("sn_value",lower,upper);
           }
  else {
-            byte[] lowerBytes;
-            if (lower == null) {
-              lowerBytes=null;
-            }
- else {
-              lowerBytes=new byte[8];
-              NumericUtils.longToBytes(lower,lowerBytes,0);
-            }
-            byte[] upperBytes;
-            if (upper == null) {
-              upperBytes=null;
-            }
- else {
-              upperBytes=new byte[8];
-              NumericUtils.longToBytes(upper,upperBytes,0);
-            }
-            query=BinaryPoint.newRangeQuery("ss_value",lowerBytes,includeLower,upperBytes,includeUpper);
+            byte[] lowerBytes=new byte[8];
+            NumericUtils.longToBytes(lower,lowerBytes,0);
+            byte[] upperBytes=new byte[8];
+            NumericUtils.longToBytes(upper,upperBytes,0);
+            query=BinaryPoint.newRangeQuery("ss_value",lowerBytes,upperBytes);
           }
           if (VERBOSE) {
             System.out.println(Thread.currentThread().getName() + ":  using query: " + query);
@@ -160,7 +146,7 @@
           }
           for (int docID=0; docID < r.maxDoc(); docID++) {
             int id=(int)docIDToID.get(docID);
-            boolean expected=missing.get(id) == false && deleted.get(id) == false && matches(lower,includeLower,upper,includeUpper,values[id]);
+            boolean expected=missing.get(id) == false && deleted.get(id) == false && values[id] >= lower && values[id] <= upper;
             if (hits.get(docID) != expected) {
               fail(Thread.currentThread().getName() + ": iter=" + iter+ " id="+ id+ " docID="+ docID+ " value="+ values[id]+ " (range: "+ lower+ " TO "+ upper+ ") expected "+ expected+ " but got: "+ hits.get(docID)+ " deleted?="+ deleted.get(id)+ " query="+ query);
             }
