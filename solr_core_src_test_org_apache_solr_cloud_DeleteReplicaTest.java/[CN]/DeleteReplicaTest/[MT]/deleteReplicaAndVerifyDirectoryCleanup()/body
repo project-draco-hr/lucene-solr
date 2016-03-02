@@ -1,0 +1,22 @@
+{
+  createCollection("deletereplica_test",1,2,4);
+  Replica leader=cloudClient.getZkStateReader().getLeaderRetry("deletereplica_test","shard1");
+  String baseUrl=(String)leader.get("base_url");
+  String core=(String)leader.get("core");
+  String leaderCoreName=leader.getName();
+  String instanceDir;
+  String dataDir;
+  try (HttpSolrClient client=new HttpSolrClient(baseUrl)){
+    CoreAdminResponse statusResp=CoreAdminRequest.getStatus(core,client);
+    NamedList r=statusResp.getCoreStatus().get(core);
+    instanceDir=(String)r.findRecursive("instanceDir");
+    dataDir=(String)r.get("dataDir");
+  }
+   assertTrue("Instance directory doesn't exist",FileUtils.fileExists(instanceDir));
+  assertTrue("DataDirectory doesn't exist",FileUtils.fileExists(dataDir));
+  new CollectionAdminRequest.DeleteReplica().setCollectionName("deletereplica_test").setShardName("shard1").setReplica(leaderCoreName).process(cloudClient);
+  Replica newLeader=cloudClient.getZkStateReader().getLeaderRetry("deletereplica_test","shard1");
+  assertFalse(leader.equals(newLeader));
+  assertFalse("Instance directory still exists",FileUtils.fileExists(instanceDir));
+  assertFalse("DataDirectory still exists",FileUtils.fileExists(dataDir));
+}

@@ -1,0 +1,34 @@
+{
+  CollectionAdminResponse rsp=new CollectionAdminRequest.Create().setCollectionName("deleteshard_test").setRouterName("implicit").setShards("a,b,c").setReplicationFactor(1).setConfigName("conf1").process(cloudClient);
+  Replica leader=cloudClient.getZkStateReader().getLeaderRetry("deleteshard_test","a");
+  String baseUrl=(String)leader.get("base_url");
+  String core=(String)leader.get("core");
+  String instanceDir;
+  String dataDir;
+  try (HttpSolrClient client=new HttpSolrClient(baseUrl)){
+    CoreAdminResponse statusResp=CoreAdminRequest.getStatus(core,client);
+    NamedList r=statusResp.getCoreStatus().get(core);
+    instanceDir=(String)r.findRecursive("instanceDir");
+    dataDir=(String)r.get("dataDir");
+  }
+   assertTrue("Instance directory doesn't exist",FileUtils.fileExists(instanceDir));
+  assertTrue("Data directory doesn't exist",FileUtils.fileExists(dataDir));
+  assertEquals(3,cloudClient.getZkStateReader().getClusterState().getActiveSlices("deleteshard_test").size());
+  new CollectionAdminRequest.DeleteShard().setCollectionName("deleteshard_test").setShardName("a").process(cloudClient);
+  assertEquals(2,cloudClient.getZkStateReader().getClusterState().getActiveSlices("deleteshard_test").size());
+  assertFalse("Instance directory still exists",FileUtils.fileExists(instanceDir));
+  assertFalse("Data directory still exists",FileUtils.fileExists(dataDir));
+  leader=cloudClient.getZkStateReader().getLeaderRetry("deleteshard_test","b");
+  baseUrl=(String)leader.get("base_url");
+  core=(String)leader.get("core");
+  try (HttpSolrClient client=new HttpSolrClient(baseUrl)){
+    CoreAdminResponse statusResp=CoreAdminRequest.getStatus(core,client);
+    NamedList r=statusResp.getCoreStatus().get(core);
+    instanceDir=(String)r.findRecursive("instanceDir");
+    dataDir=(String)r.get("dataDir");
+  }
+   new CollectionAdminRequest.DeleteShard().setCollectionName("deleteshard_test").setShardName("b").setDeleteDataDir(false).setDeleteInstanceDir(false).process(cloudClient);
+  assertEquals(1,cloudClient.getZkStateReader().getClusterState().getActiveSlices("deleteshard_test").size());
+  assertTrue("Instance directory still exists",FileUtils.fileExists(instanceDir));
+  assertTrue("Data directory still exists",FileUtils.fileExists(dataDir));
+}
