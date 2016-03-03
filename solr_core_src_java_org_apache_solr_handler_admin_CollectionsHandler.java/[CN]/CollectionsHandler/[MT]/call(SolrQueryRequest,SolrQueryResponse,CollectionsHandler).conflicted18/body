@@ -1,17 +1,11 @@
 {
-  String name=req.getParams().required().get(COLLECTION_PROP);
-  String shard=req.getParams().get(SHARD_ID_PROP);
-  String rangesStr=req.getParams().get(CoreAdminParams.RANGES);
-  String splitKey=req.getParams().get("split.key");
-  if (splitKey == null && shard == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Missing required parameter: shard");
+  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,SHARD_ID_PROP);
+  ClusterState clusterState=handler.coreContainer.getZkController().getClusterState();
+  final String newShardName=req.getParams().get(SHARD_ID_PROP);
+  if (!SolrIdentifierValidator.validateShardName(newShardName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,SolrIdentifierValidator.getIdentifierMessage(SolrIdentifierValidator.IdentifierType.SHARD,newShardName));
   }
-  if (splitKey != null && shard != null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'shard' or 'split.key' should be specified");
-  }
-  if (splitKey != null && rangesStr != null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'ranges' or 'split.key' should be specified");
-  }
-  Map<String,Object> map=req.getParams().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,"split.key",CoreAdminParams.RANGES);
+  if (!ImplicitDocRouter.NAME.equals(((Map)clusterState.getCollection(req.getParams().get(COLLECTION_PROP)).get(DOC_ROUTER)).get(NAME)))   throw new SolrException(ErrorCode.BAD_REQUEST,"shards can be added only to 'implicit' collections");
+  req.getParams().getAll(map,REPLICATION_FACTOR,CREATE_NODE_SET);
   return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
 }
