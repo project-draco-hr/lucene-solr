@@ -6,7 +6,7 @@
   List<Long> toMerge=null;
   List<Integer> docIDBases=null;
   int seg=0;
-  BKDWriter w=new BKDWriter(dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
+  BKDWriter w=new BKDWriter(numValues,dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
   IndexOutput out=dir.createOutput("bkd",IOContext.DEFAULT);
   IndexInput in=null;
   boolean success=false;
@@ -53,13 +53,12 @@
         seg++;
         maxPointsInLeafNode=TestUtil.nextInt(random(),50,1000);
         maxMB=(float)3.0 + (3 * random().nextDouble());
-        w=new BKDWriter(dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
+        w=new BKDWriter(numValues,dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
         lastDocIDBase=docID;
       }
     }
     long indexFP;
     if (toMerge != null) {
-      System.out.println("merge " + toMerge.size());
       if (segCount > 0) {
         docIDBases.add(lastDocIDBase);
         toMerge.add(w.finish(out));
@@ -67,7 +66,7 @@
       out.close();
       in=dir.openInput("bkd",IOContext.DEFAULT);
       seg++;
-      w=new BKDWriter(dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
+      w=new BKDWriter(numValues,dir,"_" + seg,numDims,numBytesPerDim,maxPointsInLeafNode,maxMB);
       List<BKDReader> readers=new ArrayList<>();
       for (      long fp : toMerge) {
         in.seek(fp);
@@ -98,7 +97,7 @@
         random().nextBytes(queryMin[dim]);
         queryMax[dim]=new byte[numBytesPerDim];
         random().nextBytes(queryMax[dim]);
-        if (NumericUtils.compare(numBytesPerDim,queryMin[dim],0,queryMax[dim],0) > 0) {
+        if (StringHelper.compare(numBytesPerDim,queryMin[dim],0,queryMax[dim],0) > 0) {
           byte[] x=queryMin[dim];
           queryMin[dim]=queryMax[dim];
           queryMax[dim]=x;
@@ -111,7 +110,7 @@
         }
         @Override public void visit(        int docID,        byte[] packedValue){
           for (int dim=0; dim < numDims; dim++) {
-            if (NumericUtils.compare(numBytesPerDim,packedValue,dim,queryMin[dim],0) < 0 || NumericUtils.compare(numBytesPerDim,packedValue,dim,queryMax[dim],0) > 0) {
+            if (StringHelper.compare(numBytesPerDim,packedValue,dim * numBytesPerDim,queryMin[dim],0) < 0 || StringHelper.compare(numBytesPerDim,packedValue,dim * numBytesPerDim,queryMax[dim],0) > 0) {
               return;
             }
           }
@@ -120,10 +119,10 @@
         @Override public Relation compare(        byte[] minPacked,        byte[] maxPacked){
           boolean crosses=false;
           for (int dim=0; dim < numDims; dim++) {
-            if (NumericUtils.compare(numBytesPerDim,maxPacked,dim,queryMin[dim],0) < 0 || NumericUtils.compare(numBytesPerDim,minPacked,dim,queryMax[dim],0) > 0) {
+            if (StringHelper.compare(numBytesPerDim,maxPacked,dim * numBytesPerDim,queryMin[dim],0) < 0 || StringHelper.compare(numBytesPerDim,minPacked,dim * numBytesPerDim,queryMax[dim],0) > 0) {
               return Relation.CELL_OUTSIDE_QUERY;
             }
- else             if (NumericUtils.compare(numBytesPerDim,minPacked,dim,queryMin[dim],0) < 0 || NumericUtils.compare(numBytesPerDim,maxPacked,dim,queryMax[dim],0) > 0) {
+ else             if (StringHelper.compare(numBytesPerDim,minPacked,dim * numBytesPerDim,queryMin[dim],0) < 0 || StringHelper.compare(numBytesPerDim,maxPacked,dim * numBytesPerDim,queryMax[dim],0) > 0) {
               crosses=true;
             }
           }
@@ -141,7 +140,7 @@
         boolean matches=true;
         for (int dim=0; dim < numDims; dim++) {
           byte[] x=docValues[ord][dim];
-          if (NumericUtils.compare(numBytesPerDim,x,0,queryMin[dim],0) < 0 || NumericUtils.compare(numBytesPerDim,x,0,queryMax[dim],0) > 0) {
+          if (StringHelper.compare(numBytesPerDim,x,0,queryMin[dim],0) < 0 || StringHelper.compare(numBytesPerDim,x,0,queryMax[dim],0) > 0) {
             matches=false;
             break;
           }

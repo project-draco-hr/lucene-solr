@@ -5,7 +5,7 @@
   byte[] point=new byte[4];
   for (int i=0; i < 10; i++) {
     Document doc=new Document();
-    NumericUtils.intToBytes(i,point,0);
+    NumericUtils.intToSortableBytes(i,point,0);
     doc.add(new BinaryPoint("dim",point));
     doc.add(new NumericDocValuesField("id",i));
     doc.add(newStringField("x","x",Field.Store.NO));
@@ -19,27 +19,29 @@
   w.close();
   DirectoryReader r=DirectoryReader.open(dir);
   assertEquals(1,r.numDocs());
-  PointValues values=MultiPointValues.get(r);
   Bits liveDocs=MultiFields.getLiveDocs(r);
-  NumericDocValues idValues=MultiDocValues.getNumericValues(r,"id");
-  if (values != null) {
-    BitSet seen=new BitSet();
-    values.intersect("dim",new IntersectVisitor(){
-      @Override public Relation compare(      byte[] minPacked,      byte[] maxPacked){
-        return Relation.CELL_CROSSES_QUERY;
-      }
-      public void visit(      int docID){
-        throw new IllegalStateException();
-      }
-      public void visit(      int docID,      byte[] packedValue){
-        if (liveDocs.get(docID)) {
-          seen.set(docID);
+  for (  LeafReaderContext ctx : r.leaves()) {
+    PointValues values=ctx.reader().getPointValues();
+    NumericDocValues idValues=ctx.reader().getNumericDocValues("id");
+    if (values != null) {
+      BitSet seen=new BitSet();
+      values.intersect("dim",new IntersectVisitor(){
+        @Override public Relation compare(        byte[] minPacked,        byte[] maxPacked){
+          return Relation.CELL_CROSSES_QUERY;
         }
-        assertEquals(idValues.get(docID),NumericUtils.bytesToInt(packedValue,0));
+        public void visit(        int docID){
+          throw new IllegalStateException();
+        }
+        public void visit(        int docID,        byte[] packedValue){
+          if (liveDocs.get(docID)) {
+            seen.set(docID);
+          }
+          assertEquals(idValues.get(docID),NumericUtils.sortableBytesToInt(packedValue,0));
+        }
       }
-    }
 );
-    assertEquals(0,seen.cardinality());
+      assertEquals(0,seen.cardinality());
+    }
   }
   IOUtils.close(r,dir);
 }
