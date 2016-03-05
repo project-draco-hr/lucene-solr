@@ -17,24 +17,27 @@
     checkBackupStatus.fetchStatus();
     Thread.sleep(1000);
   }
-  int numDeletes=TestUtil.nextInt(random(),1,nDocs);
-  for (int i=0; i < numDeletes; i++) {
-    masterClient.deleteByQuery("id:" + i);
-  }
-  masterClient.commit();
-  int moreAdds=TestUtil.nextInt(random(),1,100);
-  for (int i=0; i < moreAdds; i++) {
-    SolrInputDocument doc=new SolrInputDocument();
-    doc.addField("id",i + nDocs);
-    doc.addField("name","name = " + (i + nDocs));
-    masterClient.add(doc);
-  }
-  if (usually()) {
+  int numRestoreTests=TestUtil.nextInt(random(),1,5);
+  for (int attempts=0; attempts < numRestoreTests; attempts++) {
+    int numDeletes=TestUtil.nextInt(random(),1,nDocs);
+    for (int i=0; i < numDeletes; i++) {
+      masterClient.deleteByQuery("id:" + i);
+    }
     masterClient.commit();
+    int moreAdds=TestUtil.nextInt(random(),1,100);
+    for (int i=0; i < moreAdds; i++) {
+      SolrInputDocument doc=new SolrInputDocument();
+      doc.addField("id",i + nDocs);
+      doc.addField("name","name = " + (i + nDocs));
+      masterClient.add(doc);
+    }
+    if (usually()) {
+      masterClient.commit();
+    }
+    TestReplicationHandlerBackup.runBackupCommand(masterJetty,ReplicationHandler.CMD_RESTORE,params);
+    while (!fetchRestoreStatus()) {
+      Thread.sleep(1000);
+    }
+    verifyDocs(nDocs);
   }
-  TestReplicationHandlerBackup.runBackupCommand(masterJetty,ReplicationHandler.CMD_RESTORE,params);
-  while (!fetchRestoreStatus()) {
-    Thread.sleep(1000);
-  }
-  verifyDocs(nDocs);
 }
