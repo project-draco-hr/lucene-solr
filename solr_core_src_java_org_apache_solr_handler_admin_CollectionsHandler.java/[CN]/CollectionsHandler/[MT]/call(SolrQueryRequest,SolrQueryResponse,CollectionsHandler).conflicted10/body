@@ -1,30 +1,12 @@
 {
-  final CoreContainer coreContainer=h.coreContainer;
-  final String requestId=req.getParams().get(REQUESTID);
-  final ZkController zkController=coreContainer.getZkController();
-  Boolean flush=req.getParams().getBool(CollectionAdminParams.FLUSH,false);
-  if (requestId == null && !flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Either requestid or flush parameter must be specified.");
+  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,PROPERTY_PROP);
+  Boolean shardUnique=Boolean.parseBoolean(req.getParams().get(SHARD_UNIQUE));
+  String prop=req.getParams().get(PROPERTY_PROP).toLowerCase(Locale.ROOT);
+  if (!StringUtils.startsWith(prop,COLL_PROP_PREFIX)) {
+    prop=COLL_PROP_PREFIX + prop;
   }
-  if (requestId != null && flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Both requestid and flush parameters can not be specified together.");
+  if (!shardUnique && !SliceMutator.SLICE_UNIQUE_BOOLEAN_PROPERTIES.contains(prop)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Balancing properties amongst replicas in a slice requires that" + " the property be pre-defined as a unique property (e.g. 'preferredLeader') or that 'shardUnique' be set to 'true'. " + " Property: " + prop + " shardUnique: "+ Boolean.toString(shardUnique));
   }
-  if (flush) {
-    zkController.getOverseerCompletedMap().clear();
-    zkController.getOverseerFailureMap().clear();
-    rsp.getValues().add("status","successfully cleared stored collection api responses");
-    return null;
-  }
- else {
-    if (zkController.getOverseerCompletedMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else     if (zkController.getOverseerFailureMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else {
-      rsp.getValues().add("status","[" + requestId + "] not found in stored responses");
-    }
-  }
-  return null;
+  return req.getParams().getAll(map,ONLY_ACTIVE_NODES,SHARD_UNIQUE);
 }
