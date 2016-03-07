@@ -1,28 +1,6 @@
 {
   return new ConstantScoreWeight(this){
-    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
-      LeafReader reader=context.reader();
-      PointValues values=reader.getPointValues();
-      if (values == null) {
-        return null;
-      }
-      FieldInfo fieldInfo=reader.getFieldInfos().fieldInfo(field);
-      if (fieldInfo == null) {
-        return null;
-      }
-      if (fieldInfo.getPointDimensionCount() != numDims) {
-        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with numDims="+ fieldInfo.getPointDimensionCount()+ " but this query has numDims="+ numDims);
-      }
-      if (bytesPerDim != fieldInfo.getPointNumBytes()) {
-        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with bytesPerDim="+ fieldInfo.getPointNumBytes()+ " but this query has bytesPerDim="+ bytesPerDim);
-      }
-      int bytesPerDim=fieldInfo.getPointNumBytes();
-      byte[] packedLower=new byte[numDims * bytesPerDim];
-      byte[] packedUpper=new byte[numDims * bytesPerDim];
-      for (int dim=0; dim < numDims; dim++) {
-        System.arraycopy(lowerPoint[dim],0,packedLower,dim * bytesPerDim,bytesPerDim);
-        System.arraycopy(upperPoint[dim],0,packedUpper,dim * bytesPerDim,bytesPerDim);
-      }
+    private DocIdSet buildMatchingDocIdSet(    LeafReader reader,    PointValues values,    byte[] packedLower,    byte[] packedUpper) throws IOException {
       DocIdSetBuilder result=new DocIdSetBuilder(reader.maxDoc());
       values.intersect(field,new IntersectVisitor(){
         @Override public void grow(        int count){
@@ -61,7 +39,55 @@
         }
       }
 );
-      return new ConstantScoreScorer(this,score(),result.build().iterator());
+      return result.build();
+    }
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      LeafReader reader=context.reader();
+      PointValues values=reader.getPointValues();
+      if (values == null) {
+        return null;
+      }
+      FieldInfo fieldInfo=reader.getFieldInfos().fieldInfo(field);
+      if (fieldInfo == null) {
+        return null;
+      }
+      if (fieldInfo.getPointDimensionCount() != numDims) {
+        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with numDims="+ fieldInfo.getPointDimensionCount()+ " but this query has numDims="+ numDims);
+      }
+      if (bytesPerDim != fieldInfo.getPointNumBytes()) {
+        throw new IllegalArgumentException("field=\"" + field + "\" was indexed with bytesPerDim="+ fieldInfo.getPointNumBytes()+ " but this query has bytesPerDim="+ bytesPerDim);
+      }
+      int bytesPerDim=fieldInfo.getPointNumBytes();
+      byte[] packedLower=new byte[numDims * bytesPerDim];
+      byte[] packedUpper=new byte[numDims * bytesPerDim];
+      for (int dim=0; dim < numDims; dim++) {
+        System.arraycopy(lowerPoint[dim],0,packedLower,dim * bytesPerDim,bytesPerDim);
+        System.arraycopy(upperPoint[dim],0,packedUpper,dim * bytesPerDim,bytesPerDim);
+      }
+      boolean allDocsMatch;
+      if (values.getDocCount(field) == reader.maxDoc()) {
+        final byte[] fieldPackedLower=values.getMinPackedValue(field);
+        final byte[] fieldPackedUpper=values.getMaxPackedValue(field);
+        allDocsMatch=true;
+        for (int i=0; i < numDims; ++i) {
+          int offset=i * bytesPerDim;
+          if (StringHelper.compare(bytesPerDim,packedLower,offset,fieldPackedLower,offset) > 0 || StringHelper.compare(bytesPerDim,packedUpper,offset,fieldPackedUpper,offset) < 0) {
+            allDocsMatch=false;
+            break;
+          }
+        }
+      }
+ else {
+        allDocsMatch=false;
+      }
+      DocIdSetIterator iterator;
+      if (allDocsMatch) {
+        iterator=DocIdSetIterator.all(reader.maxDoc());
+      }
+ else {
+        iterator=buildMatchingDocIdSet(reader,values,packedLower,packedUpper).iterator();
+      }
+      return new ConstantScoreScorer(this,score(),iterator);
     }
   }
 ;
