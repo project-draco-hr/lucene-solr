@@ -11,7 +11,7 @@
   for (int parentDocID=0; parentDocID < numParentDocs; parentDocID++) {
     Document parentDoc=new Document();
     Document parentJoinDoc=new Document();
-    Field id=new LegacyIntField("parentID",parentDocID,Field.Store.YES);
+    Field id=new StoredField("parentID",parentDocID);
     parentDoc.add(id);
     parentJoinDoc.add(id);
     parentJoinDoc.add(newStringField("isParent","x",Field.Store.NO));
@@ -31,8 +31,8 @@
       }
     }
     if (doDeletes) {
-      parentDoc.add(new LegacyIntField("blockID",parentDocID,Field.Store.NO));
-      parentJoinDoc.add(new LegacyIntField("blockID",parentDocID,Field.Store.NO));
+      parentDoc.add(new IntPoint("blockID",parentDocID));
+      parentJoinDoc.add(new IntPoint("blockID",parentDocID));
     }
     final List<Document> joinDocs=new ArrayList<>();
     if (VERBOSE) {
@@ -51,7 +51,7 @@
       Document childDoc=TestUtil.cloneDocument(parentDoc);
       Document joinChildDoc=new Document();
       joinDocs.add(joinChildDoc);
-      Field childID=new LegacyIntField("childID",childDocID,Field.Store.YES);
+      Field childID=new StoredField("childID",childDocID);
       childDoc.add(childID);
       joinChildDoc.add(childID);
       childID=new NumericDocValuesField("childID",childDocID);
@@ -80,7 +80,7 @@
         System.out.println("    " + sb.toString());
       }
       if (doDeletes) {
-        joinChildDoc.add(new LegacyIntField("blockID",parentDocID,Field.Store.NO));
+        joinChildDoc.add(new IntPoint("blockID",parentDocID));
       }
       w.addDocument(childDoc);
     }
@@ -90,14 +90,14 @@
       toDelete.add(parentDocID);
     }
   }
-  BytesRefBuilder term=new BytesRefBuilder();
-  for (  int deleteID : toDelete) {
-    if (VERBOSE) {
-      System.out.println("DELETE parentID=" + deleteID);
+  if (!toDelete.isEmpty()) {
+    int[] array=new int[toDelete.size()];
+    for (int i=0; i < toDelete.size(); i++) {
+      array[i]=toDelete.get(i);
     }
-    LegacyNumericUtils.intToPrefixCoded(deleteID,0,term);
-    w.deleteDocuments(new Term("blockID",term.toBytesRef()));
-    joinW.deleteDocuments(new Term("blockID",term.toBytesRef()));
+    Query query=IntPoint.newSetQuery("blockID",array);
+    w.deleteDocuments(query);
+    joinW.deleteDocuments(query);
   }
   final IndexReader r=w.getReader();
   w.close();
