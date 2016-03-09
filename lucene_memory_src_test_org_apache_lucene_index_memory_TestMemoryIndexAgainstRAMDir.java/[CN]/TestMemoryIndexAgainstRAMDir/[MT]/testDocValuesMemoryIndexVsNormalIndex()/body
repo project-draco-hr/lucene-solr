@@ -1,0 +1,83 @@
+{
+  Document doc=new Document();
+  long randomLong=random().nextLong();
+  doc.add(new NumericDocValuesField("numeric",randomLong));
+  if (random().nextBoolean()) {
+    doc.add(new LegacyLongField("numeric",randomLong,Field.Store.NO));
+  }
+  int numValues=atLeast(5);
+  for (int i=0; i < numValues; i++) {
+    randomLong=random().nextLong();
+    doc.add(new SortedNumericDocValuesField("sorted_numeric",randomLong));
+    if (random().nextBoolean()) {
+      doc.add(new SortedNumericDocValuesField("sorted_numeric",randomLong));
+    }
+    if (random().nextBoolean()) {
+      doc.add(new LegacyLongField("numeric",randomLong,Field.Store.NO));
+    }
+  }
+  BytesRef randomTerm=new BytesRef(randomTerm());
+  doc.add(new BinaryDocValuesField("binary",randomTerm));
+  if (random().nextBoolean()) {
+    doc.add(new StringField("binary",randomTerm,Field.Store.NO));
+  }
+  randomTerm=new BytesRef(randomTerm());
+  doc.add(new SortedDocValuesField("sorted",randomTerm));
+  if (random().nextBoolean()) {
+    doc.add(new StringField("sorted",randomTerm,Field.Store.NO));
+  }
+  numValues=atLeast(5);
+  for (int i=0; i < numValues; i++) {
+    randomTerm=new BytesRef(randomTerm());
+    doc.add(new SortedSetDocValuesField("sorted_set",randomTerm));
+    if (random().nextBoolean()) {
+      doc.add(new SortedSetDocValuesField("sorted_set",randomTerm));
+    }
+    if (random().nextBoolean()) {
+      doc.add(new StringField("sorted_set",randomTerm,Field.Store.NO));
+    }
+  }
+  MockAnalyzer mockAnalyzer=new MockAnalyzer(random());
+  MemoryIndex memoryIndex=MemoryIndex.fromDocument(doc,mockAnalyzer);
+  IndexReader indexReader=memoryIndex.createSearcher().getIndexReader();
+  LeafReader leafReader=indexReader.leaves().get(0).reader();
+  Directory dir=newDirectory();
+  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(random(),mockAnalyzer));
+  writer.addDocument(doc);
+  writer.close();
+  IndexReader controlIndexReader=DirectoryReader.open(dir);
+  LeafReader controlLeafReader=controlIndexReader.leaves().get(0).reader();
+  NumericDocValues numericDocValues=leafReader.getNumericDocValues("numeric");
+  NumericDocValues controlNumericDocValues=controlLeafReader.getNumericDocValues("numeric");
+  assertEquals(controlNumericDocValues.get(0),numericDocValues.get(0));
+  SortedNumericDocValues sortedNumericDocValues=leafReader.getSortedNumericDocValues("sorted_numeric");
+  sortedNumericDocValues.setDocument(0);
+  SortedNumericDocValues controlSortedNumericDocValues=controlLeafReader.getSortedNumericDocValues("sorted_numeric");
+  controlSortedNumericDocValues.setDocument(0);
+  assertEquals(controlSortedNumericDocValues.count(),sortedNumericDocValues.count());
+  for (int i=0; i < controlSortedNumericDocValues.count(); i++) {
+    assertEquals(controlSortedNumericDocValues.valueAt(i),sortedNumericDocValues.valueAt(i));
+  }
+  BinaryDocValues binaryDocValues=leafReader.getBinaryDocValues("binary");
+  BinaryDocValues controlBinaryDocValues=controlLeafReader.getBinaryDocValues("binary");
+  assertEquals(controlBinaryDocValues.get(0),binaryDocValues.get(0));
+  SortedDocValues sortedDocValues=leafReader.getSortedDocValues("sorted");
+  SortedDocValues controlSortedDocValues=controlLeafReader.getSortedDocValues("sorted");
+  assertEquals(controlSortedDocValues.getValueCount(),sortedDocValues.getValueCount());
+  assertEquals(controlSortedDocValues.get(0),sortedDocValues.get(0));
+  assertEquals(controlSortedDocValues.getOrd(0),sortedDocValues.getOrd(0));
+  assertEquals(controlSortedDocValues.lookupOrd(0),sortedDocValues.lookupOrd(0));
+  SortedSetDocValues sortedSetDocValues=leafReader.getSortedSetDocValues("sorted_set");
+  sortedSetDocValues.setDocument(0);
+  SortedSetDocValues controlSortedSetDocValues=controlLeafReader.getSortedSetDocValues("sorted_set");
+  controlSortedSetDocValues.setDocument(0);
+  assertEquals(controlSortedSetDocValues.getValueCount(),sortedSetDocValues.getValueCount());
+  for (long controlOrd=controlSortedSetDocValues.nextOrd(); controlOrd != SortedSetDocValues.NO_MORE_ORDS; controlOrd=controlSortedSetDocValues.nextOrd()) {
+    assertEquals(controlOrd,sortedSetDocValues.nextOrd());
+    assertEquals(controlSortedSetDocValues.lookupOrd(controlOrd),sortedSetDocValues.lookupOrd(controlOrd));
+  }
+  assertEquals(SortedSetDocValues.NO_MORE_ORDS,sortedSetDocValues.nextOrd());
+  indexReader.close();
+  controlIndexReader.close();
+  dir.close();
+}

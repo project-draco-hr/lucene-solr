@@ -1,10 +1,37 @@
 {
-  if (field.fieldType().docValuesType() != DocValuesType.NONE)   throw new IllegalArgumentException("MemoryIndex does not support DocValues fields");
-  if (field.fieldType().pointDimensionCount() != 0)   throw new IllegalArgumentException("MemoryIndex does not support Points");
-  if (analyzer == null) {
-    addField(field.name(),field.tokenStream(null,null),boost);
+  if (field.fieldType().pointDimensionCount() != 0) {
+    throw new IllegalArgumentException("MemoryIndex does not support Points");
+  }
+  int offsetGap;
+  TokenStream tokenStream;
+  int positionIncrementGap;
+  if (analyzer != null) {
+    offsetGap=analyzer.getOffsetGap(field.name());
+    tokenStream=field.tokenStream(analyzer,null);
+    positionIncrementGap=analyzer.getPositionIncrementGap(field.name());
   }
  else {
-    addField(field.name(),field.tokenStream(analyzer,null),boost,analyzer.getPositionIncrementGap(field.name()),analyzer.getOffsetGap(field.name()));
+    offsetGap=1;
+    tokenStream=field.tokenStream(null,null);
+    positionIncrementGap=0;
   }
+  DocValuesType docValuesType=field.fieldType().docValuesType();
+  Object docValuesValue;
+switch (docValuesType) {
+case NONE:
+    docValuesValue=null;
+  break;
+case BINARY:
+case SORTED:
+case SORTED_SET:
+docValuesValue=field.binaryValue();
+break;
+case NUMERIC:
+case SORTED_NUMERIC:
+docValuesValue=field.numericValue();
+break;
+default :
+throw new UnsupportedOperationException("unknown doc values type [" + docValuesType + "]");
+}
+addField(field.name(),tokenStream,boost,positionIncrementGap,offsetGap,docValuesType,docValuesValue);
 }
