@@ -1,0 +1,63 @@
+{
+  final FieldCache cache=FieldCache.DEFAULT;
+  cache.purgeAllCaches();
+  int NUM_THREADS=3;
+  Thread[] threads=new Thread[NUM_THREADS];
+  final AtomicBoolean failed=new AtomicBoolean();
+  final AtomicInteger iters=new AtomicInteger();
+  final int NUM_ITER=200 * RANDOM_MULTIPLIER;
+  final CyclicBarrier restart=new CyclicBarrier(NUM_THREADS,new Runnable(){
+    @Override public void run(){
+      cache.purgeAllCaches();
+      iters.incrementAndGet();
+    }
+  }
+);
+  for (int threadIDX=0; threadIDX < NUM_THREADS; threadIDX++) {
+    threads[threadIDX]=new Thread(){
+      @Override public void run(){
+        try {
+          while (!failed.get()) {
+            final int op=random().nextInt(3);
+            if (op == 0) {
+              restart.await();
+              if (iters.get() >= NUM_ITER) {
+                break;
+              }
+            }
+ else             if (op == 1) {
+              Bits docsWithField=cache.getDocsWithField(reader,"sparse",null);
+              for (int i=0; i < docsWithField.length(); i++) {
+                assertEquals(i % 2 == 0,docsWithField.get(i));
+              }
+            }
+ else {
+              NumericDocValues ints=cache.getNumerics(reader,"sparse",FieldCache.LEGACY_INT_PARSER,true);
+              Bits docsWithField=cache.getDocsWithField(reader,"sparse",null);
+              for (int i=0; i < docsWithField.length(); i++) {
+                if (i % 2 == 0) {
+                  assertTrue(docsWithField.get(i));
+                  assertEquals(i,ints.get(i));
+                }
+ else {
+                  assertFalse(docsWithField.get(i));
+                }
+              }
+            }
+          }
+        }
+ catch (        Throwable t) {
+          failed.set(true);
+          restart.reset();
+          throw new RuntimeException(t);
+        }
+      }
+    }
+;
+    threads[threadIDX].start();
+  }
+  for (int threadIDX=0; threadIDX < NUM_THREADS; threadIDX++) {
+    threads[threadIDX].join();
+  }
+  assertFalse(failed.get());
+}

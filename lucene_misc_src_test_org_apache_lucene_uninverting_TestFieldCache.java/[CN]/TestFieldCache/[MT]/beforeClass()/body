@@ -2,7 +2,7 @@
   NUM_DOCS=atLeast(500);
   NUM_ORDS=atLeast(2);
   directory=newDirectory();
-  RandomIndexWriter writer=new RandomIndexWriter(random(),directory,newIndexWriterConfig(new MockAnalyzer(random())).setMergePolicy(newLogMergePolicy()));
+  IndexWriter writer=new IndexWriter(directory,new IndexWriterConfig(new MockAnalyzer(random())).setMergePolicy(new LogDocMergePolicy()));
   long theLong=Long.MAX_VALUE;
   double theDouble=Double.MAX_VALUE;
   int theInt=Integer.MAX_VALUE;
@@ -14,15 +14,15 @@
   }
   for (int i=0; i < NUM_DOCS; i++) {
     Document doc=new Document();
-    doc.add(new LegacyLongField("theLong",theLong--,Field.Store.NO));
-    doc.add(new LegacyDoubleField("theDouble",theDouble--,Field.Store.NO));
-    doc.add(new LegacyIntField("theInt",theInt--,Field.Store.NO));
-    doc.add(new LegacyFloatField("theFloat",theFloat--,Field.Store.NO));
+    doc.add(new LongPoint("theLong",theLong--));
+    doc.add(new DoublePoint("theDouble",theDouble--));
+    doc.add(new IntPoint("theInt",theInt--));
+    doc.add(new FloatPoint("theFloat",theFloat--));
     if (i % 2 == 0) {
-      doc.add(new LegacyIntField("sparse",i,Field.Store.NO));
+      doc.add(new IntPoint("sparse",i));
     }
     if (i % 2 == 0) {
-      doc.add(new LegacyIntField("numInt",i,Field.Store.NO));
+      doc.add(new IntPoint("numInt",i));
     }
     if (random().nextInt(40) != 17) {
       unicodeStrings[i]=generateString(i);
@@ -38,8 +38,10 @@
     }
     writer.addDocument(doc);
   }
-  IndexReader r=writer.getReader();
-  reader=SlowCompositeReaderWrapper.wrap(r);
+  writer.forceMerge(1);
+  IndexReader r=DirectoryReader.open(writer);
+  assertEquals(1,r.leaves().size());
+  reader=r.leaves().get(0).reader();
   TestUtil.checkReader(reader);
   writer.close();
 }
