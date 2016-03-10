@@ -1,29 +1,12 @@
 {
-  req.getParams().required().check(REQUESTID);
-  final CoreContainer coreContainer=h.coreContainer;
-  final String requestId=req.getParams().get(REQUESTID);
-  final ZkController zkController=coreContainer.getZkController();
-  final NamedList<Object> results=new NamedList<>();
-  if (zkController.getOverseerCompletedMap().contains(requestId)) {
-    final byte[] mapEntry=zkController.getOverseerCompletedMap().get(requestId);
-    rsp.getValues().addAll(SolrResponse.deserialize(mapEntry).getResponse());
-    addStatusToResponse(results,COMPLETED,"found [" + requestId + "] in completed tasks");
+  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,PROPERTY_PROP);
+  Boolean shardUnique=Boolean.parseBoolean(req.getParams().get(SHARD_UNIQUE));
+  String prop=req.getParams().get(PROPERTY_PROP).toLowerCase(Locale.ROOT);
+  if (!StringUtils.startsWith(prop,COLL_PROP_PREFIX)) {
+    prop=COLL_PROP_PREFIX + prop;
   }
- else   if (zkController.getOverseerFailureMap().contains(requestId)) {
-    final byte[] mapEntry=zkController.getOverseerFailureMap().get(requestId);
-    rsp.getValues().addAll(SolrResponse.deserialize(mapEntry).getResponse());
-    addStatusToResponse(results,FAILED,"found [" + requestId + "] in failed tasks");
+  if (!shardUnique && !SliceMutator.SLICE_UNIQUE_BOOLEAN_PROPERTIES.contains(prop)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Balancing properties amongst replicas in a slice requires that" + " the property be pre-defined as a unique property (e.g. 'preferredLeader') or that 'shardUnique' be set to 'true'. " + " Property: " + prop + " shardUnique: "+ Boolean.toString(shardUnique));
   }
- else   if (zkController.getOverseerRunningMap().contains(requestId)) {
-    addStatusToResponse(results,RUNNING,"found [" + requestId + "] in running tasks");
-  }
- else   if (h.overseerCollectionQueueContains(requestId)) {
-    addStatusToResponse(results,SUBMITTED,"found [" + requestId + "] in submitted tasks");
-  }
- else {
-    addStatusToResponse(results,NOT_FOUND,"Did not find [" + requestId + "] in any tasks queue");
-  }
-  final SolrResponse response=new OverseerSolrResponse(results);
-  rsp.getValues().addAll(response.getResponse());
-  return null;
+  return req.getParams().getAll(map,ONLY_ACTIVE_NODES,SHARD_UNIQUE);
 }
