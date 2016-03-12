@@ -1,2 +1,96 @@
 {
+  GeoRect box=GeoUtils.circleToBBox(longitude,latitude,radiusMeters);
+  final GeoRect box1;
+  final GeoRect box2;
+  if (box.crossesDateline()) {
+    box1=new GeoRect(-180.0,box.maxLon,box.minLat,box.maxLat);
+    box2=new GeoRect(box.minLon,180.0,box.minLat,box.maxLat);
+  }
+ else {
+    box1=box;
+    box2=null;
+  }
+  return new ConstantScoreWeight(this){
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      LeafReader reader=context.reader();
+      PointValues values=reader.getPointValues();
+      if (values == null) {
+        return null;
+      }
+      FieldInfo fieldInfo=reader.getFieldInfos().fieldInfo(field);
+      if (fieldInfo == null) {
+        return null;
+      }
+      LatLonPoint.checkCompatible(fieldInfo);
+      DocIdSetBuilder result=new DocIdSetBuilder(reader.maxDoc());
+      final BitSet preApproved;
+      if (values.getDocCount(field) * 100L < reader.maxDoc()) {
+        preApproved=new SparseFixedBitSet(reader.maxDoc());
+      }
+ else {
+        preApproved=new FixedBitSet(reader.maxDoc());
+      }
+      values.intersect(field,new IntersectVisitor(){
+        @Override public void grow(        int count){
+          result.grow(count);
+        }
+        @Override public void visit(        int docID){
+          result.add(docID);
+          preApproved.set(docID);
+        }
+        @Override public void visit(        int docID,        byte[] packedValue){
+          result.add(docID);
+        }
+        @Override public Relation compare(        byte[] minPackedValue,        byte[] maxPackedValue){
+          double latMin=LatLonPoint.decodeLatitude(minPackedValue,0);
+          double lonMin=LatLonPoint.decodeLongitude(minPackedValue,Integer.BYTES);
+          double latMax=LatLonPoint.decodeLatitude(maxPackedValue,0);
+          double lonMax=LatLonPoint.decodeLongitude(maxPackedValue,Integer.BYTES);
+          if ((latMax < box1.minLat || lonMax < box1.minLon || latMin > box1.maxLat || lonMin > box1.maxLon) && (box2 == null || latMax < box2.minLat || lonMax < box2.minLon || latMin > box2.maxLat || lonMin > box2.maxLon)) {
+            return Relation.CELL_OUTSIDE_QUERY;
+          }
+ else           if (lonMax - longitude < 90 && longitude - lonMin < 90 && GeoDistanceUtils.haversin(latitude,longitude,latMin,lonMin) <= radiusMeters && GeoDistanceUtils.haversin(latitude,longitude,latMin,lonMax) <= radiusMeters && GeoDistanceUtils.haversin(latitude,longitude,latMax,lonMin) <= radiusMeters && GeoDistanceUtils.haversin(latitude,longitude,latMax,lonMax) <= radiusMeters) {
+            return Relation.CELL_INSIDE_QUERY;
+          }
+ else {
+            return Relation.CELL_CROSSES_QUERY;
+          }
+        }
+      }
+);
+      DocIdSet set=result.build();
+      final DocIdSetIterator disi=set.iterator();
+      if (disi == null) {
+        return null;
+      }
+      SortedNumericDocValues docValues=DocValues.getSortedNumeric(reader,field);
+      TwoPhaseIterator iterator=new TwoPhaseIterator(disi){
+        @Override public boolean matches() throws IOException {
+          int docId=disi.docID();
+          if (preApproved.get(docId)) {
+            return true;
+          }
+ else {
+            docValues.setDocument(docId);
+            int count=docValues.count();
+            for (int i=0; i < count; i++) {
+              long encoded=docValues.valueAt(i);
+              double docLatitude=LatLonPoint.decodeLatitude((int)(encoded >> 32));
+              double docLongitude=LatLonPoint.decodeLongitude((int)(encoded & 0xFFFFFFFF));
+              if (GeoDistanceUtils.haversin(latitude,longitude,docLatitude,docLongitude) <= radiusMeters) {
+                return true;
+              }
+            }
+            return false;
+          }
+        }
+        @Override public float matchCost(){
+          return 20;
+        }
+      }
+;
+      return new ConstantScoreScorer(this,score(),iterator);
+    }
+  }
+;
 }
