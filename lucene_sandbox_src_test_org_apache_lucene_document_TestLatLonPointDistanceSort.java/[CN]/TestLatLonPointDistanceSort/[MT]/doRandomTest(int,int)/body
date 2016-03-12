@@ -1,0 +1,44 @@
+{
+  Directory dir=newDirectory();
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+  for (int i=0; i < numDocs; i++) {
+    double latRaw=-90 + 180.0 * random().nextDouble();
+    double lonRaw=-180 + 360.0 * random().nextDouble();
+    double lat=LatLonPoint.decodeLatitude(LatLonPoint.encodeLatitude(latRaw));
+    double lon=LatLonPoint.decodeLongitude(LatLonPoint.encodeLongitude(lonRaw));
+    Document doc=new Document();
+    doc.add(new StoredField("id",i));
+    doc.add(new NumericDocValuesField("id",i));
+    doc.add(new LatLonPoint("field",lat,lon));
+    doc.add(new StoredField("lat",lat));
+    doc.add(new StoredField("lon",lon));
+    writer.addDocument(doc);
+  }
+  IndexReader reader=writer.getReader();
+  IndexSearcher searcher=new IndexSearcher(reader);
+  for (int i=0; i < numQueries; i++) {
+    double lat=-90 + 180.0 * random().nextDouble();
+    double lon=-180 + 360.0 * random().nextDouble();
+    Result expected[]=new Result[reader.maxDoc()];
+    for (int doc=0; doc < reader.maxDoc(); doc++) {
+      Document targetDoc=reader.document(doc);
+      double docLatitude=targetDoc.getField("lat").numericValue().doubleValue();
+      double docLongitude=targetDoc.getField("lon").numericValue().doubleValue();
+      double distance=GeoDistanceUtils.haversin(lat,lon,docLatitude,docLongitude);
+      int id=targetDoc.getField("id").numericValue().intValue();
+      expected[doc]=new Result(id,distance);
+    }
+    Arrays.sort(expected);
+    int topN=TestUtil.nextInt(random(),1,reader.maxDoc());
+    Sort sort=new Sort(LatLonPoint.newDistanceSort("field",lat,lon),new SortField("id",SortField.Type.INT));
+    TopDocs topDocs=searcher.search(new MatchAllDocsQuery(),topN,sort);
+    for (int resultNumber=0; resultNumber < topN; resultNumber++) {
+      FieldDoc fieldDoc=(FieldDoc)topDocs.scoreDocs[resultNumber];
+      Result actual=new Result((Integer)fieldDoc.fields[1],(Double)fieldDoc.fields[0]);
+      assertEquals(expected[resultNumber],actual);
+    }
+  }
+  reader.close();
+  writer.close();
+  dir.close();
+}
