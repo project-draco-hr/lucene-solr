@@ -2,16 +2,18 @@
   Directory dir=newDirectory();
   RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
   for (int i=0; i < numDocs; i++) {
-    double latRaw=-90 + 180.0 * random().nextDouble();
-    double lonRaw=-180 + 360.0 * random().nextDouble();
-    double lat=LatLonPoint.decodeLatitude(LatLonPoint.encodeLatitude(latRaw));
-    double lon=LatLonPoint.decodeLongitude(LatLonPoint.encodeLongitude(lonRaw));
     Document doc=new Document();
     doc.add(new StoredField("id",i));
     doc.add(new NumericDocValuesField("id",i));
-    doc.add(new LatLonPoint("field",lat,lon));
-    doc.add(new StoredField("lat",lat));
-    doc.add(new StoredField("lon",lon));
+    if (random().nextInt(10) > 7) {
+      double latRaw=-90 + 180.0 * random().nextDouble();
+      double lonRaw=-180 + 360.0 * random().nextDouble();
+      double lat=LatLonPoint.decodeLatitude(LatLonPoint.encodeLatitude(latRaw));
+      double lon=LatLonPoint.decodeLongitude(LatLonPoint.encodeLongitude(lonRaw));
+      doc.add(new LatLonPoint("field",lat,lon));
+      doc.add(new StoredField("lat",lat));
+      doc.add(new StoredField("lon",lon));
+    }
     writer.addDocument(doc);
   }
   IndexReader reader=writer.getReader();
@@ -19,18 +21,27 @@
   for (int i=0; i < numQueries; i++) {
     double lat=-90 + 180.0 * random().nextDouble();
     double lon=-180 + 360.0 * random().nextDouble();
+    double missingValue=random().nextBoolean() ? Double.POSITIVE_INFINITY : Double.NEGATIVE_INFINITY;
     Result expected[]=new Result[reader.maxDoc()];
     for (int doc=0; doc < reader.maxDoc(); doc++) {
       Document targetDoc=reader.document(doc);
-      double docLatitude=targetDoc.getField("lat").numericValue().doubleValue();
-      double docLongitude=targetDoc.getField("lon").numericValue().doubleValue();
-      double distance=GeoDistanceUtils.haversin(lat,lon,docLatitude,docLongitude);
+      final double distance;
+      if (targetDoc.getField("lat") == null) {
+        distance=missingValue;
+      }
+ else {
+        double docLatitude=targetDoc.getField("lat").numericValue().doubleValue();
+        double docLongitude=targetDoc.getField("lon").numericValue().doubleValue();
+        distance=GeoDistanceUtils.haversin(lat,lon,docLatitude,docLongitude);
+      }
       int id=targetDoc.getField("id").numericValue().intValue();
       expected[doc]=new Result(id,distance);
     }
     Arrays.sort(expected);
     int topN=TestUtil.nextInt(random(),1,reader.maxDoc());
-    Sort sort=new Sort(LatLonPoint.newDistanceSort("field",lat,lon),new SortField("id",SortField.Type.INT));
+    SortField distanceSort=LatLonPoint.newDistanceSort("field",lat,lon);
+    distanceSort.setMissingValue(missingValue);
+    Sort sort=new Sort(distanceSort,new SortField("id",SortField.Type.INT));
     TopDocs topDocs=searcher.search(new MatchAllDocsQuery(),topN,sort);
     for (int resultNumber=0; resultNumber < topN; resultNumber++) {
       FieldDoc fieldDoc=(FieldDoc)topDocs.scoreDocs[resultNumber];
