@@ -1,0 +1,22 @@
+{
+  String wkt="POINT( 1 2 )";
+  SupportedFormats fmts=SpatialContext.GEO.getFormats();
+  Shape shape=fmts.read(wkt);
+  String[] check=new String[]{"srpt_geohash","srpt_geohash","srpt_quad","srpt_packedquad","srptgeom"};
+  String[] checkFormats=new String[]{"GeoJSON","WKT","POLY"};
+  for (  String field : check) {
+    assertU(adoc("id","test",field,wkt));
+    assertU(commit());
+    for (    String fmt : checkFormats) {
+      String json=h.query(req("q","id:test","wt","json","indent","true","fl","xxx:[geo f=" + field + " w="+ fmt+ "]"));
+      Map<String,Object> doc=readFirstDoc(json);
+      Object v=doc.get("xxx");
+      String expect=fmts.getWriter(fmt).toString(shape);
+      if (!(v instanceof String)) {
+        v=normalizeMapToJSON(v.toString());
+        expect=normalizeMapToJSON(expect);
+      }
+      assertEquals("Bad result: " + field + "/"+ fmt,expect,v.toString());
+    }
+  }
+}

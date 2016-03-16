@@ -1,0 +1,70 @@
+{
+  String fname=params.get("f",display);
+  if (fname.startsWith("[") && fname.endsWith("]")) {
+    fname=display.substring(1,display.length() - 1);
+  }
+  SchemaField sf=req.getSchema().getFieldOrNull(fname);
+  if (sf == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,this.getClass().getSimpleName() + " using unknown field: " + fname);
+  }
+  if (!(sf.getType() instanceof AbstractSpatialFieldType)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"GeoTransformer requested non-spatial field: " + fname + " ("+ sf.getType().getClass().getSimpleName()+ ")");
+  }
+  final GeoFieldUpdater updater=new GeoFieldUpdater();
+  updater.field=fname;
+  updater.display=display;
+  updater.display_error=display + "_error";
+  ValueSource shapes=null;
+  AbstractSpatialFieldType<?> sdv=(AbstractSpatialFieldType<?>)sf.getType();
+  SpatialStrategy strategy=sdv.getStrategy(fname);
+  if (strategy instanceof CompositeSpatialStrategy) {
+    shapes=((CompositeSpatialStrategy)strategy).getGeometryStrategy().makeShapeValueSource();
+  }
+ else   if (strategy instanceof SerializedDVStrategy) {
+    shapes=((SerializedDVStrategy)strategy).makeShapeValueSource();
+  }
+  String writerName=params.get("w","GeoJSON");
+  updater.formats=strategy.getSpatialContext().getFormats();
+  updater.writer=updater.formats.getWriter(writerName);
+  if (updater.writer == null) {
+    StringBuilder str=new StringBuilder();
+    str.append("Unknown Spatial Writer: ").append(writerName);
+    str.append(" [");
+    for (    ShapeWriter w : updater.formats.getWriters()) {
+      str.append(w.getFormatName()).append(' ');
+    }
+    str.append("]");
+    throw new SolrException(ErrorCode.BAD_REQUEST,str.toString());
+  }
+  QueryResponseWriter qw=req.getCore().getQueryResponseWriter(req);
+  updater.isJSON=(qw.getClass() == JSONResponseWriter.class) && (updater.writer instanceof GeoJSONWriter);
+  if (shapes != null) {
+    QParser parser=new QParser(null,null,params,req){
+      @Override public Query parse() throws SyntaxError {
+        return new MatchAllDocsQuery();
+      }
+    }
+;
+    return new ValueSourceAugmenter(display,parser,shapes){
+      @Override protected void setValue(      SolrDocument doc,      Object val){
+        updater.setValue(doc,val);
+      }
+    }
+;
+  }
+  return new DocTransformer(){
+    @Override public void transform(    SolrDocument doc,    int docid,    float score) throws IOException {
+      Object val=doc.remove(updater.field);
+      if (val != null) {
+        updater.setValue(doc,val);
+      }
+    }
+    @Override public String getName(){
+      return updater.display;
+    }
+    @Override public String[] getExtraRequestFields(){
+      return new String[]{updater.field};
+    }
+  }
+;
+}
