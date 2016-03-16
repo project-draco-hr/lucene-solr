@@ -1,0 +1,35 @@
+{
+  final int numDims=TestUtil.nextInt(random(),1,8);
+  final int numBytesPerDim=TestUtil.nextInt(random(),1,16);
+  Directory dir=new RAMDirectory();
+  IndexWriter w=new IndexWriter(dir,new IndexWriterConfig(null));
+  final int numDocs=TestUtil.nextInt(random(),10,20);
+  for (int i=0; i < numDocs; ++i) {
+    Document doc=new Document();
+    final int numPoints=random().nextInt(3);
+    for (int j=0; j < numPoints; ++j) {
+      doc.add(new BinaryPoint("field",randomBinaryValue(numDims,numBytesPerDim)));
+    }
+    w.addDocument(doc);
+    if (random().nextBoolean()) {
+      DirectoryReader.open(w).close();
+    }
+  }
+  final IndexReader reader1=DirectoryReader.open(w);
+  w.forceMerge(1);
+  final IndexReader reader2=DirectoryReader.open(w);
+  final PointValues expected=getOnlyLeafReader(reader2).getPointValues();
+  if (expected == null) {
+    assertNull(PointValues.getMinPackedValue(reader1,"field"));
+    assertNull(PointValues.getMaxPackedValue(reader1,"field"));
+    assertEquals(0,PointValues.getDocCount(reader1,"field"));
+    assertEquals(0,PointValues.size(reader1,"field"));
+  }
+ else {
+    assertArrayEquals(expected.getMinPackedValue("field"),PointValues.getMinPackedValue(reader1,"field"));
+    assertArrayEquals(expected.getMaxPackedValue("field"),PointValues.getMaxPackedValue(reader1,"field"));
+    assertEquals(expected.getDocCount("field"),PointValues.getDocCount(reader1,"field"));
+    assertEquals(expected.size("field"),PointValues.size(reader1,"field"));
+  }
+  IOUtils.close(w,reader1,reader2,dir);
+}
