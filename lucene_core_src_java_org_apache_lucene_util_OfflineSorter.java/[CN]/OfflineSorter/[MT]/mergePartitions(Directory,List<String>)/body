@@ -15,24 +15,41 @@
 ;
   ByteSequencesReader[] streams=new ByteSequencesReader[segmentsToMerge.size()];
   String newSegmentName=null;
-  try (IndexOutput out=trackingDir.createTempOutput(tempFileNamePrefix,"sort",IOContext.DEFAULT);ByteSequencesWriter writer=getWriter(out)){
-    newSegmentName=out.getName();
+  try (ByteSequencesWriter writer=getWriter(trackingDir.createTempOutput(tempFileNamePrefix,"sort",IOContext.DEFAULT))){
+    newSegmentName=writer.out.getName();
     for (int i=0; i < segmentsToMerge.size(); i++) {
-      streams[i]=getReader(dir.openInput(segmentsToMerge.get(i),IOContext.READONCE));
+      streams[i]=getReader(dir.openChecksumInput(segmentsToMerge.get(i),IOContext.READONCE),segmentsToMerge.get(i));
       BytesRefBuilder bytes=new BytesRefBuilder();
-      boolean result=streams[i].read(bytes);
+      boolean result=false;
+      try {
+        result=streams[i].read(bytes);
+      }
+ catch (      Throwable t) {
+        verifyChecksum(t,streams[i]);
+      }
       assert result;
       queue.insertWithOverflow(new FileAndTop(i,bytes));
     }
     FileAndTop top;
     while ((top=queue.top()) != null) {
       writer.write(top.current.bytes(),0,top.current.length());
-      if (!streams[top.fd].read(top.current)) {
-        queue.pop();
+      boolean result=false;
+      try {
+        result=streams[top.fd].read(top.current);
       }
- else {
+ catch (      Throwable t) {
+        verifyChecksum(t,streams[top.fd]);
+      }
+      if (result) {
         queue.updateTop();
       }
+ else {
+        queue.pop();
+      }
+    }
+    CodecUtil.writeFooter(writer.out);
+    for (    ByteSequencesReader reader : streams) {
+      CodecUtil.checkFooter(reader.in);
     }
     sortInfo.mergeTime+=System.currentTimeMillis() - start;
     sortInfo.mergeRounds++;

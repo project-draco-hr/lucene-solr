@@ -1,32 +1,15 @@
 {
   OfflineSorter sorter=new OfflineSorter(tempDir,tempFileNamePrefix,tieBreakByCostComparator);
   tempInput=tempDir.createTempOutput(tempFileNamePrefix,"input",IOContext.DEFAULT);
-  final OfflineSorter.ByteSequencesWriter writer=new OfflineSorter.ByteSequencesWriter(tempInput);
-  boolean success=false;
-  try {
+  try (OfflineSorter.ByteSequencesWriter writer=new OfflineSorter.ByteSequencesWriter(tempInput)){
     BytesRef spare;
     byte[] buffer=new byte[0];
     ByteArrayDataOutput output=new ByteArrayDataOutput(buffer);
     while ((spare=source.next()) != null) {
       encode(writer,output,buffer,spare,source.payload(),source.contexts(),source.weight());
     }
-    writer.close();
-    tempSortedFileName=sorter.sort(tempInput.getName());
-    ByteSequencesReader reader=new OfflineSorter.ByteSequencesReader(tempDir.openInput(tempSortedFileName,IOContext.READONCE));
-    success=true;
-    return reader;
+    CodecUtil.writeFooter(tempInput);
   }
-  finally {
-    if (success) {
-      IOUtils.close(writer);
-    }
- else {
-      try {
-        IOUtils.closeWhileHandlingException(writer);
-      }
-  finally {
-        close();
-      }
-    }
-  }
+   tempSortedFileName=sorter.sort(tempInput.getName());
+  return new OfflineSorter.ByteSequencesReader(tempDir.openChecksumInput(tempSortedFileName,IOContext.READONCE),tempSortedFileName);
 }
