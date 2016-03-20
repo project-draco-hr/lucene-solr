@@ -1,2 +1,29 @@
 {
+  ScheduledExecutorService executor=Executors.newSingleThreadScheduledExecutor(new DefaultSolrThreadFactory("connectionManagerTest"));
+  String zkDir=createTempDir("zkData").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    MockZkClientConnectionStrategy strat=new MockZkClientConnectionStrategy();
+    SolrZkClient zkClient=new SolrZkClient(server.getZkAddress(),TIMEOUT,strat,null);
+    ConnectionManager cm=zkClient.getConnectionManager();
+    try {
+      assertFalse(cm.isLikelyExpired());
+      assertTrue(cm.isConnected());
+      cm.process(new WatchedEvent(EventType.None,KeeperState.Expired,""));
+      assertFalse(cm.isLikelyExpired());
+      assertTrue(cm.isConnected());
+      assertTrue(strat.isExceptionThrow());
+    }
+  finally {
+      cm.close();
+      zkClient.close();
+      executor.shutdown();
+    }
+  }
+  finally {
+    server.shutdown();
+  }
 }
