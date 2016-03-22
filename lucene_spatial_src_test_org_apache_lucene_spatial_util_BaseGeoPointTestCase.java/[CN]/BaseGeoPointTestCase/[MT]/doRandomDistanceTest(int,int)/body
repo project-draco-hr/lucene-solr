@@ -1,0 +1,68 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  int pointsInLeaf=2 + random().nextInt(4);
+  iwc.setCodec(new FilterCodec("Lucene60",TestUtil.getDefaultCodec()){
+    @Override public PointsFormat pointsFormat(){
+      return new PointsFormat(){
+        @Override public PointsWriter fieldsWriter(        SegmentWriteState writeState) throws IOException {
+          return new Lucene60PointsWriter(writeState,pointsInLeaf,BKDWriter.DEFAULT_MAX_MB_SORT_IN_HEAP);
+        }
+        @Override public PointsReader fieldsReader(        SegmentReadState readState) throws IOException {
+          return new Lucene60PointsReader(readState);
+        }
+      }
+;
+    }
+  }
+);
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,iwc);
+  for (int i=0; i < numDocs; i++) {
+    double latRaw=-90 + 180.0 * random().nextDouble();
+    double lonRaw=-180 + 360.0 * random().nextDouble();
+    double lat=quantizeLat(latRaw);
+    double lon=quantizeLon(lonRaw);
+    Document doc=new Document();
+    addPointToDoc("field",doc,lat,lon);
+    doc.add(new StoredField("lat",lat));
+    doc.add(new StoredField("lon",lon));
+    writer.addDocument(doc);
+  }
+  IndexReader reader=writer.getReader();
+  IndexSearcher searcher=newSearcher(reader);
+  for (int i=0; i < numQueries; i++) {
+    double lat=-90 + 180.0 * random().nextDouble();
+    double lon=-180 + 360.0 * random().nextDouble();
+    double radius=maxRadius(lat,lon) * random().nextDouble();
+    BitSet expected=new BitSet();
+    for (int doc=0; doc < reader.maxDoc(); doc++) {
+      double docLatitude=reader.document(doc).getField("lat").numericValue().doubleValue();
+      double docLongitude=reader.document(doc).getField("lon").numericValue().doubleValue();
+      double distance=SloppyMath.haversinMeters(lat,lon,docLatitude,docLongitude);
+      if (distance <= radius) {
+        expected.set(doc);
+      }
+    }
+    TopDocs topDocs=searcher.search(newDistanceQuery("field",lat,lon,radius),reader.maxDoc(),Sort.INDEXORDER);
+    BitSet actual=new BitSet();
+    for (    ScoreDoc doc : topDocs.scoreDocs) {
+      actual.set(doc.doc);
+    }
+    try {
+      assertEquals(expected,actual);
+    }
+ catch (    AssertionError e) {
+      System.out.println("center: (" + lat + ","+ lon+ "), radius="+ radius);
+      for (int doc=0; doc < reader.maxDoc(); doc++) {
+        double docLatitude=reader.document(doc).getField("lat").numericValue().doubleValue();
+        double docLongitude=reader.document(doc).getField("lon").numericValue().doubleValue();
+        double distance=SloppyMath.haversinMeters(lat,lon,docLatitude,docLongitude);
+        System.out.println("" + doc + ": ("+ docLatitude+ ","+ docLongitude+ "), distance="+ distance);
+      }
+      throw e;
+    }
+  }
+  reader.close();
+  writer.close();
+  dir.close();
+}
