@@ -1,9 +1,40 @@
 {
   final Number val=f.numericValue();
   if (val != null) {
-    return (type == TrieTypes.DATE) ? new Date(val.longValue()) : val;
-  }
+    if (f.fieldType().stored() == false && f.fieldType().docValuesType() == DocValuesType.NUMERIC) {
+      long bits=val.longValue();
+switch (type) {
+case INTEGER:
+        return (int)bits;
+case FLOAT:
+      return Float.intBitsToFloat((int)bits);
+case LONG:
+    return bits;
+case DOUBLE:
+  return Double.longBitsToDouble(bits);
+case DATE:
+return new Date(bits);
+default :
+throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unknown type for trie field: " + f.name());
+}
+}
+return (type == TrieTypes.DATE) ? new Date(val.longValue()) : val;
+}
  else {
-    return badFieldString(f);
-  }
+BytesRef term=f.binaryValue();
+switch (type) {
+case INTEGER:
+return LegacyNumericUtils.prefixCodedToInt(term);
+case FLOAT:
+return NumericUtils.sortableIntToFloat(LegacyNumericUtils.prefixCodedToInt(term));
+case LONG:
+return LegacyNumericUtils.prefixCodedToLong(term);
+case DOUBLE:
+return NumericUtils.sortableLongToDouble(LegacyNumericUtils.prefixCodedToLong(term));
+case DATE:
+return new Date(LegacyNumericUtils.prefixCodedToLong(term));
+default :
+throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Unknown type for trie field: " + f.name());
+}
+}
 }
