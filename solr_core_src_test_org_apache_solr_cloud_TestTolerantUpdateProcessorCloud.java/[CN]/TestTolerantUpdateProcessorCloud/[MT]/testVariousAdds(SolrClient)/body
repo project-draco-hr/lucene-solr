@@ -1,0 +1,163 @@
+{
+  assertNotNull("client not initialized",client);
+  UpdateResponse rsp=null;
+  for (  int maxErrors : new int[]{-1,2,47,10}) {
+    rsp=update(params("update.chain","tolerant-chain-max-errors-10","maxErrors","" + maxErrors,"commit","true"),doc(f("id",S_ONE_PRE + "42"),f("foo_i","bogus_value")),doc(f("id",S_ONE_PRE + "666"),f("foo_i","1976"))).process(client);
+    assertEquals(0,rsp.getStatus());
+    assertUpdateTolerantAddErrors("single shard, 1st doc should fail",rsp,S_ONE_PRE + "42");
+    assertEquals(0,client.commit().getStatus());
+    assertQueryDocIds(client,false,S_ONE_PRE + "42");
+    assertQueryDocIds(client,true,S_ONE_PRE + "666");
+    assertEquals(maxErrors,rsp.getResponseHeader().get("maxErrors"));
+  }
+  rsp=update(params("update.chain","tolerant-chain-max-errors-not-set","commit","true"),doc(f("id",S_ONE_PRE + "55"),f("foo_i","1976")),doc(f("id",S_ONE_PRE + "77"),f("foo_i","bogus_val"))).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantAddErrors("single shard, 2nd doc should fail",rsp,S_ONE_PRE + "77");
+  assertQueryDocIds(client,false,S_ONE_PRE + "77");
+  assertQueryDocIds(client,true,S_ONE_PRE + "666",S_ONE_PRE + "55");
+  assertEquals(-1,rsp.getResponseHeader().get("maxErrors"));
+  assertEquals(0,client.deleteByQuery("*:*").getStatus());
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",S_ONE_PRE + "42"),f("foo_i","bogus_value")),doc(f("id",S_TWO_PRE + "666"),f("foo_i","1976"))).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantAddErrors("two shards, 1st doc should fail",rsp,S_ONE_PRE + "42");
+  assertEquals(0,client.commit().getStatus());
+  assertQueryDocIds(client,false,S_ONE_PRE + "42");
+  assertQueryDocIds(client,true,S_TWO_PRE + "666");
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",S_ONE_PRE + "55"),f("foo_i","1976")),doc(f("id",S_TWO_PRE + "77"),f("foo_i","bogus_val"))).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantAddErrors("two shards, 2nd doc should fail",rsp,S_TWO_PRE + "77");
+  assertQueryDocIds(client,false,S_TWO_PRE + "77");
+  assertQueryDocIds(client,true,S_TWO_PRE + "666",S_ONE_PRE + "55");
+  assertEquals(0,client.deleteByQuery("*:*").getStatus());
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",S_ONE_PRE + "11")),doc(f("id",S_TWO_PRE + "21")),doc(f("id",S_ONE_PRE + "12")),doc(f("id",S_TWO_PRE + "22"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "13")),doc(f("id",S_TWO_PRE + "23")),doc(f("id",S_ONE_PRE + "14")),doc(f("id",S_TWO_PRE + "24")),doc(f("id",S_ONE_PRE + "15"),f("foo_i","bogus_val")),doc(f("id",S_TWO_PRE + "25")),doc(f("id",S_ONE_PRE + "16")),doc(f("id",S_TWO_PRE + "26"))).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantAddErrors("many docs, 1 from each shard should fail",rsp,S_ONE_PRE + "15",S_TWO_PRE + "22");
+  assertQueryDocIds(client,false,S_TWO_PRE + "22",S_ONE_PRE + "15");
+  assertQueryDocIds(client,true,S_ONE_PRE + "11",S_TWO_PRE + "21",S_ONE_PRE + "12",S_ONE_PRE + "13",S_TWO_PRE + "23",S_ONE_PRE + "14",S_TWO_PRE + "24",S_TWO_PRE + "25",S_ONE_PRE + "16",S_TWO_PRE + "26");
+  assertEquals(0,client.deleteByQuery("*:*").getStatus());
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",S_ONE_PRE + "11")),doc(f("id",S_TWO_PRE + "21")),doc(f("id",S_ONE_PRE + "12")),doc(f("id",S_TWO_PRE + "22"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "13")),doc(f("id",S_TWO_PRE + "23")),doc(f("foo_i","42")),doc(f("id",S_ONE_PRE + "14")),doc(f("id",S_TWO_PRE + "24")),doc(f("id",S_ONE_PRE + "15"),f("foo_i","bogus_val")),doc(f("id",S_TWO_PRE + "25")),doc(f("id",S_ONE_PRE + "16")),doc(f("id",S_TWO_PRE + "26"))).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantAddErrors("many docs, 1 from each shard (+ no id) should fail",rsp,S_ONE_PRE + "15","(unknown)",S_TWO_PRE + "22");
+  assertQueryDocIds(client,false,S_TWO_PRE + "22",S_ONE_PRE + "15");
+  assertQueryDocIds(client,true,S_ONE_PRE + "11",S_TWO_PRE + "21",S_ONE_PRE + "12",S_ONE_PRE + "13",S_TWO_PRE + "23",S_ONE_PRE + "14",S_TWO_PRE + "24",S_TWO_PRE + "25",S_ONE_PRE + "16",S_TWO_PRE + "26");
+  assertEquals(0,client.deleteByQuery("*:*").getStatus());
+  try {
+    rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",S_ONE_PRE + "11")),doc(f("id",S_TWO_PRE + "21"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "12")),doc(f("id",S_TWO_PRE + "22"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "13")),doc(f("id",S_TWO_PRE + "23"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "14"),f("foo_i","bogus_val")),doc(f("id",S_TWO_PRE + "24")),doc(f("id",S_ONE_PRE + "15"),f("foo_i","bogus_val")),doc(f("id",S_TWO_PRE + "25")),doc(f("id",S_ONE_PRE + "16"),f("foo_i","bogus_val")),doc(f("id",S_TWO_PRE + "26"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "17")),doc(f("id",S_TWO_PRE + "27")),doc(f("id",S_ONE_PRE + "18"),f("foo_i","bogus_val")),doc(f("id",S_TWO_PRE + "28"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "19"),f("foo_i","bogus_val")),doc(f("id",S_TWO_PRE + "29"),f("foo_i","bogus_val")),doc(f("id",S_ONE_PRE + "10")),doc(f("id",S_TWO_PRE + "20"))).process(client);
+    fail("did not get a top level exception when more then 10 docs failed: " + rsp.toString());
+  }
+ catch (  SolrException e) {
+    assertEquals("not the type of error we were expecting (" + e.code() + "): "+ e.toString(),400,e.code());
+    NamedList<String> remoteErrMetadata=e.getMetadata();
+    assertNotNull("no metadata in: " + e.toString(),remoteErrMetadata);
+    Set<ToleratedUpdateError> actualKnownErrs=new LinkedHashSet<ToleratedUpdateError>(remoteErrMetadata.size());
+    int actualKnownErrsCount=0;
+    for (int i=0; i < remoteErrMetadata.size(); i++) {
+      ToleratedUpdateError err=ToleratedUpdateError.parseMetadataIfToleratedUpdateError(remoteErrMetadata.getName(i),remoteErrMetadata.getVal(i));
+      if (null == err) {
+        continue;
+      }
+      actualKnownErrsCount++;
+      actualKnownErrs.add(err);
+    }
+    assertEquals("wrong number of errors in metadata: " + remoteErrMetadata.toString(),11,actualKnownErrsCount);
+    assertEquals("at least one dup error in metadata: " + remoteErrMetadata.toString(),actualKnownErrsCount,actualKnownErrs.size());
+    for (    ToleratedUpdateError err : actualKnownErrs) {
+      assertEquals("only expected type of error is ADD: " + err,CmdType.ADD,err.getType());
+      assertTrue("failed err msg didn't match expected value: " + err,err.getMessage().contains("bogus_val"));
+    }
+  }
+  assertEquals(0,client.commit().getStatus());
+  assertQueryDocIds(client,false,S_TWO_PRE + "21",S_TWO_PRE + "22",S_TWO_PRE + "23",S_ONE_PRE + "14",S_ONE_PRE + "15",S_ONE_PRE + "16",S_TWO_PRE + "26",S_ONE_PRE + "18",S_TWO_PRE + "28",S_ONE_PRE + "19",S_TWO_PRE + "29");
+  assertQueryDocIds(client,true,S_ONE_PRE + "11",S_ONE_PRE + "12",S_ONE_PRE + "13",S_TWO_PRE + "24",S_TWO_PRE + "25",S_ONE_PRE + "17",S_TWO_PRE + "27");
+  assertEquals(0,client.deleteByQuery("*:*").getStatus());
+  try {
+    ArrayList<SolrInputDocument> docs=new ArrayList<SolrInputDocument>(30);
+    docs.add(doc(f("id",S_ONE_PRE + "z")));
+    docs.add(doc(f("id",S_TWO_PRE + "z")));
+    docs.add(doc(f("id",S_ONE_PRE + "y")));
+    docs.add(doc(f("id",S_TWO_PRE + "y")));
+    for (int i=0; i < 11; i++) {
+      docs.add(doc(f("id",S_ONE_PRE + i)));
+      docs.add(doc(f("id",S_TWO_PRE + i),f("foo_i","bogus_val")));
+    }
+    docs.add(doc(f("id",S_ONE_PRE + "x")));
+    docs.add(doc(f("id",S_TWO_PRE + "x")));
+    rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),docs.toArray(new SolrInputDocument[docs.size()])).process(client);
+    fail("did not get a top level exception when more then 10 docs failed: " + rsp.toString());
+  }
+ catch (  SolrException e) {
+    assertEquals("not the type of error we were expecting (" + e.code() + "): "+ e.toString(),400,e.code());
+    NamedList<String> remoteErrMetadata=e.getMetadata();
+    assertNotNull("no metadata in: " + e.toString(),remoteErrMetadata);
+    Set<ToleratedUpdateError> actualKnownErrs=new LinkedHashSet<ToleratedUpdateError>(remoteErrMetadata.size());
+    int actualKnownErrsCount=0;
+    for (int i=0; i < remoteErrMetadata.size(); i++) {
+      ToleratedUpdateError err=ToleratedUpdateError.parseMetadataIfToleratedUpdateError(remoteErrMetadata.getName(i),remoteErrMetadata.getVal(i));
+      if (null == err) {
+        continue;
+      }
+      actualKnownErrsCount++;
+      actualKnownErrs.add(err);
+    }
+    assertEquals("wrong number of errors in metadata: " + remoteErrMetadata.toString(),11,actualKnownErrsCount);
+    assertEquals("at least one dup error in metadata: " + remoteErrMetadata.toString(),actualKnownErrsCount,actualKnownErrs.size());
+    for (    ToleratedUpdateError err : actualKnownErrs) {
+      assertEquals("only expected type of error is ADD: " + err,CmdType.ADD,err.getType());
+      assertTrue("failed id had unexpected prefix: " + err,err.getId().startsWith(S_TWO_PRE));
+      assertTrue("failed err msg didn't match expected value: " + err,err.getMessage().contains("bogus_val"));
+    }
+  }
+  assertEquals(0,client.commit().getStatus());
+  assertQueryDocIds(client,true,S_ONE_PRE + "z",S_ONE_PRE + "y",S_TWO_PRE + "z",S_TWO_PRE + "y",S_ONE_PRE + "0",S_ONE_PRE + "1",S_ONE_PRE + "2",S_ONE_PRE + "3",S_ONE_PRE + "4",S_ONE_PRE + "5",S_ONE_PRE + "6",S_ONE_PRE + "7",S_ONE_PRE + "8",S_ONE_PRE + "9");
+  assertQueryDocIds(client,false,S_TWO_PRE + "0",S_TWO_PRE + "1",S_TWO_PRE + "2",S_TWO_PRE + "3",S_TWO_PRE + "4",S_TWO_PRE + "5",S_TWO_PRE + "6",S_TWO_PRE + "7",S_TWO_PRE + "8",S_TWO_PRE + "9");
+  assertEquals(0,client.deleteByQuery("*:*").getStatus());
+  try {
+    ArrayList<SolrInputDocument> docs=new ArrayList<SolrInputDocument>(30);
+    docs.add(doc(f("id",S_ONE_PRE + "z")));
+    docs.add(doc(f("id",S_TWO_PRE + "z")));
+    docs.add(doc(f("id",S_ONE_PRE + "y")));
+    docs.add(doc(f("id",S_TWO_PRE + "y")));
+    for (int i=0; i < 11; i++) {
+      docs.add(doc(f("foo_i","" + i)));
+    }
+    docs.add(doc(f("id",S_ONE_PRE + "x")));
+    docs.add(doc(f("id",S_TWO_PRE + "x")));
+    rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),docs.toArray(new SolrInputDocument[docs.size()])).process(client);
+    fail("did not get a top level exception when more then 10 docs mising uniqueKey: " + rsp.toString());
+  }
+ catch (  SolrException e) {
+    assertEquals("not the type of error we were expecting (" + e.code() + "): "+ e.toString(),400,e.code());
+    NamedList<String> remoteErrMetadata=e.getMetadata();
+    assertNotNull("no metadata in: " + e.toString(),remoteErrMetadata);
+    int actualKnownErrsCount=0;
+    for (int i=0; i < remoteErrMetadata.size(); i++) {
+      ToleratedUpdateError err=ToleratedUpdateError.parseMetadataIfToleratedUpdateError(remoteErrMetadata.getName(i),remoteErrMetadata.getVal(i));
+      if (null == err) {
+        continue;
+      }
+      actualKnownErrsCount++;
+      assertEquals("only expected type of error is ADD: " + err,CmdType.ADD,err.getType());
+      assertTrue("failed id didn't match 'unknown': " + err,err.getId().contains("unknown"));
+    }
+    assertEquals("wrong number of errors in metadata: " + remoteErrMetadata.toString(),11,actualKnownErrsCount);
+  }
+  assertEquals(0,client.commit().getStatus());
+  assertQueryDocIds(client,true,S_ONE_PRE + "z",S_ONE_PRE + "y",S_TWO_PRE + "z",S_TWO_PRE + "y");
+  assertEquals(0,client.deleteByQuery("*:*").getStatus());
+  ArrayList<SolrInputDocument> docs=new ArrayList<SolrInputDocument>(30);
+  ArrayList<ExpectedErr> expectedErrs=new ArrayList<ExpectedErr>(30);
+  docs.add(doc(f("id",S_ONE_PRE + "z")));
+  docs.add(doc(f("id",S_TWO_PRE + "z")));
+  docs.add(doc(f("id",S_ONE_PRE + "y")));
+  docs.add(doc(f("id",S_TWO_PRE + "y")));
+  for (int i=0; i < 11; i++) {
+    docs.add(doc(f("id",S_ONE_PRE + i)));
+    docs.add(doc(f("id",S_TWO_PRE + i),f("foo_i","bogus_val")));
+    expectedErrs.add(addErr(S_TWO_PRE + i));
+  }
+  docs.add(doc(f("id",S_ONE_PRE + "x")));
+  docs.add(doc(f("id",S_TWO_PRE + "x")));
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","maxErrors","-1","commit","true"),docs.toArray(new SolrInputDocument[docs.size()])).process(client);
+  assertUpdateTolerantErrors("many docs from shard2 fail, but req should succeed",rsp,expectedErrs.toArray(new ExpectedErr[expectedErrs.size()]));
+  assertQueryDocIds(client,true,S_ONE_PRE + "z",S_ONE_PRE + "y",S_TWO_PRE + "z",S_TWO_PRE + "y",S_ONE_PRE + "x",S_TWO_PRE + "x");
+}

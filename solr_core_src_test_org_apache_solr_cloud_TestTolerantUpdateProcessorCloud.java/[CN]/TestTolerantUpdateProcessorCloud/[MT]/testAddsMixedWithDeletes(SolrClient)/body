@@ -1,0 +1,45 @@
+{
+  assertNotNull("client not initialized",client);
+  final String docId1=S_ONE_PRE + "42";
+  final String docId21=S_TWO_PRE + "42";
+  final String docId22=S_TWO_PRE + "666";
+  UpdateResponse rsp=null;
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",docId1),f("foo_i","2001")),doc(f("id",docId21),f("foo_i","1976"))).process(client);
+  assertEquals(0,rsp.getStatus());
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",docId22),f("foo_i","not_a_num"))).deleteById(docId1,-1L).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("shard2 add fail, shard1 delI fail",rsp,delIErr(docId1,"version conflict"),addErr(docId22,"not_a_num"));
+  for (  String maxErrors : new String[]{"4","-1","100"}) {
+    rsp=update(params("update.chain","tolerant-chain-max-errors-10","maxErrors",maxErrors,"commit","true"),doc(f("id",docId22),f("foo_i","bogus_val"))).deleteById(docId1,-1L).deleteByQuery("malformed:[").deleteById(docId21,-1L).process(client);
+    assertEquals(0,rsp.getStatus());
+    assertUpdateTolerantErrors("failed variety of updates",rsp,delIErr(docId1,"version conflict"),delQErr("malformed:[","SyntaxError"),delIErr(docId21,"version conflict"),addErr(docId22,"bogus_val"));
+  }
+  try {
+    rsp=update(params("update.chain","tolerant-chain-max-errors-10","maxErrors","3","commit","true"),doc(f("id",docId22),f("foo_i","bogus_val"))).deleteById(docId1,-1L).deleteByQuery("malformed:[").deleteById(docId21,-1L).process(client);
+    fail("did not get a top level exception when more then 4 updates failed: " + rsp.toString());
+  }
+ catch (  SolrException e) {
+    assertTrue("not the type of error we were expecting (" + e.code() + "): "+ e.toString(),400 == e.code() || 409 == e.code());
+    NamedList<String> remoteErrMetadata=e.getMetadata();
+    assertNotNull("no metadata in: " + e.toString(),remoteErrMetadata);
+    Set<ToleratedUpdateError> actualKnownErrs=new LinkedHashSet<ToleratedUpdateError>(remoteErrMetadata.size());
+    int actualKnownErrsCount=0;
+    for (int i=0; i < remoteErrMetadata.size(); i++) {
+      ToleratedUpdateError err=ToleratedUpdateError.parseMetadataIfToleratedUpdateError(remoteErrMetadata.getName(i),remoteErrMetadata.getVal(i));
+      if (null == err) {
+        continue;
+      }
+      actualKnownErrsCount++;
+      actualKnownErrs.add(err);
+    }
+    assertEquals("wrong number of errors in metadata: " + remoteErrMetadata.toString(),4,actualKnownErrsCount);
+    assertEquals("at least one dup error in metadata: " + remoteErrMetadata.toString(),actualKnownErrsCount,actualKnownErrs.size());
+  }
+  assertQueryDocIds(client,true,docId1,docId21);
+  assertQueryDocIds(client,false,docId22);
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",docId22),f("foo_i","not_a_num"))).deleteById(docId1,-1L).deleteByQuery("zot_i:[42 to gibberish...").deleteByQuery("foo_i:[50 TO 2000}").process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("mix fails with one valid DELQ",rsp,delIErr(docId1,"version conflict"),delQErr("zot_i:[42 to gibberish..."),addErr(docId22,"not_a_num"));
+  assertQueryDocIds(client,true,docId1);
+  assertQueryDocIds(client,false,docId21,docId22);
+}

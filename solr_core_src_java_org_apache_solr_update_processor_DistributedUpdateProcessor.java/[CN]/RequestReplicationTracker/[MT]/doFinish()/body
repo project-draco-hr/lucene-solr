@@ -1,21 +1,14 @@
 {
   cmdDistrib.finish();
   List<Error> errors=cmdDistrib.getErrors();
-  if (errors.size() > 0) {
-    if (errors.get(0).req.node instanceof RetryNode) {
-      rsp.setException(errors.get(0).e);
-    }
- else {
-      if (log.isWarnEnabled()) {
-        for (        Error error : errors) {
-          log.warn("Error sending update to " + error.req.node.getBaseUrl(),error.e);
-        }
-      }
-    }
-  }
+  List<Error> errorsForClient=new ArrayList<>(errors.size());
   for (  final SolrCmdDistributor.Error error : errors) {
     if (error.req.node instanceof RetryNode) {
+      errorsForClient.add(error);
       continue;
+    }
+    if (log.isWarnEnabled()) {
+      log.warn("Error sending update to " + error.req.node.getBaseUrl(),error.e);
     }
     DistribPhase phase=DistribPhase.parseParam(error.req.uReq.getParams().get(DISTRIB_UPDATE_PARAM));
     if (phase != DistribPhase.FROMLEADER)     continue;
@@ -24,8 +17,8 @@
     String cause=(error.e instanceof SolrException) ? ((SolrException)error.e).getMetadata("cause") : null;
     if ("LeaderChanged".equals(cause)) {
       log.error("On " + cloudDesc.getCoreNodeName() + ", replica "+ replicaUrl+ " now thinks it is the leader! Failing the request to let the client retry! "+ error.e);
-      rsp.setException(error.e);
-      break;
+      errorsForClient.add(error);
+      continue;
     }
     String collection=null;
     String shardId=null;
@@ -86,5 +79,8 @@
     rsp.getResponseHeader().add(UpdateRequest.REPFACT,replicationTracker.getAchievedRf());
     rsp.getResponseHeader().add(UpdateRequest.MIN_REPFACT,replicationTracker.minRf);
     replicationTracker=null;
+  }
+  if (0 < errorsForClient.size()) {
+    throw new DistributedUpdatesAsyncException(errorsForClient);
   }
 }

@@ -1,0 +1,41 @@
+{
+  try {
+    super.finish();
+  }
+ catch (  DistributedUpdateProcessor.DistributedUpdatesAsyncException duae) {
+    firstErrTracker.caught(duae);
+    for (    Error error : duae.errors) {
+      if (!(error.e instanceof SolrException)) {
+        log.error("async update exception is not SolrException, no metadata to process",error.e);
+        continue;
+      }
+      SolrException remoteErr=(SolrException)error.e;
+      NamedList<String> remoteErrMetadata=remoteErr.getMetadata();
+      if (null == remoteErrMetadata) {
+        log.warn("remote error has no metadata to aggregate: " + remoteErr.getMessage(),remoteErr);
+        continue;
+      }
+      for (int i=0; i < remoteErrMetadata.size(); i++) {
+        ToleratedUpdateError err=ToleratedUpdateError.parseMetadataIfToleratedUpdateError(remoteErrMetadata.getName(i),remoteErrMetadata.getVal(i));
+        if (null == err) {
+          continue;
+        }
+        if (CmdType.DELQ.equals(err.getType())) {
+          if (knownDBQErrors.contains(err)) {
+            continue;
+          }
+ else {
+            knownDBQErrors.add(err);
+          }
+        }
+        knownErrors.add(err);
+      }
+    }
+  }
+  header.add("errors",ToleratedUpdateError.formatForResponseHeader(knownErrors));
+  header.add("maxErrors",ToleratedUpdateError.getUserFriendlyMaxErrors(maxErrors));
+  firstErrTracker.annotate(knownErrors);
+  if ((DistribPhase.TOLEADER.equals(distribPhase) ? 0 : maxErrors) < knownErrors.size()) {
+    firstErrTracker.throwFirst();
+  }
+}

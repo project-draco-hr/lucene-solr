@@ -1,0 +1,43 @@
+{
+  assertNotNull("client not initialized",client);
+  final String docId1=S_ONE_PRE + "42";
+  final String docId2=S_TWO_PRE + "666";
+  UpdateResponse rsp=null;
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true"),doc(f("id",docId1),f("foo_i","2001")),doc(f("id",docId2),f("foo_i","1976"))).process(client);
+  assertEquals(0,rsp.getStatus());
+  for (  String id : new String[]{docId1,docId2}) {
+    rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteById(id,-1L).process(client);
+    assertEquals(0,rsp.getStatus());
+    assertUpdateTolerantErrors("failed oportunistic concurrent delId=" + id,rsp,delIErr(id));
+  }
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteById(S_ONE_PRE + "X",+1L).deleteById(S_ONE_PRE + "Y",+1L).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("failed oportunistic concurrent delete by id for 2 bogus docs",rsp,delIErr(S_ONE_PRE + "X"),delIErr(S_ONE_PRE + "Y"));
+  assertQueryDocIds(client,true,docId1,docId2);
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteById(docId2,-1L).deleteById(docId1,-1L).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("failed oportunistic concurrent delete by id for 2 docs",rsp,delIErr(docId1),delIErr(docId2));
+  assertQueryDocIds(client,true,docId1,docId2);
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteByQuery("bogus_field:foo").process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("failed oportunistic concurrent delete by query",rsp,delQErr("bogus_field:foo"));
+  assertQueryDocIds(client,true,docId1,docId2);
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteByQuery("bogus_field:foo").deleteByQuery("foo_i:23").process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("failed oportunistic concurrent delete by query",rsp,delQErr("bogus_field:foo"));
+  assertQueryDocIds(client,true,docId1,docId2);
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteById(docId1,-1L).deleteById("bogus",-1L).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("failed oportunistic concurrent delete by id: exists",rsp,delIErr(docId1));
+  assertQueryDocIds(client,true,docId1,docId2);
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteById(docId1,+1L).deleteById("bogusId",+1L).process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("failed oportunistic concurrent delete by id: bogus",rsp,delIErr("bogusId"));
+  assertQueryDocIds(client,false,docId1);
+  assertQueryDocIds(client,true,docId2);
+  assertQueryDocIds(client,true,docId2);
+  rsp=update(params("update.chain","tolerant-chain-max-errors-10","commit","true")).deleteByQuery("bogus_field:foo").deleteByQuery("foo_i:1976").process(client);
+  assertEquals(0,rsp.getStatus());
+  assertUpdateTolerantErrors("failed oportunistic concurrent delete by query",rsp,delQErr("bogus_field:foo"));
+  assertQueryDocIds(client,false,docId2);
+}

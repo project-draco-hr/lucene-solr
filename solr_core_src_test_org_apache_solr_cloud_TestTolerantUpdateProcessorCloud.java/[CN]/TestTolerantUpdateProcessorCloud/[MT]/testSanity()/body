@@ -1,0 +1,32 @@
+{
+  assertEquals(0,CLOUD_CLIENT.add(doc(f("id",S_ONE_PRE + "1"),f("foo_i",42))).getStatus());
+  assertEquals(0,CLOUD_CLIENT.add(doc(f("id",S_TWO_PRE + "2"),f("foo_i",66))).getStatus());
+  assertEquals(0,CLOUD_CLIENT.commit().getStatus());
+  for (  SolrClient c : Arrays.asList(S_ONE_LEADER_CLIENT,S_TWO_LEADER_CLIENT,S_ONE_NON_LEADER_CLIENT,S_TWO_NON_LEADER_CLIENT,NO_COLLECTION_CLIENT,CLOUD_CLIENT)) {
+    assertQueryDocIds(c,true,S_ONE_PRE + "1",S_TWO_PRE + "2");
+    assertQueryDocIds(c,false,"id_not_exists");
+    try {
+      UpdateResponse rsp=update(params(),doc(f("id",S_ONE_PRE + "X"),f("foo_i","bogus_val_X")),doc(f("id",S_TWO_PRE + "Y"),f("foo_i","bogus_val_Y"))).process(c);
+      fail("did not get a top level exception when more then 10 docs failed: " + rsp.toString());
+    }
+ catch (    SolrException e) {
+      assertEquals("not the type of error we were expecting (" + e.code() + "): "+ e.toString(),400,e.code());
+    }
+    try {
+      UpdateResponse rsp=update(params()).deleteByQuery("foo_i:not_a_num").process(c);
+      fail("sanity check for malformed DBQ didn't fail: " + rsp.toString());
+    }
+ catch (    SolrException e) {
+      assertEquals("not the expected DBQ failure: " + e.getMessage(),400,e.code());
+    }
+    for (    UpdateRequest r : new UpdateRequest[]{update(params("commit","true")).deleteById(S_ONE_PRE + "1",-1L),update(params("commit","true")).deleteById(S_TWO_PRE + "2",-1L),update(params("commit","true")).deleteById("id_not_exists",1L)}) {
+      try {
+        UpdateResponse rsp=r.process(c);
+        fail("sanity check for oportunistic concurrency delete didn't fail: " + r.toString() + " => "+ rsp.toString());
+      }
+ catch (      SolrException e) {
+        assertEquals("not the expected oportunistic concurrency failure code: " + r.toString() + " => "+ e.getMessage(),409,e.code());
+      }
+    }
+  }
+}
