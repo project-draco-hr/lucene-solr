@@ -1,7 +1,29 @@
 {
   return new AssertingPointsFormat(new PointsFormat(){
     @Override public PointsWriter fieldsWriter(    SegmentWriteState writeState) throws IOException {
-      return new Lucene60PointsWriter(writeState,maxPointsInLeafNode,maxMBSortInHeap);
+      return new Lucene60PointsWriter(writeState,maxPointsInLeafNode,maxMBSortInHeap){
+        @Override public void writeField(        FieldInfo fieldInfo,        PointsReader values) throws IOException {
+          boolean singleValuePerDoc=values.size(fieldInfo.name) == values.getDocCount(fieldInfo.name);
+          try (BKDWriter writer=new RandomlySplittingBKDWriter(writeState.segmentInfo.maxDoc(),writeState.directory,writeState.segmentInfo.name,fieldInfo.getPointDimensionCount(),fieldInfo.getPointNumBytes(),maxPointsInLeafNode,maxMBSortInHeap,values.size(fieldInfo.name),singleValuePerDoc,bkdSplitRandomSeed ^ fieldInfo.name.hashCode())){
+            values.intersect(fieldInfo.name,new IntersectVisitor(){
+              @Override public void visit(              int docID){
+                throw new IllegalStateException();
+              }
+              public void visit(              int docID,              byte[] packedValue) throws IOException {
+                writer.add(packedValue,docID);
+              }
+              @Override public PointValues.Relation compare(              byte[] minPackedValue,              byte[] maxPackedValue){
+                return PointValues.Relation.CELL_CROSSES_QUERY;
+              }
+            }
+);
+            if (writer.getPointCount() > 0) {
+              indexFPs.put(fieldInfo.name,writer.finish(dataOut));
+            }
+          }
+         }
+      }
+;
     }
     @Override public PointsReader fieldsReader(    SegmentReadState readState) throws IOException {
       return new Lucene60PointsReader(readState);
