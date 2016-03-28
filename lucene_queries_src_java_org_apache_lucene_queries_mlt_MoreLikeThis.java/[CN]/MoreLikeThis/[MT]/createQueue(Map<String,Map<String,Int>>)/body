@@ -1,0 +1,39 @@
+{
+  int numDocs=ir.numDocs();
+  final int limit=Math.min(maxQueryTerms,this.getTermsCount(perFieldTermFrequencies));
+  FreqQ queue=new FreqQ(limit);
+  for (  Map.Entry<String,Map<String,Int>> entry : perFieldTermFrequencies.entrySet()) {
+    Map<String,Int> perWordTermFrequencies=entry.getValue();
+    String fieldName=entry.getKey();
+    for (    Map.Entry<String,Int> tfEntry : perWordTermFrequencies.entrySet()) {
+      String word=tfEntry.getKey();
+      int tf=tfEntry.getValue().x;
+      if (minTermFreq > 0 && tf < minTermFreq) {
+        continue;
+      }
+      int docFreq=ir.docFreq(new Term(fieldName,word));
+      if (minDocFreq > 0 && docFreq < minDocFreq) {
+        continue;
+      }
+      if (docFreq > maxDocFreq) {
+        continue;
+      }
+      if (docFreq == 0) {
+        continue;
+      }
+      float idf=similarity.idf(docFreq,numDocs);
+      float score=tf * idf;
+      if (queue.size() < limit) {
+        queue.add(new ScoreTerm(word,fieldName,score,idf,docFreq,tf));
+      }
+ else {
+        ScoreTerm term=queue.top();
+        if (term.score < score) {
+          term.update(word,fieldName,score,idf,docFreq,tf);
+          queue.updateTop();
+        }
+      }
+    }
+  }
+  return queue;
+}

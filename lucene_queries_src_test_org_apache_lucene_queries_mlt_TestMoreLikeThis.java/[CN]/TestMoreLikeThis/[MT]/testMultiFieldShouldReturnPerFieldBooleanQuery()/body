@@ -1,0 +1,50 @@
+{
+  IndexReader reader=null;
+  Directory dir=newDirectory();
+  Analyzer analyzer=new MockAnalyzer(random(),MockTokenizer.WHITESPACE,false);
+  try {
+    int maxQueryTerms=25;
+    String[] itShopItemForSale=new String[]{"watch","ipod","asrock","imac","macbookpro","monitor","keyboard","mouse","speakers"};
+    String[] itShopItemNotForSale=new String[]{"tie","trousers","shoes","skirt","hat"};
+    String[] clothesShopItemForSale=new String[]{"tie","trousers","shoes","skirt","hat"};
+    String[] clothesShopItemNotForSale=new String[]{"watch","ipod","asrock","imac","macbookpro","monitor","keyboard","mouse","speakers"};
+    RandomIndexWriter writer=new RandomIndexWriter(random(),dir);
+    for (int i=0; i < 100; i++) {
+      addShopDoc(writer,"it",itShopItemForSale,itShopItemNotForSale);
+    }
+    for (int i=0; i < 10; i++) {
+      addShopDoc(writer,"clothes",clothesShopItemForSale,clothesShopItemNotForSale);
+    }
+    int inputDocId=addShopDoc(writer,"clothes",clothesShopItemForSale,clothesShopItemNotForSale);
+    reader=writer.getReader();
+    writer.close();
+    MoreLikeThis mlt=new MoreLikeThis(reader);
+    mlt.setAnalyzer(analyzer);
+    mlt.setMaxQueryTerms(maxQueryTerms);
+    mlt.setMinDocFreq(1);
+    mlt.setMinTermFreq(1);
+    mlt.setMinWordLen(1);
+    mlt.setFieldNames(new String[]{FOR_SALE,NOT_FOR_SALE});
+    BooleanQuery query=(BooleanQuery)mlt.like(inputDocId);
+    Collection<BooleanClause> clauses=query.clauses();
+    Collection<BooleanClause> expectedClothesShopClauses=new ArrayList<BooleanClause>();
+    for (    String itemForSale : clothesShopItemForSale) {
+      BooleanClause booleanClause=new BooleanClause(new TermQuery(new Term(FOR_SALE,itemForSale)),BooleanClause.Occur.SHOULD);
+      expectedClothesShopClauses.add(booleanClause);
+    }
+    for (    String itemNotForSale : clothesShopItemNotForSale) {
+      BooleanClause booleanClause=new BooleanClause(new TermQuery(new Term(NOT_FOR_SALE,itemNotForSale)),BooleanClause.Occur.SHOULD);
+      expectedClothesShopClauses.add(booleanClause);
+    }
+    for (    BooleanClause expectedClause : expectedClothesShopClauses) {
+      assertTrue(clauses.contains(expectedClause));
+    }
+  }
+  finally {
+    if (reader != null) {
+      reader.close();
+    }
+    dir.close();
+    analyzer.close();
+  }
+}
