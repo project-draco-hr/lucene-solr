@@ -1,0 +1,115 @@
+{
+  List<Map<String,List<String>>> allVisited=new ArrayList();
+  Map visited=new HashMap();
+  visited.put(this.fromNode,null);
+  allVisited.add(visited);
+  int depth=0;
+  Map<String,List<String>> nextVisited=null;
+  List<Edge> targets=new ArrayList();
+  ExecutorService threadPool=null;
+  try {
+    threadPool=ExecutorUtil.newMDCAwareFixedThreadPool(threads,new SolrjNamedThreadFactory("ShortestPathStream"));
+    TRAVERSE:     while (targets.size() == 0 && depth < maxDepth) {
+      Set<String> nodes=visited.keySet();
+      Iterator<String> it=nodes.iterator();
+      nextVisited=new HashMap();
+      int batchCount=0;
+      List<String> queryNodes=new ArrayList();
+      List<Future> futures=new ArrayList();
+      JOIN:       while (it.hasNext()) {
+        String node=it.next();
+        queryNodes.add(node);
+        ++batchCount;
+        if (batchCount == joinBatchSize || !it.hasNext()) {
+          try {
+            JoinRunner joinRunner=new JoinRunner(queryNodes);
+            Future<List<Edge>> future=threadPool.submit(joinRunner);
+            futures.add(future);
+          }
+ catch (          Exception e) {
+            throw new RuntimeException(e);
+          }
+          batchCount=0;
+          queryNodes=new ArrayList();
+        }
+      }
+      try {
+        OUTER:         for (        Future<List<Edge>> future : futures) {
+          List<Edge> edges=future.get();
+          INNER:           for (          Edge edge : edges) {
+            if (toNode.equals(edge.to)) {
+              targets.add(edge);
+              if (nextVisited.containsKey(edge.to)) {
+                List<String> parents=nextVisited.get(edge.to);
+                parents.add(edge.from);
+              }
+ else {
+                List<String> parents=new ArrayList();
+                parents.add(edge.from);
+                nextVisited.put(edge.to,parents);
+              }
+            }
+ else {
+              if (!cycle(edge.to,allVisited)) {
+                if (nextVisited.containsKey(edge.to)) {
+                  List<String> parents=nextVisited.get(edge.to);
+                  parents.add(edge.from);
+                }
+ else {
+                  List<String> parents=new ArrayList();
+                  parents.add(edge.from);
+                  nextVisited.put(edge.to,parents);
+                }
+              }
+            }
+          }
+        }
+      }
+ catch (      Exception e) {
+        throw new RuntimeException(e);
+      }
+      allVisited.add(nextVisited);
+      visited=nextVisited;
+      ++depth;
+    }
+  }
+  finally {
+    threadPool.shutdown();
+  }
+  Set<String> finalPaths=new HashSet();
+  if (targets.size() > 0) {
+    for (    Edge edge : targets) {
+      List<LinkedList> paths=new ArrayList();
+      LinkedList<String> path=new LinkedList();
+      path.addFirst(edge.to);
+      paths.add(path);
+      INNER:       for (int i=allVisited.size() - 1; i >= 0; --i) {
+        Map<String,List<String>> v=allVisited.get(i);
+        Iterator<LinkedList> it=paths.iterator();
+        List newPaths=new ArrayList();
+        while (it.hasNext()) {
+          LinkedList p=it.next();
+          List<String> parents=v.get(p.peekFirst());
+          if (parents != null) {
+            for (            String parent : parents) {
+              LinkedList newPath=new LinkedList();
+              newPath.addAll(p);
+              newPath.addFirst(parent);
+              newPaths.add(newPath);
+            }
+            paths=newPaths;
+          }
+        }
+      }
+      for (      LinkedList p : paths) {
+        String s=p.toString();
+        if (!finalPaths.contains(s)) {
+          Tuple shortestPath=new Tuple(new HashMap());
+          shortestPath.put("path",p);
+          shortestPaths.add(shortestPath);
+          finalPaths.add(s);
+        }
+      }
+    }
+  }
+}

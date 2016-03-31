@@ -1,0 +1,42 @@
+{
+  Map joinParams=new HashMap();
+  String fl=fromField + "," + toField;
+  joinParams.putAll(queryParams);
+  joinParams.put("fl",fl);
+  joinParams.put("qt","/export");
+  joinParams.put("sort",toField + " asc," + fromField+ " asc");
+  StringBuffer nodeQuery=new StringBuffer();
+  for (  String node : nodes) {
+    nodeQuery.append(node).append(" ");
+  }
+  String q=fromField + ":(" + nodeQuery.toString().trim()+ ")";
+  joinParams.put("q",q);
+  TupleStream stream=null;
+  try {
+    stream=new UniqueStream(new CloudSolrStream(zkHost,collection,joinParams),new MultipleFieldEqualitor(new FieldEqualitor(toField),new FieldEqualitor(fromField)));
+    stream.setStreamContext(streamContext);
+    stream.open();
+    BATCH:     while (true) {
+      Tuple tuple=stream.read();
+      if (tuple.EOF) {
+        break BATCH;
+      }
+      String _toNode=tuple.getString(toField);
+      String _fromNode=tuple.getString(fromField);
+      Edge edge=new Edge(_fromNode,_toNode);
+      edges.add(edge);
+    }
+  }
+ catch (  Exception e) {
+    throw new RuntimeException(e);
+  }
+ finally {
+    try {
+      stream.close();
+    }
+ catch (    Exception ce) {
+      throw new RuntimeException(ce);
+    }
+  }
+  return edges;
+}
