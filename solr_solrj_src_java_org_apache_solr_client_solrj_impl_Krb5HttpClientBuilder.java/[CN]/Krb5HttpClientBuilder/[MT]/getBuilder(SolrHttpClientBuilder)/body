@@ -1,0 +1,52 @@
+{
+  if (System.getProperty(LOGIN_CONFIG_PROP) != null) {
+    String configValue=System.getProperty(LOGIN_CONFIG_PROP);
+    if (configValue != null) {
+      logger.info("Setting up SPNego auth with config: " + configValue);
+      final String useSubjectCredsProp="javax.security.auth.useSubjectCredsOnly";
+      String useSubjectCredsVal=System.getProperty(useSubjectCredsProp);
+      if (useSubjectCredsVal == null) {
+        System.setProperty(useSubjectCredsProp,"false");
+      }
+ else       if (!useSubjectCredsVal.toLowerCase(Locale.ROOT).equals("false")) {
+        logger.warn("System Property: " + useSubjectCredsProp + " set to: "+ useSubjectCredsVal+ " not false.  SPNego authentication may not be successful.");
+      }
+      javax.security.auth.login.Configuration.setConfiguration(jaasConfig);
+      builder.setAuthSchemeRegistryProvider(new AuthSchemeRegistryProvider(){
+        @Override public Lookup<AuthSchemeProvider> getAuthSchemeRegistry(){
+          Lookup<AuthSchemeProvider> authProviders=RegistryBuilder.<AuthSchemeProvider>create().register(AuthSchemes.SPNEGO,new SPNegoSchemeFactory(true,false)).build();
+          return authProviders;
+        }
+      }
+);
+      Credentials useJaasCreds=new Credentials(){
+        public String getPassword(){
+          return null;
+        }
+        public Principal getUserPrincipal(){
+          return null;
+        }
+      }
+;
+      HttpClientUtil.setCookiePolicy(SolrPortAwareCookieSpecFactory.POLICY_NAME);
+      builder.setCookieSpecRegistryProvider(new CookieSpecRegistryProvider(){
+        @Override public Lookup<CookieSpecProvider> getCookieSpecRegistry(){
+          SolrPortAwareCookieSpecFactory cookieFactory=new SolrPortAwareCookieSpecFactory();
+          Lookup<CookieSpecProvider> cookieRegistry=RegistryBuilder.<CookieSpecProvider>create().register(SolrPortAwareCookieSpecFactory.POLICY_NAME,cookieFactory).build();
+          return cookieRegistry;
+        }
+      }
+);
+      builder.setDefaultCredentialsProvider(new CredentialsProviderProvider(){
+        @Override public CredentialsProvider getCredentialsProvider(){
+          CredentialsProvider credentialsProvider=new BasicCredentialsProvider();
+          credentialsProvider.setCredentials(AuthScope.ANY,useJaasCreds);
+          return credentialsProvider;
+        }
+      }
+);
+      HttpClientUtil.addRequestInterceptor(bufferedEntityInterceptor);
+    }
+  }
+  return builder;
+}

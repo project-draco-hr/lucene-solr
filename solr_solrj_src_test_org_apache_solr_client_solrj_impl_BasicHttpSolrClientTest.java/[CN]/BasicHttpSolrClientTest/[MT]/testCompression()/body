@@ -1,47 +1,53 @@
 {
+  SolrQuery q=new SolrQuery("*:*");
   try (HttpSolrClient client=new HttpSolrClient(jetty.getBaseUrl().toString() + "/debug/foo")){
-    SolrQuery q=new SolrQuery("*:*");
     DebugServlet.clear();
     try {
       client.query(q);
     }
  catch (    ParseException ignored) {
     }
-    assertNull(DebugServlet.headers.get("Accept-Encoding"));
-    client.setAllowCompression(true);
+    assertNull(DebugServlet.headers.toString(),DebugServlet.headers.get("Accept-Encoding"));
+  }
+   try (HttpSolrClient client=new HttpSolrClient(jetty.getBaseUrl().toString() + "/debug/foo",null,null,true)){
     try {
       client.query(q);
     }
  catch (    ParseException ignored) {
     }
     assertNotNull(DebugServlet.headers.get("Accept-Encoding"));
-    client.setAllowCompression(false);
+  }
+   try (HttpSolrClient client=new HttpSolrClient(jetty.getBaseUrl().toString() + "/debug/foo",null,null,false)){
     try {
       client.query(q);
     }
  catch (    ParseException ignored) {
     }
-    assertNull(DebugServlet.headers.get("Accept-Encoding"));
   }
-   HttpGet get=new HttpGet(jetty.getBaseUrl().toString() + "/collection1" + "/select?q=foo&wt=xml");
+   assertNull(DebugServlet.headers.get("Accept-Encoding"));
+  HttpGet get=new HttpGet(jetty.getBaseUrl().toString() + "/collection1" + "/select?q=foo&wt=xml");
   get.setHeader("Accept-Encoding","gzip");
-  CloseableHttpClient httpclient=HttpClientUtil.createClient(null);
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set(HttpClientUtil.PROP_ALLOW_COMPRESSION,true);
+  RequestConfig config=RequestConfig.custom().setDecompressionEnabled(false).build();
+  get.setConfig(config);
+  CloseableHttpClient httpclient=HttpClientUtil.createClient(params);
   HttpEntity entity=null;
   try {
-    HttpResponse response=httpclient.execute(get);
+    HttpResponse response=httpclient.execute(get,HttpClientUtil.createNewHttpClientRequestContext());
     entity=response.getEntity();
     Header ceheader=entity.getContentEncoding();
+    assertNotNull(Arrays.asList(response.getAllHeaders()).toString(),ceheader);
     assertEquals("gzip",ceheader.getValue());
   }
   finally {
     if (entity != null) {
       entity.getContent().close();
     }
-    httpclient.close();
+    HttpClientUtil.close(httpclient);
   }
   try (HttpSolrClient client=new HttpSolrClient(jetty.getBaseUrl().toString() + "/collection1")){
-    client.setAllowCompression(true);
-    SolrQuery q=new SolrQuery("foo");
+    q=new SolrQuery("foo");
     QueryResponse response=client.query(q);
     assertEquals(0,response.getStatus());
   }

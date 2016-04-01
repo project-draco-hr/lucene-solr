@@ -4,7 +4,7 @@
   String old=cloudSolrClient.getDefaultCollection();
   cloudSolrClient.setDefaultCollection(null);
   NamedList<Object> rsp;
-  HttpClient cl=cloudSolrClient.getLbClient().getHttpClient();
+  HttpClient cl=HttpClientUtil.createClient(null);
   String baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
   verifySecurityStatus(cl,baseUrl + authcPrefix,"/errorMessages",null,20);
   zkClient.setData("/security.json",STD_CONF.replaceAll("'","\"").getBytes(UTF_8),true);
@@ -37,6 +37,7 @@
   verifySecurityStatus(cl,baseUrl + authcPrefix,"authentication.enabled","true",20);
   HttpResponse r=cl.execute(httpPost);
   int statusCode=r.getStatusLine().getStatusCode();
+  Utils.consumeFully(r.getEntity());
   assertEquals("proper_cred sent, but access denied",200,statusCode);
   baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
   verifySecurityStatus(cl,baseUrl + authcPrefix,"authentication/credentials/harry",NOT_NULL_PREDICATE,20);
@@ -47,6 +48,7 @@
   httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
   r=cl.execute(httpPost);
   assertEquals(200,r.getStatusLine().getStatusCode());
+  Utils.consumeFully(r.getEntity());
   baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
   verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/user-role/harry",NOT_NULL_PREDICATE,20);
   httpPost=new HttpPost(baseUrl + authzPrefix);
@@ -56,29 +58,32 @@
   verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/user-role/harry",NOT_NULL_PREDICATE,20);
   r=cl.execute(httpPost);
   assertEquals(200,r.getStatusLine().getStatusCode());
+  Utils.consumeFully(r.getEntity());
   verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/permissions[1]/collection","x",20);
   httpPost=new HttpPost(baseUrl + authzPrefix);
   setBasicAuthHeader(httpPost,"harry","HarryIsUberCool");
   httpPost.setEntity(new ByteArrayEntity(Utils.toJSON(singletonMap("set-permission",Utils.makeMap("name","collection-admin-edit","role","admin")))));
   r=cl.execute(httpPost);
+  Utils.consumeFully(r.getEntity());
   verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/permissions[2]/name","collection-admin-edit",20);
   CollectionAdminRequest.Reload reload=new CollectionAdminRequest.Reload();
   reload.setCollectionName(defaultCollName);
-  HttpSolrClient solrClient=new HttpSolrClient(baseUrl);
-  try {
-    rsp=solrClient.request(reload);
-    fail("must have failed");
+  try (HttpSolrClient solrClient=new HttpSolrClient(baseUrl)){
+    try {
+      rsp=solrClient.request(reload);
+      fail("must have failed");
+    }
+ catch (    HttpSolrClient.RemoteSolrException e) {
+    }
+    reload.setMethod(SolrRequest.METHOD.POST);
+    try {
+      rsp=solrClient.request(reload);
+      fail("must have failed");
+    }
+ catch (    HttpSolrClient.RemoteSolrException e) {
+    }
   }
- catch (  HttpSolrClient.RemoteSolrException e) {
-  }
-  reload.setMethod(SolrRequest.METHOD.POST);
-  try {
-    rsp=solrClient.request(reload);
-    fail("must have failed");
-  }
- catch (  HttpSolrClient.RemoteSolrException e) {
-  }
-  cloudSolrClient.request(new CollectionAdminRequest.Reload().setCollectionName(defaultCollName).setBasicAuthCredentials("harry","HarryIsUberCool"));
+   cloudSolrClient.request(new CollectionAdminRequest.Reload().setCollectionName(defaultCollName).setBasicAuthCredentials("harry","HarryIsUberCool"));
   try {
     cloudSolrClient.request(new CollectionAdminRequest.Reload().setCollectionName(defaultCollName).setBasicAuthCredentials("harry","Cool12345"));
     fail("This should not succeed");
@@ -92,6 +97,7 @@
   httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
   r=cl.execute(httpPost);
   assertEquals(200,r.getStatusLine().getStatusCode());
+  Utils.consumeFully(r.getEntity());
   SolrInputDocument doc=new SolrInputDocument();
   doc.setField("id","4");
   UpdateRequest update=new UpdateRequest();
@@ -99,4 +105,5 @@
   update.add(doc);
   update.setCommitWithin(100);
   cloudSolrClient.request(update);
+  HttpClientUtil.close(cl);
 }
