@@ -1,0 +1,71 @@
+{
+  final int pointCount=TestUtil.nextInt(random(),3,10);
+  final double[] angles=new double[pointCount];
+  final double[] arcDistance=new double[pointCount];
+  while (true) {
+    double accumulatedAngle=0.0;
+    for (int i=0; i < pointCount; i++) {
+      final int remainingEdgeCount=pointCount - i;
+      final double remainingAngle=2.0 * Math.PI - accumulatedAngle;
+      if (remainingEdgeCount == 1) {
+        angles[i]=remainingAngle;
+      }
+ else {
+        double maximumAngle=remainingAngle - (remainingEdgeCount - 1) * MINIMUM_EDGE_ANGLE;
+        if (maximumAngle > Math.PI) {
+          maximumAngle=Math.PI;
+        }
+        final double minimumAngle=MINIMUM_EDGE_ANGLE;
+        final double angle=random().nextDouble() * (maximumAngle - minimumAngle) + minimumAngle;
+        angles[i]=angle;
+        accumulatedAngle+=angle;
+      }
+      arcDistance[i]=random().nextDouble() * (Math.PI - MINIMUM_ARC_ANGLE) + MINIMUM_ARC_ANGLE;
+    }
+    if (clockwiseDesired) {
+      for (int i=0; i < pointCount; i++) {
+        angles[i]=-angles[i];
+      }
+    }
+    final List<GeoPoint> polyPoints=convertToPoints(pm,pole,angles,arcDistance);
+    final GeoPolygon poly;
+    try {
+      poly=GeoPolygonFactory.makeGeoPolygon(pm,polyPoints,null);
+    }
+ catch (    IllegalArgumentException e) {
+      continue;
+    }
+    final int holeCount=createHoles ? TestUtil.nextInt(random(),0,2) : 0;
+    final List<Polygon> holeList=new ArrayList<>();
+    for (int i=0; i < holeCount; i++) {
+      for (int k=0; k < 500; k++) {
+        final GeoPoint poleChoice=new GeoPoint(pm,toRadians(randomLat()),toRadians(randomLon()));
+        if (!poly.isWithin(poleChoice)) {
+          continue;
+        }
+        boolean foundOne=false;
+        for (int j=0; j < 100; j++) {
+          final Polygon insidePoly=makePoly(pm,poleChoice,!clockwiseDesired,false);
+          if (!verifyPolygon(pm,insidePoly,poly)) {
+            continue;
+          }
+          holeList.add(insidePoly);
+          foundOne=true;
+        }
+        if (foundOne) {
+          break;
+        }
+      }
+    }
+    final Polygon[] holes=holeList.toArray(new Polygon[0]);
+    final double[] lats=new double[polyPoints.size() + 1];
+    final double[] lons=new double[polyPoints.size() + 1];
+    for (int i=0; i < polyPoints.size(); i++) {
+      lats[i]=polyPoints.get(i).getLatitude() * 180.0 / Math.PI;
+      lons[i]=polyPoints.get(i).getLongitude() * 180.0 / Math.PI;
+    }
+    lats[polyPoints.size()]=lats[0];
+    lons[polyPoints.size()]=lons[0];
+    return new Polygon(lats,lons,holes);
+  }
+}
