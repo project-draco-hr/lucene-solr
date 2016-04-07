@@ -1,17 +1,30 @@
 {
-  String name=req.getParams().required().get(COLLECTION_PROP);
-  String shard=req.getParams().get(SHARD_ID_PROP);
-  String rangesStr=req.getParams().get(CoreAdminParams.RANGES);
-  String splitKey=req.getParams().get("split.key");
-  if (splitKey == null && shard == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"At least one of shard, or split.key should be specified.");
+  final CoreContainer coreContainer=h.coreContainer;
+  final String requestId=req.getParams().get(REQUESTID);
+  final ZkController zkController=coreContainer.getZkController();
+  Boolean flush=req.getParams().getBool(CollectionAdminParams.FLUSH,false);
+  if (requestId == null && !flush) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Either requestid or flush parameter must be specified.");
   }
-  if (splitKey != null && shard != null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'shard' or 'split.key' should be specified");
+  if (requestId != null && flush) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Both requestid and flush parameters can not be specified together.");
   }
-  if (splitKey != null && rangesStr != null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'ranges' or 'split.key' should be specified");
+  if (flush) {
+    zkController.getOverseerCompletedMap().clear();
+    zkController.getOverseerFailureMap().clear();
+    rsp.getValues().add("status","successfully cleared stored collection api responses");
+    return null;
   }
-  Map<String,Object> map=req.getParams().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,"split.key",CoreAdminParams.RANGES);
-  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
+ else {
+    if (zkController.getOverseerCompletedMap().remove(requestId)) {
+      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
+    }
+ else     if (zkController.getOverseerFailureMap().remove(requestId)) {
+      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
+    }
+ else {
+      rsp.getValues().add("status","[" + requestId + "] not found in stored responses");
+    }
+  }
+  return null;
 }

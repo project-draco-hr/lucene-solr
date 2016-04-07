@@ -1,17 +1,29 @@
 {
-  String collection=req.getParams().required().get("collection");
-  String shard=req.getParams().required().get("shard");
-  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
-  ZkNodeProps leaderProps=clusterState.getLeader(collection,shard);
-  ZkCoreNodeProps nodeProps=new ZkCoreNodeProps(leaderProps);
-  try (HttpSolrClient client=new HttpSolrClient(nodeProps.getBaseUrl())){
-    client.setConnectionTimeout(15000);
-    client.setSoTimeout(60000);
-    RequestSyncShard reqSyncShard=new CoreAdminRequest.RequestSyncShard();
-    reqSyncShard.setCollection(collection);
-    reqSyncShard.setShard(shard);
-    reqSyncShard.setCoreName(nodeProps.getCoreName());
-    client.request(reqSyncShard);
+  req.getParams().required().check(REQUESTID);
+  final CoreContainer coreContainer=h.coreContainer;
+  final String requestId=req.getParams().get(REQUESTID);
+  final ZkController zkController=coreContainer.getZkController();
+  final NamedList<Object> results=new NamedList<>();
+  if (zkController.getOverseerCompletedMap().contains(requestId)) {
+    final byte[] mapEntry=zkController.getOverseerCompletedMap().get(requestId);
+    rsp.getValues().addAll(SolrResponse.deserialize(mapEntry).getResponse());
+    addStatusToResponse(results,COMPLETED,"found [" + requestId + "] in completed tasks");
   }
-   return null;
+ else   if (zkController.getOverseerFailureMap().contains(requestId)) {
+    final byte[] mapEntry=zkController.getOverseerFailureMap().get(requestId);
+    rsp.getValues().addAll(SolrResponse.deserialize(mapEntry).getResponse());
+    addStatusToResponse(results,FAILED,"found [" + requestId + "] in failed tasks");
+  }
+ else   if (zkController.getOverseerRunningMap().contains(requestId)) {
+    addStatusToResponse(results,RUNNING,"found [" + requestId + "] in running tasks");
+  }
+ else   if (h.overseerCollectionQueueContains(requestId)) {
+    addStatusToResponse(results,SUBMITTED,"found [" + requestId + "] in submitted tasks");
+  }
+ else {
+    addStatusToResponse(results,NOT_FOUND,"Did not find [" + requestId + "] in any tasks queue");
+  }
+  final SolrResponse response=new OverseerSolrResponse(results);
+  rsp.getValues().addAll(response.getResponse());
+  return null;
 }
