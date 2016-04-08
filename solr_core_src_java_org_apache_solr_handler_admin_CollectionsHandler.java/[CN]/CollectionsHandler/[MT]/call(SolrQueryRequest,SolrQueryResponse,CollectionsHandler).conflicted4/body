@@ -1,5 +1,17 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,REPLICA_PROP);
-  req.getParams().getAll(map,DELETE_INDEX,DELETE_DATA_DIR,DELETE_INSTANCE_DIR);
-  return req.getParams().getAll(map,ONLY_IF_DOWN);
+  String collection=req.getParams().required().get("collection");
+  String shard=req.getParams().required().get("shard");
+  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
+  ZkNodeProps leaderProps=clusterState.getLeader(collection,shard);
+  ZkCoreNodeProps nodeProps=new ZkCoreNodeProps(leaderProps);
+  try (HttpSolrClient client=new Builder(nodeProps.getBaseUrl()).build()){
+    client.setConnectionTimeout(15000);
+    client.setSoTimeout(60000);
+    RequestSyncShard reqSyncShard=new CoreAdminRequest.RequestSyncShard();
+    reqSyncShard.setCollection(collection);
+    reqSyncShard.setShard(shard);
+    reqSyncShard.setCoreName(nodeProps.getCoreName());
+    client.request(reqSyncShard);
+  }
+   return null;
 }
