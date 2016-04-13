@@ -1,0 +1,41 @@
+{
+  final int numIters=atLeast(1000);
+  for (int iter=0; iter < numIters; iter++) {
+    List<String> actualLiveNodes=getTrueLiveNodesFromZk();
+    assertEquals("iter" + iter + ": "+ actualLiveNodes.toString(),1,actualLiveNodes.size());
+    CLOUD_CLIENT.getZkStateReader().updateLiveNodes();
+    List<String> cachedLiveNodes=getCachedLiveNodesFromLocalState(actualLiveNodes.size());
+    assertEquals("iter" + iter + " "+ actualLiveNodes.size()+ " != "+ cachedLiveNodes.size(),actualLiveNodes,cachedLiveNodes);
+    final int numThreads=TestUtil.nextInt(random(),2,5);
+    final int numNodesPerThrasher=TestUtil.nextInt(random(),1,5);
+    log.info("preparing parallel adds to live nodes: iter={}, numThreads={} numNodesPerThread={}",iter,numThreads,numNodesPerThrasher);
+    final List<LiveNodeTrasher> thrashers=new ArrayList<>(numThreads);
+    for (int i=0; i < numThreads; i++) {
+      thrashers.add(new LiveNodeTrasher("T" + iter + "_"+ i,numNodesPerThrasher));
+    }
+    try {
+      final ExecutorService executorService=ExecutorUtil.newMDCAwareFixedThreadPool(thrashers.size() + 1,new DefaultSolrThreadFactory("test_live_nodes_thrasher_iter" + iter));
+      executorService.invokeAll(thrashers);
+      executorService.shutdown();
+      if (!executorService.awaitTermination(WAIT_TIME,TimeUnit.SECONDS)) {
+        for (        LiveNodeTrasher thrasher : thrashers) {
+          thrasher.stop();
+        }
+      }
+      assertTrue("iter" + iter + ": thrashers didn't finish even after explicitly stopping",executorService.awaitTermination(WAIT_TIME,TimeUnit.SECONDS));
+      int totalAdded=1;
+      for (      LiveNodeTrasher thrasher : thrashers) {
+        totalAdded+=thrasher.getNumAdded();
+      }
+      actualLiveNodes=getTrueLiveNodesFromZk();
+      assertEquals("iter" + iter,totalAdded,actualLiveNodes.size());
+      cachedLiveNodes=getCachedLiveNodesFromLocalState(actualLiveNodes.size());
+      assertEquals("iter" + iter + " "+ actualLiveNodes.size()+ " != "+ cachedLiveNodes.size(),actualLiveNodes,cachedLiveNodes);
+    }
+  finally {
+      for (      LiveNodeTrasher thrasher : thrashers) {
+        thrasher.close();
+      }
+    }
+  }
+}
