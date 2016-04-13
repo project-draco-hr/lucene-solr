@@ -4,22 +4,23 @@
     HttpResponse response=null;
     InputStream rspBody=null;
     try {
-      final UpdateRequest updateRequest=queue.poll(pollQueueTime,TimeUnit.MILLISECONDS);
-      if (updateRequest == null)       break;
+      final Update update=queue.poll(pollQueueTime,TimeUnit.MILLISECONDS);
+      if (update == null)       break;
       String contentType=client.requestWriter.getUpdateContentType();
       final boolean isXml=ClientUtils.TEXT_XML.equals(contentType);
-      final ModifiableSolrParams origParams=new ModifiableSolrParams(updateRequest.getParams());
+      final ModifiableSolrParams origParams=new ModifiableSolrParams(update.getRequest().getParams());
       EntityTemplate template=new EntityTemplate(new ContentProducer(){
         @Override public void writeTo(        OutputStream out) throws IOException {
           try {
             if (isXml) {
               out.write("<stream>".getBytes(StandardCharsets.UTF_8));
             }
-            UpdateRequest req=updateRequest;
-            while (req != null) {
+            Update upd=update;
+            while (upd != null) {
+              UpdateRequest req=upd.getRequest();
               SolrParams currentParams=new ModifiableSolrParams(req.getParams());
               if (!origParams.toNamedList().equals(currentParams.toNamedList())) {
-                queue.add(req);
+                queue.add(upd);
                 break;
               }
               client.requestWriter.write(req,out);
@@ -41,10 +42,10 @@
               }
               out.flush();
               if (pollQueueTime > 0 && threadCount == 1 && req.isLastDocInBatch()) {
-                req=queue.poll(0,TimeUnit.MILLISECONDS);
+                upd=queue.poll(0,TimeUnit.MILLISECONDS);
               }
  else {
-                req=queue.poll(pollQueueTime,TimeUnit.MILLISECONDS);
+                upd=queue.poll(pollQueueTime,TimeUnit.MILLISECONDS);
               }
             }
             if (isXml) {
@@ -61,7 +62,9 @@
       ModifiableSolrParams requestParams=new ModifiableSolrParams(origParams);
       requestParams.set(CommonParams.WT,client.parser.getWriterType());
       requestParams.set(CommonParams.VERSION,client.parser.getVersion());
-      method=new HttpPost(client.getBaseURL() + "/update" + requestParams.toQueryString());
+      String basePath=client.getBaseURL();
+      if (update.getCollection() != null)       basePath+="/" + update.getCollection();
+      method=new HttpPost(basePath + "/update" + requestParams.toQueryString());
       org.apache.http.client.config.RequestConfig.Builder requestConfigBuilder=HttpClientUtil.createDefaultRequestConfigBuilder();
       if (soTimeout != null) {
         requestConfigBuilder.setSocketTimeout(soTimeout);
