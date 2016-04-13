@@ -1,14 +1,21 @@
 {
-  Set<String> newLiveNodes;
-  try {
-    List<String> nodeList=zkClient.getChildren(LIVE_NODES_ZKNODE,watcher,true);
-    newLiveNodes=new HashSet<>(nodeList);
+synchronized (refreshLiveNodesLock) {
+    Set<String> newLiveNodes;
+    try {
+      List<String> nodeList=zkClient.getChildren(LIVE_NODES_ZKNODE,watcher,true);
+      newLiveNodes=new HashSet<>(nodeList);
+    }
+ catch (    KeeperException.NoNodeException e) {
+      newLiveNodes=emptySet();
+    }
+    lastFetchedLiveNodes.set(newLiveNodes);
   }
- catch (  KeeperException.NoNodeException e) {
-    newLiveNodes=emptySet();
-  }
-  Set<String> oldLiveNodes;
+  Set<String> oldLiveNodes, newLiveNodes;
 synchronized (getUpdateLock()) {
+    newLiveNodes=lastFetchedLiveNodes.getAndSet(null);
+    if (newLiveNodes == null) {
+      return;
+    }
     oldLiveNodes=this.liveNodes;
     this.liveNodes=newLiveNodes;
     if (clusterState != null) {

@@ -1,0 +1,24 @@
+{
+  int cussThreadCount=2;
+  int cussQueueSize=100;
+  int numDocs=100;
+  int numRunnables=5;
+  int expected=numDocs * numRunnables;
+  try (ConcurrentUpdateSolrClient concurrentClient=new ConcurrentUpdateSolrClient(jetty.getBaseUrl().toString(),cussQueueSize,cussThreadCount)){
+    concurrentClient.setPollQueueTime(0);
+    concurrentClient.blockUntilFinished();
+    concurrentClient.deleteByQuery("collection1","*:*");
+    int poolSize=5;
+    ExecutorService threadPool=ExecutorUtil.newMDCAwareFixedThreadPool(poolSize,new SolrjNamedThreadFactory("testCUSS"));
+    for (int r=0; r < numRunnables; r++)     threadPool.execute(new SendDocsRunnable(String.valueOf(r),numDocs,concurrentClient,"collection1"));
+    threadPool.awaitTermination(5,TimeUnit.SECONDS);
+    threadPool.shutdown();
+    concurrentClient.commit("collection1");
+    assertEquals(expected,concurrentClient.query("collection1",new SolrQuery("*:*")).getResults().getNumFound());
+    concurrentClient.blockUntilFinished();
+    concurrentClient.shutdownNow();
+  }
+   try (ConcurrentUpdateSolrClient concurrentClient=new ConcurrentUpdateSolrClient(jetty.getBaseUrl().toString() + "/collection1",cussQueueSize,cussThreadCount)){
+    assertEquals(expected,concurrentClient.query(new SolrQuery("*:*")).getResults().getNumFound());
+  }
+ }
