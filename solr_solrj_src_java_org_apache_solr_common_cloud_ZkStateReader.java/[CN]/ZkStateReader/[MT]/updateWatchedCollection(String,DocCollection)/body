@@ -1,17 +1,20 @@
 {
+  Set<String> liveNodes=this.liveNodes;
   if (newState == null) {
     LOG.info("Deleting data for [{}]",coll);
     watchedCollectionStates.remove(coll);
+    notifyStateWatchers(liveNodes,coll,null);
     return;
   }
   while (true) {
-    if (!interestingCollections.contains(coll)) {
+    if (!collectionWatches.containsKey(coll)) {
       break;
     }
     DocCollection oldState=watchedCollectionStates.get(coll);
     if (oldState == null) {
       if (watchedCollectionStates.putIfAbsent(coll,newState) == null) {
         LOG.info("Add data for [{}] ver [{}]",coll,newState.getZNodeVersion());
+        notifyStateWatchers(liveNodes,coll,newState);
         break;
       }
     }
@@ -21,11 +24,12 @@
       }
       if (watchedCollectionStates.replace(coll,oldState,newState)) {
         LOG.info("Updating data for [{}] from [{}] to [{}]",coll,oldState.getZNodeVersion(),newState.getZNodeVersion());
+        notifyStateWatchers(liveNodes,coll,newState);
         break;
       }
     }
   }
-  if (!interestingCollections.contains(coll)) {
+  if (!collectionWatches.containsKey(coll)) {
     watchedCollectionStates.remove(coll);
     LOG.info("Removing uninteresting collection [{}]",coll);
   }
