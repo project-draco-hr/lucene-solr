@@ -1,0 +1,70 @@
+{
+  waitForThingsToLevelOut(30000);
+  String testCollectionName="c8n_onreconnect_1x1";
+  String shardId="shard1";
+  createCollectionRetry(testCollectionName,1,1,1);
+  cloudClient.setDefaultCollection(testCollectionName);
+  Replica leader=getShardLeader(testCollectionName,shardId,30);
+  JettySolrRunner leaderJetty=getJettyOnPort(getReplicaPort(leader));
+  CoreContainer cores=leaderJetty.getCoreContainer();
+  ZkController zkController=cores.getZkController();
+  assertNotNull("ZkController is null",zkController);
+  String leaderCoreName=leader.getStr(CORE_NAME_PROP);
+  String leaderCoreId;
+  try (SolrCore leaderCore=cores.getCore(leaderCoreName)){
+    assertNotNull("SolrCore for " + leaderCoreName + " not found!",leaderCore);
+    leaderCoreId=leaderCore.getName() + ":" + leaderCore.getStartNanoTime();
+  }
+   Set<OnReconnect> listeners=zkController.getCurrentOnReconnectListeners();
+  assertNotNull("ZkController returned null OnReconnect listeners",listeners);
+  ZkIndexSchemaReader expectedListener=null;
+  for (  OnReconnect listener : listeners) {
+    if (listener instanceof ZkIndexSchemaReader) {
+      ZkIndexSchemaReader reader=(ZkIndexSchemaReader)listener;
+      if (leaderCoreId.equals(reader.getUniqueCoreId())) {
+        expectedListener=reader;
+        break;
+      }
+    }
+  }
+  assertNotNull("ZkIndexSchemaReader for core " + leaderCoreName + " not registered as an OnReconnect listener and should be",expectedListener);
+  boolean wasReloaded=reloadCollection(leader,testCollectionName);
+  assertTrue("Collection '" + testCollectionName + "' failed to reload within a reasonable amount of time!",wasReloaded);
+  String reloadedLeaderCoreId;
+  try (SolrCore leaderCore=cores.getCore(leaderCoreName)){
+    reloadedLeaderCoreId=leaderCore.getName() + ":" + leaderCore.getStartNanoTime();
+  }
+   assertTrue(!leaderCoreId.equals(reloadedLeaderCoreId));
+  listeners=zkController.getCurrentOnReconnectListeners();
+  assertNotNull("ZkController returned null OnReconnect listeners",listeners);
+  expectedListener=null;
+  for (  OnReconnect listener : listeners) {
+    if (listener instanceof ZkIndexSchemaReader) {
+      ZkIndexSchemaReader reader=(ZkIndexSchemaReader)listener;
+      if (leaderCoreId.equals(reader.getUniqueCoreId())) {
+        fail("Previous core " + leaderCoreId + " should no longer be a registered OnReconnect listener! Current listeners: "+ listeners);
+      }
+ else       if (reloadedLeaderCoreId.equals(reader.getUniqueCoreId())) {
+        expectedListener=reader;
+        break;
+      }
+    }
+  }
+  assertNotNull("ZkIndexSchemaReader for core " + reloadedLeaderCoreId + " not registered as an OnReconnect listener and should be",expectedListener);
+  try {
+    CollectionAdminRequest.deleteCollection(testCollectionName).process(cloudClient);
+  }
+ catch (  Exception e) {
+    log.warn("Could not delete collection {} after test completed",testCollectionName);
+  }
+  listeners=zkController.getCurrentOnReconnectListeners();
+  for (  OnReconnect listener : listeners) {
+    if (listener instanceof ZkIndexSchemaReader) {
+      ZkIndexSchemaReader reader=(ZkIndexSchemaReader)listener;
+      if (reloadedLeaderCoreId.equals(reader.getUniqueCoreId())) {
+        fail("Previous core " + reloadedLeaderCoreId + " should no longer be a registered OnReconnect listener after collection delete!");
+      }
+    }
+  }
+  log.info("TestOnReconnectListenerSupport succeeded ... shutting down now!");
+}

@@ -1,0 +1,22 @@
+{
+  this.managedIndexSchemaFactory=managedIndexSchemaFactory;
+  ZkSolrResourceLoader zkLoader=(ZkSolrResourceLoader)managedIndexSchemaFactory.getResourceLoader();
+  this.zkClient=zkLoader.getZkController().getZkClient();
+  this.managedSchemaPath=zkLoader.getConfigSetZkPath() + "/" + managedIndexSchemaFactory.getManagedSchemaResourceName();
+  this.uniqueCoreId=solrCore.getName() + ":" + solrCore.getStartNanoTime();
+  solrCore.addCloseHook(new CloseHook(){
+    @Override public void preClose(    SolrCore core){
+      CoreContainer cc=core.getCoreDescriptor().getCoreContainer();
+      if (cc.isZooKeeperAware()) {
+        log.info("Removing ZkIndexSchemaReader OnReconnect listener as core " + core.getName() + " is shutting down.");
+        ZkIndexSchemaReader.this.isRemoved=true;
+        cc.getZkController().removeOnReconnectListener(ZkIndexSchemaReader.this);
+      }
+    }
+    @Override public void postClose(    SolrCore core){
+    }
+  }
+);
+  createSchemaWatcher();
+  zkLoader.getZkController().addOnReconnectListener(this);
+}
