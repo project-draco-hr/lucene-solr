@@ -1,0 +1,28 @@
+{
+  List<BKDReader> readers=new ArrayList<>();
+  List<Integer> docBases=new ArrayList<>();
+  List<Bits> liveDocs=new ArrayList<>();
+  int totalHits=0;
+  for (  LeafReaderContext leaf : s.getIndexReader().leaves()) {
+    PointValues points=leaf.reader().getPointValues();
+    if (points != null) {
+      if (points instanceof Lucene60PointsReader == false) {
+        throw new IllegalArgumentException("can only run on Lucene60PointsReader points implementation, but got " + points);
+      }
+      totalHits+=points.getDocCount(fieldName);
+      BKDReader reader=((Lucene60PointsReader)points).getBKDReader(fieldName);
+      if (reader != null) {
+        readers.add(reader);
+        docBases.add(leaf.docBase);
+        liveDocs.add(leaf.reader().getLiveDocs());
+      }
+    }
+  }
+  NearestNeighbor.NearestHit[] hits=NearestNeighbor.nearest(latitude,longitude,readers,liveDocs,docBases,n);
+  ScoreDoc[] scoreDocs=new ScoreDoc[hits.length];
+  for (int i=0; i < hits.length; i++) {
+    NearestNeighbor.NearestHit hit=hits[i];
+    scoreDocs[i]=new FieldDoc(hit.docID,0.0f,new Object[]{Double.valueOf(hit.distanceMeters)});
+  }
+  return new TopFieldDocs(totalHits,scoreDocs,null,0.0f);
+}

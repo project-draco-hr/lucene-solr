@@ -1,0 +1,57 @@
+{
+  final PriorityQueue<NearestHit> hitQueue=new PriorityQueue<>(n,new Comparator<NearestHit>(){
+    @Override public int compare(    NearestHit a,    NearestHit b){
+      int cmp=Double.compare(a.distanceMeters,b.distanceMeters);
+      if (cmp != 0) {
+        return -cmp;
+      }
+      return b.docID - a.docID;
+    }
+  }
+);
+  PriorityQueue<Cell> cellQueue=new PriorityQueue<>();
+  NearestVisitor visitor=new NearestVisitor(hitQueue,n,pointLat,pointLon);
+  List<BKDReader.IntersectState> states=new ArrayList<>();
+  for (int i=0; i < readers.size(); i++) {
+    BKDReader reader=readers.get(i);
+    byte[] minPackedValue=reader.getMinPackedValue();
+    double minLat=decodeLatitude(minPackedValue,0);
+    double minLon=decodeLongitude(minPackedValue,Integer.BYTES);
+    byte[] maxPackedValue=reader.getMaxPackedValue();
+    double maxLat=decodeLatitude(maxPackedValue,0);
+    double maxLon=decodeLongitude(maxPackedValue,Integer.BYTES);
+    states.add(reader.getIntersectState(visitor));
+    cellQueue.offer(new Cell(i,1,reader.getMinPackedValue(),reader.getMaxPackedValue(),approxBestDistance(minLat,maxLat,minLon,maxLon,pointLat,pointLon)));
+  }
+  while (cellQueue.size() > 0) {
+    Cell cell=cellQueue.poll();
+    BKDReader reader=readers.get(cell.readerIndex);
+    if (reader.isLeafNode(cell.nodeID)) {
+      visitor.curDocBase=docBases.get(cell.readerIndex);
+      visitor.curLiveDocs=liveDocs.get(cell.readerIndex);
+      reader.visitLeafBlockValues(cell.nodeID,states.get(cell.readerIndex));
+    }
+ else {
+      double cellMinLat=decodeLatitude(cell.minPacked,0);
+      double cellMinLon=decodeLongitude(cell.minPacked,Integer.BYTES);
+      double cellMaxLat=decodeLatitude(cell.maxPacked,0);
+      double cellMaxLon=decodeLongitude(cell.maxPacked,Integer.BYTES);
+      if (cellMaxLat < visitor.minLat || visitor.maxLat < cellMinLat || ((cellMaxLon < visitor.minLon || visitor.maxLon < cellMinLon) && cellMaxLon < visitor.minLon2)) {
+        continue;
+      }
+      byte[] splitPackedValue=cell.maxPacked.clone();
+      reader.copySplitValue(cell.nodeID,splitPackedValue);
+      cellQueue.offer(new Cell(cell.readerIndex,2 * cell.nodeID,cell.minPacked,splitPackedValue,approxBestDistance(cell.minPacked,splitPackedValue,pointLat,pointLon)));
+      splitPackedValue=cell.minPacked.clone();
+      reader.copySplitValue(cell.nodeID,splitPackedValue);
+      cellQueue.offer(new Cell(cell.readerIndex,2 * cell.nodeID + 1,splitPackedValue,cell.maxPacked,approxBestDistance(splitPackedValue,cell.maxPacked,pointLat,pointLon)));
+    }
+  }
+  NearestHit[] hits=new NearestHit[hitQueue.size()];
+  int downTo=hitQueue.size() - 1;
+  while (hitQueue.size() != 0) {
+    hits[downTo]=hitQueue.poll();
+    downTo--;
+  }
+  return hits;
+}
