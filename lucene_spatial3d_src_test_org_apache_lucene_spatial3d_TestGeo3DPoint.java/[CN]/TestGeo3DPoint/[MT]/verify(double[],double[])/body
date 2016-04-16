@@ -1,9 +1,11 @@
 {
   IndexWriterConfig iwc=newIndexWriterConfig();
   GeoPoint[] points=new GeoPoint[lats.length];
+  GeoPoint[] unquantizedPoints=new GeoPoint[lats.length];
   for (int i=0; i < lats.length; i++) {
     if (Double.isNaN(lats[i]) == false) {
-      points[i]=quantize(new GeoPoint(PlanetModel.WGS84,toRadians(lats[i]),toRadians(lons[i])));
+      unquantizedPoints[i]=new GeoPoint(PlanetModel.WGS84,toRadians(lats[i]),toRadians(lons[i]));
+      points[i]=quantize(unquantizedPoints[i]);
     }
   }
   int mbd=iwc.getMaxBufferedDocs();
@@ -74,24 +76,34 @@
     for (int docID=0; docID < r.maxDoc(); docID++) {
       int id=(int)docIDToID.get(docID);
       GeoPoint point=points[id];
-      if (point != null) {
-        boolean expected=((deleted.contains(id) == false) && ((PointInGeo3DShapeQuery)query).getShape().isWithin(point));
+      GeoPoint unquantizedPoint=unquantizedPoints[id];
+      if (point != null && unquantizedPoint != null) {
+        GeoShape shape=((PointInGeo3DShapeQuery)query).getShape();
+        boolean conflict=shape.isWithin(point) != shape.isWithin(unquantizedPoint);
+        boolean expected=((deleted.contains(id) == false) && shape.isWithin(unquantizedPoint));
         if (hits.get(docID) != expected) {
-          GeoPoint scaledPoint=PlanetModel.WGS84.createSurfacePoint(point);
-          StringBuilder b=new StringBuilder();
-          if (expected) {
-            b.append("FAIL: id=" + id + " should have matched but did not\n");
+          if (conflict) {
+            if (VERBOSE) {
+              System.err.println("CONFLICT: id=" + id + " quantized point membership disagrees with non-quantized point: truth unknown");
+            }
           }
  else {
-            b.append("FAIL: id=" + id + " should not have matched but did\n");
+            StringBuilder b=new StringBuilder();
+            if (expected) {
+              b.append("FAIL: id=" + id + " should have matched but did not\n");
+            }
+ else {
+              b.append("FAIL: id=" + id + " should not have matched but did\n");
+            }
+            b.append("  shape=" + ((PointInGeo3DShapeQuery)query).getShape() + "\n");
+            b.append("  world bounds=(" + " minX=" + PlanetModel.WGS84.getMinimumXValue() + " maxX="+ PlanetModel.WGS84.getMaximumXValue()+ " minY="+ PlanetModel.WGS84.getMinimumYValue()+ " maxY="+ PlanetModel.WGS84.getMaximumYValue()+ " minZ="+ PlanetModel.WGS84.getMinimumZValue()+ " maxZ="+ PlanetModel.WGS84.getMaximumZValue()+ "\n");
+            b.append("  quantized point=" + point + " within shape? "+ shape.isWithin(point)+ "\n");
+            b.append("  unquantized point=" + unquantizedPoint + " within shape? "+ shape.isWithin(unquantizedPoint)+ "\n");
+            b.append("  docID=" + docID + " deleted?="+ deleted.contains(id)+ "\n");
+            b.append("  query=" + query + "\n");
+            b.append("  explanation:\n    " + explain("point",shape,point,unquantizedPoint,r,docID).replace("\n","\n  "));
+            fail(b.toString());
           }
-          b.append("  shape=" + ((PointInGeo3DShapeQuery)query).getShape() + "\n");
-          b.append("  world bounds=(" + " minX=" + PlanetModel.WGS84.getMinimumXValue() + " maxX="+ PlanetModel.WGS84.getMaximumXValue()+ " minY="+ PlanetModel.WGS84.getMinimumYValue()+ " maxY="+ PlanetModel.WGS84.getMaximumYValue()+ " minZ="+ PlanetModel.WGS84.getMinimumZValue()+ " maxZ="+ PlanetModel.WGS84.getMaximumZValue()+ "\n");
-          b.append("  point=" + point + "\n");
-          b.append("  docID=" + docID + " deleted?="+ deleted.contains(id)+ "\n");
-          b.append("  query=" + query + "\n");
-          b.append("  explanation:\n    " + explain("point",((PointInGeo3DShapeQuery)query).getShape(),point,scaledPoint,r,docID).replace("\n","\n  "));
-          fail(b.toString());
         }
       }
  else {
