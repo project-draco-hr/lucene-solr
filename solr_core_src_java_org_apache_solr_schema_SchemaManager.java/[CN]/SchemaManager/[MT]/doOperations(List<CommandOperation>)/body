@@ -1,9 +1,12 @@
 {
-  int timeout=req.getParams().getInt(BaseSolrResource.UPDATE_TIMEOUT_SECS,-1);
-  long startTime=System.nanoTime();
-  long endTime=timeout > 0 ? System.nanoTime() + (timeout * 1000 * 1000) : Long.MAX_VALUE;
+  int timeout=req.getParams().getInt(BaseSolrResource.UPDATE_TIMEOUT_SECS,600);
+  if (timeout < 1) {
+    timeout=600;
+  }
+  TimeOut timeOut=new TimeOut(timeout,TimeUnit.SECONDS);
   SolrCore core=req.getCore();
-  while (System.nanoTime() < endTime) {
+  String errorMsg="Unable to persist managed schema. ";
+  while (!timeOut.hasTimedOut()) {
     managedIndexSchema=getFreshManagedSchema();
     for (    CommandOperation op : operations) {
       OpType opType=OpType.get(op.name);
@@ -24,21 +27,16 @@
         managedIndexSchema.persist(sw);
       }
  catch (      IOException e) {
-        log.info("race condition ");
         throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"unable to serialize schema");
       }
       try {
         ZkController.persistConfigResourceToZooKeeper(zkLoader,managedIndexSchema.getSchemaZkVersion(),managedIndexSchema.getResourceName(),sw.toString().getBytes(StandardCharsets.UTF_8),true);
-        waitForOtherReplicasToUpdate(timeout,startTime);
+        waitForOtherReplicasToUpdate(timeOut);
+        core.setLatestSchema(managedIndexSchema);
         return Collections.emptyList();
       }
  catch (      ZkController.ResourceModifiedInZkException e) {
-        log.info("Race condition schema modified by another node");
-      }
-catch (      Exception e) {
-        String s="Exception persisting schema";
-        log.warn(s,e);
-        return singletonList(s + e.getMessage());
+        log.info("Schema was modified by another node. Retrying..");
       }
     }
  else {
@@ -47,16 +45,12 @@ catch (      Exception e) {
         core.setLatestSchema(managedIndexSchema);
         return Collections.emptyList();
       }
- catch (      ManagedIndexSchema.SchemaChangedInZkException e) {
-        String s="Failed to update schema because schema is modified";
-        log.warn(s,e);
-      }
-catch (      Exception e) {
-        String s="Exception persisting schema";
-        log.warn(s,e);
-        return singletonList(s + e.getMessage());
+ catch (      SolrException e) {
+        log.warn(errorMsg);
+        return singletonList(errorMsg + e.getMessage());
       }
     }
   }
-  return singletonList("Unable to persist schema");
+  log.warn(errorMsg + "Timed out.");
+  return singletonList(errorMsg + "Timed out.");
 }
