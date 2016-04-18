@@ -1,0 +1,101 @@
+{
+  if (out == null) {
+    List<String> joinBatch=new ArrayList();
+    List<Future<List<Tuple>>> futures=new ArrayList();
+    Map<String,Node> level=new HashMap();
+    ExecutorService threadPool=null;
+    try {
+      threadPool=ExecutorUtil.newMDCAwareFixedThreadPool(4,new SolrjNamedThreadFactory("GatherNodesStream"));
+      Map<String,Node> roots=new HashMap();
+      while (true) {
+        Tuple tuple=tupleStream.read();
+        if (tuple.EOF) {
+          if (joinBatch.size() > 0) {
+            JoinRunner joinRunner=new JoinRunner(joinBatch);
+            Future future=threadPool.submit(joinRunner);
+            futures.add(future);
+          }
+          break;
+        }
+        String value=tuple.getString(traverseFrom);
+        if (traversal.getDepth() == 0) {
+          String key=collection + "." + value;
+          if (!roots.containsKey(key)) {
+            Node node=new Node(value,trackTraversal);
+            if (metrics != null) {
+              List<Metric> _metrics=new ArrayList();
+              for (              Metric metric : metrics) {
+                _metrics.add(metric.newInstance());
+              }
+              node.setMetrics(_metrics);
+            }
+            roots.put(key,node);
+          }
+ else {
+            continue;
+          }
+        }
+        joinBatch.add(value);
+        if (joinBatch.size() == 400) {
+          JoinRunner joinRunner=new JoinRunner(joinBatch);
+          Future future=threadPool.submit(joinRunner);
+          futures.add(future);
+          joinBatch=new ArrayList();
+        }
+      }
+      if (traversal.getDepth() == 0) {
+        traversal.addLevel(roots,collection,traverseFrom);
+      }
+      this.traversal.setScatter(scatter);
+      if (useDefaultTraversal) {
+        this.trackTraversal=traversal.getTrackTraversal();
+      }
+ else {
+        this.traversal.setTrackTraversal(trackTraversal);
+      }
+      for (      Future<List<Tuple>> future : futures) {
+        List<Tuple> tuples=future.get();
+        for (        Tuple tuple : tuples) {
+          String _traverseTo=tuple.getString(traverseTo);
+          String _gather=tuple.getString(gather);
+          String key=collection + "." + _gather;
+          if (!traversal.visited(key,_traverseTo,tuple)) {
+            Node node=level.get(key);
+            if (node != null) {
+              node.add((traversal.getDepth() - 1) + "^" + _traverseTo,tuple);
+            }
+ else {
+              node=new Node(_gather,trackTraversal);
+              if (metrics != null) {
+                List<Metric> _metrics=new ArrayList();
+                for (                Metric metric : metrics) {
+                  _metrics.add(metric.newInstance());
+                }
+                node.setMetrics(_metrics);
+              }
+              node.add((traversal.getDepth() - 1) + "^" + _traverseTo,tuple);
+              level.put(key,node);
+            }
+          }
+        }
+      }
+      traversal.addLevel(level,collection,gather);
+      out=traversal.iterator();
+    }
+ catch (    Exception e) {
+      throw new RuntimeException(e);
+    }
+ finally {
+      threadPool.shutdown();
+    }
+  }
+  if (out.hasNext()) {
+    return out.next();
+  }
+ else {
+    Map map=new HashMap();
+    map.put("EOF",true);
+    Tuple tuple=new Tuple(map);
+    return tuple;
+  }
+}

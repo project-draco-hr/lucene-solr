@@ -1,0 +1,106 @@
+{
+  String collectionName=factory.getValueOperand(expression,0);
+  List<StreamExpressionNamedParameter> namedParams=factory.getNamedOperands(expression);
+  StreamExpressionNamedParameter zkHostExpression=factory.getNamedOperand(expression,"zkHost");
+  List<StreamExpression> streamExpressions=factory.getExpressionOperandsRepresentingTypes(expression,Expressible.class,TupleStream.class);
+  if (null == collectionName) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - collectionName expected as first operand",expression));
+  }
+  Set<Traversal.Scatter> scatter=new HashSet();
+  StreamExpressionNamedParameter scatterExpression=factory.getNamedOperand(expression,"scatter");
+  if (scatterExpression == null) {
+    scatter.add(Traversal.Scatter.LEAVES);
+  }
+ else {
+    String s=((StreamExpressionValue)scatterExpression.getParameter()).getValue();
+    String[] sArray=s.split(",");
+    for (    String sv : sArray) {
+      sv=sv.trim();
+      if (Traversal.Scatter.BRANCHES.toString().equalsIgnoreCase(sv)) {
+        scatter.add(Traversal.Scatter.BRANCHES);
+      }
+ else       if (Traversal.Scatter.LEAVES.toString().equalsIgnoreCase(sv)) {
+        scatter.add(Traversal.Scatter.LEAVES);
+      }
+    }
+  }
+  String gather=null;
+  StreamExpressionNamedParameter gatherExpression=factory.getNamedOperand(expression,"gather");
+  if (gatherExpression == null) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - from param is required",expression));
+  }
+ else {
+    gather=((StreamExpressionValue)gatherExpression.getParameter()).getValue();
+  }
+  String traverseFrom=null;
+  String traverseTo=null;
+  StreamExpressionNamedParameter edgeExpression=factory.getNamedOperand(expression,"walk");
+  TupleStream stream=null;
+  if (edgeExpression == null) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - walk param is required",expression));
+  }
+ else {
+    if (streamExpressions.size() > 0) {
+      stream=factory.constructStream(streamExpressions.get(0));
+      String edge=((StreamExpressionValue)edgeExpression.getParameter()).getValue();
+      String[] fields=edge.split("->");
+      if (fields.length != 2) {
+        throw new IOException(String.format(Locale.ROOT,"invalid expression %s - walk param separated by an -> and must contain two fields",expression));
+      }
+      traverseFrom=fields[0].trim();
+      traverseTo=fields[1].trim();
+    }
+ else {
+      String edge=((StreamExpressionValue)edgeExpression.getParameter()).getValue();
+      String[] fields=edge.split("->");
+      if (fields.length != 2) {
+        throw new IOException(String.format(Locale.ROOT,"invalid expression %s - walk param separated by an -> and must contain two fields",expression));
+      }
+      String[] rootNodes=fields[0].split(",");
+      List<String> l=new ArrayList();
+      for (      String n : rootNodes) {
+        l.add(n.trim());
+      }
+      stream=new NodeStream(l);
+      traverseFrom="node";
+      traverseTo=fields[1].trim();
+    }
+  }
+  List<StreamExpression> metricExpressions=factory.getExpressionOperandsRepresentingTypes(expression,Expressible.class,Metric.class);
+  List<Metric> metrics=new ArrayList();
+  for (int idx=0; idx < metricExpressions.size(); ++idx) {
+    metrics.add(factory.constructMetric(metricExpressions.get(idx)));
+  }
+  boolean trackTraversal=false;
+  StreamExpressionNamedParameter trackExpression=factory.getNamedOperand(expression,"trackTraversal");
+  if (trackExpression != null) {
+    trackTraversal=Boolean.parseBoolean(((StreamExpressionValue)trackExpression.getParameter()).getValue());
+  }
+ else {
+    useDefaultTraversal=true;
+  }
+  StreamExpressionNamedParameter scopeExpression=factory.getNamedOperand(expression,"localScope");
+  if (trackExpression != null) {
+    trackTraversal=Boolean.parseBoolean(((StreamExpressionValue)trackExpression.getParameter()).getValue());
+  }
+  Map<String,String> params=new HashMap<String,String>();
+  for (  StreamExpressionNamedParameter namedParam : namedParams) {
+    if (!namedParam.getName().equals("zkHost") && !namedParam.getName().equals("gather") && !namedParam.getName().equals("walk")&& !namedParam.getName().equals("scatter")&& !namedParam.getName().equals("trackTraversal")) {
+      params.put(namedParam.getName(),namedParam.getParameter().toString().trim());
+    }
+  }
+  String zkHost=null;
+  if (null == zkHostExpression) {
+    zkHost=factory.getCollectionZkHost(collectionName);
+    if (zkHost == null) {
+      zkHost=factory.getDefaultZkHost();
+    }
+  }
+ else   if (zkHostExpression.getParameter() instanceof StreamExpressionValue) {
+    zkHost=((StreamExpressionValue)zkHostExpression.getParameter()).getValue();
+  }
+  if (null == zkHost) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - zkHost not found for collection '%s'",expression,collectionName));
+  }
+  init(zkHost,collectionName,stream,traverseFrom,traverseTo,gather,params,metrics,trackTraversal,scatter);
+}
