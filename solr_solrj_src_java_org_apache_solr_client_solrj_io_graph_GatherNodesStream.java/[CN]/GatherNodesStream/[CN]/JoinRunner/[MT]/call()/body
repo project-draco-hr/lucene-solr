@@ -1,0 +1,63 @@
+{
+  Map joinParams=new HashMap();
+  Set<String> flSet=new HashSet();
+  flSet.add(gather);
+  flSet.add(traverseTo);
+  if (metrics != null) {
+    for (    Metric metric : metrics) {
+      for (      String column : metric.getColumns()) {
+        flSet.add(column);
+      }
+    }
+  }
+  if (queryParams.containsKey("fl")) {
+    String flString=(String)queryParams.get("fl");
+    String[] flArray=flString.split(",");
+    for (    String f : flArray) {
+      flSet.add(f.trim());
+    }
+  }
+  Iterator<String> it=flSet.iterator();
+  StringBuilder buf=new StringBuilder();
+  while (it.hasNext()) {
+    buf.append(it.next());
+    if (it.hasNext()) {
+      buf.append(",");
+    }
+  }
+  joinParams.putAll(queryParams);
+  joinParams.put("fl",buf.toString());
+  joinParams.put("qt","/export");
+  joinParams.put("sort",gather + " asc," + traverseTo+ " asc");
+  StringBuffer nodeQuery=new StringBuffer();
+  for (  String node : nodes) {
+    nodeQuery.append(node).append(" ");
+  }
+  String q=traverseTo + ":(" + nodeQuery.toString().trim()+ ")";
+  joinParams.put("q",q);
+  TupleStream stream=null;
+  try {
+    stream=new UniqueStream(new CloudSolrStream(zkHost,collection,joinParams),new MultipleFieldEqualitor(new FieldEqualitor(gather),new FieldEqualitor(traverseTo)));
+    stream.setStreamContext(streamContext);
+    stream.open();
+    BATCH:     while (true) {
+      Tuple tuple=stream.read();
+      if (tuple.EOF) {
+        break BATCH;
+      }
+      edges.add(tuple);
+    }
+  }
+ catch (  Exception e) {
+    throw new RuntimeException(e);
+  }
+ finally {
+    try {
+      stream.close();
+    }
+ catch (    Exception ce) {
+      throw new RuntimeException(ce);
+    }
+  }
+  return edges;
+}
