@@ -1,31 +1,32 @@
 {
   String sliceName=message.getStr(ZkStateReader.SHARD_ID_PROP);
   String coreNodeName=message.getStr(ZkStateReader.CORE_NODE_NAME_PROP);
+  DocCollection collection=prevState.getCollectionOrNull(collectionName);
   if (coreNodeName == null) {
-    coreNodeName=ClusterStateMutator.getAssignedCoreNodeName(prevState,message);
+    coreNodeName=ClusterStateMutator.getAssignedCoreNodeName(collection,message.getStr(ZkStateReader.NODE_NAME_PROP),message.getStr(ZkStateReader.CORE_NAME_PROP));
     if (coreNodeName != null) {
       log.info("node=" + coreNodeName + " is already registered");
     }
  else {
-      coreNodeName=Assign.assignNode(collectionName,prevState);
+      coreNodeName=Assign.assignNode(collection);
     }
     message.getProperties().put(ZkStateReader.CORE_NODE_NAME_PROP,coreNodeName);
   }
   if (sliceName == null) {
-    sliceName=ClusterStateMutator.getAssignedId(prevState,coreNodeName,message);
+    sliceName=ClusterStateMutator.getAssignedId(collection,coreNodeName);
     if (sliceName != null) {
       log.info("shard=" + sliceName + " is already registered");
     }
   }
   if (sliceName == null) {
     if (collectionExists) {
-      numShards=prevState.getCollection(collectionName).getSlices().size();
+      numShards=collection.getSlices().size();
       log.info("Collection already exists with " + ZkStateReader.NUM_SHARDS_PROP + "="+ numShards);
     }
-    sliceName=Assign.assignShard(collectionName,prevState,numShards);
+    sliceName=Assign.assignShard(collection,numShards);
     log.info("Assigning new node to shard shard=" + sliceName);
   }
-  Slice slice=prevState.getSlice(collectionName,sliceName);
+  Slice slice=collection != null ? collection.getSlice(sliceName) : null;
   Map<String,Object> replicaProps=new LinkedHashMap<>();
   replicaProps.putAll(message.getProperties());
   if (slice != null) {
@@ -63,9 +64,7 @@
   Replica replica=new Replica(coreNodeName,replicaProps);
   Map<String,Object> sliceProps=null;
   Map<String,Replica> replicas;
-  DocCollection collection=prevState.getCollectionOrNull(collectionName);
   if (slice != null) {
-    collection=prevState.getCollection(collectionName);
     collection=checkAndCompleteShardSplit(prevState,collection,coreNodeName,sliceName,replica);
     slice=collection.getSlice(sliceName);
     sliceProps=slice.getProperties();

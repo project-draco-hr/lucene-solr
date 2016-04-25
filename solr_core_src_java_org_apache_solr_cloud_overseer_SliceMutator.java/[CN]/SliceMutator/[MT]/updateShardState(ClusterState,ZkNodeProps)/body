@@ -1,14 +1,15 @@
 {
-  String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
+  String collectionName=message.getStr(ZkStateReader.COLLECTION_PROP);
   if (!checkCollectionKeyExistence(message))   return ZkStateWriter.NO_OP;
-  log.info("Update shard state invoked for collection: " + collection + " with message: "+ message);
-  Map<String,Slice> slicesCopy=new LinkedHashMap<>(clusterState.getSlicesMap(collection));
+  log.info("Update shard state invoked for collection: " + collectionName + " with message: "+ message);
+  DocCollection collection=clusterState.getCollection(collectionName);
+  Map<String,Slice> slicesCopy=new LinkedHashMap<>(collection.getSlicesMap());
   for (  String key : message.keySet()) {
     if (ZkStateReader.COLLECTION_PROP.equals(key))     continue;
     if (Overseer.QUEUE_OPERATION.equals(key))     continue;
-    Slice slice=clusterState.getSlice(collection,key);
+    Slice slice=collection.getSlice(key);
     if (slice == null) {
-      throw new RuntimeException("Overseer.updateShardState unknown collection: " + collection + " slice: "+ key);
+      throw new RuntimeException("Overseer.updateShardState unknown collection: " + collectionName + " slice: "+ key);
     }
     log.info("Update shard state " + key + " to "+ message.getStr(key));
     Map<String,Object> props=slice.shallowCopy();
@@ -19,5 +20,5 @@
     Slice newSlice=new Slice(slice.getName(),slice.getReplicasCopy(),props);
     slicesCopy.put(slice.getName(),newSlice);
   }
-  return new ZkWriteCommand(collection,clusterState.getCollection(collection).copyWithSlices(slicesCopy));
+  return new ZkWriteCommand(collectionName,collection.copyWithSlices(slicesCopy));
 }

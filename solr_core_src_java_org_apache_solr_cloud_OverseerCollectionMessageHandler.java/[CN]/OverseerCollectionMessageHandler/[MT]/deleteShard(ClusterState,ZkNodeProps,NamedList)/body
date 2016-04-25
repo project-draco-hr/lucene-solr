@@ -1,14 +1,14 @@
 {
-  String collection=message.getStr(ZkStateReader.COLLECTION_PROP);
+  String collectionName=message.getStr(ZkStateReader.COLLECTION_PROP);
   String sliceId=message.getStr(ZkStateReader.SHARD_ID_PROP);
   log.info("Delete shard invoked");
-  Slice slice=clusterState.getSlice(collection,sliceId);
+  Slice slice=clusterState.getSlice(collectionName,sliceId);
   if (slice == null) {
-    if (clusterState.hasCollection(collection)) {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"No shard with name " + sliceId + " exists for collection "+ collection);
+    if (clusterState.hasCollection(collectionName)) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"No shard with name " + sliceId + " exists for collection "+ collectionName);
     }
  else {
-      throw new SolrException(ErrorCode.BAD_REQUEST,"No collection with the specified name exists: " + collection);
+      throw new SolrException(ErrorCode.BAD_REQUEST,"No collection with the specified name exists: " + collectionName);
     }
   }
   final Slice.State state=slice.getState();
@@ -29,27 +29,28 @@
     params.set(CoreAdminParams.DELETE_DATA_DIR,message.getBool(CoreAdminParams.DELETE_DATA_DIR,true));
     sliceCmd(clusterState,params,null,slice,shardHandler,asyncId,requestMap);
     processResponses(results,shardHandler,true,"Failed to delete shard",asyncId,requestMap,Collections.emptySet());
-    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,DELETESHARD.toLower(),ZkStateReader.COLLECTION_PROP,collection,ZkStateReader.SHARD_ID_PROP,sliceId);
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,DELETESHARD.toLower(),ZkStateReader.COLLECTION_PROP,collectionName,ZkStateReader.SHARD_ID_PROP,sliceId);
     Overseer.getStateUpdateQueue(zkStateReader.getZkClient()).offer(Utils.toJSON(m));
     TimeOut timeout=new TimeOut(30,TimeUnit.SECONDS);
     boolean removed=false;
     while (!timeout.hasTimedOut()) {
       Thread.sleep(100);
-      removed=zkStateReader.getClusterState().getSlice(collection,sliceId) == null;
+      DocCollection collection=zkStateReader.getClusterState().getCollection(collectionName);
+      removed=collection.getSlice(sliceId) == null;
       if (removed) {
         Thread.sleep(100);
         break;
       }
     }
     if (!removed) {
-      throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully remove collection: " + collection + " shard: "+ sliceId);
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Could not fully remove collection: " + collectionName + " shard: "+ sliceId);
     }
-    log.info("Successfully deleted collection: " + collection + ", shard: "+ sliceId);
+    log.info("Successfully deleted collection: " + collectionName + ", shard: "+ sliceId);
   }
  catch (  SolrException e) {
     throw e;
   }
 catch (  Exception e) {
-    throw new SolrException(ErrorCode.SERVER_ERROR,"Error executing delete operation for collection: " + collection + " shard: "+ sliceId,e);
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Error executing delete operation for collection: " + collectionName + " shard: "+ sliceId,e);
   }
 }
