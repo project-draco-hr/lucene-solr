@@ -1,13 +1,23 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,PROPERTY_PROP,SHARD_ID_PROP,REPLICA_PROP,PROPERTY_VALUE_PROP);
-  req.getParams().getAll(map,SHARD_UNIQUE);
-  String property=(String)map.get(PROPERTY_PROP);
-  if (!property.startsWith(COLL_PROP_PREFIX)) {
-    property=COLL_PROP_PREFIX + property;
+  Map<String,Object> props=req.getParams().required().getAll(null,NAME);
+  props.put("fromApi","true");
+  req.getParams().getAll(props,REPLICATION_FACTOR,COLL_CONF,NUM_SLICES,MAX_SHARDS_PER_NODE,CREATE_NODE_SET,CREATE_NODE_SET_SHUFFLE,SHARDS_PROP,STATE_FORMAT,AUTO_ADD_REPLICAS,RULE,SNITCH);
+  if (props.get(STATE_FORMAT) == null) {
+    props.put(STATE_FORMAT,"2");
   }
-  boolean uniquePerSlice=Boolean.parseBoolean((String)map.get(SHARD_UNIQUE));
-  if (StringUtils.isNotBlank((String)map.get(SHARD_UNIQUE)) && SliceMutator.SLICE_UNIQUE_BOOLEAN_PROPERTIES.contains(property.toLowerCase(Locale.ROOT)) && uniquePerSlice == false) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Overseer replica property command received for property " + property + " with the "+ SHARD_UNIQUE+ " parameter set to something other than 'true'. No action taken.");
+  addMapObject(props,RULE);
+  addMapObject(props,SNITCH);
+  verifyRuleParams(h.coreContainer,props);
+  final String collectionName=SolrIdentifierValidator.validateCollectionName((String)props.get(NAME));
+  final String shardsParam=(String)props.get(SHARDS_PROP);
+  if (StringUtils.isNotEmpty(shardsParam)) {
+    verifyShardsParam(shardsParam);
   }
-  return map;
+  if (SYSTEM_COLL.equals(collectionName)) {
+    props.put(NUM_SLICES,1);
+    props.remove(SHARDS_PROP);
+    createSysConfigSet(h.coreContainer);
+  }
+  copyPropertiesWithPrefix(req.getParams(),props,COLL_PROP_PREFIX);
+  return copyPropertiesWithPrefix(req.getParams(),props,"router.");
 }
