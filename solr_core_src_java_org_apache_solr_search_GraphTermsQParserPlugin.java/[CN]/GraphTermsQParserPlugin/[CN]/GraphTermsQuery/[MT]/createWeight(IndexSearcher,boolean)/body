@@ -1,0 +1,58 @@
+{
+  return new ConstantScoreWeight(this){
+    @Override public void extractTerms(    Set<Term> terms){
+    }
+    private WeightOrDocIdSet rewrite(    LeafReaderContext context) throws IOException {
+      final LeafReader reader=context.reader();
+      final Fields fields=reader.fields();
+      Terms terms=fields.terms(field);
+      TermsEnum termsEnum=terms.iterator();
+      PostingsEnum docs=null;
+      DocIdSetBuilder builder=new DocIdSetBuilder(reader.maxDoc());
+      for (int i=0; i < finalContexts.size(); i++) {
+        TermContext termContext=finalContexts.get(i);
+        TermState termState=termContext.get(context.ord);
+        if (termState != null) {
+          Term term=finalTerms.get(i);
+          termsEnum.seekExact(term.bytes(),termContext.get(context.ord));
+          docs=termsEnum.postings(docs,PostingsEnum.NONE);
+          builder.add(docs);
+        }
+      }
+      return new WeightOrDocIdSet(builder.build());
+    }
+    private Scorer scorer(    DocIdSet set) throws IOException {
+      if (set == null) {
+        return null;
+      }
+      final DocIdSetIterator disi=set.iterator();
+      if (disi == null) {
+        return null;
+      }
+      return new ConstantScoreScorer(this,score(),disi);
+    }
+    @Override public BulkScorer bulkScorer(    LeafReaderContext context) throws IOException {
+      final WeightOrDocIdSet weightOrBitSet=rewrite(context);
+      if (weightOrBitSet.weight != null) {
+        return weightOrBitSet.weight.bulkScorer(context);
+      }
+ else {
+        final Scorer scorer=scorer(weightOrBitSet.set);
+        if (scorer == null) {
+          return null;
+        }
+        return new DefaultBulkScorer(scorer);
+      }
+    }
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      final WeightOrDocIdSet weightOrBitSet=rewrite(context);
+      if (weightOrBitSet.weight != null) {
+        return weightOrBitSet.weight.scorer(context);
+      }
+ else {
+        return scorer(weightOrBitSet.set);
+      }
+    }
+  }
+;
+}
