@@ -1,30 +1,20 @@
 {
-  final CoreContainer coreContainer=h.coreContainer;
-  final String requestId=req.getParams().get(REQUESTID);
-  final ZkController zkController=coreContainer.getZkController();
-  Boolean flush=req.getParams().getBool(CollectionAdminParams.FLUSH,false);
-  if (requestId == null && !flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Either requestid or flush parameter must be specified.");
+  req.getParams().required().check(NAME,COLLECTION_PROP);
+  String collectionName=SolrIdentifierValidator.validateCollectionName(req.getParams().get(COLLECTION_PROP));
+  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
+  if (clusterState.hasCollection(collectionName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Collection '" + collectionName + "' exists, no action taken.");
   }
-  if (requestId != null && flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Both requestid and flush parameters can not be specified together.");
+  String location=req.getParams().get("location");
+  if (location == null) {
+    location=(String)h.coreContainer.getZkController().getZkStateReader().getClusterProps().get("location");
   }
-  if (flush) {
-    zkController.getOverseerCompletedMap().clear();
-    zkController.getOverseerFailureMap().clear();
-    rsp.getValues().add("status","successfully cleared stored collection api responses");
-    return null;
+  if (location == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"'location' is not specified as a query parameter or set as a cluster property");
   }
- else {
-    if (zkController.getOverseerCompletedMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else     if (zkController.getOverseerFailureMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else {
-      rsp.getValues().add("status","[" + requestId + "] not found in stored responses");
-    }
-  }
-  return null;
+  Map<String,Object> params=req.getParams().getAll(null,NAME,COLLECTION_PROP);
+  params.put("location",location);
+  req.getParams().getAll(params,COLL_CONF,REPLICATION_FACTOR,MAX_SHARDS_PER_NODE,STATE_FORMAT,AUTO_ADD_REPLICAS);
+  copyPropertiesWithPrefix(req.getParams(),params,COLL_PROP_PREFIX);
+  return params;
 }
