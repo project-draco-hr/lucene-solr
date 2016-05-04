@@ -1,0 +1,67 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setCodec(new SimpleTextCodec());
+  Sort indexSort=new Sort(new SortField("foo",SortField.Type.LONG));
+  iwc.setIndexSort(indexSort);
+  IndexWriter w=new IndexWriter(dir,iwc);
+  final int numDocs=atLeast(200);
+  final FixedBitSet deleted=new FixedBitSet(numDocs);
+  for (int i=0; i < numDocs; ++i) {
+    Document doc=new Document();
+    doc.add(new NumericDocValuesField("foo",random().nextInt(20)));
+    doc.add(new StringField("id",Integer.toString(i),Store.YES));
+    doc.add(new NumericDocValuesField("id",i));
+    w.addDocument(doc);
+    if (random().nextInt(5) == 0) {
+      w.getReader().close();
+    }
+ else     if (random().nextInt(30) == 0) {
+      w.forceMerge(2);
+    }
+ else     if (random().nextInt(4) == 0) {
+      final int id=TestUtil.nextInt(random(),0,i);
+      deleted.set(id);
+      w.deleteDocuments(new Term("id",Integer.toString(id)));
+    }
+  }
+  DirectoryReader reader=w.getReader();
+  for (  LeafReaderContext ctx : reader.leaves()) {
+    final SegmentReader leaf=(SegmentReader)ctx.reader();
+    SegmentInfo info=leaf.getSegmentInfo().info;
+switch (info.getDiagnostics().get(IndexWriter.SOURCE)) {
+case IndexWriter.SOURCE_FLUSH:
+      assertNull(info.getIndexSort());
+    break;
+case IndexWriter.SOURCE_MERGE:
+  assertEquals(indexSort,info.getIndexSort());
+final NumericDocValues values=leaf.getNumericDocValues("foo");
+long previous=Long.MIN_VALUE;
+for (int i=0; i < leaf.maxDoc(); ++i) {
+final long value=values.get(i);
+assertTrue(value >= previous);
+previous=value;
+}
+break;
+default :
+fail();
+}
+}
+IndexSearcher searcher=newSearcher(reader);
+for (int i=0; i < numDocs; ++i) {
+TermQuery termQuery=new TermQuery(new Term("id",Integer.toString(i)));
+final TopDocs topDocs=searcher.search(termQuery,1);
+if (deleted.get(i)) {
+assertEquals(0,topDocs.totalHits);
+}
+ else {
+assertEquals(1,topDocs.totalHits);
+assertEquals(i,MultiDocValues.getNumericValues(reader,"id").get(topDocs.scoreDocs[0].doc));
+Document document=reader.document(topDocs.scoreDocs[0].doc);
+assertEquals(Integer.toString(i),document.get("id"));
+}
+}
+reader.close();
+w.close();
+dir.close();
+}
