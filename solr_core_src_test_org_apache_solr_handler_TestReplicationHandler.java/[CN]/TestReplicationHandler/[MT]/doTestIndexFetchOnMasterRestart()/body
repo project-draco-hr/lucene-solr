@@ -1,0 +1,36 @@
+{
+  useFactory(null);
+  try {
+    clearIndexWithReplication();
+    master.copyConfigFile(CONF_DIR + "solrconfig-master2.xml","solrconfig.xml");
+    masterJetty.stop();
+    masterJetty.start();
+    nDocs--;
+    for (int i=0; i < nDocs; i++)     index(masterClient,"id",i,"name","name = " + i);
+    masterClient.commit();
+    NamedList masterQueryRsp=rQuery(nDocs,"*:*",masterClient);
+    SolrDocumentList masterQueryResult=(SolrDocumentList)masterQueryRsp.get("response");
+    assertEquals(nDocs,numFound(masterQueryRsp));
+    NamedList slaveQueryRsp=rQuery(nDocs,"*:*",slaveClient);
+    SolrDocumentList slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
+    assertEquals(nDocs,numFound(slaveQueryRsp));
+    String cmp=BaseDistributedSearchTestCase.compare(masterQueryResult,slaveQueryResult,0,null);
+    assertEquals(null,cmp);
+    assertEquals(1,Integer.parseInt(getSlaveDetails("timesIndexReplicated")));
+    String timesFailed=getSlaveDetails("timesFailed");
+    assertEquals(0,Integer.parseInt(timesFailed != null ? timesFailed : "0"));
+    masterJetty.stop();
+    Thread.sleep(2000);
+    masterJetty.start();
+    Thread.sleep(2000);
+    slaveQueryRsp=rQuery(nDocs,"*:*",slaveClient);
+    slaveQueryResult=(SolrDocumentList)slaveQueryRsp.get("response");
+    assertEquals(nDocs,numFound(slaveQueryRsp));
+    int failed=Integer.parseInt(getSlaveDetails("timesFailed"));
+    assertTrue(failed > 0);
+    assertEquals(1,Integer.parseInt(getSlaveDetails("timesIndexReplicated")) - failed);
+  }
+  finally {
+    resetFactory();
+  }
+}
