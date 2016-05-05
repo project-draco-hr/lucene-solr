@@ -1,16 +1,6 @@
 {
-  indexr(id,"0","a_s","hello","a_i","0","a_f","1");
-  indexr(id,"2","a_s","hello","a_i","2","a_f","2");
-  indexr(id,"3","a_s","hello","a_i","3","a_f","3");
-  indexr(id,"4","a_s","hello","a_i","4","a_f","4");
-  indexr(id,"1","a_s","hello","a_i","1","a_f","5");
-  indexr(id,"5","a_s","hello","a_i","10","a_f","6");
-  indexr(id,"6","a_s","hello","a_i","11","a_f","7");
-  indexr(id,"7","a_s","hello","a_i","12","a_f","8");
-  indexr(id,"8","a_s","hello","a_i","13","a_f","9");
-  indexr(id,"9","a_s","hello","a_i","14","a_f","10");
-  commit();
-  StreamFactory factory=new StreamFactory().withCollectionZkHost("collection1",zkServer.getZkAddress()).withFunctionName("topic",TopicStream.class).withFunctionName("search",CloudSolrStream.class).withFunctionName("daemon",DaemonStream.class);
+  new UpdateRequest().add(id,"0","a_s","hello","a_i","0","a_f","1").add(id,"2","a_s","hello","a_i","2","a_f","2").add(id,"3","a_s","hello","a_i","3","a_f","3").add(id,"4","a_s","hello","a_i","4","a_f","4").add(id,"1","a_s","hello","a_i","1","a_f","5").add(id,"5","a_s","hello","a_i","10","a_f","6").add(id,"6","a_s","hello","a_i","11","a_f","7").add(id,"7","a_s","hello","a_i","12","a_f","8").add(id,"8","a_s","hello","a_i","13","a_f","9").add(id,"9","a_s","hello","a_i","14","a_f","10").commit(cluster.getSolrClient(),COLLECTION);
+  StreamFactory factory=new StreamFactory().withCollectionZkHost("collection1",cluster.getZkServer().getZkAddress()).withFunctionName("topic",TopicStream.class).withFunctionName("search",CloudSolrStream.class).withFunctionName("daemon",DaemonStream.class);
   StreamExpression expression;
   TupleStream stream;
   List<Tuple> tuples;
@@ -23,7 +13,7 @@
     stream.setStreamContext(context);
     tuples=getTuples(stream);
     assertEquals(tuples.size(),0);
-    commit();
+    cluster.getSolrClient().commit("collection1");
     expression=StreamExpressionParser.parse("search(collection1, q=\"id:1000000\", fl=\"id, checkpoint_ss, _version_\", sort=\"id asc\")");
     stream=factory.constructStream(expression);
     context=new StreamContext();
@@ -34,9 +24,7 @@
     List<String> checkpoints=tuples.get(0).getStrings("checkpoint_ss");
     assertEquals(checkpoints.size(),2);
     Long version1=tuples.get(0).getLong("_version_");
-    indexr(id,"10","a_s","hello","a_i","13","a_f","9");
-    indexr(id,"11","a_s","hello","a_i","14","a_f","10");
-    commit();
+    new UpdateRequest().add(id,"10","a_s","hello","a_i","13","a_f","9").add(id,"11","a_s","hello","a_i","14","a_f","10").commit(cluster.getSolrClient(),COLLECTION);
     expression=StreamExpressionParser.parse("topic(collection1, collection1, fl=\"id\", q=\"a_s:hello\", id=\"1000000\", checkpointEvery=2)");
     stream=factory.constructStream(expression);
     context=new StreamContext();
@@ -46,7 +34,7 @@
       stream.open();
       Tuple tuple1=stream.read();
       assertEquals((long)tuple1.getLong("id"),10l);
-      commit();
+      cluster.getSolrClient().commit("collection1");
       expression=StreamExpressionParser.parse("search(collection1, q=\"id:1000000\", fl=\"id, checkpoint_ss, _version_\", sort=\"id asc\")");
       TupleStream cstream=factory.constructStream(expression);
       context=new StreamContext();
@@ -59,7 +47,7 @@
       Long version2=tuples.get(0).getLong("_version_");
       assertEquals(version1,version2);
       Tuple tuple2=stream.read();
-      commit();
+      cluster.getSolrClient().commit("collection1");
       assertEquals((long)tuple2.getLong("id"),11l);
       expression=StreamExpressionParser.parse("search(collection1, q=\"id:1000000\", fl=\"id, checkpoint_ss, _version_\", sort=\"id asc\")");
       cstream=factory.constructStream(expression);
@@ -85,19 +73,15 @@
       context=new StreamContext();
       context.setSolrClientCache(cache);
       dstream.setStreamContext(context);
-      indexr(id,"12","a_s","hello","a_i","13","a_f","9");
-      indexr(id,"13","a_s","hello","a_i","14","a_f","10");
-      commit();
+      new UpdateRequest().add(id,"12","a_s","hello","a_i","13","a_f","9").add(id,"13","a_s","hello","a_i","14","a_f","10").commit(cluster.getSolrClient(),COLLECTION);
       Tuple tuple=null;
       dstream.open();
       tuple=dstream.read();
       assertEquals(12,(long)tuple.getLong(id));
       tuple=dstream.read();
       assertEquals(13,(long)tuple.getLong(id));
-      commit();
-      indexr(id,"14","a_s","hello","a_i","13","a_f","9");
-      indexr(id,"15","a_s","hello","a_i","14","a_f","10");
-      commit();
+      cluster.getSolrClient().commit("collection1");
+      new UpdateRequest().add(id,"14","a_s","hello","a_i","13","a_f","9").add(id,"15","a_s","hello","a_i","14","a_f","10").commit(cluster.getSolrClient(),COLLECTION);
       tuple=dstream.read();
       assertEquals(14,(long)tuple.getLong(id));
       tuple=dstream.read();
@@ -111,8 +95,6 @@
     }
   }
   finally {
-    del("*:*");
-    commit();
     cache.close();
   }
 }

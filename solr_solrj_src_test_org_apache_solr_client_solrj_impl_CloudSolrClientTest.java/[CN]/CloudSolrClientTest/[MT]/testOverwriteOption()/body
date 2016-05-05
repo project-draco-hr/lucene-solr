@@ -1,33 +1,10 @@
 {
-  String collectionName="overwriteCollection";
-  createCollection(collectionName,controlClientCloud,1,1);
-  waitForRecoveriesToFinish(collectionName,false);
-  try (CloudSolrClient cloudClient=createCloudClient(collectionName)){
-    SolrInputDocument doc1=new SolrInputDocument();
-    doc1.addField(id,"0");
-    doc1.addField("a_t","hello1");
-    SolrInputDocument doc2=new SolrInputDocument();
-    doc2.addField(id,"0");
-    doc2.addField("a_t","hello2");
-    UpdateRequest request=new UpdateRequest();
-    request.add(doc1);
-    request.add(doc2);
-    request.setAction(AbstractUpdateRequest.ACTION.COMMIT,false,false);
-    NamedList<Object> response=cloudClient.request(request);
-    QueryResponse resp=cloudClient.query(new SolrQuery("*:*"));
-    assertEquals("There should be one document because overwrite=true",1,resp.getResults().getNumFound());
-    doc1=new SolrInputDocument();
-    doc1.addField(id,"1");
-    doc1.addField("a_t","hello1");
-    doc2=new SolrInputDocument();
-    doc2.addField(id,"1");
-    doc2.addField("a_t","hello2");
-    request=new UpdateRequest();
-    request.add(doc1,false);
-    request.add(doc2,false);
-    request.setAction(AbstractUpdateRequest.ACTION.COMMIT,false,false);
-    response=cloudClient.request(request);
-    resp=cloudClient.query(new SolrQuery("*:*"));
-    assertEquals("There should be 3 documents because there should be two id=1 docs due to overwrite=false",3,resp.getResults().getNumFound());
-  }
- }
+  CollectionAdminRequest.createCollection("overwrite","conf",1,1).processAndWait(cluster.getSolrClient(),TIMEOUT);
+  AbstractDistribZkTestBase.waitForRecoveriesToFinish("overwrite",cluster.getSolrClient().getZkStateReader(),false,true,TIMEOUT);
+  new UpdateRequest().add("id","0","a_t","hello1").add("id","0","a_t","hello2").commit(cluster.getSolrClient(),"overwrite");
+  QueryResponse resp=cluster.getSolrClient().query("overwrite",new SolrQuery("*:*"));
+  assertEquals("There should be one document because overwrite=true",1,resp.getResults().getNumFound());
+  new UpdateRequest().add(new SolrInputDocument(id,"1","a_t","hello1"),false).add(new SolrInputDocument(id,"1","a_t","hello2"),false).commit(cluster.getSolrClient(),"overwrite");
+  resp=cluster.getSolrClient().query("overwrite",new SolrQuery("*:*"));
+  assertEquals("There should be 3 documents because there should be two id=1 docs due to overwrite=false",3,resp.getResults().getNumFound());
+}
