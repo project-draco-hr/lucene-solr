@@ -1,0 +1,28 @@
+{
+  new UpdateRequest().add(id,"0","from_s","bill","to_s","jim","message_t","Hello jim").add(id,"1","from_s","bill","to_s","sam","message_t","Hello sam").add(id,"2","from_s","bill","to_s","max","message_t","Hello max").add(id,"3","from_s","max","to_s","kip","message_t","Hello kip").add(id,"4","from_s","sam","to_s","steve","message_t","Hello steve").add(id,"5","from_s","jim","to_s","ann","message_t","Hello steve").commit(cluster.getSolrClient(),COLLECTION);
+  commit();
+  List<JettySolrRunner> runners=cluster.getJettySolrRunners();
+  JettySolrRunner runner=runners.get(0);
+  String url=runner.getBaseUrl().toString();
+  HttpSolrClient client=new HttpSolrClient(url);
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  String expr="sort(by=\"node asc\", gatherNodes(collection1, " + "walk=\"bill->from_s\"," + "trackTraversal=\"true\","+ "gather=\"to_s\"))";
+  params.add("expr",expr);
+  QueryRequest query=new QueryRequest(params);
+  query.setPath("/collection1/graph");
+  query.setResponseParser(new InputStreamResponseParser("xml"));
+  query.setMethod(SolrRequest.METHOD.POST);
+  NamedList<Object> genericResponse=client.request(query);
+  InputStream stream=(InputStream)genericResponse.get("stream");
+  InputStreamReader reader=new InputStreamReader(stream,"UTF-8");
+  String xml=readString(reader);
+  String error=h.validateXPath(xml,"//graph/node[1][@id ='jim']","//graph/node[2][@id ='max']","//graph/node[3][@id ='sam']");
+  if (error != null) {
+    throw new Exception(error);
+  }
+  error=h.validateXPath(xml,"//graph/edge[1][@source ='bill']","//graph/edge[1][@target ='jim']","//graph/edge[2][@source ='bill']","//graph/edge[2][@target ='max']","//graph/edge[3][@source ='bill']","//graph/edge[3][@target ='sam']");
+  if (error != null) {
+    throw new Exception(error);
+  }
+  client.close();
+}
