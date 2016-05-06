@@ -2,25 +2,19 @@
   IndexWriter testWriter=new IndexWriter(testIndex,new IndexWriterConfig(analyzer));
   IndexWriter cvWriter=new IndexWriter(crossValidationIndex,new IndexWriterConfig(analyzer));
   IndexWriter trainingWriter=new IndexWriter(trainingIndex,new IndexWriterConfig(analyzer));
-  Terms terms=originalIndex.terms(classFieldName);
-  long noOfClasses=-1;
-  if (terms != null) {
-    noOfClasses=terms.size();
+  SortedDocValues classValues=originalIndex.getSortedDocValues(classFieldName);
+  if (classValues == null) {
+    throw new IllegalStateException("the classFieldName \"" + classFieldName + "\" must index sorted doc values");
   }
-  if (noOfClasses == -1) {
-    noOfClasses=10000;
-  }
-  HashMap<String,UninvertingReader.Type> mapping=new HashMap<>();
-  mapping.put(classFieldName,UninvertingReader.Type.SORTED);
-  UninvertingReader uninvertingReader=new UninvertingReader(originalIndex,mapping);
+  int noOfClasses=classValues.getValueCount();
   try {
-    IndexSearcher indexSearcher=new IndexSearcher(uninvertingReader);
+    IndexSearcher indexSearcher=new IndexSearcher(originalIndex);
     GroupingSearch gs=new GroupingSearch(classFieldName);
     gs.setGroupSort(Sort.INDEXORDER);
     gs.setSortWithinGroup(Sort.INDEXORDER);
     gs.setAllGroups(true);
     gs.setGroupDocsLimit(originalIndex.maxDoc());
-    TopGroups<Object> topGroups=gs.search(indexSearcher,new MatchAllDocsQuery(),0,(int)noOfClasses);
+    TopGroups<Object> topGroups=gs.search(indexSearcher,new MatchAllDocsQuery(),0,noOfClasses);
     FieldType ft=new FieldType(TextField.TYPE_STORED);
     if (termVectors) {
       ft.setStoreTermVectors(true);
@@ -64,6 +58,6 @@
     testWriter.close();
     cvWriter.close();
     trainingWriter.close();
-    uninvertingReader.close();
+    originalIndex.close();
   }
 }

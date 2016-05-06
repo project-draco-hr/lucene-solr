@@ -1,0 +1,46 @@
+{
+  long startNS=System.nanoTime();
+  Status.IndexSortStatus status=new Status.IndexSortStatus();
+  if (sort != null) {
+    if (infoStream != null) {
+      infoStream.print("    test: check index sort.....");
+    }
+    SortField fields[]=sort.getSort();
+    final int reverseMul[]=new int[fields.length];
+    final LeafFieldComparator comparators[]=new LeafFieldComparator[fields.length];
+    LeafReaderContext readerContext=new LeafReaderContext(reader);
+    for (int i=0; i < fields.length; i++) {
+      reverseMul[i]=fields[i].getReverse() ? -1 : 1;
+      comparators[i]=fields[i].getComparator(1,i).getLeafComparator(readerContext);
+    }
+    int maxDoc=reader.maxDoc();
+    try {
+      for (int docID=1; docID < maxDoc; docID++) {
+        int cmp=0;
+        for (int i=0; i < comparators.length; i++) {
+          comparators[i].copy(0,docID - 1);
+          comparators[i].setBottom(0);
+          cmp=reverseMul[i] * comparators[i].compareBottom(docID);
+          if (cmp != 0) {
+            break;
+          }
+        }
+        if (cmp > 0) {
+          throw new RuntimeException("segment has indexSort=" + sort + " but docID="+ (docID - 1)+ " sorts after docID="+ docID);
+        }
+      }
+      msg(infoStream,String.format(Locale.ROOT,"OK [took %.3f sec]",nsToSec(System.nanoTime() - startNS)));
+    }
+ catch (    Throwable e) {
+      if (failFast) {
+        IOUtils.reThrow(e);
+      }
+      msg(infoStream,"ERROR [" + String.valueOf(e.getMessage()) + "]");
+      status.error=e;
+      if (infoStream != null) {
+        e.printStackTrace(infoStream);
+      }
+    }
+  }
+  return status;
+}
