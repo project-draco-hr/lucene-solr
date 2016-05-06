@@ -1,0 +1,75 @@
+{
+  Exception e1=res.getException();
+  if (e1 != null) {
+    e1.printStackTrace(new PrintWriter(writer));
+    return;
+  }
+  TupleStream stream=(TupleStream)req.getContext().get("stream");
+  if (stream instanceof GraphHandler.DummyErrorStream) {
+    GraphHandler.DummyErrorStream d=(GraphHandler.DummyErrorStream)stream;
+    Exception e=d.getException();
+    e.printStackTrace(new PrintWriter(writer));
+    return;
+  }
+  Traversal traversal=(Traversal)req.getContext().get("traversal");
+  PrintWriter printWriter=new PrintWriter(writer);
+  try {
+    stream.open();
+    Tuple tuple=null;
+    int edgeCount=0;
+    printWriter.println("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+    printWriter.println("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\" ");
+    printWriter.println("xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" ");
+    printWriter.print("xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns ");
+    printWriter.println("http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">");
+    printWriter.println("<graph id=\"G\" edgedefault=\"directed\">");
+    while (true) {
+      tuple=stream.read();
+      if (tuple.EOF) {
+        break;
+      }
+      String id=tuple.getString("node");
+      if (traversal.isMultiCollection()) {
+        id=tuple.getString("collection") + "." + id;
+      }
+      writer.write("<node id=\"" + replace(id) + "\"");
+      List<String> outfields=new ArrayList();
+      Iterator<String> keys=tuple.fields.keySet().iterator();
+      while (keys.hasNext()) {
+        String key=keys.next();
+        if (key.equals("node") || key.equals("ancestors") || key.equals("collection")) {
+          continue;
+        }
+ else {
+          outfields.add(key);
+        }
+      }
+      if (outfields.size() > 0) {
+        printWriter.println(">");
+        for (        String nodeAttribute : outfields) {
+          Object o=tuple.get(nodeAttribute);
+          if (o != null) {
+            printWriter.println("<data key=\"" + nodeAttribute + "\">"+ o.toString()+ "</data>");
+          }
+        }
+        printWriter.println("</node>");
+      }
+ else {
+        printWriter.println("/>");
+      }
+      List<String> ancestors=tuple.getStrings("ancestors");
+      if (ancestors != null) {
+        for (        String ancestor : ancestors) {
+          ++edgeCount;
+          writer.write("<edge id=\"" + edgeCount + "\" ");
+          writer.write(" source=\"" + replace(ancestor) + "\" ");
+          printWriter.println(" target=\"" + replace(id) + "\"/>");
+        }
+      }
+    }
+    writer.write("</graph></graphml>");
+  }
+  finally {
+    stream.close();
+  }
+}

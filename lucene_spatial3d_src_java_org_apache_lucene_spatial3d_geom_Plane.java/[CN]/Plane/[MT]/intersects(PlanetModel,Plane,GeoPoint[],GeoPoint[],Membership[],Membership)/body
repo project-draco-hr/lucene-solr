@@ -12,5 +12,109 @@
     }
     return false;
   }
-  return findIntersections(planetModel,q,bounds,moreBounds).length > 0;
+  final double lineVectorX=y * q.z - z * q.y;
+  final double lineVectorY=z * q.x - x * q.z;
+  final double lineVectorZ=x * q.y - y * q.x;
+  if (Math.abs(lineVectorX) < MINIMUM_RESOLUTION && Math.abs(lineVectorY) < MINIMUM_RESOLUTION && Math.abs(lineVectorZ) < MINIMUM_RESOLUTION) {
+    return false;
+  }
+  double x0;
+  double y0;
+  double z0;
+  final double denomYZ=this.y * q.z - this.z * q.y;
+  final double denomXZ=this.x * q.z - this.z * q.x;
+  final double denomXY=this.x * q.y - this.y * q.x;
+  if (Math.abs(denomYZ) >= Math.abs(denomXZ) && Math.abs(denomYZ) >= Math.abs(denomXY)) {
+    if (Math.abs(denomYZ) < MINIMUM_RESOLUTION_SQUARED) {
+      return false;
+    }
+    final double denom=1.0 / denomYZ;
+    x0=0.0;
+    y0=(-this.D * q.z - this.z * -q.D) * denom;
+    z0=(this.y * -q.D + this.D * q.y) * denom;
+  }
+ else   if (Math.abs(denomXZ) >= Math.abs(denomXY) && Math.abs(denomXZ) >= Math.abs(denomYZ)) {
+    if (Math.abs(denomXZ) < MINIMUM_RESOLUTION_SQUARED) {
+      return false;
+    }
+    final double denom=1.0 / denomXZ;
+    x0=(-this.D * q.z - this.z * -q.D) * denom;
+    y0=0.0;
+    z0=(this.x * -q.D + this.D * q.x) * denom;
+  }
+ else {
+    if (Math.abs(denomXY) < MINIMUM_RESOLUTION_SQUARED) {
+      return false;
+    }
+    final double denom=1.0 / denomXY;
+    x0=(-this.D * q.y - this.y * -q.D) * denom;
+    y0=(this.x * -q.D + this.D * q.x) * denom;
+    z0=0.0;
+  }
+  final double A=lineVectorX * lineVectorX * planetModel.inverseAbSquared + lineVectorY * lineVectorY * planetModel.inverseAbSquared + lineVectorZ * lineVectorZ * planetModel.inverseCSquared;
+  final double B=2.0 * (lineVectorX * x0 * planetModel.inverseAbSquared + lineVectorY * y0 * planetModel.inverseAbSquared + lineVectorZ * z0 * planetModel.inverseCSquared);
+  final double C=x0 * x0 * planetModel.inverseAbSquared + y0 * y0 * planetModel.inverseAbSquared + z0 * z0 * planetModel.inverseCSquared - 1.0;
+  final double BsquaredMinus=B * B - 4.0 * A * C;
+  if (Math.abs(BsquaredMinus) < MINIMUM_RESOLUTION_SQUARED) {
+    final double inverse2A=1.0 / (2.0 * A);
+    final double t=-B * inverse2A;
+    final double pointX=lineVectorX * t + x0;
+    final double pointY=lineVectorY * t + y0;
+    final double pointZ=lineVectorZ * t + z0;
+    for (    final Membership bound : bounds) {
+      if (!bound.isWithin(pointX,pointY,pointZ)) {
+        return false;
+      }
+    }
+    for (    final Membership bound : moreBounds) {
+      if (!bound.isWithin(pointX,pointY,pointZ)) {
+        return false;
+      }
+    }
+    return true;
+  }
+ else   if (BsquaredMinus > 0.0) {
+    final double inverse2A=1.0 / (2.0 * A);
+    final double sqrtTerm=Math.sqrt(BsquaredMinus);
+    final double t1=(-B + sqrtTerm) * inverse2A;
+    final double t2=(-B - sqrtTerm) * inverse2A;
+    final double point1X=lineVectorX * t1 + x0;
+    final double point1Y=lineVectorY * t1 + y0;
+    final double point1Z=lineVectorZ * t1 + z0;
+    boolean point1Valid=true;
+    for (    final Membership bound : bounds) {
+      if (!bound.isWithin(point1X,point1Y,point1Z)) {
+        point1Valid=false;
+        break;
+      }
+    }
+    if (point1Valid) {
+      for (      final Membership bound : moreBounds) {
+        if (!bound.isWithin(point1X,point1Y,point1Z)) {
+          point1Valid=false;
+          break;
+        }
+      }
+    }
+    if (point1Valid) {
+      return true;
+    }
+    final double point2X=lineVectorX * t2 + x0;
+    final double point2Y=lineVectorY * t2 + y0;
+    final double point2Z=lineVectorZ * t2 + z0;
+    for (    final Membership bound : bounds) {
+      if (!bound.isWithin(point2X,point2Y,point2Z)) {
+        return false;
+      }
+    }
+    for (    final Membership bound : moreBounds) {
+      if (!bound.isWithin(point2X,point2Y,point2Z)) {
+        return false;
+      }
+    }
+    return true;
+  }
+ else {
+    return false;
+  }
 }
