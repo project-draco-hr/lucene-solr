@@ -1,0 +1,29 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  SortField sortField=new SortField("foo",SortField.Type.STRING);
+  sortField.setMissingValue(SortField.STRING_LAST);
+  Sort indexSort=new Sort(sortField);
+  iwc.setIndexSort(indexSort);
+  IndexWriter w=new IndexWriter(dir,iwc);
+  Document doc=new Document();
+  doc.add(new SortedDocValuesField("foo",new BytesRef("zzz")));
+  w.addDocument(doc);
+  w.commit();
+  w.addDocument(new Document());
+  w.commit();
+  doc=new Document();
+  doc.add(new SortedDocValuesField("foo",new BytesRef("mmm")));
+  w.addDocument(doc);
+  w.forceMerge(1);
+  DirectoryReader r=DirectoryReader.open(w);
+  LeafReader leaf=getOnlyLeafReader(r);
+  assertEquals(3,leaf.maxDoc());
+  SortedDocValues values=leaf.getSortedDocValues("foo");
+  assertEquals("mmm",values.get(0).utf8ToString());
+  assertEquals("zzz",values.get(1).utf8ToString());
+  assertEquals(-1,values.getOrd(2));
+  r.close();
+  w.close();
+  dir.close();
+}
