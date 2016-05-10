@@ -1,0 +1,44 @@
+{
+  int peopleMultiplier=atLeast(1);
+  int deptMultiplier=atLeast(1);
+  String people="people";
+  int numPeopleShards;
+  createCollection(people,atLeast(1),numPeopleShards=atLeast(2),numPeopleShards);
+  String depts="departments";
+  int numDeptsShards;
+  createCollection(depts,atLeast(1),numDeptsShards=atLeast(2),numDeptsShards);
+  createIndex(people,peopleMultiplier,depts,deptMultiplier);
+  Random random1=random();
+{
+    final QueryRequest qr=new QueryRequest(params(new String[]{"q","name_s:dave","indent","true","fl","*,depts:[subquery " + ((random1.nextBoolean() ? "" : "separator=,")) + "]","rows","" + peopleMultiplier,"depts.q","{!terms f=dept_id_s v=$row.dept_ss_dv " + ((random1.nextBoolean() ? "" : "separator=,")) + "}","depts.fl","text_t","depts.indent","true","depts.collection","departments","depts.rows","" + (deptMultiplier * 2),"depts.logParamsList","q,fl,rows,row.dept_ss_dv"}));
+    final QueryResponse rsp=new QueryResponse();
+    rsp.setResponse(cloudClient.request(qr,people));
+    final SolrDocumentList hits=rsp.getResults();
+    assertEquals(peopleMultiplier,hits.getNumFound());
+    Map<String,String> engText=new HashMap<String,String>(){
+{
+        put("text_t","These guys develop stuff");
+      }
+    }
+;
+    Map<String,String> suppText=new HashMap<String,String>(){
+{
+        put("text_t","These guys help customers");
+      }
+    }
+;
+    int engineer=0;
+    int support=0;
+    for (    int res : new int[]{0,(peopleMultiplier - 1) / 2,peopleMultiplier - 1}) {
+      SolrDocument doc=hits.get(res);
+      assertEquals("dave",doc.getFieldValue("name_s_dv"));
+      SolrDocumentList relDepts=(SolrDocumentList)doc.getFieldValue("depts");
+      assertEquals("dave works in both depts " + rsp,deptMultiplier * 2,relDepts.getNumFound());
+      for (int deptN=0; deptN < relDepts.getNumFound(); deptN++) {
+        SolrDocument deptDoc=relDepts.get(deptN);
+        assertTrue(deptDoc + "should be either " + engText+ " or "+ suppText,(engText.equals(deptDoc) && ++engineer > 0) || (suppText.equals(deptDoc) && ++support > 0));
+      }
+    }
+    assertEquals(hits.toString(),engineer,support);
+  }
+}
