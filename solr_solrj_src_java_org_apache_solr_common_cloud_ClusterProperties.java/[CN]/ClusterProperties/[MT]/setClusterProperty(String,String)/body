@@ -1,0 +1,37 @@
+{
+  if (!ZkStateReader.KNOWN_CLUSTER_PROPS.contains(propertyName)) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Not a known cluster property " + propertyName);
+  }
+  for (; ; ) {
+    Stat s=new Stat();
+    try {
+      if (client.exists(ZkStateReader.CLUSTER_PROPS,true)) {
+        Map properties=(Map)Utils.fromJSON(client.getData(ZkStateReader.CLUSTER_PROPS,null,s,true));
+        if (propertyValue == null) {
+          if (properties.get(propertyName) != null) {
+            properties.remove(propertyName);
+            client.setData(ZkStateReader.CLUSTER_PROPS,Utils.toJSON(properties),s.getVersion(),true);
+          }
+        }
+ else {
+          if (!propertyValue.equals(properties.get(propertyName))) {
+            properties.put(propertyName,propertyValue);
+            client.setData(ZkStateReader.CLUSTER_PROPS,Utils.toJSON(properties),s.getVersion(),true);
+          }
+        }
+      }
+ else {
+        Map properties=new LinkedHashMap();
+        properties.put(propertyName,propertyValue);
+        client.create(ZkStateReader.CLUSTER_PROPS,Utils.toJSON(properties),CreateMode.PERSISTENT,true);
+      }
+    }
+ catch (    KeeperException.BadVersionException|KeeperException.NodeExistsException e) {
+      continue;
+    }
+catch (    InterruptedException|KeeperException e) {
+      throw new IOException("Error setting cluster property",SolrZkClient.checkInterrupted(e));
+    }
+    break;
+  }
+}
