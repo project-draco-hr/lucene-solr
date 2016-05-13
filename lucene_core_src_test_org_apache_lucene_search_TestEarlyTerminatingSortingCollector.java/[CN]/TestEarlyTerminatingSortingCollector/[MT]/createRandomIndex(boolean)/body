@@ -1,0 +1,41 @@
+{
+  dir=newDirectory();
+  numDocs=atLeast(150);
+  final int numTerms=TestUtil.nextInt(random(),1,numDocs / 5);
+  Set<String> randomTerms=new HashSet<>();
+  while (randomTerms.size() < numTerms) {
+    randomTerms.add(TestUtil.randomSimpleString(random()));
+  }
+  terms=new ArrayList<>(randomTerms);
+  final long seed=random().nextLong();
+  final IndexWriterConfig iwc=newIndexWriterConfig(new MockAnalyzer(new Random(seed)));
+  if (iwc.getMergePolicy() instanceof MockRandomMergePolicy) {
+    iwc.setMergePolicy(newTieredMergePolicy());
+  }
+  iwc.setMergeScheduler(new SerialMergeScheduler());
+  iwc.setIndexSort(sort);
+  iw=new RandomIndexWriter(new Random(seed),dir,iwc);
+  iw.setDoRandomForceMerge(false);
+  for (int i=0; i < numDocs; ++i) {
+    final Document doc=randomDocument();
+    iw.addDocument(doc);
+    if (i == numDocs / 2 || (i != numDocs - 1 && random().nextInt(8) == 0)) {
+      iw.commit();
+    }
+    if (random().nextInt(15) == 0) {
+      final String term=RandomPicks.randomFrom(random(),terms);
+      iw.deleteDocuments(new Term("s",term));
+    }
+  }
+  if (singleSortedSegment) {
+    iw.getReader().close();
+    iw.addDocument(new Document());
+    iw.commit();
+    iw.addDocument(new Document());
+    iw.forceMerge(1);
+  }
+ else   if (random().nextBoolean()) {
+    iw.forceMerge(forceMergeMaxSegmentCount);
+  }
+  reader=iw.getReader();
+}

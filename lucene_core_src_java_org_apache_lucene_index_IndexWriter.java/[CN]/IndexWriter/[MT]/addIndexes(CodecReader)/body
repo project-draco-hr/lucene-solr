@@ -1,6 +1,7 @@
 {
   ensureOpen();
   long numDocs=0;
+  Sort indexSort=config.getIndexSort();
   try {
     if (infoStream.isEnabled("IW")) {
       infoStream.message("IW","flush at addIndexes(CodecReader...)");
@@ -9,11 +10,15 @@
     String mergedName=newSegmentName();
     for (    CodecReader leaf : readers) {
       numDocs+=leaf.numDocs();
+      Sort leafIndexSort=leaf.getIndexSort();
+      if (indexSort != null && leafIndexSort != null && indexSort.equals(leafIndexSort) == false) {
+        throw new IllegalArgumentException("cannot change index sort from " + leafIndexSort + " to "+ indexSort);
+      }
     }
     testReserveDocs(numDocs);
     final IOContext context=new IOContext(new MergeInfo(Math.toIntExact(numDocs),-1,false,-1));
     TrackingDirectoryWrapper trackingDir=new TrackingDirectoryWrapper(directory);
-    SegmentInfo info=new SegmentInfo(directoryOrig,Version.LATEST,mergedName,-1,false,codec,Collections.emptyMap(),StringHelper.randomId(),new HashMap<>());
+    SegmentInfo info=new SegmentInfo(directoryOrig,Version.LATEST,mergedName,-1,false,codec,Collections.emptyMap(),StringHelper.randomId(),new HashMap<>(),config.getIndexSort());
     SegmentMerger merger=new SegmentMerger(Arrays.asList(readers),info,infoStream,trackingDir,globalFieldNumberMap,context);
     rateLimiters.set(new MergeRateLimiter(null));
     if (!merger.shouldMerge()) {

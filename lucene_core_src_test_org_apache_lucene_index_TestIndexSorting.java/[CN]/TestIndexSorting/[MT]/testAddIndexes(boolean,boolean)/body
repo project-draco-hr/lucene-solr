@@ -1,0 +1,53 @@
+{
+  Directory dir=newDirectory();
+  Sort indexSort=new Sort(new SortField("foo",SortField.Type.LONG));
+  IndexWriterConfig iwc1=newIndexWriterConfig();
+  if (random().nextBoolean()) {
+    iwc1.setIndexSort(indexSort);
+  }
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  final int numDocs=atLeast(100);
+  for (int i=0; i < numDocs; ++i) {
+    Document doc=new Document();
+    doc.add(new StringField("id",Integer.toString(i),Store.NO));
+    doc.add(new NumericDocValuesField("foo",random().nextInt(20)));
+    w.addDocument(doc);
+  }
+  if (withDeletes) {
+    for (int i=random().nextInt(5); i < numDocs; i+=TestUtil.nextInt(random(),1,5)) {
+      w.deleteDocuments(new Term("id",Integer.toString(i)));
+    }
+  }
+  if (random().nextBoolean()) {
+    w.forceMerge(1);
+  }
+  final IndexReader reader=w.getReader();
+  w.close();
+  Directory dir2=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setIndexSort(indexSort);
+  IndexWriter w2=new IndexWriter(dir2,iwc);
+  if (useReaders) {
+    CodecReader[] codecReaders=new CodecReader[reader.leaves().size()];
+    for (int i=0; i < codecReaders.length; ++i) {
+      codecReaders[i]=(CodecReader)reader.leaves().get(i).reader();
+    }
+    w2.addIndexes(codecReaders);
+  }
+ else {
+    w2.addIndexes(dir);
+  }
+  final IndexReader reader2=w2.getReader();
+  final IndexSearcher searcher=newSearcher(reader);
+  final IndexSearcher searcher2=newSearcher(reader2);
+  for (int i=0; i < numDocs; ++i) {
+    Query query=new TermQuery(new Term("id",Integer.toString(i)));
+    final TopDocs topDocs=searcher.search(query,1);
+    final TopDocs topDocs2=searcher2.search(query,1);
+    assertEquals(topDocs.totalHits,topDocs2.totalHits);
+    if (topDocs.totalHits == 1) {
+      assertEquals(MultiDocValues.getNumericValues(reader,"foo").get(topDocs.scoreDocs[0].doc),MultiDocValues.getNumericValues(reader2,"foo").get(topDocs2.scoreDocs[0].doc));
+    }
+  }
+  IOUtils.close(reader,reader2,w2,dir,dir2);
+}
