@@ -1,0 +1,41 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  Sort indexSort=new Sort(new SortField("foo",SortField.Type.LONG));
+  iwc.setIndexSort(indexSort);
+  IndexWriter w=new IndexWriter(dir,iwc);
+  Map<Integer,Long> values=new HashMap<>();
+  final int numDocs=atLeast(100);
+  for (int i=0; i < numDocs; ++i) {
+    Document doc=new Document();
+    doc.add(new StringField("id",Integer.toString(i),Store.NO));
+    doc.add(new NumericDocValuesField("foo",-1));
+    w.addDocument(doc);
+    values.put(i,-1L);
+  }
+  Thread[] threads=new Thread[2];
+  final AtomicInteger updateCount=new AtomicInteger(atLeast(1000));
+  final CountDownLatch latch=new CountDownLatch(1);
+  for (int i=0; i < threads.length; ++i) {
+    Random r=new Random(random().nextLong());
+    threads[i]=new Thread(new DVUpdateRunnable(numDocs,r,latch,updateCount,w,values));
+  }
+  for (  Thread thread : threads) {
+    thread.start();
+  }
+  latch.countDown();
+  for (  Thread thread : threads) {
+    thread.join();
+  }
+  w.forceMerge(1);
+  DirectoryReader reader=DirectoryReader.open(w);
+  IndexSearcher searcher=newSearcher(reader);
+  for (int i=0; i < numDocs; ++i) {
+    final TopDocs topDocs=searcher.search(new TermQuery(new Term("id",Integer.toString(i))),1);
+    assertEquals(1,topDocs.totalHits);
+    assertEquals(values.get(i).longValue(),MultiDocValues.getNumericValues(reader,"foo").get(topDocs.scoreDocs[0].doc));
+  }
+  reader.close();
+  w.close();
+  dir.close();
+}
