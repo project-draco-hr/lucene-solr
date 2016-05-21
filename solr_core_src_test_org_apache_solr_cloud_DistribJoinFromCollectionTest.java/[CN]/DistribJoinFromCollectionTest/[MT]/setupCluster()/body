@@ -1,0 +1,24 @@
+{
+  final Path configDir=Paths.get(TEST_HOME(),"collection1","conf");
+  String configName="solrCloudCollectionConfig";
+  int nodeCount=5;
+  configureCluster(nodeCount).addConfig(configName,configDir).configure();
+  Map<String,String> collectionProperties=new HashMap<>();
+  collectionProperties.put("config","solrconfig-tlog.xml");
+  collectionProperties.put("schema","schema.xml");
+  int shards=2;
+  int replicas=2;
+  assertNotNull(cluster.createCollection(toColl,shards,replicas,configName,collectionProperties));
+  Set<String> nodeSet=new HashSet<>();
+  cloudClient=cluster.getSolrClient();
+  ZkStateReader zkStateReader=cloudClient.getZkStateReader();
+  ClusterState cs=zkStateReader.getClusterState();
+  for (  Slice slice : cs.getCollection(toColl).getActiveSlices())   for (  Replica replica : slice.getReplicas())   nodeSet.add(replica.getNodeName());
+  assertTrue(nodeSet.size() > 0);
+  assertNotNull(cluster.createCollection(fromColl,1,4,configName,StringUtils.join(nodeSet,","),null,collectionProperties));
+  AbstractDistribZkTestBase.waitForRecoveriesToFinish(toColl,zkStateReader,false,true,30);
+  AbstractDistribZkTestBase.waitForRecoveriesToFinish(fromColl,zkStateReader,false,true,30);
+  toDocId=indexDoc(toColl,1001,"a",null,"b");
+  indexDoc(fromColl,2001,"a","c",null);
+  Thread.sleep(1000);
+}
