@@ -1,0 +1,40 @@
+{
+  final SolrQueryRequest johnTwoFL=req(johnAndNancyParams);
+  ModifiableSolrParams params=new ModifiableSolrParams(johnTwoFL.getParams());
+  params.set("q","name_s:john");
+  params.set("wt","javabin");
+  johnTwoFL.setParams(params);
+  final NamedList<Object> unmarshalled;
+{
+    SolrCore core=johnTwoFL.getCore();
+    SolrQueryResponse rsp=new SolrQueryResponse();
+    SolrRequestInfo.setRequestInfo(new SolrRequestInfo(johnTwoFL,rsp));
+    SolrQueryResponse response=h.queryAndResponse(johnTwoFL.getParams().get(CommonParams.QT),johnTwoFL);
+    BinaryQueryResponseWriter responseWriter=(BinaryQueryResponseWriter)core.getQueryResponseWriter(johnTwoFL);
+    ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+    responseWriter.write(bytes,johnTwoFL,response);
+    unmarshalled=(NamedList<Object>)new JavaBinCodec().unmarshal(new ByteArrayInputStream(bytes.toByteArray()));
+    johnTwoFL.close();
+    SolrRequestInfo.clearRequestInfo();
+  }
+  SolrDocumentList resultDocs=(SolrDocumentList)(unmarshalled.get("response"));
+{
+    Map<String,String> engText=new HashMap<>();
+    engText.put("text_t","These guys develop stuff");
+    Map<String,String> engId=new HashMap<>();
+    engId.put("text_t","These guys develop stuff");
+    engId.put("dept_id_s_dv","Engineering");
+    for (    int docNum : new int[]{0,peopleMultiplier - 1}) {
+      SolrDocument employeeDoc=resultDocs.get(docNum);
+      assertEquals("john",employeeDoc.getFieldValue("name_s_dv"));
+      for (      String subResult : new String[]{"depts","depts_i"}) {
+        SolrDocumentList subDoc=(SolrDocumentList)employeeDoc.getFieldValue(subResult);
+        for (        int deptNum : new int[]{0,deptMultiplier - 1}) {
+          SolrDocument deptDoc=subDoc.get(deptNum);
+          Object expectedDept=(subResult.equals("depts") ? engText : engId);
+          assertTrue("" + expectedDept + " equals to "+ deptDoc,expectedDept.equals(deptDoc));
+        }
+      }
+    }
+  }
+}

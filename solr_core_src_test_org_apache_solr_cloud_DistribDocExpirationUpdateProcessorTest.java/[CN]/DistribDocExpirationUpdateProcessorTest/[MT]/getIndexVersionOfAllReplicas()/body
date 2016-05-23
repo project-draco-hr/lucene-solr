@@ -1,21 +1,23 @@
 {
   Map<String,Long> results=new HashMap<String,Long>();
-  for (  List<CloudJettyRunner> listOfReplicas : shardToJetty.values()) {
-    for (    CloudJettyRunner replicaRunner : listOfReplicas) {
+  DocCollection collectionState=cluster.getSolrClient().getZkStateReader().getClusterState().getCollection(COLLECTION);
+  for (  Replica replica : collectionState.getReplicas()) {
+    String coreName=replica.getCoreName();
+    try (HttpSolrClient client=getHttpSolrClient(replica.getCoreUrl())){
       ModifiableSolrParams params=new ModifiableSolrParams();
       params.set("command","indexversion");
       params.set("_trace","getIndexVersion");
       params.set("qt",ReplicationHandler.PATH);
       QueryRequest req=new QueryRequest(params);
-      NamedList<Object> res=replicaRunner.client.solrClient.request(req);
-      assertNotNull("null response from server: " + replicaRunner.coreNodeName,res);
+      NamedList<Object> res=client.request(req);
+      assertNotNull("null response from server: " + coreName,res);
       Object version=res.get("indexversion");
-      assertNotNull("null version from server: " + replicaRunner.coreNodeName,version);
-      assertTrue("version isn't a long: " + replicaRunner.coreNodeName,version instanceof Long);
-      results.put(replicaRunner.coreNodeName,(Long)version);
-      long numDocs=replicaRunner.client.solrClient.query(params("q","*:*","distrib","false","rows","0","_trace","counting_docs")).getResults().getNumFound();
-      log.info("core=" + replicaRunner.coreNodeName + "; ver="+ version+ "; numDocs="+ numDocs);
+      assertNotNull("null version from server: " + coreName,version);
+      assertTrue("version isn't a long: " + coreName,version instanceof Long);
+      results.put(coreName,(Long)version);
+      long numDocs=client.query(params("q","*:*","distrib","false","rows","0","_trace","counting_docs")).getResults().getNumFound();
+      log.info("core=" + coreName + "; ver="+ version+ "; numDocs="+ numDocs);
     }
-  }
+   }
   return results;
 }

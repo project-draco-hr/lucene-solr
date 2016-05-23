@@ -1,0 +1,36 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setIndexSort(new Sort(new SortField("foo",SortField.Type.STRING)));
+  iwc.setMergePolicy(newLogMergePolicy());
+  IndexWriter w=new IndexWriter(dir,iwc);
+  for (int id=0; id < 1000; id++) {
+    Document doc=new Document();
+    doc.add(new StoredField("id",id));
+    String value;
+    if (id < 500) {
+      value="bar2";
+    }
+ else {
+      value="bar1";
+    }
+    doc.add(new SortedDocValuesField("foo",new BytesRef(value)));
+    w.addDocument(doc);
+    if (id == 500) {
+      w.commit();
+    }
+  }
+  w.forceMerge(1);
+  DirectoryReader r=DirectoryReader.open(w);
+  for (int docID=0; docID < 1000; docID++) {
+    int expectedID;
+    if (docID < 500) {
+      expectedID=500 + docID;
+    }
+ else {
+      expectedID=docID - 500;
+    }
+    assertEquals(expectedID,r.document(docID).getField("id").numericValue().intValue());
+  }
+  IOUtils.close(r,w,dir);
+}

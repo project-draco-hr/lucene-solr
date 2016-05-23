@@ -1,27 +1,28 @@
 {
+  List<TermVectorsMergeSub> subs=new ArrayList<>();
+  for (int i=0; i < mergeState.termVectorsReaders.length; i++) {
+    TermVectorsReader reader=mergeState.termVectorsReaders[i];
+    if (reader != null) {
+      reader.checkIntegrity();
+    }
+    subs.add(new TermVectorsMergeSub(mergeState.docMaps[i],reader,mergeState.maxDocs[i]));
+  }
+  final DocIDMerger<TermVectorsMergeSub> docIDMerger=new DocIDMerger<>(subs,mergeState.segmentInfo.getIndexSort() != null);
   int docCount=0;
-  int numReaders=mergeState.maxDocs.length;
-  for (int i=0; i < numReaders; i++) {
-    int maxDoc=mergeState.maxDocs[i];
-    Bits liveDocs=mergeState.liveDocs[i];
-    TermVectorsReader termVectorsReader=mergeState.termVectorsReaders[i];
-    if (termVectorsReader != null) {
-      termVectorsReader.checkIntegrity();
+  while (true) {
+    TermVectorsMergeSub sub=docIDMerger.next();
+    if (sub == null) {
+      break;
     }
-    for (int docID=0; docID < maxDoc; docID++) {
-      if (liveDocs != null && !liveDocs.get(docID)) {
-        continue;
-      }
-      Fields vectors;
-      if (termVectorsReader == null) {
-        vectors=null;
-      }
+    Fields vectors;
+    if (sub.reader == null) {
+      vectors=null;
+    }
  else {
-        vectors=termVectorsReader.get(docID);
-      }
-      addAllDocVectors(vectors,mergeState);
-      docCount++;
+      vectors=sub.reader.get(sub.docID);
     }
+    addAllDocVectors(vectors,mergeState);
+    docCount++;
   }
   finish(mergeState.mergeFieldInfos,docCount);
   return docCount;

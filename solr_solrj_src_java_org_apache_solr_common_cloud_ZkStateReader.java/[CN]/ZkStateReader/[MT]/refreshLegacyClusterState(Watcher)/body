@@ -7,6 +7,19 @@ synchronized (getUpdateLock()) {
       if (this.legacyClusterStateVersion >= stat.getVersion()) {
         return;
       }
+      Set<String> liveNodes=this.liveNodes;
+      for (      Map.Entry<String,CollectionWatch> watchEntry : this.collectionWatches.entrySet()) {
+        String coll=watchEntry.getKey();
+        CollectionWatch collWatch=watchEntry.getValue();
+        ClusterState.CollectionRef ref=this.legacyCollectionStates.get(coll);
+        if (ref == null)         continue;
+        DocCollection oldState=ref.get();
+        ClusterState.CollectionRef newRef=loadedData.getCollectionStates().get(coll);
+        DocCollection newState=newRef == null ? null : newRef.get();
+        if (!collWatch.stateWatchers.isEmpty() && !Objects.equals(oldState,newState)) {
+          notifyStateWatchers(liveNodes,coll,newState);
+        }
+      }
       this.legacyCollectionStates=loadedData.getCollectionStates();
       this.legacyClusterStateVersion=stat.getVersion();
     }

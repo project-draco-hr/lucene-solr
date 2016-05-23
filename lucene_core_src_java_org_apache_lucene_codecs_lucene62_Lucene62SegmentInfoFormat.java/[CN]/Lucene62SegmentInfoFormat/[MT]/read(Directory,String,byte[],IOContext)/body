@@ -1,0 +1,125 @@
+{
+  final String fileName=IndexFileNames.segmentFileName(segment,"",Lucene62SegmentInfoFormat.SI_EXTENSION);
+  try (ChecksumIndexInput input=dir.openChecksumInput(fileName,context)){
+    Throwable priorE=null;
+    SegmentInfo si=null;
+    try {
+      int format=CodecUtil.checkIndexHeader(input,Lucene62SegmentInfoFormat.CODEC_NAME,Lucene62SegmentInfoFormat.VERSION_START,Lucene62SegmentInfoFormat.VERSION_CURRENT,segmentID,"");
+      final Version version=Version.fromBits(input.readInt(),input.readInt(),input.readInt());
+      final int docCount=input.readInt();
+      if (docCount < 0) {
+        throw new CorruptIndexException("invalid docCount: " + docCount,input);
+      }
+      final boolean isCompoundFile=input.readByte() == SegmentInfo.YES;
+      final Map<String,String> diagnostics=input.readMapOfStrings();
+      final Set<String> files=input.readSetOfStrings();
+      final Map<String,String> attributes=input.readMapOfStrings();
+      int numSortFields=input.readVInt();
+      Sort indexSort;
+      if (numSortFields > 0) {
+        SortField[] sortFields=new SortField[numSortFields];
+        for (int i=0; i < numSortFields; i++) {
+          String fieldName=input.readString();
+          int sortTypeID=input.readVInt();
+          SortField.Type sortType;
+switch (sortTypeID) {
+case 0:
+            sortType=SortField.Type.STRING;
+          break;
+case 1:
+        sortType=SortField.Type.LONG;
+      break;
+case 2:
+    sortType=SortField.Type.INT;
+  break;
+case 3:
+sortType=SortField.Type.DOUBLE;
+break;
+case 4:
+sortType=SortField.Type.FLOAT;
+break;
+default :
+throw new CorruptIndexException("invalid index sort field type ID: " + sortTypeID,input);
+}
+byte b=input.readByte();
+boolean reverse;
+if (b == 0) {
+reverse=true;
+}
+ else if (b == 1) {
+reverse=false;
+}
+ else {
+throw new CorruptIndexException("invalid index sort reverse: " + b,input);
+}
+sortFields[i]=new SortField(fieldName,sortType,reverse);
+Object missingValue;
+b=input.readByte();
+if (b == 0) {
+missingValue=null;
+}
+ else {
+switch (sortType) {
+case STRING:
+if (b == 1) {
+missingValue=SortField.STRING_LAST;
+}
+ else if (b == 2) {
+missingValue=SortField.STRING_FIRST;
+}
+ else {
+throw new CorruptIndexException("invalid missing value flag: " + b,input);
+}
+break;
+case LONG:
+if (b != 1) {
+throw new CorruptIndexException("invalid missing value flag: " + b,input);
+}
+missingValue=input.readLong();
+break;
+case INT:
+if (b != 1) {
+throw new CorruptIndexException("invalid missing value flag: " + b,input);
+}
+missingValue=input.readInt();
+break;
+case DOUBLE:
+if (b != 1) {
+throw new CorruptIndexException("invalid missing value flag: " + b,input);
+}
+missingValue=Double.longBitsToDouble(input.readLong());
+break;
+case FLOAT:
+if (b != 1) {
+throw new CorruptIndexException("invalid missing value flag: " + b,input);
+}
+missingValue=Float.intBitsToFloat(input.readInt());
+break;
+default :
+throw new AssertionError("unhandled sortType=" + sortType);
+}
+}
+if (missingValue != null) {
+sortFields[i].setMissingValue(missingValue);
+}
+}
+indexSort=new Sort(sortFields);
+}
+ else if (numSortFields < 0) {
+throw new CorruptIndexException("invalid index sort field count: " + numSortFields,input);
+}
+ else {
+indexSort=null;
+}
+si=new SegmentInfo(dir,version,segment,docCount,isCompoundFile,null,diagnostics,segmentID,attributes,indexSort);
+si.setFiles(files);
+}
+ catch (Throwable exception) {
+priorE=exception;
+}
+ finally {
+CodecUtil.checkFooter(input,priorE);
+}
+return si;
+}
+ }

@@ -13,18 +13,23 @@
  else   if (query instanceof PhraseQuery) {
     PhraseQuery phraseQuery=((PhraseQuery)query);
     Term[] phraseQueryTerms=phraseQuery.getTerms();
-    SpanQuery[] clauses=new SpanQuery[phraseQueryTerms.length];
-    for (int i=0; i < phraseQueryTerms.length; i++) {
-      clauses[i]=new SpanTermQuery(phraseQueryTerms[i]);
+    if (phraseQueryTerms.length == 1) {
+      extractWeightedSpanTerms(terms,new SpanTermQuery(phraseQueryTerms[0]),boost);
     }
-    int positionGaps=0;
-    int[] positions=phraseQuery.getPositions();
-    if (positions.length >= 2) {
-      positionGaps=Math.max(0,positions[positions.length - 1] - positions[0] - positions.length + 1);
+ else {
+      SpanQuery[] clauses=new SpanQuery[phraseQueryTerms.length];
+      for (int i=0; i < phraseQueryTerms.length; i++) {
+        clauses[i]=new SpanTermQuery(phraseQueryTerms[i]);
+      }
+      int positionGaps=0;
+      int[] positions=phraseQuery.getPositions();
+      if (positions.length >= 2) {
+        positionGaps=Math.max(0,positions[positions.length - 1] - positions[0] - positions.length + 1);
+      }
+      boolean inorder=(phraseQuery.getSlop() == 0);
+      SpanNearQuery sp=new SpanNearQuery(clauses,phraseQuery.getSlop() + positionGaps,inorder);
+      extractWeightedSpanTerms(terms,sp,boost);
     }
-    boolean inorder=(phraseQuery.getSlop() == 0);
-    SpanNearQuery sp=new SpanNearQuery(clauses,phraseQuery.getSlop() + positionGaps,inorder);
-    extractWeightedSpanTerms(terms,sp,boost);
   }
  else   if (query instanceof TermQuery) {
     extractWeightedTerms(terms,query,boost);
@@ -98,6 +103,8 @@
   }
  else   if (query instanceof CustomScoreQuery) {
     extract(((CustomScoreQuery)query).getSubQuery(),boost,terms);
+  }
+ else   if (isQueryUnsupported(query.getClass())) {
   }
  else {
     Query origQuery=query;
