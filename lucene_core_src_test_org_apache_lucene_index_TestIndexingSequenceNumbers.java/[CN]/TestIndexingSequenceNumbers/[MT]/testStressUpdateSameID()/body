@@ -1,0 +1,54 @@
+{
+  int iters=atLeast(100);
+  for (int iter=0; iter < iters; iter++) {
+    Directory dir=newDirectory();
+    final IndexWriter w=new IndexWriter(dir,newIndexWriterConfig());
+    Thread[] threads=new Thread[TestUtil.nextInt(random(),2,5)];
+    final CountDownLatch startingGun=new CountDownLatch(1);
+    final long[] seqNos=new long[threads.length];
+    final Term id=new Term("id","id");
+    for (int i=0; i < threads.length; i++) {
+      final int threadID=i;
+      threads[i]=new Thread(){
+        @Override public void run(){
+          try {
+            Document doc=new Document();
+            doc.add(new StoredField("thread",threadID));
+            doc.add(new StringField("id","id",Field.Store.NO));
+            startingGun.await();
+            for (int j=0; j < 100; j++) {
+              seqNos[threadID]=w.updateDocument(id,doc);
+            }
+          }
+ catch (          Exception e) {
+            throw new RuntimeException(e);
+          }
+        }
+      }
+;
+      threads[i].start();
+    }
+    startingGun.countDown();
+    for (    Thread thread : threads) {
+      thread.join();
+    }
+    int maxThread=0;
+    Set<Long> allSeqNos=new HashSet<>();
+    for (int i=0; i < threads.length; i++) {
+      allSeqNos.add(seqNos[i]);
+      if (seqNos[i] > seqNos[maxThread]) {
+        maxThread=i;
+      }
+    }
+    assertEquals(threads.length,allSeqNos.size());
+    DirectoryReader r=DirectoryReader.open(w);
+    IndexSearcher s=newSearcher(r);
+    TopDocs hits=s.search(new TermQuery(id),1);
+    assertEquals(1,hits.totalHits);
+    Document doc=r.document(hits.scoreDocs[0].doc);
+    assertEquals(maxThread,doc.getField("thread").numericValue().intValue());
+    r.close();
+    w.close();
+    dir.close();
+  }
+}
