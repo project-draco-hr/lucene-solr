@@ -2,6 +2,7 @@
   ensureOpen();
   long numDocs=0;
   Sort indexSort=config.getIndexSort();
+  long seqNo;
   try {
     if (infoStream.isEnabled("IW")) {
       infoStream.message("IW","flush at addIndexes(CodecReader...)");
@@ -22,7 +23,7 @@
     SegmentMerger merger=new SegmentMerger(Arrays.asList(readers),info,infoStream,trackingDir,globalFieldNumberMap,context);
     rateLimiters.set(new MergeRateLimiter(null));
     if (!merger.shouldMerge()) {
-      return docWriter.deleteQueue.seqNo.get();
+      return docWriter.deleteQueue.getNextSequenceNumber();
     }
     merger.merge();
     SegmentCommitInfo infoPerCommit=new SegmentCommitInfo(info,0,-1L,-1L,-1L);
@@ -34,7 +35,7 @@
 synchronized (this) {
       if (stopMerges) {
         deleteNewFiles(infoPerCommit.files());
-        return docWriter.deleteQueue.seqNo.get();
+        return docWriter.deleteQueue.getNextSequenceNumber();
       }
       ensureOpen();
       useCompoundFile=mergePolicy.useCompoundFile(segmentInfos,infoPerCommit,this);
@@ -55,17 +56,19 @@ synchronized (this) {
 synchronized (this) {
       if (stopMerges) {
         deleteNewFiles(infoPerCommit.files());
-        return docWriter.deleteQueue.seqNo.get();
+        return docWriter.deleteQueue.getNextSequenceNumber();
       }
       ensureOpen();
       reserveDocs(numDocs);
       segmentInfos.add(infoPerCommit);
+      seqNo=docWriter.deleteQueue.getNextSequenceNumber();
       checkpoint();
     }
   }
  catch (  VirtualMachineError tragedy) {
     tragicEvent(tragedy,"addIndexes(CodecReader...)");
+    seqNo=-1;
   }
   maybeMerge();
-  return docWriter.deleteQueue.seqNo.get();
+  return seqNo;
 }
