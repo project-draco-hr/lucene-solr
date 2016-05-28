@@ -1,8 +1,26 @@
 {
+  IndexSchema schema=req.getSearcher().getSchema();
   SolrParams params=req.getParams();
   String alternateField=params.getFieldParam(fieldName,HighlightParams.ALTERNATE_FIELD);
+  int alternateFieldLen=params.getFieldInt(fieldName,HighlightParams.ALTERNATE_FIELD_LENGTH,0);
   if (alternateField == null || alternateField.length() == 0) {
     return null;
+  }
+  if (params.getFieldBool(fieldName,HighlightParams.HIGHLIGHT_ALTERNATE,true)) {
+    Object fieldHighlights=null;
+    SchemaField schemaField=schema.getFieldOrNull(alternateField);
+    if (schemaField != null) {
+      HashMap<String,String> invariants=new HashMap<>();
+      invariants.put("f." + alternateField + "."+ HighlightParams.SNIPPETS,"1");
+      invariants.put("f." + alternateField + "."+ HighlightParams.FRAGSIZE,alternateFieldLen > 0 ? String.valueOf(Math.max(18,alternateFieldLen)) : String.valueOf(Integer.MAX_VALUE));
+      SolrParams origParams=req.getParams();
+      req.setParams(SolrParams.wrapDefaults(new MapSolrParams(invariants),origParams));
+      fieldHighlights=doHighlightingOfField(doc,docId,schemaField,fvhContainer,query,reader,req,params);
+      req.setParams(origParams);
+      if (fieldHighlights != null) {
+        return fieldHighlights;
+      }
+    }
   }
   IndexableField[] docFields=doc.getFields(alternateField);
   if (docFields.length == 0) {
@@ -17,7 +35,6 @@
   }
   String[] altTexts=listFields.toArray(new String[listFields.size()]);
   Encoder encoder=getEncoder(fieldName,params);
-  int alternateFieldLen=params.getFieldInt(fieldName,HighlightParams.ALTERNATE_FIELD_LENGTH,0);
   List<String> altList=new ArrayList<>();
   int len=0;
   for (  String altText : altTexts) {
