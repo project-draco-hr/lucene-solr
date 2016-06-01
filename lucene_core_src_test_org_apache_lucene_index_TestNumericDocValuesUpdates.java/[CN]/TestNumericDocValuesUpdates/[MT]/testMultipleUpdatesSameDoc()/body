@@ -1,0 +1,22 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(new MockAnalyzer(random()));
+  conf.setMaxBufferedDocs(3);
+  IndexWriter writer=new IndexWriter(dir,conf);
+  writer.updateDocument(new Term("id","doc-1"),doc(1,1000000000L));
+  writer.updateNumericDocValue(new Term("id","doc-1"),"val",1000001111L);
+  writer.updateDocument(new Term("id","doc-2"),doc(2,2000000000L));
+  writer.updateDocument(new Term("id","doc-2"),doc(2,2222222222L));
+  writer.updateNumericDocValue(new Term("id","doc-1"),"val",1111111111L);
+  writer.commit();
+  final DirectoryReader reader=DirectoryReader.open(dir);
+  final IndexSearcher searcher=new IndexSearcher(reader);
+  TopFieldDocs td;
+  td=searcher.search(new TermQuery(new Term("id","doc-1")),1,new Sort(new SortField("val",SortField.Type.LONG)));
+  assertEquals("doc-1 missing?",1,td.scoreDocs.length);
+  assertEquals("doc-1 value",1111111111L,((FieldDoc)td.scoreDocs[0]).fields[0]);
+  td=searcher.search(new TermQuery(new Term("id","doc-2")),1,new Sort(new SortField("val",SortField.Type.LONG)));
+  assertEquals("doc-2 missing?",1,td.scoreDocs.length);
+  assertEquals("doc-2 value",2222222222L,((FieldDoc)td.scoreDocs[0]).fields[0]);
+  IOUtils.close(reader,writer,dir);
+}

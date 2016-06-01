@@ -45,7 +45,7 @@ synchronized (commitLock) {
               }
  else {
                 Document doc=new Document();
-                doc.add(new StoredField("thread",threadID));
+                doc.add(new StoredField("threadop",threadID + "-" + ops.size()));
                 doc.add(new StringField("id","" + op.id,Field.Store.NO));
                 if (random().nextBoolean()) {
                   List<Document> docs=new ArrayList<>();
@@ -67,6 +67,7 @@ synchronized (commitLock) {
       }
     }
 ;
+    threads[i].setName("thread" + threadID);
     threads[i].start();
   }
   startingGun.countDown();
@@ -106,7 +107,32 @@ synchronized (commitLock) {
     DirectoryReader r=DirectoryReader.open(indexCommits.get(i));
     IndexSearcher s=new IndexSearcher(r);
     for (int id=0; id < idCount; id++) {
-      assertEquals(expectedCounts[id],s.count(new TermQuery(new Term("id","" + id))));
+      int actualCount=s.count(new TermQuery(new Term("id","" + id)));
+      if (expectedCounts[id] != actualCount) {
+        System.out.println("TEST: FAIL r=" + r + " id="+ id+ " commitSeqNo="+ commitSeqNo);
+        for (int threadID=0; threadID < threadOps.size(); threadID++) {
+          int opCount2=0;
+          for (          Operation op : threadOps.get(threadID)) {
+            if (op.id == id) {
+              boolean shouldCount=op.seqNo <= commitSeqNo && op.seqNo > lastDelSeqNos[op.id];
+              System.out.println("  id=" + id + " what="+ op.what+ " threadop="+ threadID+ "-"+ opCount2+ " seqNo="+ op.seqNo+ " vs lastDelSeqNo="+ lastDelSeqNos[op.id]+ " shouldCount="+ shouldCount);
+            }
+            opCount2++;
+          }
+        }
+        TopDocs hits=s.search(new TermQuery(new Term("id","" + id)),1 + actualCount);
+        for (        ScoreDoc hit : hits.scoreDocs) {
+          System.out.println("  hit: " + s.doc(hit.doc).get("threadop"));
+        }
+        for (        LeafReaderContext ctx : r.leaves()) {
+          System.out.println("  sub=" + ctx.reader());
+          Bits liveDocs=ctx.reader().getLiveDocs();
+          for (int docID=0; docID < ctx.reader().maxDoc(); docID++) {
+            System.out.println("    docID=" + docID + " threadop="+ ctx.reader().document(docID).get("threadop")+ (liveDocs != null && liveDocs.get(docID) == false ? " (deleted)" : ""));
+          }
+        }
+        assertEquals("commit " + i + " of "+ commits.size()+ " id="+ id+ " reader="+ r,expectedCounts[id],actualCount);
+      }
     }
     w.close();
     r.close();
