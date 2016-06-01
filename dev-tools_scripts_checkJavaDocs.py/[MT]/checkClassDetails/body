@@ -1,49 +1,44 @@
 def checkClassDetails(fullPath):
     '\n  Checks for invalid HTML in the full javadocs under each field/method.\n  '
     with open(fullPath, encoding='UTF-8') as f:
-        desc = None
+        desc = []
         cat = None
         item = None
         errors = []
+        inDetailsDiv = False
+        blockListDepth = 0
         for line in f.readlines():
-            m = reH3.search(line)
-            if (m is not None):
-                if (desc is not None):
-                    desc = ''.join(desc)
-                    if (True or (cat == 'Constructor Detail')):
-                        idx = desc.find('</div>')
-                        if (idx == (-1)):
-                            desc = None
-                            continue
-                        desc = desc[:(idx + 6)]
-                    else:
-                        desc = ('<ul>%s</ul>' % ''.join(desc))
+            if (not inDetailsDiv):
+                if (reDetailsDiv.match(line) is not None):
+                    inDetailsDiv = True
+                continue
+            if (reEndOfClassData.match(line) is not None):
+                if (len(desc) != 0):
                     try:
-                        verifyHTML(desc)
+                        verifyHTML(''.join(desc))
                     except RuntimeError as re:
                         errors.append((cat, item, str(re)))
-                    desc = None
-                cat = m.group(1)
-                continue
-            m = reH4.search(line)
-            if (m is not None):
-                if (desc is not None):
-                    if (cat == 'Element Detail'):
-                        desc = ''.join(desc)
-                        idx = desc.find('</dl>')
-                        if (idx != (-1)):
-                            desc = desc[:(idx + 5)]
-                    else:
-                        desc = ('<ul>%s</ul>' % ''.join(desc))
+                break
+            if (reBlockList.match(line) is not None):
+                blockListDepth += 1
+                if (len(desc) != 0):
                     try:
-                        verifyHTML(desc)
+                        verifyHTML(''.join(desc))
                     except RuntimeError as re:
                         errors.append((cat, item, str(re)))
-                item = m.group(1)
-                desc = []
-                continue
-            if (desc is not None):
+                    del desc[:]
+            if (blockListDepth == 3):
                 desc.append(line)
+            if (reCloseUl.match(line) is not None):
+                blockListDepth -= 1
+            else:
+                m = reH3.search(line)
+                if (m is not None):
+                    cat = m.group(1)
+                else:
+                    m = reH4.search(line)
+                    if (m is not None):
+                        item = m.group(1)
     if (len(errors) != 0):
         print ()
         print fullPath
