@@ -11,9 +11,29 @@
   List<List<Operation>> threadOps=new ArrayList<>();
   Object commitLock=new Object();
   final List<Operation> commits=new ArrayList<>();
+  List<Operation> ops1=new ArrayList<>();
+  threadOps.add(ops1);
+  for (int id=0; id < idCount; id++) {
+    int threadID=0;
+    Operation op=new Operation();
+    op.threadID=threadID;
+    op.id=id;
+    Document doc=new Document();
+    doc.add(new StoredField("thread",threadID));
+    doc.add(new NumericDocValuesField("thread",threadID));
+    doc.add(new StringField("id","" + id,Field.Store.NO));
+    op.seqNo=w.addDocument(doc);
+    ops1.add(op);
+  }
   for (int i=0; i < threads.length; i++) {
-    final List<Operation> ops=new ArrayList<>();
-    threadOps.add(ops);
+    final List<Operation> ops;
+    if (i == 0) {
+      ops=threadOps.get(0);
+    }
+ else {
+      ops=new ArrayList<>();
+      threadOps.add(ops);
+    }
     final int threadID=i;
     threads[i]=new Thread(){
       @Override public void run(){
@@ -34,29 +54,8 @@ synchronized (commitLock) {
  else {
               op.id=random().nextInt(idCount);
               Term idTerm=new Term("id","" + op.id);
-              if (random().nextInt(10) == 1) {
-                op.what=1;
-                if (random().nextBoolean()) {
-                  op.seqNo=w.deleteDocuments(idTerm);
-                }
- else {
-                  op.seqNo=w.deleteDocuments(new TermQuery(idTerm));
-                }
-              }
- else {
-                Document doc=new Document();
-                doc.add(new StoredField("thread",threadID));
-                doc.add(new StringField("id","" + op.id,Field.Store.NO));
-                if (random().nextBoolean()) {
-                  List<Document> docs=new ArrayList<>();
-                  docs.add(doc);
-                  op.seqNo=w.updateDocuments(idTerm,docs);
-                }
- else {
-                  op.seqNo=w.updateDocument(idTerm,doc);
-                }
-                op.what=0;
-              }
+              op.seqNo=w.updateNumericDocValue(idTerm,"thread",threadID);
+              op.what=0;
               ops.add(op);
             }
           }
@@ -94,9 +93,6 @@ synchronized (commitLock) {
           if (op.what == 0) {
             expectedThreadIDs[op.id]=threadID;
           }
- else {
-            expectedThreadIDs[op.id]=-1;
-          }
         }
         assertTrue(op.seqNo > lastSeqNo);
         lastSeqNo=op.seqNo;
@@ -104,12 +100,12 @@ synchronized (commitLock) {
     }
     DirectoryReader r=DirectoryReader.open(indexCommits.get(i));
     IndexSearcher s=new IndexSearcher(r);
+    NumericDocValues docValues=MultiDocValues.getNumericValues(r,"thread");
     for (int id=0; id < idCount; id++) {
       TopDocs hits=s.search(new TermQuery(new Term("id","" + id)),1);
       if (expectedThreadIDs[id] != -1) {
         assertEquals(1,hits.totalHits);
-        Document doc=r.document(hits.scoreDocs[0].doc);
-        int actualThreadID=doc.getField("thread").numericValue().intValue();
+        int actualThreadID=(int)docValues.get(id);
         if (expectedThreadIDs[id] != actualThreadID) {
           System.out.println("FAIL: id=" + id + " expectedThreadID="+ expectedThreadIDs[id]+ " vs actualThreadID="+ actualThreadID+ " commitSeqNo="+ commitSeqNo+ " numThreads="+ numThreads);
           for (int threadID=0; threadID < threadOps.size(); threadID++) {
