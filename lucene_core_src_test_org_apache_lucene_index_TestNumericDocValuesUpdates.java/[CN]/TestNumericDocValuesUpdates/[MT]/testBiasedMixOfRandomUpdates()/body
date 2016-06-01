@@ -1,0 +1,48 @@
+{
+  final int ADD_CUTOFF=TestUtil.nextInt(random(),1,98);
+  final int UPD_CUTOFF=TestUtil.nextInt(random(),ADD_CUTOFF + 1,99);
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(new MockAnalyzer(random()));
+  IndexWriter writer=new IndexWriter(dir,conf);
+  final int numOperations=atLeast(1000);
+  final Map<Integer,Long> expected=new HashMap<>(numOperations / 3);
+  final int numSeedDocs=atLeast(1);
+  for (int i=0; i < numSeedDocs; i++) {
+    final long val=random().nextLong();
+    expected.put(i,val);
+    writer.addDocument(doc(i,val));
+  }
+  int numDocUpdates=0;
+  int numValueUpdates=0;
+  for (int i=0; i < numOperations; i++) {
+    final int op=TestUtil.nextInt(random(),1,100);
+    final long val=random().nextLong();
+    if (op <= ADD_CUTOFF) {
+      final int id=expected.size();
+      expected.put(id,val);
+      writer.addDocument(doc(id,val));
+    }
+ else {
+      final int id=TestUtil.nextInt(random(),0,expected.size() - 1);
+      expected.put(id,val);
+      if (op <= UPD_CUTOFF) {
+        numDocUpdates++;
+        writer.updateDocument(new Term("id","doc-" + id),doc(id,val));
+      }
+ else {
+        numValueUpdates++;
+        writer.updateNumericDocValue(new Term("id","doc-" + id),"val",val);
+      }
+    }
+  }
+  writer.commit();
+  final DirectoryReader reader=DirectoryReader.open(dir);
+  final IndexSearcher searcher=new IndexSearcher(reader);
+  for (  Map.Entry<Integer,Long> expect : expected.entrySet()) {
+    String id="doc-" + expect.getKey();
+    TopFieldDocs td=searcher.search(new TermQuery(new Term("id",id)),1,new Sort(new SortField("val",SortField.Type.LONG)));
+    assertEquals(id + " missing?",1,td.totalHits);
+    assertEquals(id + " value",expect.getValue(),((FieldDoc)td.scoreDocs[0]).fields[0]);
+  }
+  IOUtils.close(reader,writer,dir);
+}
