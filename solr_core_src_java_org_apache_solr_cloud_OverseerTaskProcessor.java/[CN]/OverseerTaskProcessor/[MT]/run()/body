@@ -51,10 +51,11 @@ synchronized (waitLock) {
         if (heads == null)         continue;
         log.debug("Got {} tasks from work-queue : [{}]",heads.size(),heads.toString());
         if (isClosed)         break;
+        taskBatch.batchId++;
         for (        QueueEvent head : heads) {
+          if (runningZKTasks.contains(head.getId()))           continue;
           final ZkNodeProps message=ZkNodeProps.load(head.getBytes());
           OverseerMessageHandler messageHandler=selector.selectOverseerMessageHandler(message);
-          String taskKey=messageHandler.getTaskKey(message);
           final String asyncId=message.getStr(ASYNC);
           if (hasLeftOverItems) {
             if (head.getId().equals(oldestItemInWorkQueue))             hasLeftOverItems=false;
@@ -64,24 +65,29 @@ synchronized (waitLock) {
               continue;
             }
           }
-          if (!checkExclusivity(messageHandler,message,head.getId())) {
+          String operation=message.getStr(Overseer.QUEUE_OPERATION);
+          OverseerMessageHandler.Lock lock=messageHandler.lockTask(message,taskBatch);
+          if (lock == null) {
             log.debug("Exclusivity check failed for [{}]",message.toString());
             continue;
           }
           try {
-            markTaskAsRunning(messageHandler,head,taskKey,asyncId,message);
+            markTaskAsRunning(head,asyncId);
             log.debug("Marked task [{}] as running",head.getId());
           }
  catch (          KeeperException.NodeExistsException e) {
+            lock.unlock();
             log.error("Tried to pick up task [{}] when it was already running!",head.getId());
+            continue;
           }
 catch (          InterruptedException e) {
+            lock.unlock();
             log.error("Thread interrupted while trying to pick task for execution.",head.getId());
             Thread.currentThread().interrupt();
+            continue;
           }
           log.info(messageHandler.getName() + ": Get the message id:" + head.getId()+ " message:"+ message.toString());
-          String operation=message.getStr(Overseer.QUEUE_OPERATION);
-          Runner runner=new Runner(messageHandler,message,operation,head);
+          Runner runner=new Runner(messageHandler,message,operation,head,lock);
           tpe.execute(runner);
         }
       }
