@@ -1,2 +1,70 @@
 {
+  String zkDir=createTempDir("testStateFormatUpdate").toFile().getAbsolutePath();
+  ZkTestServer server=new ZkTestServer(zkDir);
+  SolrZkClient zkClient=null;
+  ZkStateReader reader=null;
+  try {
+    server.run();
+    AbstractZkTestCase.tryCleanSolrZkNode(server.getZkHost());
+    AbstractZkTestCase.makeSolrZkNode(server.getZkHost());
+    zkClient=new SolrZkClient(server.getZkAddress(),OverseerTest.DEFAULT_CONNECTION_TIMEOUT);
+    ZkController.createClusterZkNodes(zkClient);
+    reader=new ZkStateReader(zkClient);
+    reader.createClusterStateWatchersAndUpdate();
+    if (isInteresting) {
+      reader.registerCore("c1");
+    }
+    ZkStateWriter writer=new ZkStateWriter(reader,new Overseer.Stats());
+    zkClient.makePath(ZkStateReader.COLLECTIONS_ZKNODE + "/c1",true);
+{
+      DocCollection stateV1=new DocCollection("c1",new HashMap<String,Slice>(),new HashMap<String,Object>(),DocRouter.DEFAULT,0,ZkStateReader.CLUSTER_STATE);
+      ZkWriteCommand c1=new ZkWriteCommand("c1",stateV1);
+      writer.enqueueUpdate(reader.getClusterState(),c1,null);
+      writer.writePendingUpdates();
+      Map map=(Map)Utils.fromJSON(zkClient.getData("/clusterstate.json",null,null,true));
+      assertNotNull(map.get("c1"));
+      boolean exists=zkClient.exists(ZkStateReader.COLLECTIONS_ZKNODE + "/c1/state.json",true);
+      assertFalse(exists);
+      if (explicitRefresh) {
+        reader.forceUpdateCollection("c1");
+      }
+ else {
+        for (int i=0; i < 1000; ++i) {
+          if (reader.getClusterState().hasCollection("c1")) {
+            break;
+          }
+          Thread.sleep(50);
+        }
+      }
+      DocCollection collection=reader.getClusterState().getCollection("c1");
+      assertEquals(1,collection.getStateFormat());
+    }
+{
+      DocCollection stateV2=new DocCollection("c1",new HashMap<String,Slice>(),new HashMap<String,Object>(),DocRouter.DEFAULT,0,ZkStateReader.COLLECTIONS_ZKNODE + "/c1/state.json");
+      ZkWriteCommand c2=new ZkWriteCommand("c1",stateV2);
+      writer.enqueueUpdate(reader.getClusterState(),c2,null);
+      writer.writePendingUpdates();
+      Map map=(Map)Utils.fromJSON(zkClient.getData("/clusterstate.json",null,null,true));
+      assertNull(map.get("c1"));
+      boolean exists=zkClient.exists(ZkStateReader.COLLECTIONS_ZKNODE + "/c1/state.json",true);
+      assertTrue(exists);
+      if (explicitRefresh) {
+        reader.forceUpdateCollection("c1");
+      }
+ else {
+        for (int i=0; i < 1000; ++i) {
+          if (reader.getClusterState().getCollection("c1").getStateFormat() == 2) {
+            break;
+          }
+          Thread.sleep(50);
+        }
+      }
+      DocCollection collection=reader.getClusterState().getCollection("c1");
+      assertEquals(2,collection.getStateFormat());
+    }
+  }
+  finally {
+    IOUtils.close(reader,zkClient);
+    server.shutdown();
+  }
 }
