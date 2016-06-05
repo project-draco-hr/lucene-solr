@@ -16,12 +16,17 @@ synchronized (commitLock) {
     testPoint("startDoFlush");
     SegmentInfos toCommit=null;
     boolean anySegmentsFlushed=false;
+    long seqNo;
     try {
 synchronized (fullFlushLock) {
         boolean flushSuccess=false;
         boolean success=false;
         try {
-          anySegmentsFlushed=docWriter.flushAllThreads();
+          seqNo=docWriter.flushAllThreads();
+          if (seqNo < 0) {
+            anySegmentsFlushed=true;
+            seqNo=-seqNo;
+          }
           if (!anySegmentsFlushed) {
             flushCount.incrementAndGet();
           }
@@ -54,6 +59,7 @@ synchronized (this) {
     }
  catch (    AbortingException|VirtualMachineError tragedy) {
       tragicEvent(tragedy,"prepareCommit");
+      seqNo=-1;
     }
     boolean success=false;
     try {
@@ -62,6 +68,12 @@ synchronized (this) {
       }
       startCommit(toCommit);
       success=true;
+      if (pendingCommit == null) {
+        return -1;
+      }
+ else {
+        return seqNo;
+      }
     }
   finally {
       if (!success) {

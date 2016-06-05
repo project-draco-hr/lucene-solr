@@ -1,0 +1,141 @@
+{
+  final int opCount=atLeast(10000);
+  final int idCount=TestUtil.nextInt(random(),10,1000);
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  iwc.setIndexDeletionPolicy(NoDeletionPolicy.INSTANCE);
+  final IndexWriter w=new IndexWriter(dir,iwc);
+  final int numThreads=TestUtil.nextInt(random(),2,5);
+  Thread[] threads=new Thread[numThreads];
+  final CountDownLatch startingGun=new CountDownLatch(1);
+  List<List<Operation>> threadOps=new ArrayList<>();
+  Object commitLock=new Object();
+  final List<Operation> commits=new ArrayList<>();
+  for (int i=0; i < threads.length; i++) {
+    final List<Operation> ops=new ArrayList<>();
+    threadOps.add(ops);
+    final int threadID=i;
+    threads[i]=new Thread(){
+      @Override public void run(){
+        try {
+          startingGun.await();
+          for (int i=0; i < opCount; i++) {
+            Operation op=new Operation();
+            op.threadID=threadID;
+            if (random().nextInt(500) == 17) {
+              op.what=2;
+synchronized (commitLock) {
+                op.seqNo=w.commit();
+                if (op.seqNo != -1) {
+                  commits.add(op);
+                }
+              }
+            }
+ else {
+              op.id=random().nextInt(idCount);
+              Term idTerm=new Term("id","" + op.id);
+              if (random().nextInt(10) == 1) {
+                op.what=1;
+                if (random().nextBoolean()) {
+                  op.seqNo=w.deleteDocuments(idTerm);
+                }
+ else {
+                  op.seqNo=w.deleteDocuments(new TermQuery(idTerm));
+                }
+              }
+ else {
+                Document doc=new Document();
+                doc.add(new StoredField("threadop",threadID + "-" + ops.size()));
+                doc.add(new StringField("id","" + op.id,Field.Store.NO));
+                if (random().nextBoolean()) {
+                  List<Document> docs=new ArrayList<>();
+                  docs.add(doc);
+                  op.seqNo=w.addDocuments(docs);
+                }
+ else {
+                  op.seqNo=w.addDocument(doc);
+                }
+                op.what=3;
+              }
+              ops.add(op);
+            }
+          }
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+;
+    threads[i].setName("thread" + threadID);
+    threads[i].start();
+  }
+  startingGun.countDown();
+  for (  Thread thread : threads) {
+    thread.join();
+  }
+  Operation commitOp=new Operation();
+  commitOp.seqNo=w.commit();
+  if (commitOp.seqNo != -1) {
+    commits.add(commitOp);
+  }
+  List<IndexCommit> indexCommits=DirectoryReader.listCommits(dir);
+  assertEquals(commits.size(),indexCommits.size());
+  int[] expectedCounts=new int[idCount];
+  long[] lastDelSeqNos=new long[idCount];
+  for (int i=0; i < commits.size(); i++) {
+    long commitSeqNo=commits.get(i).seqNo;
+    Arrays.fill(lastDelSeqNos,-1);
+    for (int threadID=0; threadID < threadOps.size(); threadID++) {
+      long lastSeqNo=0;
+      for (      Operation op : threadOps.get(threadID)) {
+        if (op.what == 1 && op.seqNo <= commitSeqNo && op.seqNo > lastDelSeqNos[op.id]) {
+          lastDelSeqNos[op.id]=op.seqNo;
+        }
+        assertTrue(op.seqNo > lastSeqNo);
+        lastSeqNo=op.seqNo;
+      }
+    }
+    Arrays.fill(expectedCounts,0);
+    for (int threadID=0; threadID < threadOps.size(); threadID++) {
+      for (      Operation op : threadOps.get(threadID)) {
+        if (op.what == 3 && op.seqNo <= commitSeqNo && op.seqNo > lastDelSeqNos[op.id]) {
+          expectedCounts[op.id]++;
+        }
+      }
+    }
+    DirectoryReader r=DirectoryReader.open(indexCommits.get(i));
+    IndexSearcher s=new IndexSearcher(r);
+    for (int id=0; id < idCount; id++) {
+      int actualCount=s.count(new TermQuery(new Term("id","" + id)));
+      if (expectedCounts[id] != actualCount) {
+        System.out.println("TEST: FAIL r=" + r + " id="+ id+ " commitSeqNo="+ commitSeqNo);
+        for (int threadID=0; threadID < threadOps.size(); threadID++) {
+          int opCount2=0;
+          for (          Operation op : threadOps.get(threadID)) {
+            if (op.id == id) {
+              boolean shouldCount=op.seqNo <= commitSeqNo && op.seqNo > lastDelSeqNos[op.id];
+              System.out.println("  id=" + id + " what="+ op.what+ " threadop="+ threadID+ "-"+ opCount2+ " seqNo="+ op.seqNo+ " vs lastDelSeqNo="+ lastDelSeqNos[op.id]+ " shouldCount="+ shouldCount);
+            }
+            opCount2++;
+          }
+        }
+        TopDocs hits=s.search(new TermQuery(new Term("id","" + id)),1 + actualCount);
+        for (        ScoreDoc hit : hits.scoreDocs) {
+          System.out.println("  hit: " + s.doc(hit.doc).get("threadop"));
+        }
+        for (        LeafReaderContext ctx : r.leaves()) {
+          System.out.println("  sub=" + ctx.reader());
+          Bits liveDocs=ctx.reader().getLiveDocs();
+          for (int docID=0; docID < ctx.reader().maxDoc(); docID++) {
+            System.out.println("    docID=" + docID + " threadop="+ ctx.reader().document(docID).get("threadop")+ (liveDocs != null && liveDocs.get(docID) == false ? " (deleted)" : ""));
+          }
+        }
+        assertEquals("commit " + i + " of "+ commits.size()+ " id="+ id+ " reader="+ r,expectedCounts[id],actualCount);
+      }
+    }
+    w.close();
+    r.close();
+  }
+  dir.close();
+}
