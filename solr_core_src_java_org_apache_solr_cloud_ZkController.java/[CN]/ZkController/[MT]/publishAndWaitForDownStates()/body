@@ -1,2 +1,30 @@
 {
+  publishNodeAsDown(getNodeName());
+  long now=System.nanoTime();
+  long timeout=now + TimeUnit.NANOSECONDS.convert(WAIT_DOWN_STATES_TIMEOUT_SECONDS,TimeUnit.SECONDS);
+  boolean foundStates=true;
+  while (System.nanoTime() < timeout) {
+    ClusterState clusterState=zkStateReader.getClusterState();
+    Map<String,DocCollection> collections=clusterState.getCollectionsMap();
+    for (    Map.Entry<String,DocCollection> entry : collections.entrySet()) {
+      DocCollection collection=entry.getValue();
+      Collection<Slice> slices=collection.getSlices();
+      for (      Slice slice : slices) {
+        Collection<Replica> replicas=slice.getReplicas();
+        for (        Replica replica : replicas) {
+          if (getNodeName().equals(replica.getNodeName()) && replica.getState() != Replica.State.DOWN) {
+            foundStates=false;
+          }
+        }
+      }
+    }
+    if (foundStates) {
+      Thread.sleep(1000);
+      break;
+    }
+    Thread.sleep(1000);
+  }
+  if (!foundStates) {
+    log.warn("Timed out waiting to see all nodes published as DOWN in our cluster state.");
+  }
 }
