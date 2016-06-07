@@ -1,0 +1,48 @@
+{
+  List<String> foundChildren=new ArrayList<>();
+  long waitNanos=TimeUnit.MILLISECONDS.toNanos(waitMillis);
+  while (true) {
+    firstChild(false);
+    updateLock.lockInterruptibly();
+    try {
+      for (      String child : knownChildren) {
+        if (acceptFilter.apply(child)) {
+          foundChildren.add(child);
+        }
+      }
+      if (!foundChildren.isEmpty()) {
+        break;
+      }
+      if (waitNanos <= 0) {
+        break;
+      }
+      waitNanos=changed.awaitNanos(waitNanos);
+    }
+  finally {
+      updateLock.unlock();
+    }
+    if (!foundChildren.isEmpty()) {
+      break;
+    }
+  }
+  List<Pair<String,byte[]>> result=new ArrayList<>();
+  for (  String child : foundChildren) {
+    if (result.size() >= max) {
+      break;
+    }
+    try {
+      byte[] data=zookeeper.getData(dir + "/" + child,null,null,true);
+      result.add(new Pair<>(child,data));
+    }
+ catch (    KeeperException.NoNodeException e) {
+      updateLock.lockInterruptibly();
+      try {
+        knownChildren.remove(child);
+      }
+  finally {
+        updateLock.unlock();
+      }
+    }
+  }
+  return result;
+}
