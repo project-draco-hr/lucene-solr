@@ -1,14 +1,22 @@
 {
   String dataFile=IndexFileNames.segmentFileName(si.name,"",DATA_EXTENSION);
   String entriesFile=IndexFileNames.segmentFileName(si.name,"",ENTRIES_EXTENSION);
+  byte[] expectedID=si.getId();
+  byte[] id=new byte[StringHelper.ID_LENGTH];
   try (IndexOutput data=dir.createOutput(dataFile,context);IndexOutput entries=dir.createOutput(entriesFile,context)){
     CodecUtil.writeIndexHeader(data,DATA_CODEC,VERSION_CURRENT,si.getId(),"");
     CodecUtil.writeIndexHeader(entries,ENTRY_CODEC,VERSION_CURRENT,si.getId(),"");
     entries.writeVInt(si.files().size());
     for (    String file : si.files()) {
       long startOffset=data.getFilePointer();
-      try (IndexInput in=dir.openInput(file,IOContext.READONCE)){
-        data.copyBytes(in,in.length());
+      try (ChecksumIndexInput in=dir.openChecksumInput(file,IOContext.READONCE)){
+        CodecUtil.verifyAndCopyIndexHeader(in,data,si.getId());
+        long numBytesToCopy=in.length() - CodecUtil.footerLength() - in.getFilePointer();
+        data.copyBytes(in,numBytesToCopy);
+        long checksum=CodecUtil.checkFooter(in);
+        data.writeInt(CodecUtil.FOOTER_MAGIC);
+        data.writeInt(0);
+        data.writeLong(checksum);
       }
        long endOffset=data.getFilePointer();
       long length=endOffset - startOffset;
