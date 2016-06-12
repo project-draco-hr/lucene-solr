@@ -1,0 +1,32 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig iwc=new IndexWriterConfig(new MockAnalyzer(random()));
+  SnapshotDeletionPolicy snapshotter=new SnapshotDeletionPolicy(new KeepOnlyLastCommitDeletionPolicy());
+  iwc.setIndexDeletionPolicy(snapshotter);
+  IndexWriter writer=new IndexWriter(dir,iwc);
+  writer.commit();
+  Document doc=new Document();
+  doc.add(new StringField("key","value1",Field.Store.YES));
+  writer.addDocument(doc);
+  doc=new Document();
+  doc.add(new StringField("key","value2",Field.Store.YES));
+  writer.addDocument(doc);
+  writer.commit();
+  IndexCommit ic1=snapshotter.snapshot();
+  doc=new Document();
+  doc.add(new StringField("key","value3",Field.Store.YES));
+  writer.updateDocument(new Term("key","value1"),doc);
+  writer.commit();
+  IndexCommit ic2=snapshotter.snapshot();
+  DirectoryReader latest=DirectoryReader.open(ic2);
+  assertEquals(2,latest.leaves().size());
+  DirectoryReader oldest=DirectoryReader.openIfChanged(latest,ic1);
+  assertEquals(1,oldest.leaves().size());
+  assertSame(latest.leaves().get(0).reader().getCoreCacheKey(),oldest.leaves().get(0).reader().getCoreCacheKey());
+  latest.close();
+  oldest.close();
+  snapshotter.release(ic1);
+  snapshotter.release(ic2);
+  writer.close();
+  dir.close();
+}
