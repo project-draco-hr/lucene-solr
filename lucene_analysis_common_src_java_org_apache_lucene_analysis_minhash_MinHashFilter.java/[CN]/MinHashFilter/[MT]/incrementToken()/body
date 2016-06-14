@@ -1,0 +1,87 @@
+{
+  int positionIncrement=0;
+  if (requiresInitialisation) {
+    requiresInitialisation=false;
+    boolean found=false;
+    while (input.incrementToken()) {
+      found=true;
+      String current=new String(termAttribute.buffer(),0,termAttribute.length());
+      for (int i=0; i < hashCount; i++) {
+        byte[] bytes=current.getBytes("UTF-16LE");
+        LongPair hash=new LongPair();
+        murmurhash3_x64_128(bytes,0,bytes.length,0,hash);
+        LongPair rehashed=combineOrdered(hash,getIntHash(i));
+        minHashSets.get(i).get((int)((rehashed.val2 >>> 32) / bucketSize)).add(rehashed);
+      }
+      endOffset=offsetAttribute.endOffset();
+    }
+    exhausted=true;
+    input.end();
+    endState=captureState();
+    if (!found) {
+      return false;
+    }
+    positionIncrement=1;
+    if (withRotation && (hashSetSize == 1)) {
+      for (int hashLoop=0; hashLoop < hashCount; hashLoop++) {
+        for (int bucketLoop=0; bucketLoop < bucketCount; bucketLoop++) {
+          if (minHashSets.get(hashLoop).get(bucketLoop).size() == 0) {
+            for (int bucketOffset=1; bucketOffset < bucketCount; bucketOffset++) {
+              if (minHashSets.get(hashLoop).get((bucketLoop + bucketOffset) % bucketCount).size() > 0) {
+                LongPair replacementHash=minHashSets.get(hashLoop).get((bucketLoop + bucketOffset) % bucketCount).first();
+                minHashSets.get(hashLoop).get(bucketLoop).add(replacementHash);
+                break;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  clearAttributes();
+  while (hashPosition < hashCount) {
+    if (hashPosition == -1) {
+      hashPosition++;
+    }
+ else {
+      while (bucketPosition < bucketCount) {
+        if (bucketPosition == -1) {
+          bucketPosition++;
+        }
+ else {
+          LongPair hash=minHashSets.get(hashPosition).get(bucketPosition).pollFirst();
+          if (hash != null) {
+            termAttribute.setEmpty();
+            if (hashCount > 1) {
+              termAttribute.append(int0(hashPosition));
+              termAttribute.append(int1(hashPosition));
+            }
+            long high=hash.val2;
+            termAttribute.append(long0(high));
+            termAttribute.append(long1(high));
+            termAttribute.append(long2(high));
+            termAttribute.append(long3(high));
+            long low=hash.val1;
+            termAttribute.append(long0(low));
+            termAttribute.append(long1(low));
+            if (hashCount == 1) {
+              termAttribute.append(long2(low));
+              termAttribute.append(long3(low));
+            }
+            posIncAttribute.setPositionIncrement(positionIncrement);
+            offsetAttribute.setOffset(0,endOffset);
+            typeAttribute.setType(MIN_HASH_TYPE);
+            posLenAttribute.setPositionLength(1);
+            return true;
+          }
+ else {
+            bucketPosition++;
+          }
+        }
+      }
+      bucketPosition=-1;
+      hashPosition++;
+    }
+  }
+  return false;
+}
