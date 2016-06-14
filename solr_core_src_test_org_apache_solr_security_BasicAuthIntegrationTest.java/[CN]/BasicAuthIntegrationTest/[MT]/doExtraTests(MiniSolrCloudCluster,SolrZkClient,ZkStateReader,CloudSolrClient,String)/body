@@ -42,29 +42,12 @@
   baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
   verifySecurityStatus(cl,baseUrl + authcPrefix,"authentication/credentials/harry",NOT_NULL_PREDICATE,20);
   command="{\n" + "'set-user-role': {'harry':'admin'}\n" + "}";
-  httpPost=new HttpPost(baseUrl + authzPrefix);
-  setBasicAuthHeader(httpPost,"solr","SolrRocks");
-  httpPost.setEntity(new ByteArrayEntity(command.getBytes(UTF_8)));
-  httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
-  r=cl.execute(httpPost);
-  assertEquals(200,r.getStatusLine().getStatusCode());
-  Utils.consumeFully(r.getEntity());
+  executeCommand(baseUrl + authzPrefix,cl,command,"solr","SolrRocks");
   baseUrl=getRandomReplica(zkStateReader.getClusterState().getCollection(defaultCollName),random()).getStr(BASE_URL_PROP);
   verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/user-role/harry",NOT_NULL_PREDICATE,20);
-  httpPost=new HttpPost(baseUrl + authzPrefix);
-  setBasicAuthHeader(httpPost,"harry","HarryIsUberCool");
-  httpPost.setEntity(new ByteArrayEntity(Utils.toJSON(singletonMap("set-permission",Utils.makeMap("collection","x","path","/update/*","role","dev")))));
-  httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
-  verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/user-role/harry",NOT_NULL_PREDICATE,20);
-  r=cl.execute(httpPost);
-  assertEquals(200,r.getStatusLine().getStatusCode());
-  Utils.consumeFully(r.getEntity());
+  executeCommand(baseUrl + authzPrefix,cl,Utils.toJSONString(singletonMap("set-permission",Utils.makeMap("collection","x","path","/update/*","role","dev"))),"harry","HarryIsUberCool");
   verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/permissions[1]/collection","x",20);
-  httpPost=new HttpPost(baseUrl + authzPrefix);
-  setBasicAuthHeader(httpPost,"harry","HarryIsUberCool");
-  httpPost.setEntity(new ByteArrayEntity(Utils.toJSON(singletonMap("set-permission",Utils.makeMap("name","collection-admin-edit","role","admin")))));
-  r=cl.execute(httpPost);
-  Utils.consumeFully(r.getEntity());
+  executeCommand(baseUrl + authzPrefix,cl,Utils.toJSONString(singletonMap("set-permission",Utils.makeMap("name","collection-admin-edit","role","admin"))),"harry","HarryIsUberCool");
   verifySecurityStatus(cl,baseUrl + authzPrefix,"authorization/permissions[2]/name","collection-admin-edit",20);
   CollectionAdminRequest.Reload reload=new CollectionAdminRequest.Reload();
   reload.setCollectionName(defaultCollName);
@@ -91,13 +74,7 @@
  catch (  HttpSolrClient.RemoteSolrException e) {
   }
   cloudSolrClient.setDefaultCollection(old);
-  httpPost=new HttpPost(baseUrl + authzPrefix);
-  setBasicAuthHeader(httpPost,"harry","HarryIsUberCool");
-  httpPost.setEntity(new ByteArrayEntity("{set-permission : { name : update , role : admin}}".getBytes(UTF_8)));
-  httpPost.addHeader("Content-Type","application/json; charset=UTF-8");
-  r=cl.execute(httpPost);
-  assertEquals(200,r.getStatusLine().getStatusCode());
-  Utils.consumeFully(r.getEntity());
+  executeCommand(baseUrl + authzPrefix,cl,"{set-permission : { name : update , role : admin}}","harry","HarryIsUberCool");
   SolrInputDocument doc=new SolrInputDocument();
   doc.setField("id","4");
   UpdateRequest update=new UpdateRequest();
@@ -105,5 +82,23 @@
   update.add(doc);
   update.setCommitWithin(100);
   cloudSolrClient.request(update);
+  executeCommand(baseUrl + authzPrefix,cl,"{set-property : { blockUnknown: true}}","harry","HarryIsUberCool");
+  String[] toolArgs=new String[]{"status","-solr",baseUrl};
+  ByteArrayOutputStream baos=new ByteArrayOutputStream();
+  PrintStream stdoutSim=new PrintStream(baos,true,StandardCharsets.UTF_8.name());
+  SolrCLI.StatusTool tool=new SolrCLI.StatusTool(stdoutSim);
+  try {
+    System.setProperty("basicauth","harry:HarryIsUberCool");
+    tool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(tool.getOptions()),toolArgs));
+    Map obj=(Map)Utils.fromJSON(new ByteArrayInputStream(baos.toByteArray()));
+    assertTrue(obj.containsKey("version"));
+    assertTrue(obj.containsKey("startTime"));
+    assertTrue(obj.containsKey("uptime"));
+    assertTrue(obj.containsKey("memory"));
+  }
+ catch (  Exception e) {
+    log.error("RunExampleTool failed due to: " + e + "; stdout from tool prior to failure: "+ baos.toString(StandardCharsets.UTF_8.name()));
+  }
+  executeCommand(baseUrl + authzPrefix,cl,"{set-property : { blockUnknown: false}}","harry","HarryIsUberCool");
   HttpClientUtil.close(cl);
 }
