@@ -1,4 +1,24 @@
 {
   log.debug("Request to authenticate using kerberos: " + req);
-  kerberosFilter.doFilter(req,rsp,chain);
+  final HttpServletResponse frsp=(HttpServletResponse)rsp;
+  HttpServletResponse rspCloseShield=new HttpServletResponseWrapper(frsp){
+    @SuppressForbidden(reason="Hadoop DelegationTokenAuthenticationFilter uses response writer, this" + "is providing a CloseShield on top of that") @Override public PrintWriter getWriter() throws IOException {
+      final PrintWriter pw=new PrintWriterWrapper(frsp.getWriter()){
+        @Override public void close(){
+        }
+      }
+;
+      return pw;
+    }
+  }
+;
+  kerberosFilter.doFilter(req,rspCloseShield,chain);
+  String requestContinuesAttr=(String)req.getAttribute(REQUEST_CONTINUES_ATTR);
+  if (requestContinuesAttr == null) {
+    log.warn("Could not find " + REQUEST_CONTINUES_ATTR);
+    return false;
+  }
+ else {
+    return Boolean.parseBoolean(requestContinuesAttr);
+  }
 }
