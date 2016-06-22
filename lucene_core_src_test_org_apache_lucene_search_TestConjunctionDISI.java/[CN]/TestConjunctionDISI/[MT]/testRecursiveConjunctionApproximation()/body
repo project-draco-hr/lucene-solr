@@ -9,32 +9,38 @@
     for (int i=0; i < numIterators; ++i) {
       final FixedBitSet set=randomSet(maxDoc);
       final Scorer newIterator;
-      if (random().nextBoolean()) {
+switch (random().nextInt(3)) {
+case 0:
         sets[i]=set;
-        newIterator=new ConstantScoreScorer(null,0f,new BitDocIdSet(set).iterator());
-      }
+      newIterator=new ConstantScoreScorer(null,0f,anonymizeIterator(new BitDocIdSet(set).iterator()));
+    break;
+case 1:
+  sets[i]=set;
+newIterator=new ConstantScoreScorer(null,0f,new BitDocIdSet(set).iterator());
+break;
+default :
+final FixedBitSet confirmed=clearRandomBits(set);
+sets[i]=confirmed;
+final TwoPhaseIterator approximation=approximation(new BitDocIdSet(set).iterator(),confirmed);
+newIterator=scorer(approximation);
+hasApproximation=true;
+break;
+}
+if (conjunction == null) {
+conjunction=newIterator;
+}
  else {
-        final FixedBitSet confirmed=clearRandomBits(set);
-        sets[i]=confirmed;
-        final TwoPhaseIterator approximation=approximation(new BitDocIdSet(set).iterator(),confirmed);
-        newIterator=scorer(approximation);
-        hasApproximation=true;
-      }
-      if (conjunction == null) {
-        conjunction=newIterator;
-      }
+final DocIdSetIterator conj=ConjunctionDISI.intersectScorers(Arrays.asList(conjunction,newIterator));
+conjunction=scorer(conj,TwoPhaseIterator.unwrap(conj));
+}
+}
+TwoPhaseIterator twoPhaseIterator=conjunction.twoPhaseIterator();
+assertEquals(hasApproximation,twoPhaseIterator != null);
+if (hasApproximation) {
+assertEquals(intersect(sets),toBitSet(maxDoc,TwoPhaseIterator.asDocIdSetIterator(twoPhaseIterator)));
+}
  else {
-        final DocIdSetIterator conj=ConjunctionDISI.intersectScorers(Arrays.asList(conjunction,newIterator));
-        conjunction=scorer(conj,TwoPhaseIterator.unwrap(conj));
-      }
-    }
-    TwoPhaseIterator twoPhaseIterator=conjunction.twoPhaseIterator();
-    assertEquals(hasApproximation,twoPhaseIterator != null);
-    if (hasApproximation) {
-      assertEquals(intersect(sets),toBitSet(maxDoc,TwoPhaseIterator.asDocIdSetIterator(twoPhaseIterator)));
-    }
- else {
-      assertEquals(intersect(sets),toBitSet(maxDoc,conjunction.iterator()));
-    }
-  }
+assertEquals(intersect(sets),toBitSet(maxDoc,conjunction.iterator()));
+}
+}
 }
