@@ -1,0 +1,62 @@
+{
+  CloudSolrClient solrClient=cluster.getSolrClient();
+  String collectionName="HdfsBackupRestore";
+  CollectionAdminRequest.Create create=CollectionAdminRequest.createCollection(collectionName,"conf1",1,1);
+  create.process(solrClient);
+  int nDocs=BackupRestoreUtils.indexDocs(solrClient,collectionName,docsSeed);
+  DocCollection collectionState=solrClient.getZkStateReader().getClusterState().getCollection(collectionName);
+  assertEquals(1,collectionState.getActiveSlices().size());
+  Slice shard=collectionState.getActiveSlices().iterator().next();
+  assertEquals(1,shard.getReplicas().size());
+  Replica replica=shard.getReplicas().iterator().next();
+  String replicaBaseUrl=replica.getStr(BASE_URL_PROP);
+  String coreName=replica.getStr(ZkStateReader.CORE_NAME_PROP);
+  String backupName=TestUtil.randomSimpleString(random(),1,5);
+  boolean testViaReplicationHandler=random().nextBoolean();
+  String baseUrl=cluster.getJettySolrRunners().get(0).getBaseUrl().toString();
+  try (SolrClient masterClient=getHttpSolrClient(replicaBaseUrl)){
+    if (testViaReplicationHandler) {
+      log.info("Running Backup/restore via replication handler");
+      runReplicationHandlerCommand(baseUrl,coreName,ReplicationHandler.CMD_BACKUP,"hdfs",backupName);
+      CheckBackupStatus checkBackupStatus=new CheckBackupStatus((HttpSolrClient)masterClient,coreName,null);
+      while (!checkBackupStatus.success) {
+        checkBackupStatus.fetchStatus();
+        Thread.sleep(1000);
+      }
+    }
+ else {
+      log.info("Running Backup/restore via core admin api");
+      runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.BACKUPCORE.toString(),"hdfs",backupName);
+    }
+    int numRestoreTests=nDocs > 0 ? TestUtil.nextInt(random(),1,5) : 1;
+    for (int attempts=0; attempts < numRestoreTests; attempts++) {
+      if (nDocs > 0) {
+        int numDeletes=TestUtil.nextInt(random(),1,nDocs);
+        for (int i=0; i < numDeletes; i++) {
+          masterClient.deleteByQuery(collectionName,"id:" + i);
+        }
+        masterClient.commit(collectionName);
+        int moreAdds=TestUtil.nextInt(random(),1,100);
+        for (int i=0; i < moreAdds; i++) {
+          SolrInputDocument doc=new SolrInputDocument();
+          doc.addField("id",i + nDocs);
+          doc.addField("name","name = " + (i + nDocs));
+          masterClient.add(collectionName,doc);
+        }
+        if (usually()) {
+          masterClient.commit(collectionName);
+        }
+      }
+      if (testViaReplicationHandler) {
+        runReplicationHandlerCommand(baseUrl,coreName,ReplicationHandler.CMD_RESTORE,"hdfs",backupName);
+        while (!TestRestoreCore.fetchRestoreStatus(baseUrl,coreName)) {
+          Thread.sleep(1000);
+        }
+      }
+ else {
+        runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.RESTORECORE.toString(),"hdfs","snapshot." + backupName);
+      }
+      BackupRestoreUtils.verifyDocs(nDocs,masterClient,coreName);
+    }
+  }
+ }

@@ -4,15 +4,32 @@
   }
   String name=params.get(NAME);
   String location=params.get(LOCATION);
+  String repoName=params.get(BackupRepository.REPOSITORY_PROPERTY_NAME);
+  CoreContainer cc=core.getCoreDescriptor().getCoreContainer();
+  SolrResourceLoader rl=cc.getResourceLoader();
+  BackupRepository repo=null;
+  if (repoName != null) {
+    repo=cc.getBackupRepoFactory().newInstance(rl,repoName);
+    if (location == null) {
+      location=repo.getConfigProperty(ZkStateReader.BACKUP_LOCATION);
+      if (location == null) {
+        throw new IllegalArgumentException("location is required");
+      }
+    }
+  }
+ else {
+    repo=new LocalFileSystemRepository();
+  }
   if (location == null) {
     location=core.getDataDir();
   }
   if (name == null) {
-    File[] files=new File(location).listFiles();
+    URI basePath=repo.createURI(location);
+    String[] filePaths=repo.listAll(basePath);
     List<OldBackupDirectory> dirs=new ArrayList<>();
-    for (    File f : files) {
-      OldBackupDirectory obd=new OldBackupDirectory(f);
-      if (obd.dir != null) {
+    for (    String f : filePaths) {
+      OldBackupDirectory obd=new OldBackupDirectory(basePath,f);
+      if (obd.getTimestamp().isPresent()) {
         dirs.add(obd);
       }
     }
@@ -20,12 +37,12 @@
     if (dirs.size() == 0) {
       throw new SolrException(ErrorCode.BAD_REQUEST,"No backup name specified and none found in " + core.getDataDir());
     }
-    name=dirs.get(0).dir.getName();
+    name=dirs.get(0).getDirName();
   }
  else {
     name="snapshot." + name;
   }
-  RestoreCore restoreCore=new RestoreCore(core,location,name);
+  RestoreCore restoreCore=new RestoreCore(repo,core,location,name);
   try {
     MDC.put("RestoreCore.core",core.getName());
     MDC.put("RestoreCore.backupLocation",location);
