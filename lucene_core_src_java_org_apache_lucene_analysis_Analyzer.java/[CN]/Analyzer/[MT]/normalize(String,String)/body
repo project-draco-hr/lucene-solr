@@ -1,0 +1,38 @@
+{
+  try {
+    final String filteredText;
+    try (Reader reader=new StringReader(text)){
+      Reader filterReader=initReaderForNormalization(fieldName,reader);
+      char[] buffer=new char[64];
+      StringBuilder builder=new StringBuilder();
+      for (; ; ) {
+        final int read=filterReader.read(buffer,0,buffer.length);
+        if (read == -1) {
+          break;
+        }
+        builder.append(buffer,0,read);
+      }
+      filteredText=builder.toString();
+    }
+ catch (    IOException e) {
+      throw new IllegalStateException("Normalization threw an unexpected exeption",e);
+    }
+    final AttributeFactory attributeFactory=attributeFactory();
+    try (TokenStream ts=normalize(fieldName,new StringTokenStream(attributeFactory,filteredText,text.length()))){
+      final TermToBytesRefAttribute termAtt=ts.addAttribute(TermToBytesRefAttribute.class);
+      ts.reset();
+      if (ts.incrementToken() == false) {
+        throw new IllegalStateException("The normalization token stream is " + "expected to produce exactly 1 token, but got 0 for analyzer " + this + " and input \""+ text+ "\"");
+      }
+      final BytesRef term=BytesRef.deepCopyOf(termAtt.getBytesRef());
+      if (ts.incrementToken()) {
+        throw new IllegalStateException("The normalization token stream is " + "expected to produce exactly 1 token, but got 2+ for analyzer " + this + " and input \""+ text+ "\"");
+      }
+      ts.end();
+      return term;
+    }
+   }
+ catch (  IOException e) {
+    throw new IllegalStateException("Normalization threw an unexpected exeption",e);
+  }
+}
