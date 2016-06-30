@@ -1,5 +1,20 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,SHARD_ID_PROP);
-  req.getParams().getAll(map,DELETE_INDEX,DELETE_DATA_DIR,DELETE_INSTANCE_DIR);
-  return map;
+  req.getParams().required().check(NAME,COLLECTION_PROP);
+  String collectionName=SolrIdentifierValidator.validateCollectionName(req.getParams().get(COLLECTION_PROP));
+  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
+  if (clusterState.hasCollection(collectionName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Collection '" + collectionName + "' exists, no action taken.");
+  }
+  String location=req.getParams().get(ZkStateReader.BACKUP_LOCATION);
+  if (location == null) {
+    location=h.coreContainer.getZkController().getZkStateReader().getClusterProperty("location",(String)null);
+  }
+  if (location == null) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"'location' is not specified as a query parameter or set as a cluster property");
+  }
+  Map<String,Object> params=req.getParams().getAll(null,NAME,COLLECTION_PROP);
+  params.put("location",location);
+  req.getParams().getAll(params,COLL_CONF,REPLICATION_FACTOR,MAX_SHARDS_PER_NODE,STATE_FORMAT,AUTO_ADD_REPLICAS);
+  copyPropertiesWithPrefix(req.getParams(),params,COLL_PROP_PREFIX);
+  return params;
 }

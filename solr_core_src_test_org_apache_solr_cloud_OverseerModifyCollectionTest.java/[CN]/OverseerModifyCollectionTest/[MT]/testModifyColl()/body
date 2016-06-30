@@ -1,0 +1,34 @@
+{
+  String collName="modifyColl";
+  String newConfName="conf" + random().nextInt();
+  String oldConfName="conf1";
+  try (SolrClient client=createNewSolrClient("",getBaseUrl((HttpSolrClient)clients.get(0)))){
+    CollectionAdminResponse rsp;
+    CollectionAdminRequest.Create create=CollectionAdminRequest.createCollection(collName,oldConfName,1,2);
+    rsp=create.process(client);
+    assertEquals(0,rsp.getStatus());
+    assertTrue(rsp.isSuccess());
+    ConfigSetAdminRequest.Create createConfig=new ConfigSetAdminRequest.Create().setBaseConfigSetName(oldConfName).setConfigSetName(newConfName);
+    ConfigSetAdminResponse configRsp=createConfig.process(client);
+    assertEquals(0,configRsp.getStatus());
+    ModifiableSolrParams p=new ModifiableSolrParams();
+    p.add("collection",collName);
+    p.add("action","MODIFYCOLLECTION");
+    p.add("collection.configName",newConfName);
+    client.request(new GenericSolrRequest(POST,COLLECTIONS_HANDLER_PATH,p));
+  }
+   assertEquals(newConfName,getConfigNameFromZk(collName));
+  try (SolrClient client=createNewSolrClient("",getBaseUrl((HttpSolrClient)clients.get(0)))){
+    ModifiableSolrParams p=new ModifiableSolrParams();
+    p.add("collection",collName);
+    p.add("action","MODIFYCOLLECTION");
+    p.add("collection.configName","notARealConfigName");
+    try {
+      client.request(new GenericSolrRequest(POST,COLLECTIONS_HANDLER_PATH,p));
+      fail("Exception should be thrown");
+    }
+ catch (    RemoteSolrException e) {
+      assertTrue(e.getMessage(),e.getMessage().contains("Can not find the specified config set"));
+    }
+  }
+ }
