@@ -3,8 +3,30 @@
   MockSnitch.nodeVsTags=(Map)Utils.fromJSON(s.getBytes(StandardCharsets.UTF_8));
   Map shardVsReplicaCount=makeMap("shard1",2,"shard2",2);
   List<Rule> rules=parseRules("[{'cores':'<4'}, {" + "'replica':'1',shard:'*','node':'*'}," + " {'freedisk':'>1'}]");
-  Map<Position,String> mapping=new ReplicaAssigner(rules,shardVsReplicaCount,Collections.singletonList(MockSnitch.class.getName()),new HashMap(),new ArrayList<>(MockSnitch.nodeVsTags.keySet()),null,null).getNodeMappings();
+  Map<Position,String> mapping=new ReplicaAssigner(rules,shardVsReplicaCount,singletonList(MockSnitch.class.getName()),new HashMap(),new ArrayList<>(MockSnitch.nodeVsTags.keySet()),null,null).getNodeMappings();
   assertNotNull(mapping);
-  mapping=new ReplicaAssigner(rules,shardVsReplicaCount,Collections.singletonList(MockSnitch.class.getName()),new HashMap(),new ArrayList<>(MockSnitch.nodeVsTags.keySet()),null,null).getNodeMappings();
+  mapping=new ReplicaAssigner(rules,shardVsReplicaCount,singletonList(MockSnitch.class.getName()),new HashMap(),new ArrayList<>(MockSnitch.nodeVsTags.keySet()),null,null).getNodeMappings();
   assertNotNull(mapping);
+  rules=parseRules("[{role:'!overseer'}]");
+  Map<String,Object> snitchSession=new HashMap<>();
+  List<String> preferredOverseerNodes=ImmutableList.of("127.0.0.1:49947_","127.0.0.1:49952_");
+  ReplicaAssigner replicaAssigner=new ReplicaAssigner(rules,shardVsReplicaCount,singletonList(MockSnitch.class.getName()),new HashMap(),new ArrayList<>(MockSnitch.nodeVsTags.keySet()),null,null){
+    @Override protected SnitchContext getSnitchCtx(    String node,    SnitchInfoImpl info){
+      return new SnitchContext(info,node,snitchSession){
+        @Override public Map getZkJson(        String path){
+          if (ZkStateReader.ROLES.equals(path)) {
+            return Collections.singletonMap("overseer",preferredOverseerNodes);
+          }
+          return null;
+        }
+      }
+;
+    }
+  }
+;
+  mapping=replicaAssigner.getNodeMappings();
+  assertNotNull(mapping);
+  for (  String nodeName : mapping.values()) {
+    assertFalse(preferredOverseerNodes.contains(nodeName));
+  }
 }
