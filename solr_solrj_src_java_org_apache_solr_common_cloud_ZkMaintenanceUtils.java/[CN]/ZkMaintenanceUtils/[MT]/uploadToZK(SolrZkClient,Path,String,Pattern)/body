@@ -1,0 +1,24 @@
+{
+  if (!Files.exists(rootPath))   throw new IOException("Path " + rootPath + " does not exist");
+  Files.walkFileTree(rootPath,new SimpleFileVisitor<Path>(){
+    @Override public FileVisitResult visitFile(    Path file,    BasicFileAttributes attrs) throws IOException {
+      String filename=file.getFileName().toString();
+      if (filenameExclusions != null && filenameExclusions.matcher(filename).matches()) {
+        log.info("uploadToZK skipping '{}' due to filenameExclusions '{}'",filename,filenameExclusions);
+        return FileVisitResult.CONTINUE;
+      }
+      String zkNode=createZkNodeName(zkPath,rootPath,file);
+      try {
+        zkClient.makePath(zkNode,file.toFile(),false,true);
+      }
+ catch (      KeeperException|InterruptedException e) {
+        throw new IOException("Error uploading file " + file.toString() + " to zookeeper path "+ zkNode,SolrZkClient.checkInterrupted(e));
+      }
+      return FileVisitResult.CONTINUE;
+    }
+    @Override public FileVisitResult preVisitDirectory(    Path dir,    BasicFileAttributes attrs) throws IOException {
+      return (dir.getFileName().toString().startsWith(".")) ? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+    }
+  }
+);
+}

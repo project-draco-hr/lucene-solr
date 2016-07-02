@@ -1,0 +1,30 @@
+{
+  Path src=TEST_PATH().resolve("configsets").resolve("cloud-subdirs").resolve("conf");
+  Path configSet=TEST_PATH().resolve("configsets").resolve("cloud-subdirs");
+  copyConfigUp(src,configSet,"mv1");
+  String[] args=new String[]{"-src","zk:/configs/mv1","-dst","zk:/mv2","-zkHost",zkAddr};
+  SolrCLI.ZkMvTool mvTool=new SolrCLI.ZkMvTool();
+  int res=mvTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(mvTool.getOptions()),args));
+  assertEquals("Move should have succeeded.",0,res);
+  verifyZkLocalPathsMatch(src,"/mv2");
+  assertFalse("/configs/mv1 Znode should not be there: ",zkClient.exists("/configs/mv1",true));
+  args=new String[]{"-src","file:/mv2","-dst","/mv3","-zkHost",zkAddr};
+  res=mvTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(mvTool.getOptions()),args));
+  assertTrue("Move should NOT have succeeded with file: specified.",0 != res);
+  args=new String[]{"-src","/mv2","-dst","/mv4","-zkHost",zkAddr};
+  res=mvTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(mvTool.getOptions()),args));
+  assertEquals("Move should have succeeded.",0,res);
+  assertFalse("Znode /mv3 really should be gone",zkClient.exists("/mv3",true));
+  verifyZkLocalPathsMatch(src,"/mv4");
+  args=new String[]{"-src","/mv4/solrconfig.xml","-dst","/testmvsingle/solrconfig.xml","-zkHost",zkAddr};
+  res=mvTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(mvTool.getOptions()),args));
+  assertEquals("Move should have succeeded.",0,res);
+  assertTrue("Should be able to move a single file",zkClient.exists("/testmvsingle/solrconfig.xml",true));
+  zkClient.makePath("/parentNode",true);
+  args=new String[]{"-src","/mv4/schema.xml","-dst","/parentnode/","-zkHost",zkAddr};
+  res=mvTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(mvTool.getOptions()),args));
+  assertEquals("Move should have succeeded.",0,res);
+  assertTrue("Should be able to move a single file to a parent znode",zkClient.exists("/parentnode/schema.xml",true));
+  String content=new String(zkClient.getData("/parentnode/schema.xml",null,null,true),StandardCharsets.UTF_8);
+  assertTrue("There should be content in the node! ",content.contains("Apache Software Foundation"));
+}

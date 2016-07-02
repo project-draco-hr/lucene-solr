@@ -1,0 +1,67 @@
+{
+  Path src=TEST_PATH().resolve("configsets").resolve("cloud-subdirs").resolve("conf");
+  Path configSet=TEST_PATH().resolve("configsets").resolve("cloud-subdirs");
+  copyConfigUp(src,configSet,"cp1");
+  String[] args=new String[]{"-src","zk:/configs/cp1","-dst","zk:/cp2","-recurse","true","-zkHost",zkAddr};
+  SolrCLI.ZkCpTool cpTool=new SolrCLI.ZkCpTool();
+  int res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy from zk -> zk should have succeeded.",0,res);
+  verifyZnodesMatch("/configs/cp1","/cp2");
+  Path tmp=createTempDir("tmpNewPlace2");
+  args=new String[]{"-src","zk:/configs/cp1","-dst","file:/" + tmp.toAbsolutePath().toString(),"-recurse","true","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy should have succeeded.",0,res);
+  verifyZkLocalPathsMatch(tmp,"/configs/cp1");
+  tmp=createTempDir("tmpNewPlace3");
+  args=new String[]{"-src","zk:/configs/cp1","-dst",tmp.toAbsolutePath().toString(),"-recurse","true","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy should have succeeded.",0,res);
+  verifyZkLocalPathsMatch(tmp,"/configs/cp1");
+  args=new String[]{"-src",src.toAbsolutePath().toString(),"-dst","zk:/cp3","-recurse","true","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy should have succeeded.",0,res);
+  verifyZkLocalPathsMatch(src,"/cp3");
+  args=new String[]{"-src","file:" + src.toAbsolutePath().toString(),"-dst","zk:/cp4","-recurse","true","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy should have succeeded.",0,res);
+  verifyZkLocalPathsMatch(src,"/cp4");
+  args=new String[]{"-src","file:" + src.toAbsolutePath().toString(),"-dst","zk:/cp5Fail","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertTrue("Copy should NOT have succeeded, recurse not specified.",0 != res);
+  args=new String[]{"-src","file:" + src.toAbsolutePath().toString(),"-dst","zk:/cp6Fail","-recurse","false","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertTrue("Copy should NOT have succeeded, recurse set to false.",0 != res);
+  String localSlash=tmp.normalize() + "/cpToLocal/";
+  args=new String[]{"-src","zk:/cp3/schema.xml","-dst",localSlash,"-recurse","false","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy should nave created intermediate directory locally.",0,res);
+  assertTrue("File should have been copied to a directory successfully",Files.exists(Paths.get(localSlash,"schema.xml")));
+  args=new String[]{"-src","file:" + src.normalize().toAbsolutePath().toString() + "/solrconfig.xml","-dst","zk:/powerup/","-recurse","false","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy up to intermediate file should have succeeded.",0,res);
+  assertTrue("Should have created an intermediate node on ZK",zkClient.exists("/powerup/solrconfig.xml",true));
+  args=new String[]{"-src","file:" + src.normalize().toAbsolutePath().toString() + "/solrconfig.xml","-dst","zk:/copyUpFile.xml","-recurse","false","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy up to named file should have succeeded.",0,res);
+  assertTrue("Should NOT have created an intermediate node on ZK",zkClient.exists("/copyUpFile.xml",true));
+  String localNamed=tmp.normalize().toString() + "/localnamed/renamed.txt";
+  args=new String[]{"-src","zk:/cp4/solrconfig.xml","-dst","file:" + localNamed,"-recurse","false","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy to local named file should have succeeded.",0,res);
+  Path locPath=Paths.get(localNamed);
+  assertTrue("Should have found file: " + localNamed,Files.exists(locPath));
+  assertTrue("Should be an individual file",Files.isRegularFile(locPath));
+  assertTrue("File should have some data",Files.size(locPath) > 100);
+  boolean foundApache=false;
+  for (  String line : Files.readAllLines(locPath,Charset.forName("UTF-8"))) {
+    if (line.contains("Apache Software Foundation")) {
+      foundApache=true;
+      break;
+    }
+  }
+  assertTrue("Should have found Apache Software Foundation in the file! ",foundApache);
+  args=new String[]{"-src","zk:/cp4/solrconfig.xml","-dst","zk:/","-recurse","false","-zkHost",zkAddr};
+  res=cpTool.runTool(SolrCLI.processCommandLineArgs(SolrCLI.joinCommonAndToolOptions(cpTool.getOptions()),args));
+  assertEquals("Copy from somewhere in ZK to ZK root should have succeeded.",0,res);
+  assertTrue("Should have found znode /solrconfig.xml: ",zkClient.exists("/solrconfig.xml",true));
+}

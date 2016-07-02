@@ -3,9 +3,22 @@
   if (zkHost == null) {
     throw new IllegalStateException("Solr at " + cli.getOptionValue("solrUrl") + " is running in standalone server mode, downconfig can only be used when running in SolrCloud mode.\n");
   }
-  try (CloudSolrClient cloudSolrClient=new CloudSolrClient.Builder().withZkHost(zkHost).build()){
+  try (SolrZkClient zkClient=new SolrZkClient(zkHost,30000)){
     echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
-    cloudSolrClient.connect();
-    downconfig(cloudSolrClient,cli.getOptionValue("confname"),cli.getOptionValue("confdir"));
+    String confName=cli.getOptionValue("confname");
+    String confDir=cli.getOptionValue("confdir");
+    Path configSetPath=Paths.get(confDir);
+    if (configSetPath.endsWith("/conf") == false) {
+      configSetPath=Paths.get(configSetPath.toString(),"conf");
+    }
+    if (Files.exists(configSetPath) == false) {
+      Files.createDirectories(configSetPath);
+    }
+    echo("Downloading configset " + confName + " from ZooKeeper at "+ zkHost+ " to directory "+ configSetPath.toAbsolutePath());
+    zkClient.downConfig(confName,configSetPath);
   }
- }
+ catch (  Exception e) {
+    log.error("Could not complete downconfig operation for reason: " + e.getMessage());
+    throw (e);
+  }
+}

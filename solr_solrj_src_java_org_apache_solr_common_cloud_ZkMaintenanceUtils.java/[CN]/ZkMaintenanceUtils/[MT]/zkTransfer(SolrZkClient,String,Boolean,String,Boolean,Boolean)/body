@@ -1,0 +1,40 @@
+{
+  if (srcIsZk == false && dstIsZk == false) {
+    throw new SolrServerException("One or both of source or destination must specify ZK nodes.");
+  }
+  if (recurse == false) {
+    if (srcIsZk) {
+      if (zkClient.getChildren(src,null,true).size() != 0) {
+        throw new SolrServerException("Zookeeper node " + src + " has children and recurse is false");
+      }
+    }
+ else     if (Files.isDirectory(Paths.get(src))) {
+      throw new SolrServerException("Local path " + Paths.get(src).toAbsolutePath() + " is a directory and recurse is false");
+    }
+  }
+  if (srcIsZk == false && dstIsZk == false) {
+    throw new SolrServerException("At least one of the source and dest parameters must be prefixed with 'zk:' ");
+  }
+  dst=normalizeDest(src,dst);
+  if (srcIsZk && dstIsZk) {
+    traverseZkTree(zkClient,src,VISIT_ORDER.VISIT_PRE,new ZkCopier(zkClient,src,dst));
+    return;
+  }
+  if (dstIsZk) {
+    uploadToZK(zkClient,Paths.get(src),dst,null);
+    return;
+  }
+  if (zkClient.getChildren(src,null,true).size() > 0) {
+    downloadFromZK(zkClient,src,Paths.get(dst));
+    return;
+  }
+  if (Files.isDirectory(Paths.get(dst))) {
+    if (dst.endsWith("/") == false)     dst+="/";
+    dst=normalizeDest(src,dst);
+  }
+  byte[] data=zkClient.getData(src,null,null,true);
+  Path filename=Paths.get(dst);
+  Files.createDirectories(filename.getParent());
+  log.info("Writing file {}",filename);
+  Files.write(filename,data);
+}

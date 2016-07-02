@@ -1,0 +1,27 @@
+{
+  String zkHost=getZkHost(cli);
+  if (zkHost == null) {
+    throw new IllegalStateException("Solr at " + cli.getOptionValue("zkHost") + " is running in standalone server mode, 'zk rm' can only be used when running in SolrCloud mode.\n");
+  }
+  String target=cli.getOptionValue("path");
+  Boolean recurse=Boolean.parseBoolean(cli.getOptionValue("recurse"));
+  String znode=target;
+  if (target.toLowerCase(Locale.ROOT).startsWith("zk:")) {
+    znode=target.substring(3);
+  }
+  if (znode.equals("/")) {
+    throw new SolrServerException("You may not remove the root ZK node ('/')!");
+  }
+  echo("\nConnecting to ZooKeeper at " + zkHost + " ...");
+  try (SolrZkClient zkClient=new SolrZkClient(zkHost,30000)){
+    if (recurse == false && zkClient.getChildren(znode,null,true).size() != 0) {
+      throw new SolrServerException("Zookeeper node " + znode + " has children and recurse has NOT been specified");
+    }
+    echo("Removing Zookeeper node " + znode + " from ZooKeeper at "+ zkHost+ " recurse: "+ Boolean.toString(recurse));
+    zkClient.clean(znode);
+  }
+ catch (  Exception e) {
+    log.error("Could not complete rm operation for reason: " + e.getMessage());
+    throw (e);
+  }
+}
