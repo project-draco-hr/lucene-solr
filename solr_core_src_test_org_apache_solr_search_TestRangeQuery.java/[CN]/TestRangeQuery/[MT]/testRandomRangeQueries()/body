@@ -1,23 +1,25 @@
 {
   String handler="";
   final String[] fields={"foo_s","foo_i","foo_l","foo_f","foo_d","foo_ti","foo_tl","foo_tf","foo_td"};
-  final int l=-5;
-  final int u=25;
-  createIndex(15,new DocProcessor(){
+  String[] norm_fields={"foo_i","foo_l","foo_f","foo_d","foo_ti","foo_tl","foo_tf","foo_td"};
+  String[] frange_fields={"foo_i","foo_l","foo_f","foo_d"};
+  final int l=-1 * atLeast(50);
+  final int u=atLeast(250);
+  final int numDocs=random().nextBoolean() ? random().nextInt(50) : atLeast(1000);
+  createIndex(numDocs,new DocProcessor(){
     @Override public void process(    SolrInputDocument doc){
-      if (r.nextInt(10) != 0)       addInt(doc,l,u,fields);
+      if (random().nextInt(10) != 0)       addInt(doc,l,u,fields);
     }
   }
 );
   assertU(commit());
-  String[] norm_fields={"foo_i","foo_l","foo_f","foo_d","foo_ti","foo_tl","foo_tf","foo_td"};
-  String[] frange_fields={"foo_i","foo_l","foo_f","foo_d"};
-  for (int i=0; i < 1000; i++) {
-    int lower=l + r.nextInt(u - l + 10) - 5;
-    int upper=lower + r.nextInt(u + 5 - lower);
-    boolean lowerMissing=r.nextInt(10) == 1;
-    boolean upperMissing=r.nextInt(10) == 1;
-    boolean inclusive=lowerMissing || upperMissing || r.nextBoolean();
+  final int numIters=atLeast(1000);
+  for (int i=0; i < numIters; i++) {
+    int lower=TestUtil.nextInt(random(),2 * l,u);
+    int upper=TestUtil.nextInt(random(),lower,2 * u);
+    boolean lowerMissing=random().nextInt(10) == 1;
+    boolean upperMissing=random().nextInt(10) == 1;
+    boolean inclusive=lowerMissing || upperMissing || random().nextBoolean();
     List<String> qs=new ArrayList<>();
     for (    String field : norm_fields) {
       String q=field + ':' + (inclusive ? '[' : '{')+ (lowerMissing ? "*" : lower)+ " TO "+ (upperMissing ? "*" : upper)+ (inclusive ? ']' : '}');
@@ -27,17 +29,48 @@
       String q="{!frange v=" + field + (lowerMissing ? "" : (" l=" + lower))+ (upperMissing ? "" : (" u=" + upper))+ (inclusive ? "" : " incl=false")+ (inclusive ? "" : " incu=false")+ "}";
       qs.add(q);
     }
+    String lastQ=null;
     SolrQueryResponse last=null;
     for (    String q : qs) {
-      SolrQueryRequest req=req("q",q,"rows","1000");
+      SolrQueryRequest req=req("q",q,"rows","" + numDocs);
       SolrQueryResponse qr=h.queryAndResponse(handler,req);
       if (last != null) {
         DocList rA=((ResultContext)qr.getResponse()).getDocList();
         DocList rB=((ResultContext)last.getResponse()).getDocList();
-        sameDocs(rA,rB);
+        sameDocs(q + " vs " + lastQ,rA,rB);
       }
       req.close();
       last=qr;
+      lastQ=q;
     }
   }
+  int numDocsLeftInIndex=numDocs;
+  final int numDBQs=atLeast(10);
+  for (int i=0; i < numDBQs; i++) {
+    int lower=TestUtil.nextInt(random(),2 * l,u);
+    int upper=TestUtil.nextInt(random(),lower,2 * u);
+    boolean lowerMissing=random().nextInt(10) == 1;
+    boolean upperMissing=random().nextInt(10) == 1;
+    boolean inclusive=lowerMissing || upperMissing || random().nextBoolean();
+    String dbq=null;
+    if (random().nextBoolean()) {
+      String field=fields[random().nextInt(fields.length)];
+      dbq=field + ':' + (inclusive ? '[' : '{')+ (lowerMissing ? "*" : lower)+ " TO "+ (upperMissing ? "*" : upper)+ (inclusive ? ']' : '}');
+    }
+ else {
+      String field=frange_fields[random().nextInt(frange_fields.length)];
+      dbq="{!frange v=" + field + (lowerMissing ? "" : (" l=" + lower))+ (upperMissing ? "" : (" u=" + upper))+ (inclusive ? "" : " incl=false")+ (inclusive ? "" : " incu=false")+ "}";
+    }
+    try (SolrQueryRequest req=req("q",dbq,"rows","0")){
+      SolrQueryResponse qr=h.queryAndResponse(handler,req);
+      numDocsLeftInIndex-=((ResultContext)qr.getResponse()).getDocList().matches();
+    }
+     assertU(delQ(dbq));
+    assertU(commit());
+    try (SolrQueryRequest req=req("q","*:*","rows","0","_trace_after_dbq",dbq)){
+      SolrQueryResponse qr=h.queryAndResponse(handler,req);
+      final int allDocsFound=((ResultContext)qr.getResponse()).getDocList().matches();
+      assertEquals(dbq,numDocsLeftInIndex,allDocsFound);
+    }
+   }
 }
