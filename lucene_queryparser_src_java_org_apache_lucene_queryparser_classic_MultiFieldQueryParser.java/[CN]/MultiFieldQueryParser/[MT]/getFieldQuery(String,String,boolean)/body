@@ -1,16 +1,56 @@
 {
   if (field == null) {
     List<Query> clauses=new ArrayList<>();
+    Query[] fieldQueries=new Query[fields.length];
+    int maxTerms=0;
     for (int i=0; i < fields.length; i++) {
       Query q=super.getFieldQuery(fields[i],queryText,quoted);
       if (q != null) {
-        if (boosts != null) {
-          Float boost=boosts.get(fields[i]);
-          if (boost != null) {
-            q=new BoostQuery(q,boost.floatValue());
+        if (q instanceof TermQuery) {
+          maxTerms=Math.max(1,maxTerms);
+        }
+ else         if (q instanceof BooleanQuery) {
+          maxTerms=Math.max(maxTerms,((BooleanQuery)q).clauses().size());
+        }
+        fieldQueries[i]=q;
+      }
+    }
+    for (int termNum=0; termNum < maxTerms; termNum++) {
+      List<Query> termClauses=new ArrayList<>();
+      for (int i=0; i < fields.length; i++) {
+        if (fieldQueries[i] != null) {
+          Query q=null;
+          if (fieldQueries[i] instanceof BooleanQuery) {
+            List<BooleanClause> nestedClauses=((BooleanQuery)fieldQueries[i]).clauses();
+            if (termNum < nestedClauses.size()) {
+              q=nestedClauses.get(termNum).getQuery();
+            }
+          }
+ else           if (termNum == 0) {
+            q=fieldQueries[i];
+          }
+          if (q != null) {
+            if (boosts != null) {
+              Float boost=boosts.get(fields[i]);
+              if (boost != null) {
+                q=new BoostQuery(q,boost);
+              }
+            }
+            termClauses.add(q);
           }
         }
-        clauses.add(q);
+      }
+      if (maxTerms > 1) {
+        if (termClauses.size() > 0) {
+          BooleanQuery.Builder builder=newBooleanQuery();
+          for (          Query termClause : termClauses) {
+            builder.add(termClause,BooleanClause.Occur.SHOULD);
+          }
+          clauses.add(builder.build());
+        }
+      }
+ else {
+        clauses.addAll(termClauses);
       }
     }
     if (clauses.size() == 0)     return null;
