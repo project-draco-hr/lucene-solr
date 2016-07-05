@@ -1,6 +1,9 @@
 {
   AbstractUpdateRequest request=new UpdateRequest().add(id,"0","a_t","hello1").add(id,"2","a_t","hello2").setAction(AbstractUpdateRequest.ACTION.COMMIT,true,true);
   NamedList<Object> response=cluster.getSolrClient().request(request,COLLECTION);
+  if (cluster.getSolrClient().isDirectUpdatesToLeadersOnly()) {
+    checkSingleServer(response);
+  }
   CloudSolrClient.RouteResponse rr=(CloudSolrClient.RouteResponse)response;
   Map<String,LBHttpSolrClient.Req> routes=rr.getRoutes();
   Iterator<Map.Entry<String,LBHttpSolrClient.Req>> it=routes.entrySet().iterator();
@@ -20,7 +23,10 @@
       assertTrue(docList.getNumFound() == 1);
     }
    }
-  new UpdateRequest().deleteById("0").deleteById("2").commit(cluster.getSolrClient(),COLLECTION);
+  final UpdateResponse uResponse=new UpdateRequest().deleteById("0").deleteById("2").commit(cluster.getSolrClient(),COLLECTION);
+  if (cluster.getSolrClient().isDirectUpdatesToLeadersOnly()) {
+    checkSingleServer(uResponse.getResponse());
+  }
   QueryResponse qResponse=cluster.getSolrClient().query(COLLECTION,new SolrQuery("*:*"));
   SolrDocumentList docs=qResponse.getResults();
   assertEquals(0,docs.getNumFound());
@@ -28,6 +34,9 @@
     threadedClient.setParallelUpdates(true);
     threadedClient.setDefaultCollection(COLLECTION);
     response=threadedClient.request(request);
+    if (threadedClient.isDirectUpdatesToLeadersOnly()) {
+      checkSingleServer(response);
+    }
     rr=(CloudSolrClient.RouteResponse)response;
     routes=rr.getRoutes();
     it=routes.entrySet().iterator();
