@@ -1,16 +1,20 @@
 {
   String collectionName=message.getStr(COLLECTION_PROP);
   String backupName=message.getStr(NAME);
-  String location=message.getStr(ZkStateReader.BACKUP_LOCATION);
   ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
   String asyncId=message.getStr(ASYNC);
+  String repo=message.getStr(CoreAdminParams.BACKUP_REPOSITORY);
+  String location=message.getStr(CoreAdminParams.BACKUP_LOCATION);
   Map<String,String> requestMap=new HashMap<>();
   Instant startTime=Instant.now();
-  Path backupPath=Paths.get(location).resolve(backupName).toAbsolutePath();
-  if (Files.exists(backupPath)) {
-    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Backup directory already exists: " + backupPath);
+  CoreContainer cc=this.overseer.getZkController().getCoreContainer();
+  BackupRepository repository=cc.newBackupRepository(Optional.ofNullable(repo));
+  BackupManager backupMgr=new BackupManager(repository,zkStateReader,collectionName);
+  URI backupPath=repository.createURI(location,backupName);
+  if (repository.exists(backupPath)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"The backup directory already exists: " + backupPath);
   }
-  Files.createDirectory(backupPath);
+  repository.createDirectory(backupPath);
   log.info("Starting backup of collection={} with backupName={} at location={}",collectionName,backupName,backupPath);
   for (  Slice slice : zkStateReader.getClusterState().getCollection(collectionName).getActiveSlices()) {
     Replica replica=slice.getLeader();
@@ -18,7 +22,8 @@
     ModifiableSolrParams params=new ModifiableSolrParams();
     params.set(CoreAdminParams.ACTION,CoreAdminAction.BACKUPCORE.toString());
     params.set(NAME,slice.getName());
-    params.set("location",backupPath.toString());
+    params.set(CoreAdminParams.BACKUP_REPOSITORY,repo);
+    params.set(CoreAdminParams.BACKUP_LOCATION,backupPath.getPath());
     params.set(CORE_NAME_PROP,coreName);
     sendShardRequest(replica.getNodeName(),params,shardHandler,asyncId,requestMap);
     log.debug("Sent backup request to core={} for backupName={}",coreName,backupName);
@@ -27,18 +32,14 @@
   processResponses(results,shardHandler,true,"Could not backup all replicas",asyncId,requestMap);
   log.info("Starting to backup ZK data for backupName={}",backupName);
   String configName=zkStateReader.readConfigName(collectionName);
-  Path zkBackup=backupPath.resolve("zk_backup");
-  zkStateReader.getConfigManager().downloadConfigDir(configName,zkBackup.resolve("configs").resolve(configName));
-  DocCollection collection=zkStateReader.getClusterState().getCollection(collectionName);
-  Files.write(zkBackup.resolve("collection_state.json"),Utils.toJSON(Collections.singletonMap(collectionName,collection)));
-  Path propertiesPath=backupPath.resolve("backup.properties");
+  backupMgr.downloadConfigDir(location,backupName,configName);
+  DocCollection collectionState=zkStateReader.getClusterState().getCollection(collectionName);
+  backupMgr.writeCollectionState(location,backupName,collectionName,collectionState);
   Properties properties=new Properties();
-  properties.put("backupName",backupName);
-  properties.put("collection",collectionName);
-  properties.put("collection.configName",configName);
-  properties.put("startTime",startTime.toString());
-  try (Writer os=Files.newBufferedWriter(propertiesPath,StandardCharsets.UTF_8)){
-    properties.store(os,"Snapshot properties file");
-  }
-   log.info("Completed backing up ZK data for backupName={}",backupName);
+  properties.put(BackupManager.BACKUP_NAME_PROP,backupName);
+  properties.put(BackupManager.COLLECTION_NAME_PROP,collectionName);
+  properties.put(COLL_CONF,configName);
+  properties.put(BackupManager.START_TIME_PROP,startTime.toString());
+  backupMgr.writeBackupProperties(location,backupName,properties);
+  log.info("Completed backing up ZK data for backupName={}",backupName);
 }

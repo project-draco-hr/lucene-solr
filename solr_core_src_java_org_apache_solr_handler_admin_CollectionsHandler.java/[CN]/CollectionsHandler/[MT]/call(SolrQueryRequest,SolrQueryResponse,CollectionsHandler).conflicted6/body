@@ -1,30 +1,13 @@
 {
-  final CoreContainer coreContainer=h.coreContainer;
-  final String requestId=req.getParams().get(REQUESTID);
-  final ZkController zkController=coreContainer.getZkController();
-  Boolean flush=req.getParams().getBool(CollectionAdminParams.FLUSH,false);
-  if (requestId == null && !flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Either requestid or flush parameter must be specified.");
+  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,PROPERTY_PROP,SHARD_ID_PROP,REPLICA_PROP,PROPERTY_VALUE_PROP);
+  req.getParams().getAll(map,SHARD_UNIQUE);
+  String property=(String)map.get(PROPERTY_PROP);
+  if (!property.startsWith(COLL_PROP_PREFIX)) {
+    property=COLL_PROP_PREFIX + property;
   }
-  if (requestId != null && flush) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Both requestid and flush parameters can not be specified together.");
+  boolean uniquePerSlice=Boolean.parseBoolean((String)map.get(SHARD_UNIQUE));
+  if (StringUtils.isNotBlank((String)map.get(SHARD_UNIQUE)) && SliceMutator.SLICE_UNIQUE_BOOLEAN_PROPERTIES.contains(property.toLowerCase(Locale.ROOT)) && uniquePerSlice == false) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Overseer replica property command received for property " + property + " with the "+ SHARD_UNIQUE+ " parameter set to something other than 'true'. No action taken.");
   }
-  if (flush) {
-    zkController.getOverseerCompletedMap().clear();
-    zkController.getOverseerFailureMap().clear();
-    rsp.getValues().add("status","successfully cleared stored collection api responses");
-    return null;
-  }
- else {
-    if (zkController.getOverseerCompletedMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else     if (zkController.getOverseerFailureMap().remove(requestId)) {
-      rsp.getValues().add("status","successfully removed stored response for [" + requestId + "]");
-    }
- else {
-      rsp.getValues().add("status","[" + requestId + "] not found in stored responses");
-    }
-  }
-  return null;
+  return map;
 }

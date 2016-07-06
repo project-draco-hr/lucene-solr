@@ -1,0 +1,29 @@
+{
+  dfsCluster=HdfsTestUtil.setupClass(createTempDir().toFile().getAbsolutePath());
+  hdfsUri=HdfsTestUtil.getURI(dfsCluster);
+  try {
+    URI uri=new URI(hdfsUri);
+    Configuration conf=HdfsTestUtil.getClientConfiguration(dfsCluster);
+    conf.setBoolean("fs.hdfs.impl.disable.cache",true);
+    fs=FileSystem.get(uri,conf);
+    if (fs instanceof DistributedFileSystem) {
+      while (((DistributedFileSystem)fs).setSafeMode(SafeModeAction.SAFEMODE_GET,true)) {
+        log.warn("The NameNode is in SafeMode - Solr will wait 5 seconds and try again.");
+        try {
+          Thread.sleep(5000);
+        }
+ catch (        InterruptedException e) {
+          Thread.interrupted();
+        }
+      }
+    }
+    fs.mkdirs(new org.apache.hadoop.fs.Path("/backup"));
+  }
+ catch (  IOException|URISyntaxException e) {
+    throw new RuntimeException(e);
+  }
+  System.setProperty("solr.hdfs.default.backup.path","/backup");
+  System.setProperty("solr.hdfs.home",hdfsUri + "/solr");
+  useFactory("solr.StandardDirectoryFactory");
+  configureCluster(NUM_SHARDS).addConfig("conf1",TEST_PATH().resolve("configsets").resolve("cloud-minimal").resolve("conf")).withSolrXml(SOLR_XML).configure();
+}

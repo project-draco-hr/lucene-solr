@@ -1,23 +1,18 @@
 {
   String restoreCollectionName=message.getStr(COLLECTION_PROP);
   String backupName=message.getStr(NAME);
-  String location=message.getStr(ZkStateReader.BACKUP_LOCATION);
   ShardHandler shardHandler=shardHandlerFactory.getShardHandler();
   String asyncId=message.getStr(ASYNC);
+  String repo=message.getStr(CoreAdminParams.BACKUP_REPOSITORY);
+  String location=message.getStr(CoreAdminParams.BACKUP_LOCATION);
   Map<String,String> requestMap=new HashMap<>();
-  Path backupPath=Paths.get(location).resolve(backupName).toAbsolutePath();
-  if (!Files.exists(backupPath)) {
-    throw new SolrException(ErrorCode.SERVER_ERROR,"Couldn't restore since doesn't exist: " + backupPath);
-  }
-  Path backupZkPath=backupPath.resolve("zk_backup");
-  Properties properties=new Properties();
-  try (Reader in=Files.newBufferedReader(backupPath.resolve("backup.properties"),StandardCharsets.UTF_8)){
-    properties.load(in);
-  }
-   String backupCollection=(String)properties.get("collection");
-  byte[] data=Files.readAllBytes(backupZkPath.resolve("collection_state.json"));
-  ClusterState backupClusterState=ClusterState.load(-1,data,Collections.emptySet());
-  DocCollection backupCollectionState=backupClusterState.getCollection(backupCollection);
+  CoreContainer cc=this.overseer.getZkController().getCoreContainer();
+  BackupRepository repository=cc.newBackupRepository(Optional.ofNullable(repo));
+  URI backupPath=repository.createURI(location,backupName);
+  BackupManager backupMgr=new BackupManager(repository,zkStateReader,restoreCollectionName);
+  Properties properties=backupMgr.readBackupProperties(location,backupName);
+  String backupCollection=properties.getProperty(BackupManager.COLLECTION_NAME_PROP);
+  DocCollection backupCollectionState=backupMgr.readCollectionState(location,backupName,backupCollection);
   String configName=(String)properties.get(COLL_CONF);
   String restoreConfigName=message.getStr(COLL_CONF,configName);
   if (zkStateReader.getConfigManager().configExists(restoreConfigName)) {
@@ -25,9 +20,9 @@
   }
  else {
     log.info("Uploading config {}",restoreConfigName);
-    zkStateReader.getConfigManager().uploadConfigDir(backupZkPath.resolve("configs").resolve(configName),restoreConfigName);
+    backupMgr.uploadConfigDir(location,backupName,configName,restoreConfigName);
   }
-  log.info("Starting restore into collection={} with backup_name={} at location={}",restoreCollectionName,backupName,backupPath);
+  log.info("Starting restore into collection={} with backup_name={} at location={}",restoreCollectionName,backupName,location);
 {
     Map<String,Object> propMap=new HashMap<>();
     propMap.put(Overseer.QUEUE_OPERATION,CREATE.toString());
@@ -89,7 +84,8 @@
     ModifiableSolrParams params=new ModifiableSolrParams();
     params.set(CoreAdminParams.ACTION,CoreAdminAction.RESTORECORE.toString());
     params.set(NAME,"snapshot." + slice.getName());
-    params.set("location",backupPath.toString());
+    params.set(CoreAdminParams.BACKUP_LOCATION,backupPath.getPath());
+    params.set(CoreAdminParams.BACKUP_REPOSITORY,repo);
     sliceCmd(clusterState,params,null,slice,shardHandler,asyncId,requestMap);
   }
   processResponses(new NamedList(),shardHandler,true,"Could not restore core",asyncId,requestMap);

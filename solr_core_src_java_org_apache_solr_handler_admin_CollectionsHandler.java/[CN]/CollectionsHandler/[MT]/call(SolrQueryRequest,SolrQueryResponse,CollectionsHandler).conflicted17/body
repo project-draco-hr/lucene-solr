@@ -1,8 +1,30 @@
 {
-  Map<String,Object> map=req.getParams().required().getAll(null,COLLECTION_PROP,SHARD_ID_PROP);
-  ClusterState clusterState=handler.coreContainer.getZkController().getClusterState();
-  final String newShardName=SolrIdentifierValidator.validateShardName(req.getParams().get(SHARD_ID_PROP));
-  if (!ImplicitDocRouter.NAME.equals(((Map)clusterState.getCollection(req.getParams().get(COLLECTION_PROP)).get(DOC_ROUTER)).get(NAME)))   throw new SolrException(ErrorCode.BAD_REQUEST,"shards can be added only to 'implicit' collections");
-  req.getParams().getAll(map,REPLICATION_FACTOR,CREATE_NODE_SET);
-  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
+  req.getParams().required().check(NAME,COLLECTION_PROP);
+  String collectionName=req.getParams().get(COLLECTION_PROP);
+  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
+  if (!clusterState.hasCollection(collectionName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Collection '" + collectionName + "' does not exist, no action taken.");
+  }
+  CoreContainer cc=h.coreContainer;
+  String repo=req.getParams().get(CoreAdminParams.BACKUP_REPOSITORY);
+  BackupRepository repository=cc.newBackupRepository(Optional.ofNullable(repo));
+  String location=repository.getBackupLocation(req.getParams().get(CoreAdminParams.BACKUP_LOCATION));
+  if (location == null) {
+    location=h.coreContainer.getZkController().getZkStateReader().getClusterProperty(CoreAdminParams.BACKUP_LOCATION,null);
+    if (location == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"'location' is not specified as a query" + " parameter or as a default repository property or as a cluster property.");
+    }
+  }
+  URI uri=repository.createURI(location);
+  try {
+    if (!repository.exists(uri)) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"specified location " + uri + " does not exist.");
+    }
+  }
+ catch (  IOException ex) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to check the existance of " + uri + ". Is it valid?",ex);
+  }
+  Map<String,Object> params=req.getParams().getAll(null,NAME,COLLECTION_PROP);
+  params.put(CoreAdminParams.BACKUP_LOCATION,location);
+  return params;
 }
