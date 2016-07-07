@@ -1,0 +1,54 @@
+{
+  final Rectangle box=Rectangle.fromPolygon(polygons);
+  final byte minLat[]=new byte[Integer.BYTES];
+  final byte maxLat[]=new byte[Integer.BYTES];
+  final byte minLon[]=new byte[Integer.BYTES];
+  final byte maxLon[]=new byte[Integer.BYTES];
+  NumericUtils.intToSortableBytes(encodeLatitude(box.minLat),minLat,0);
+  NumericUtils.intToSortableBytes(encodeLatitude(box.maxLat),maxLat,0);
+  NumericUtils.intToSortableBytes(encodeLongitude(box.minLon),minLon,0);
+  NumericUtils.intToSortableBytes(encodeLongitude(box.maxLon),maxLon,0);
+  final Polygon2D tree=Polygon2D.create(polygons);
+  return new ConstantScoreWeight(this,boost){
+    @Override public Scorer scorer(    LeafReaderContext context) throws IOException {
+      LeafReader reader=context.reader();
+      PointValues values=reader.getPointValues();
+      if (values == null) {
+        return null;
+      }
+      FieldInfo fieldInfo=reader.getFieldInfos().fieldInfo(field);
+      if (fieldInfo == null) {
+        return null;
+      }
+      LatLonPoint.checkCompatible(fieldInfo);
+      DocIdSetBuilder result=new DocIdSetBuilder(reader.maxDoc(),values,field);
+      values.intersect(field,new IntersectVisitor(){
+        DocIdSetBuilder.BulkAdder adder;
+        @Override public void grow(        int count){
+          adder=result.grow(count);
+        }
+        @Override public void visit(        int docID){
+          adder.add(docID);
+        }
+        @Override public void visit(        int docID,        byte[] packedValue){
+          if (tree.contains(decodeLatitude(packedValue,0),decodeLongitude(packedValue,Integer.BYTES))) {
+            adder.add(docID);
+          }
+        }
+        @Override public Relation compare(        byte[] minPackedValue,        byte[] maxPackedValue){
+          if (StringHelper.compare(Integer.BYTES,minPackedValue,0,maxLat,0) > 0 || StringHelper.compare(Integer.BYTES,maxPackedValue,0,minLat,0) < 0 || StringHelper.compare(Integer.BYTES,minPackedValue,Integer.BYTES,maxLon,0) > 0 || StringHelper.compare(Integer.BYTES,maxPackedValue,Integer.BYTES,minLon,0) < 0) {
+            return Relation.CELL_OUTSIDE_QUERY;
+          }
+          double cellMinLat=decodeLatitude(minPackedValue,0);
+          double cellMinLon=decodeLongitude(minPackedValue,Integer.BYTES);
+          double cellMaxLat=decodeLatitude(maxPackedValue,0);
+          double cellMaxLon=decodeLongitude(maxPackedValue,Integer.BYTES);
+          return tree.relate(cellMinLat,cellMaxLat,cellMinLon,cellMaxLon);
+        }
+      }
+);
+      return new ConstantScoreScorer(this,score(),result.build().iterator());
+    }
+  }
+;
+}
