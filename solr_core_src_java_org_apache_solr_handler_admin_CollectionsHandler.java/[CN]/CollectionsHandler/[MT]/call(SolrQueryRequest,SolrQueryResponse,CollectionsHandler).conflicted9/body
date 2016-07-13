@@ -1,17 +1,31 @@
 {
-  String name=req.getParams().required().get(COLLECTION_PROP);
-  String shard=req.getParams().get(SHARD_ID_PROP);
-  String rangesStr=req.getParams().get(CoreAdminParams.RANGES);
-  String splitKey=req.getParams().get("split.key");
-  if (splitKey == null && shard == null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"At least one of shard, or split.key should be specified.");
+  req.getParams().required().check(NAME,COLLECTION_PROP);
+  String collectionName=req.getParams().get(COLLECTION_PROP);
+  ClusterState clusterState=h.coreContainer.getZkController().getClusterState();
+  if (!clusterState.hasCollection(collectionName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Collection '" + collectionName + "' does not exist, no action taken.");
   }
-  if (splitKey != null && shard != null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'shard' or 'split.key' should be specified");
+  CoreContainer cc=h.coreContainer;
+  String repo=req.getParams().get(CoreAdminParams.BACKUP_REPOSITORY);
+  BackupRepository repository=cc.newBackupRepository(Optional.ofNullable(repo));
+  String location=repository.getBackupLocation(req.getParams().get(CoreAdminParams.BACKUP_LOCATION));
+  if (location == null) {
+    h.coreContainer.getZkController().getZkStateReader().forceUpdateClusterProperties();
+    location=h.coreContainer.getZkController().getZkStateReader().getClusterProperty(CoreAdminParams.BACKUP_LOCATION,null);
+    if (location == null) {
+      throw new SolrException(ErrorCode.BAD_REQUEST,"'location' is not specified as a query" + " parameter or as a default repository property or as a cluster property.");
+    }
   }
-  if (splitKey != null && rangesStr != null) {
-    throw new SolrException(ErrorCode.BAD_REQUEST,"Only one of 'ranges' or 'split.key' should be specified");
+  URI uri=repository.createURI(location);
+  try {
+    if (!repository.exists(uri)) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"specified location " + uri + " does not exist.");
+    }
   }
-  Map<String,Object> map=req.getParams().getAll(null,COLLECTION_PROP,SHARD_ID_PROP,"split.key",CoreAdminParams.RANGES);
-  return copyPropertiesWithPrefix(req.getParams(),map,COLL_PROP_PREFIX);
+ catch (  IOException ex) {
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to check the existance of " + uri + ". Is it valid?",ex);
+  }
+  Map<String,Object> params=req.getParams().getAll(null,NAME,COLLECTION_PROP);
+  params.put(CoreAdminParams.BACKUP_LOCATION,location);
+  return params;
 }
