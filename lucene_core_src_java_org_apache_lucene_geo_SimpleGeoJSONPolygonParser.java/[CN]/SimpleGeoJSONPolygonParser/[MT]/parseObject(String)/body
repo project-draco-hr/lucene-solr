@@ -1,0 +1,120 @@
+{
+  scan('{');
+  boolean first=true;
+  while (true) {
+    char ch=peek();
+    if (ch == '}') {
+      break;
+    }
+ else     if (first == false) {
+      if (ch == ',') {
+        upto++;
+        ch=peek();
+        if (ch == '}') {
+          break;
+        }
+      }
+ else {
+        throw newParseException("expected , but got " + ch);
+      }
+    }
+    first=false;
+    int uptoStart=upto;
+    String key=parseString();
+    if (path.equals("crs.properties") && key.equals("href")) {
+      upto=uptoStart;
+      throw newParseException("cannot handle linked crs");
+    }
+    scan(':');
+    Object o;
+    ch=peek();
+    uptoStart=upto;
+    if (ch == '[') {
+      String newPath;
+      if (path.length() == 0) {
+        newPath=key;
+      }
+ else {
+        newPath=path + "." + key;
+      }
+      o=parseArray(newPath);
+    }
+ else     if (ch == '{') {
+      String newPath;
+      if (path.length() == 0) {
+        newPath=key;
+      }
+ else {
+        newPath=path + "." + key;
+      }
+      parseObject(newPath);
+      o=null;
+    }
+ else     if (ch == '"') {
+      o=parseString();
+    }
+ else     if (ch == 't') {
+      scan("true");
+      o=Boolean.TRUE;
+    }
+ else     if (ch == 'f') {
+      scan("false");
+      o=Boolean.FALSE;
+    }
+ else     if (ch == 'n') {
+      scan("null");
+      o=null;
+    }
+ else     if (ch == '-' || ch == '.' || (ch >= '0' && ch <= '9')) {
+      o=parseNumber();
+    }
+ else     if (ch == '}') {
+      break;
+    }
+ else {
+      throw newParseException("expected array, object, string or literal value, but got: " + ch);
+    }
+    if (path.equals("crs.properties") && key.equals("name")) {
+      if (o instanceof String == false) {
+        upto=uptoStart;
+        throw newParseException("crs.properties.name should be a string, but saw: " + o);
+      }
+      String crs=(String)o;
+      if (crs.startsWith("urn:ogc:def:crs:OGC") == false || crs.endsWith(":CRS84") == false) {
+        upto=uptoStart;
+        throw newParseException("crs must be CRS84 from OGC, but saw: " + o);
+      }
+    }
+    if (key.equals("type") && path.startsWith("crs") == false) {
+      if (o instanceof String == false) {
+        upto=uptoStart;
+        throw newParseException("type should be a string, but got: " + o);
+      }
+      String type=(String)o;
+      if (type.equals("Polygon") && isValidGeometryPath(path)) {
+        polyType="Polygon";
+      }
+ else       if (type.equals("MultiPolygon") && isValidGeometryPath(path)) {
+        polyType="MultiPolygon";
+      }
+ else       if ((type.equals("FeatureCollection") || type.equals("Feature")) && (path.equals("features.[]") || path.equals(""))) {
+      }
+ else {
+        upto=uptoStart;
+        throw newParseException("can only handle type FeatureCollection (if it has a single polygon geometry), Feature, Polygon or MutiPolygon, but got " + type);
+      }
+    }
+ else     if (key.equals("coordinates") && isValidGeometryPath(path)) {
+      if (o instanceof List == false) {
+        upto=uptoStart;
+        throw newParseException("coordinates should be an array, but got: " + o.getClass());
+      }
+      if (coordinates != null) {
+        upto=uptoStart;
+        throw newParseException("only one Polygon or MultiPolygon is supported");
+      }
+      coordinates=(List<Object>)o;
+    }
+  }
+  scan('}');
+}
