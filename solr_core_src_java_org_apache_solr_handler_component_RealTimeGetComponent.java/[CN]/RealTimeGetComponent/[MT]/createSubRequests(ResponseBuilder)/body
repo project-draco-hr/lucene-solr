@@ -1,21 +1,9 @@
 {
-  SolrParams params=rb.req.getParams();
-  String id1[]=params.getParams("id");
-  String ids[]=params.getParams("ids");
-  if (id1 == null && ids == null) {
+  final IdsRequsted reqIds=IdsRequsted.parseParams(rb.req);
+  if (reqIds.allIds.isEmpty()) {
     return ResponseBuilder.STAGE_DONE;
   }
-  List<String> allIds=new ArrayList<>();
-  if (id1 != null) {
-    for (    String s : id1) {
-      allIds.add(s);
-    }
-  }
-  if (ids != null) {
-    for (    String s : ids) {
-      allIds.addAll(StrUtils.splitSmart(s,",",true));
-    }
-  }
+  SolrParams params=rb.req.getParams();
   ZkController zkController=rb.req.getCore().getCoreDescriptor().getCoreContainer().getZkController();
   if (zkController != null && params.get("shards") == null) {
     CloudDescriptor cloudDescriptor=rb.req.getCore().getCoreDescriptor().getCloudDescriptor();
@@ -23,7 +11,7 @@
     ClusterState clusterState=zkController.getClusterState();
     DocCollection coll=clusterState.getCollection(collection);
     Map<String,List<String>> sliceToId=new HashMap<>();
-    for (    String id : allIds) {
+    for (    String id : reqIds.allIds) {
       Slice slice=coll.getRouter().getTargetSlice(id,null,null,params,coll);
       List<String> idsForShard=sliceToId.get(slice.getName());
       if (idsForShard == null) {
@@ -47,7 +35,7 @@
     }
   }
  else {
-    String shardIdList=StrUtils.join(allIds,',');
+    String shardIdList=StrUtils.join(reqIds.allIds,',');
     ShardRequest sreq=new ShardRequest();
     sreq.purpose=1;
     sreq.shards=null;
