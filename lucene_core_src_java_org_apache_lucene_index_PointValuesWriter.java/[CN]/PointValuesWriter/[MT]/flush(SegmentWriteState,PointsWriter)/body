@@ -1,12 +1,19 @@
 {
-  writer.writeField(fieldInfo,new PointsReader(){
+  PointsReader reader=new MutablePointsReader(){
+    final int[] ords=new int[numPoints];
+{
+      for (int i=0; i < numPoints; ++i) {
+        ords[i]=i;
+      }
+    }
     @Override public void intersect(    String fieldName,    IntersectVisitor visitor) throws IOException {
       if (fieldName.equals(fieldInfo.name) == false) {
         throw new IllegalArgumentException("fieldName must be the same");
       }
+      final byte[] packedValue=new byte[packedBytesLength];
       for (int i=0; i < numPoints; i++) {
-        bytes.readBytes(packedValue.length * i,packedValue,0,packedValue.length);
-        visitor.visit(docIDs[i],packedValue);
+        getValue(i,packedValue);
+        visitor.visit(getDocID(i),packedValue);
       }
     }
     @Override public void checkIntegrity(){
@@ -30,11 +37,34 @@
       throw new UnsupportedOperationException();
     }
     @Override public long size(    String fieldName){
+      if (fieldName.equals(fieldInfo.name) == false) {
+        throw new IllegalArgumentException("fieldName must be the same");
+      }
       return numPoints;
     }
     @Override public int getDocCount(    String fieldName){
+      if (fieldName.equals(fieldInfo.name) == false) {
+        throw new IllegalArgumentException("fieldName must be the same");
+      }
       return numDocs;
     }
+    @Override public void swap(    int i,    int j){
+      int tmp=ords[i];
+      ords[i]=ords[j];
+      ords[j]=tmp;
+    }
+    @Override public int getDocID(    int i){
+      return docIDs[ords[i]];
+    }
+    @Override public void getValue(    int i,    byte[] packedValue){
+      final long offset=(long)packedBytesLength * ords[i];
+      bytes.readBytes(offset,packedValue,0,packedBytesLength);
+    }
+    @Override public byte getByteAt(    int i,    int k){
+      final long offset=(long)packedBytesLength * ords[i] + k;
+      return bytes.readByte(offset);
+    }
   }
-,Math.max(indexWriterConfig.getRAMBufferSizeMB() / 8.0,BKDWriter.DEFAULT_MAX_MB_SORT_IN_HEAP));
+;
+  writer.writeField(fieldInfo,reader,Math.max(indexWriterConfig.getRAMBufferSizeMB() / 8.0,BKDWriter.DEFAULT_MAX_MB_SORT_IN_HEAP));
 }
