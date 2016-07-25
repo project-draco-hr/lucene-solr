@@ -1,0 +1,86 @@
+{
+  Map<String,String> params=new HashMap();
+  params.put("type","kerberos");
+  putParam(params,"kerberos.name.rules",NAME_RULES_PARAM,"DEFAULT");
+  putParam(params,"token.valid",TOKEN_VALID_PARAM,"30");
+  putParam(params,"cookie.path",COOKIE_PATH_PARAM,"/");
+  if (!skipKerberosChecking) {
+    putParam(params,"kerberos.principal",PRINCIPAL_PARAM,null);
+    putParam(params,"kerberos.keytab",KEYTAB_PARAM,null);
+  }
+ else {
+    putParamOptional(params,"kerberos.principal",PRINCIPAL_PARAM);
+    putParamOptional(params,"kerberos.keytab",KEYTAB_PARAM);
+  }
+  String delegationTokenStr=System.getProperty(DELEGATION_TOKEN_ENABLED,null);
+  boolean delegationTokenEnabled=(delegationTokenStr == null) ? false : Boolean.parseBoolean(delegationTokenStr);
+  ZkController controller=coreContainer.getZkController();
+  if (delegationTokenEnabled) {
+    putParam(params,"delegation-token.token-kind",DELEGATION_TOKEN_KIND,DELEGATION_TOKEN_TYPE_DEFAULT);
+    if (coreContainer.isZooKeeperAware()) {
+      putParam(params,"signer.secret.provider",DELEGATION_TOKEN_SECRET_PROVIDER,"zookeeper");
+      if ("zookeeper".equals(params.get("signer.secret.provider"))) {
+        String zkHost=controller.getZkServerAddress();
+        putParam(params,"token.validity",DELEGATION_TOKEN_VALIDITY,"36000");
+        params.put("zk-dt-secret-manager.enable","true");
+        String chrootPath=zkHost.substring(zkHost.indexOf("/"));
+        String relativePath=chrootPath.startsWith("/") ? chrootPath.substring(1) : chrootPath;
+        putParam(params,"zk-dt-secret-manager.znodeWorkingPath",DELEGATION_TOKEN_SECRET_MANAGER_ZNODE_WORKING_PATH,relativePath + SecurityAwareZkACLProvider.SECURITY_ZNODE_PATH + "/zkdtsm");
+        putParam(params,"signer.secret.provider.zookeeper.path",DELEGATION_TOKEN_SECRET_PROVIDER_ZK_PATH,"/token");
+        getHttpClientBuilder(SolrHttpClientBuilder.create());
+      }
+    }
+ else {
+      log.info("CoreContainer is not ZooKeeperAware, not setting ZK-related delegation token properties");
+    }
+  }
+  String usePortStr=System.getProperty(COOKIE_PORT_AWARE_PARAM,null);
+  boolean needPortAwareCookies=(usePortStr == null) ? false : Boolean.parseBoolean(usePortStr);
+  if (!needPortAwareCookies || !coreContainer.isZooKeeperAware()) {
+    putParam(params,"cookie.domain",COOKIE_DOMAIN_PARAM,null);
+  }
+ else {
+    String host=System.getProperty(COOKIE_DOMAIN_PARAM,null);
+    if (host == null) {
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Missing required parameter '" + COOKIE_DOMAIN_PARAM + "'.");
+    }
+    int port=controller.getHostPort();
+    params.put("cookie.domain",host + ":" + port);
+  }
+  for (Enumeration e=System.getProperties().propertyNames(); e.hasMoreElements(); ) {
+    String key=e.nextElement().toString();
+    if (key.startsWith(IMPERSONATOR_PREFIX)) {
+      if (!delegationTokenEnabled) {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"Impersonator configuration requires delegation tokens to be enabled: " + key);
+      }
+      params.put(key,System.getProperty(key));
+    }
+  }
+  final ServletContext servletContext=new AttributeOnlyServletContext();
+  if (controller != null) {
+    servletContext.setAttribute(DELEGATION_TOKEN_ZK_CLIENT,controller.getZkClient());
+  }
+  if (delegationTokenEnabled) {
+    kerberosFilter=new DelegationTokenKerberosFilter();
+  }
+ else {
+    kerberosFilter=new KerberosFilter();
+  }
+  log.info("Params: " + params);
+  FilterConfig conf=new FilterConfig(){
+    @Override public ServletContext getServletContext(){
+      return servletContext;
+    }
+    @Override public Enumeration<String> getInitParameterNames(){
+      return new IteratorEnumeration(params.keySet().iterator());
+    }
+    @Override public String getInitParameter(    String param){
+      return params.get(param);
+    }
+    @Override public String getFilterName(){
+      return "KerberosFilter";
+    }
+  }
+;
+  return conf;
+}
