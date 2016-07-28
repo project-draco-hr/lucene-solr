@@ -16,8 +16,8 @@
   String baseUrl=cluster.getJettySolrRunners().get(0).getBaseUrl().toString();
   try (SolrClient masterClient=getHttpSolrClient(replicaBaseUrl)){
     if (testViaReplicationHandler) {
-      log.info("Running Backup/restore via replication handler");
-      runReplicationHandlerCommand(baseUrl,coreName,ReplicationHandler.CMD_BACKUP,"hdfs",backupName);
+      log.info("Running Backup via replication handler");
+      BackupRestoreUtils.runReplicationHandlerCommand(baseUrl,coreName,ReplicationHandler.CMD_BACKUP,"hdfs",backupName);
       CheckBackupStatus checkBackupStatus=new CheckBackupStatus((HttpSolrClient)masterClient,coreName,null);
       while (!checkBackupStatus.success) {
         checkBackupStatus.fetchStatus();
@@ -25,8 +25,11 @@
       }
     }
  else {
-      log.info("Running Backup/restore via core admin api");
-      runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.BACKUPCORE.toString(),"hdfs",backupName);
+      log.info("Running Backup via core admin api");
+      Map<String,String> params=new HashMap<>();
+      params.put("name",backupName);
+      params.put(CoreAdminParams.BACKUP_REPOSITORY,"hdfs");
+      BackupRestoreUtils.runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.BACKUPCORE.toString(),params);
     }
     int numRestoreTests=nDocs > 0 ? TestUtil.nextInt(random(),1,5) : 1;
     for (int attempts=0; attempts < numRestoreTests; attempts++) {
@@ -48,13 +51,18 @@
         }
       }
       if (testViaReplicationHandler) {
-        runReplicationHandlerCommand(baseUrl,coreName,ReplicationHandler.CMD_RESTORE,"hdfs",backupName);
+        log.info("Running Restore via replication handler");
+        BackupRestoreUtils.runReplicationHandlerCommand(baseUrl,coreName,ReplicationHandler.CMD_RESTORE,"hdfs",backupName);
         while (!TestRestoreCore.fetchRestoreStatus(baseUrl,coreName)) {
           Thread.sleep(1000);
         }
       }
  else {
-        runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.RESTORECORE.toString(),"hdfs","snapshot." + backupName);
+        log.info("Running Restore via core admin api");
+        Map<String,String> params=new HashMap<>();
+        params.put("name","snapshot." + backupName);
+        params.put(CoreAdminParams.BACKUP_REPOSITORY,"hdfs");
+        BackupRestoreUtils.runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.RESTORECORE.toString(),params);
       }
       BackupRestoreUtils.verifyDocs(nDocs,masterClient,coreName);
     }
