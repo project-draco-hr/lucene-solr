@@ -1,0 +1,55 @@
+{
+  try {
+    if (++iteration > maxIterations) {
+      Map map=new HashMap();
+      map.put("EOF",true);
+      return new Tuple(map);
+    }
+ else {
+      if (this.idfs == null) {
+        loadTerms();
+        if (weights != null && terms.size() + 1 != weights.size()) {
+          throw new IOException(String.format(Locale.ROOT,"invalid expression %s - the number of weights must be %d, found %d",terms.size() + 1,weights.size()));
+        }
+      }
+      List<List<Double>> allWeights=new ArrayList();
+      this.evaluation=new ClassificationEvaluation();
+      this.error=0;
+      for (      Future<Tuple> logitCall : callShards(getShardUrls())) {
+        Tuple tuple=logitCall.get();
+        List<Double> shardWeights=(List<Double>)tuple.get("weights");
+        allWeights.add(shardWeights);
+        this.error+=tuple.getDouble("error");
+        Map shardEvaluation=(Map)tuple.get("evaluation");
+        this.evaluation.addEvaluation(shardEvaluation);
+      }
+      this.weights=averageWeights(allWeights);
+      Map map=new HashMap();
+      map.put("id",name + "_" + iteration);
+      map.put("name_s",name);
+      map.put("field_s",field);
+      map.put("terms_ss",terms);
+      map.put("iteration_i",iteration);
+      if (weights != null) {
+        map.put("weights_ds",weights);
+      }
+      map.put("error_d",error);
+      evaluation.putToMap(map);
+      map.put("alpha_d",this.learningRate);
+      map.put("idfs_ds",this.idfs);
+      if (iteration != 1) {
+        if (lastError <= error) {
+          this.learningRate*=0.5;
+        }
+ else {
+          this.learningRate*=1.05;
+        }
+      }
+      lastError=error;
+      return new Tuple(map);
+    }
+  }
+ catch (  Exception e) {
+    throw new IOException(e);
+  }
+}

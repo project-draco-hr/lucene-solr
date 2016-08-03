@@ -1,0 +1,50 @@
+{
+  NamedList<Double> analytics=new NamedList<Double>();
+  NamedList<Integer> topFreq=new NamedList();
+  NamedList<Integer> allFreq=new NamedList();
+  rb.rsp.add("featuredTerms",analytics);
+  rb.rsp.add("docFreq",topFreq);
+  rb.rsp.add("numDocs",count);
+  TreeSet<TermWithScore> topTerms=new TreeSet<>();
+  double numDocs=count;
+  double pc=numPositiveDocs / numDocs;
+  double entropyC=binaryEntropy(pc);
+  Terms terms=MultiFields.getFields(searcher.getIndexReader()).terms(field);
+  TermsEnum termsEnum=terms.iterator();
+  BytesRef term;
+  PostingsEnum postingsEnum=null;
+  while ((term=termsEnum.next()) != null) {
+    postingsEnum=termsEnum.postings(postingsEnum);
+    int xc=0;
+    int nc=0;
+    while (postingsEnum.nextDoc() != DocIdSetIterator.NO_MORE_DOCS) {
+      if (positiveSet.get(postingsEnum.docID())) {
+        xc++;
+      }
+ else       if (negativeSet.get(postingsEnum.docID())) {
+        nc++;
+      }
+    }
+    int docFreq=xc + nc;
+    double entropyContainsTerm=binaryEntropy((double)xc / docFreq);
+    double entropyNotContainsTerm=binaryEntropy((double)(numPositiveDocs - xc) / (numDocs - docFreq + 1));
+    double score=entropyC - ((docFreq / numDocs) * entropyContainsTerm + (1.0 - docFreq / numDocs) * entropyNotContainsTerm);
+    topFreq.add(term.utf8ToString(),docFreq);
+    if (topTerms.size() < numTerms) {
+      topTerms.add(new TermWithScore(term.utf8ToString(),score));
+    }
+ else {
+      if (topTerms.first().score < score) {
+        topTerms.pollFirst();
+        topTerms.add(new TermWithScore(term.utf8ToString(),score));
+      }
+    }
+  }
+  for (  TermWithScore topTerm : topTerms) {
+    analytics.add(topTerm.term,topTerm.score);
+    topFreq.add(topTerm.term,allFreq.get(topTerm.term));
+  }
+  if (this.delegate instanceof DelegatingCollector) {
+    ((DelegatingCollector)this.delegate).finish();
+  }
+}
