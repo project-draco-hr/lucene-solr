@@ -1,0 +1,22 @@
+{
+  Replica leader=state.getClient().getZkStateReader().getLeaderRetry(targetCollection,shard,30000);
+  String leaderCoreUrl=leader.getCoreUrl();
+  HttpClient httpClient=state.getClient().getLbClient().getHttpClient();
+  try (HttpSolrClient client=new HttpSolrClient.Builder(leaderCoreUrl).withHttpClient(httpClient).build()){
+    log.info("Attempting to bootstrap target collection: {} shard: {} leader: {}",targetCollection,shard,leaderCoreUrl);
+    try {
+      NamedList response=sendCdcrCommand(client,CdcrParams.CdcrAction.BOOTSTRAP,ReplicationHandler.MASTER_URL,myCoreUrl);
+      log.debug("CDCR Bootstrap response: {}",response);
+      String status=response.get(RESPONSE_STATUS).toString();
+      return BootstrapStatus.valueOf(status.toUpperCase(Locale.ROOT));
+    }
+ catch (    Exception e) {
+      log.error("Exception submitting bootstrap request",e);
+      return BootstrapStatus.UNKNOWN;
+    }
+  }
+ catch (  IOException e) {
+    log.error("There shouldn't be an IOException while closing but there was!",e);
+  }
+  return BootstrapStatus.UNKNOWN;
+}

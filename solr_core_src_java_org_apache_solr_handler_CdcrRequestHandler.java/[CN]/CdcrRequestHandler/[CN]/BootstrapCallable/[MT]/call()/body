@@ -1,0 +1,37 @@
+{
+  boolean success=false;
+  UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
+  ulog.bufferUpdates();
+  try {
+    commitOnLeader(masterUrl);
+    SolrRequestHandler handler=core.getRequestHandler(ReplicationHandler.PATH);
+    ReplicationHandler replicationHandler=(ReplicationHandler)handler;
+    if (replicationHandler == null) {
+      throw new SolrException(SolrException.ErrorCode.SERVICE_UNAVAILABLE,"Skipping recovery, no " + ReplicationHandler.PATH + " handler found");
+    }
+    ModifiableSolrParams solrParams=new ModifiableSolrParams();
+    solrParams.set(ReplicationHandler.MASTER_URL,masterUrl);
+    solrParams.set(ReplicationHandler.TLOG_FILES,false);
+    success=replicationHandler.doFetch(solrParams,false);
+    SolrRequestInfo.clearRequestInfo();
+    Future<UpdateLog.RecoveryInfo> future=ulog.applyBufferedUpdates();
+    if (future == null) {
+      log.info("No replay needed.");
+    }
+ else {
+      log.info("Replaying buffered documents.");
+      UpdateLog.RecoveryInfo report=future.get();
+      if (report.failed) {
+        SolrException.log(log,"Replay failed");
+        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Replay failed");
+      }
+    }
+    return success;
+  }
+  finally {
+    if (closed || !success) {
+      boolean dropped=ulog.dropBufferedUpdates();
+      assert dropped;
+    }
+  }
+}
