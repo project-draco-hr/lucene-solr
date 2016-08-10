@@ -1,0 +1,30 @@
+{
+  this.snapshotDelLock.lock();
+  try {
+    Optional<SnapshotMetaData> metadata=snapshotMgr.release(commitName);
+    if (metadata.isPresent()) {
+      long gen=metadata.get().getGenerationNumber();
+      String indexDirPath=metadata.get().getIndexDirPath();
+      if (!indexDirPath.equals(getIndexDir())) {
+        Directory d=getDirectoryFactory().get(indexDirPath,DirContext.DEFAULT,"none");
+        try {
+          Collection<SnapshotMetaData> snapshots=snapshotMgr.listSnapshotsInIndexDir(indexDirPath);
+          log.info("Following snapshots exist in the index directory {} : {}",indexDirPath,snapshots);
+          if (snapshots.isEmpty()) {
+            log.info("Removing index directory {} since all named snapshots are deleted.",indexDirPath);
+            getDirectoryFactory().remove(d);
+          }
+ else {
+            SolrSnapshotManager.deleteSnapshotIndexFiles(this,d,gen);
+          }
+        }
+  finally {
+          getDirectoryFactory().release(d);
+        }
+      }
+    }
+  }
+  finally {
+    snapshotDelLock.unlock();
+  }
+}

@@ -3,24 +3,14 @@
   final SolrParams params=it.req.getParams();
   String commitName=params.required().get(CoreAdminParams.COMMIT_NAME);
   String cname=params.required().get(CoreAdminParams.CORE);
-  try (SolrCore core=cc.getCore(cname)){
-    if (core == null) {
-      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unable to locate core " + cname);
-    }
-    SolrSnapshotMetaDataManager mgr=core.getSnapshotMetaDataManager();
-    Optional<SolrSnapshotMetaDataManager.SnapshotMetaData> metadata=mgr.release(commitName);
-    if (metadata.isPresent()) {
-      long gen=metadata.get().getGenerationNumber();
-      String indexDirPath=metadata.get().getIndexDirPath();
-      if (!indexDirPath.equals(core.getIndexDir())) {
-        Directory d=core.getDirectoryFactory().get(indexDirPath,DirectoryFactory.DirContext.DEFAULT,DirectoryFactory.LOCK_TYPE_NONE);
-        try {
-          SolrSnapshotManager.deleteIndexFiles(d,mgr.listSnapshotsInIndexDir(indexDirPath),gen);
-        }
-  finally {
-          core.getDirectoryFactory().release(d);
-        }
-      }
-    }
+  SolrCore core=cc.getCore(cname);
+  if (core == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unable to locate core " + cname);
   }
- }
+  try {
+    core.deleteNamedSnapshot(commitName);
+  }
+  finally {
+    core.close();
+  }
+}
