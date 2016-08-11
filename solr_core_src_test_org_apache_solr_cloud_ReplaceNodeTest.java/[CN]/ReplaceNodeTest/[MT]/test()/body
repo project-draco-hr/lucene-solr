@@ -1,0 +1,48 @@
+{
+  cluster.waitForAllNodes(5000);
+  String coll="replacenodetest_coll";
+  log.info("total_jettys: " + cluster.getJettySolrRunners().size());
+  CloudSolrClient cloudClient=cluster.getSolrClient();
+  Set<String> liveNodes=cloudClient.getZkStateReader().getClusterState().getLiveNodes();
+  ArrayList<String> l=new ArrayList<>(liveNodes);
+  Collections.shuffle(l,random());
+  String emptyNode=l.remove(0);
+  String node2bdecommissioned=l.get(0);
+  CollectionAdminRequest.Create create=CollectionAdminRequest.createCollection(coll,"conf1",5,2);
+  create.setCreateNodeSet(StrUtils.join(l,',')).setMaxShardsPerNode(3);
+  cloudClient.request(create);
+  log.info("excluded_node : {}  ",emptyNode);
+  new CollectionAdminRequest.ReplaceNode(node2bdecommissioned,emptyNode).processAsync("000",cloudClient);
+  CollectionAdminRequest.RequestStatus requestStatus=CollectionAdminRequest.requestStatus("000");
+  boolean success=false;
+  for (int i=0; i < 200; i++) {
+    CollectionAdminRequest.RequestStatusResponse rsp=requestStatus.process(cloudClient);
+    if (rsp.getRequestStatus() == RequestStatusState.COMPLETED) {
+      success=true;
+      break;
+    }
+    assertFalse(rsp.getRequestStatus() == RequestStatusState.FAILED);
+    Thread.sleep(50);
+  }
+  assertTrue(success);
+  try (HttpSolrClient coreclient=getHttpSolrClient(cloudClient.getZkStateReader().getBaseUrlForNodeName(node2bdecommissioned))){
+    CoreAdminResponse status=CoreAdminRequest.getStatus(null,coreclient);
+    assertTrue(status.getCoreStatus().size() == 0);
+  }
+   new CollectionAdminRequest.ReplaceNode(emptyNode,node2bdecommissioned).setParallel(Boolean.TRUE).processAsync("001",cloudClient);
+  requestStatus=CollectionAdminRequest.requestStatus("001");
+  for (int i=0; i < 200; i++) {
+    CollectionAdminRequest.RequestStatusResponse rsp=requestStatus.process(cloudClient);
+    if (rsp.getRequestStatus() == RequestStatusState.COMPLETED) {
+      success=true;
+      break;
+    }
+    assertFalse(rsp.getRequestStatus() == RequestStatusState.FAILED);
+    Thread.sleep(50);
+  }
+  assertTrue(success);
+  try (HttpSolrClient coreclient=getHttpSolrClient(cloudClient.getZkStateReader().getBaseUrlForNodeName(emptyNode))){
+    CoreAdminResponse status=CoreAdminRequest.getStatus(null,coreclient);
+    assertTrue(status.getCoreStatus().size() == 0);
+  }
+ }

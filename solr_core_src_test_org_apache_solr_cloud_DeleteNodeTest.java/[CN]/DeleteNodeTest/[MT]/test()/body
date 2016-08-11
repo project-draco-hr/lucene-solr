@@ -1,0 +1,25 @@
+{
+  cluster.waitForAllNodes(5000);
+  CloudSolrClient cloudClient=cluster.getSolrClient();
+  String coll="deletenodetest_coll";
+  Set<String> liveNodes=cloudClient.getZkStateReader().getClusterState().getLiveNodes();
+  ArrayList<String> l=new ArrayList<>(liveNodes);
+  Collections.shuffle(l,random());
+  CollectionAdminRequest.Create create=CollectionAdminRequest.createCollection(coll,"conf1",5,2);
+  create.setCreateNodeSet(StrUtils.join(l,',')).setMaxShardsPerNode(3);
+  cloudClient.request(create);
+  String node2bdecommissioned=l.get(0);
+  new CollectionAdminRequest.DeleteNode(node2bdecommissioned).processAsync("003",cloudClient);
+  CollectionAdminRequest.RequestStatus requestStatus=CollectionAdminRequest.requestStatus("003");
+  boolean success=false;
+  for (int i=0; i < 200; i++) {
+    CollectionAdminRequest.RequestStatusResponse rsp=requestStatus.process(cloudClient);
+    if (rsp.getRequestStatus() == RequestStatusState.COMPLETED) {
+      success=true;
+      break;
+    }
+    assertFalse(rsp.getRequestStatus() == RequestStatusState.FAILED);
+    Thread.sleep(50);
+  }
+  assertTrue(success);
+}
