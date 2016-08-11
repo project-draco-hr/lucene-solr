@@ -8,8 +8,21 @@
       long checkpoint=this.getCheckpoint(state);
       log.info("Create new update log reader for target {} with checkpoint {} @ {}:{}",state.getTargetCollection(),checkpoint,collectionName,shard);
       CdcrUpdateLog.CdcrLogReader reader=ulog.newLogReader();
-      reader.seek(checkpoint);
+      boolean seek=reader.seek(checkpoint);
       state.init(reader);
+      if (!seek) {
+        final String targetCollection=state.getTargetCollection();
+        state.setBootstrapInProgress(true);
+        log.info("Attempting to bootstrap target collection: {}, shard: {}",targetCollection,shard);
+        bootstrapStatusRunnable=new BootstrapStatusRunnable(core,state);
+        log.info("Submitting bootstrap task to executor");
+        try {
+          bootstrapExecutor.submit(bootstrapStatusRunnable);
+        }
+ catch (        Exception e) {
+          log.error("Unable to submit bootstrap call to executor",e);
+        }
+      }
     }
  catch (    IOException|SolrServerException|SolrException e) {
       log.warn("Unable to instantiate the log reader for target collection " + state.getTargetCollection(),e);

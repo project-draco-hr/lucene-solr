@@ -1,0 +1,31 @@
+{
+  final int numDims=TestUtil.nextInt(random(),1,8);
+  final int bytesPerDim=TestUtil.nextInt(random(),1,16);
+  final int maxDoc=TestUtil.nextInt(random(),1,1 << random().nextInt(30));
+  Point[] points=createRandomPoints(numDims,bytesPerDim,maxDoc);
+  int[] commonPrefixLengths=new int[numDims];
+  for (int i=0; i < commonPrefixLengths.length; ++i) {
+    commonPrefixLengths[i]=TestUtil.nextInt(random(),0,bytesPerDim);
+  }
+  BytesRef firstValue=points[0].packedValue;
+  for (int i=1; i < points.length; ++i) {
+    for (int dim=0; dim < numDims; ++dim) {
+      int offset=dim * bytesPerDim;
+      BytesRef packedValue=points[i].packedValue;
+      System.arraycopy(firstValue.bytes,firstValue.offset + offset,packedValue.bytes,packedValue.offset + offset,commonPrefixLengths[dim]);
+    }
+  }
+  DummyPointsReader reader=new DummyPointsReader(points);
+  final int sortedDim=random().nextInt(numDims);
+  MutablePointsReaderUtils.sortByDim(sortedDim,bytesPerDim,commonPrefixLengths,reader,0,points.length,new BytesRef(),new BytesRef());
+  for (int i=1; i < points.length; ++i) {
+    final int offset=sortedDim * bytesPerDim;
+    BytesRef previousValue=reader.points[i - 1].packedValue;
+    BytesRef currentValue=reader.points[i].packedValue;
+    int cmp=StringHelper.compare(bytesPerDim,previousValue.bytes,previousValue.offset + offset,currentValue.bytes,currentValue.offset + offset);
+    if (cmp == 0) {
+      cmp=reader.points[i - 1].doc - reader.points[i].doc;
+    }
+    assertTrue(cmp <= 0);
+  }
+}

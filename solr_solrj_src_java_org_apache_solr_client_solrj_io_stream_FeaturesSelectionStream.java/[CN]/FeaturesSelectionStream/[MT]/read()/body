@@ -1,0 +1,49 @@
+{
+  try {
+    if (tupleIterator == null) {
+      Map<String,Double> termScores=new HashMap<>();
+      Map<String,Long> docFreqs=new HashMap<>();
+      long numDocs=0;
+      for (      Future<NamedList> getTopTermsCall : callShards(getShardUrls())) {
+        NamedList resp=getTopTermsCall.get();
+        NamedList<Double> shardTopTerms=(NamedList<Double>)resp.get("featuredTerms");
+        NamedList<Integer> shardDocFreqs=(NamedList<Integer>)resp.get("docFreq");
+        numDocs+=(Integer)resp.get("numDocs");
+        for (int i=0; i < shardTopTerms.size(); i++) {
+          String term=shardTopTerms.getName(i);
+          double score=shardTopTerms.getVal(i);
+          int docFreq=shardDocFreqs.get(term);
+          double prevScore=termScores.containsKey(term) ? termScores.get(term) : 0;
+          long prevDocFreq=docFreqs.containsKey(term) ? docFreqs.get(term) : 0;
+          termScores.put(term,prevScore + score);
+          docFreqs.put(term,prevDocFreq + docFreq);
+        }
+      }
+      List<Tuple> tuples=new ArrayList<>(numTerms);
+      termScores=sortByValue(termScores);
+      int index=0;
+      for (      Map.Entry<String,Double> termScore : termScores.entrySet()) {
+        if (tuples.size() == numTerms)         break;
+        index++;
+        Map map=new HashMap();
+        map.put("id",featureSet + "_" + index);
+        map.put("index_i",index);
+        map.put("term_s",termScore.getKey());
+        map.put("score_f",termScore.getValue());
+        map.put("featureSet_s",featureSet);
+        long docFreq=docFreqs.get(termScore.getKey());
+        double d=Math.log(((double)numDocs / (double)(docFreq + 1)));
+        map.put("idf_d",d);
+        tuples.add(new Tuple(map));
+      }
+      Map map=new HashMap();
+      map.put("EOF",true);
+      tuples.add(new Tuple(map));
+      tupleIterator=tuples.iterator();
+    }
+    return tupleIterator.next();
+  }
+ catch (  Exception e) {
+    throw new IOException(e);
+  }
+}

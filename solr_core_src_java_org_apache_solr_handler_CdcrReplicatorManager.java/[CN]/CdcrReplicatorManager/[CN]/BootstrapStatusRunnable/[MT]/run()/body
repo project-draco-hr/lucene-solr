@@ -1,0 +1,76 @@
+{
+  int retries=1;
+  boolean success=false;
+  try {
+    while (!closed && sendBootstrapCommand() != BootstrapStatus.SUBMITTED) {
+      Thread.sleep(BOOTSTRAP_RETRY_DELAY_MS);
+    }
+    TimeOut timeOut=new TimeOut(BOOTSTRAP_TIMEOUT_SECONDS,TimeUnit.SECONDS);
+    while (!timeOut.hasTimedOut()) {
+      if (closed) {
+        log.warn("Cancelling waiting for bootstrap on target: {} shard: {} to complete",targetCollection,shard);
+        state.setBootstrapInProgress(false);
+        break;
+      }
+      BootstrapStatus status=getBoostrapStatus();
+      if (status == BootstrapStatus.RUNNING) {
+        try {
+          log.info("CDCR bootstrap running for {} seconds, sleeping for {} ms",BOOTSTRAP_TIMEOUT_SECONDS - timeOut.timeLeft(TimeUnit.SECONDS),BOOTSTRAP_RETRY_DELAY_MS);
+          Thread.sleep(BOOTSTRAP_RETRY_DELAY_MS);
+        }
+ catch (        InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+      }
+ else       if (status == BootstrapStatus.COMPLETED) {
+        log.info("CDCR bootstrap successful in {} seconds",BOOTSTRAP_TIMEOUT_SECONDS - timeOut.timeLeft(TimeUnit.SECONDS));
+        long checkpoint=CdcrReplicatorManager.this.getCheckpoint(state);
+        log.info("Create new update log reader for target {} with checkpoint {} @ {}:{}",state.getTargetCollection(),checkpoint,collectionName,shard);
+        CdcrUpdateLog.CdcrLogReader reader1=ulog.newLogReader();
+        reader1.seek(checkpoint);
+        success=true;
+        break;
+      }
+ else       if (status == BootstrapStatus.FAILED) {
+        log.warn("CDCR bootstrap failed in {} seconds",BOOTSTRAP_TIMEOUT_SECONDS - timeOut.timeLeft(TimeUnit.SECONDS));
+        if (retries >= MAX_BOOTSTRAP_ATTEMPTS) {
+          log.error("Unable to bootstrap the target collection: {}, shard: {} even after {} retries",targetCollection,shard,retries);
+          break;
+        }
+ else {
+          log.info("Retry: {} - Attempting to bootstrap target collection: {} shard: {}",retries,targetCollection,shard);
+          while (!closed && sendBootstrapCommand() != BootstrapStatus.SUBMITTED) {
+            Thread.sleep(BOOTSTRAP_RETRY_DELAY_MS);
+          }
+          timeOut=new TimeOut(BOOTSTRAP_TIMEOUT_SECONDS,TimeUnit.SECONDS);
+          retries++;
+        }
+      }
+ else       if (status == BootstrapStatus.NOTFOUND) {
+        while (!closed && sendBootstrapCommand() != BootstrapStatus.SUBMITTED) {
+          Thread.sleep(BOOTSTRAP_RETRY_DELAY_MS);
+        }
+        retries=1;
+        timeOut=new TimeOut(6L * 3600L * 3600L,TimeUnit.SECONDS);
+      }
+ else       if (status == BootstrapStatus.UNKNOWN) {
+        Thread.sleep(BOOTSTRAP_RETRY_DELAY_MS);
+      }
+    }
+  }
+ catch (  InterruptedException e) {
+    log.info("Bootstrap thread interrupted");
+    state.reportError(CdcrReplicatorState.ErrorType.INTERNAL);
+    Thread.currentThread().interrupt();
+  }
+catch (  IOException|SolrServerException|SolrException e) {
+    log.error("Unable to bootstrap the target collection " + targetCollection + " shard: "+ shard,e);
+    state.reportError(CdcrReplicatorState.ErrorType.BAD_REQUEST);
+  }
+ finally {
+    if (success) {
+      log.info("Bootstrap successful, giving the go-ahead to replicator");
+      state.setBootstrapInProgress(false);
+    }
+  }
+}

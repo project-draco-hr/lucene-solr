@@ -1,14 +1,24 @@
 {
-  IndexDeletionPolicyWrapper deletionPolicy=solrCore.getDeletionPolicy();
   RefCounted<SolrIndexSearcher> searcher=solrCore.getSearcher();
   try {
-    IndexCommit indexCommit=searcher.get().getIndexReader().getIndexCommit();
-    deletionPolicy.saveCommitPoint(indexCommit.getGeneration());
-    try {
-      return createSnapshot(indexCommit);
+    if (commitName != null) {
+      SolrSnapshotMetaDataManager snapshotMgr=solrCore.getSnapshotMetaDataManager();
+      Optional<IndexCommit> commit=snapshotMgr.getIndexCommitByName(commitName);
+      if (commit.isPresent()) {
+        return createSnapshot(commit.get());
+      }
+      throw new SolrException(ErrorCode.SERVER_ERROR,"Unable to find an index commit with name " + commitName + " for core "+ solrCore.getName());
     }
+ else {
+      IndexDeletionPolicyWrapper deletionPolicy=solrCore.getDeletionPolicy();
+      IndexCommit indexCommit=searcher.get().getIndexReader().getIndexCommit();
+      deletionPolicy.saveCommitPoint(indexCommit.getGeneration());
+      try {
+        return createSnapshot(indexCommit);
+      }
   finally {
-      deletionPolicy.releaseCommitPoint(indexCommit.getGeneration());
+        deletionPolicy.releaseCommitPoint(indexCommit.getGeneration());
+      }
     }
   }
   finally {

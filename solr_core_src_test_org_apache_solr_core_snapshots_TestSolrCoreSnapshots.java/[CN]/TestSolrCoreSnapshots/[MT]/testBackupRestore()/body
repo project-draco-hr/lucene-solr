@@ -1,0 +1,54 @@
+{
+  CloudSolrClient solrClient=cluster.getSolrClient();
+  String collectionName="SolrCoreSnapshots";
+  CollectionAdminRequest.Create create=CollectionAdminRequest.createCollection(collectionName,"conf1",1,1);
+  create.process(solrClient);
+  String location=createTempDir().toFile().getAbsolutePath();
+  int nDocs=BackupRestoreUtils.indexDocs(cluster.getSolrClient(),collectionName,docsSeed);
+  DocCollection collectionState=solrClient.getZkStateReader().getClusterState().getCollection(collectionName);
+  assertEquals(1,collectionState.getActiveSlices().size());
+  Slice shard=collectionState.getActiveSlices().iterator().next();
+  assertEquals(1,shard.getReplicas().size());
+  Replica replica=shard.getReplicas().iterator().next();
+  String replicaBaseUrl=replica.getStr(BASE_URL_PROP);
+  String coreName=replica.getStr(ZkStateReader.CORE_NAME_PROP);
+  String backupName=TestUtil.randomSimpleString(random(),1,5);
+  String commitName=TestUtil.randomSimpleString(random(),1,5);
+  String duplicateName=commitName.concat("_duplicate");
+  try (SolrClient adminClient=getHttpSolrClient(cluster.getJettySolrRunners().get(0).getBaseUrl().toString());SolrClient masterClient=getHttpSolrClient(replica.getCoreUrl())){
+    SnapshotMetaData metaData=createSnapshot(adminClient,coreName,commitName);
+    SnapshotMetaData duplicateCommit=createSnapshot(adminClient,coreName,duplicateName);
+    assertEquals(metaData.getIndexDirPath(),duplicateCommit.getIndexDirPath());
+    assertEquals(metaData.getGenerationNumber(),duplicateCommit.getGenerationNumber());
+    masterClient.deleteByQuery("*:*");
+    masterClient.commit();
+    BackupRestoreUtils.verifyDocs(0,cluster.getSolrClient(),collectionName);
+{
+      List<IndexCommit> commits=listCommits(metaData.getIndexDirPath());
+      assertTrue(2 <= commits.size());
+    }
+{
+      Map<String,String> params=new HashMap<>();
+      params.put("name",backupName);
+      params.put("commitName",commitName);
+      params.put("location",location);
+      BackupRestoreUtils.runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.BACKUPCORE.toString(),params);
+    }
+{
+      Map<String,String> params=new HashMap<>();
+      params.put("name","snapshot." + backupName);
+      params.put("location",location);
+      BackupRestoreUtils.runCoreAdminCommand(replicaBaseUrl,coreName,CoreAdminAction.RESTORECORE.toString(),params);
+      BackupRestoreUtils.verifyDocs(nDocs,cluster.getSolrClient(),collectionName);
+    }
+{
+      List<IndexCommit> commits=listCommits(metaData.getIndexDirPath());
+      assertEquals(1,commits.size());
+      assertEquals(metaData.getGenerationNumber(),commits.get(0).getGeneration());
+    }
+    deleteSnapshot(adminClient,coreName,commitName);
+    assertFalse(listCommits(metaData.getIndexDirPath()).isEmpty());
+    deleteSnapshot(adminClient,coreName,duplicateCommit.getName());
+    assertTrue(listCommits(duplicateCommit.getIndexDirPath()).isEmpty());
+  }
+ }

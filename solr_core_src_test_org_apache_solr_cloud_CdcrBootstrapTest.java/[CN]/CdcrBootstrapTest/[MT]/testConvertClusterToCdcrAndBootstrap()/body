@@ -1,0 +1,81 @@
+{
+  MiniSolrCloudCluster target=new MiniSolrCloudCluster(1,createTempDir("cdcr-target"),buildJettyConfig("/solr"));
+  try {
+    target.waitForAllNodes(30);
+    System.out.println("Target zkHost = " + target.getZkServer().getZkAddress());
+    System.setProperty("cdcr.target.zkHost",target.getZkServer().getZkAddress());
+    MiniSolrCloudCluster source=new MiniSolrCloudCluster(1,createTempDir("cdcr-source"),buildJettyConfig("/solr"));
+    try {
+      source.waitForAllNodes(30);
+      final File configDir=getFile("solr").toPath().resolve("configsets/cdcr-source-disabled").toFile();
+      System.out.println("config dir absolute path = " + configDir.getAbsolutePath());
+      source.uploadConfigDir(configDir,"cdcr-source");
+      Map<String,String> collectionProperties=new HashMap<>();
+      collectionProperties.putIfAbsent("solr.directoryFactory","solr.StandardDirectoryFactory");
+      source.createCollection("cdcr-source",1,1,"cdcr-source",collectionProperties);
+      source.getSolrClient().getZkStateReader().forceUpdateCollection("cdcr-source");
+      AbstractDistribZkTestBase.waitForRecoveriesToFinish("cdcr-source",source.getSolrClient().getZkStateReader(),true,true,330);
+      CloudSolrClient sourceSolrClient=source.getSolrClient();
+      sourceSolrClient.setDefaultCollection("cdcr-source");
+      int numDocs=0;
+      for (int k=0; k < 100; k++) {
+        UpdateRequest req=new UpdateRequest();
+        for (; numDocs < (k + 1) * 100; numDocs++) {
+          SolrInputDocument doc=new SolrInputDocument();
+          doc.addField("id","source_" + numDocs);
+          doc.addField("xyz",numDocs);
+          req.add(doc);
+        }
+        req.setAction(AbstractUpdateRequest.ACTION.COMMIT,true,true);
+        System.out.println("Adding 100 docs with commit=true, numDocs=" + numDocs);
+        req.process(sourceSolrClient);
+      }
+      QueryResponse response=sourceSolrClient.query(new SolrQuery("*:*"));
+      assertEquals("",numDocs,response.getResults().getNumFound());
+      long maxVersion=Long.MIN_VALUE;
+      ModifiableSolrParams params=new ModifiableSolrParams();
+      params.set(CommonParams.QT,"/get");
+      params.set("getVersions",numDocs);
+      response=sourceSolrClient.query(params);
+      List<Long> versions=(List<Long>)response.getResponse().get("versions");
+      for (      Long version : versions) {
+        maxVersion=Math.max(maxVersion,version);
+      }
+      final File cdcrEnabledSourceConfigDir=getFile("solr").toPath().resolve("configsets/cdcr-source").toFile();
+      source.uploadConfigDir(cdcrEnabledSourceConfigDir,"cdcr-source");
+      JettySolrRunner runner=source.stopJettySolrRunner(0);
+      source.startJettySolrRunner(runner);
+      assertTrue(runner.isRunning());
+      AbstractDistribZkTestBase.waitForRecoveriesToFinish("cdcr-source",source.getSolrClient().getZkStateReader(),true,true,330);
+      response=sourceSolrClient.query(new SolrQuery("*:*"));
+      assertEquals("Document mismatch on source after restart",numDocs,response.getResults().getNumFound());
+      final File targetConfigDir=getFile("solr").toPath().resolve("configsets/cdcr-target").toFile();
+      target.uploadConfigDir(targetConfigDir,"cdcr-target");
+      target.createCollection("cdcr-target",1,1,"cdcr-target",Collections.emptyMap());
+      target.getSolrClient().getZkStateReader().forceUpdateCollection("cdcr-target");
+      AbstractDistribZkTestBase.waitForRecoveriesToFinish("cdcr-target",target.getSolrClient().getZkStateReader(),true,true,330);
+      CloudSolrClient targetSolrClient=target.getSolrClient();
+      targetSolrClient.setDefaultCollection("cdcr-target");
+      Thread.sleep(1000);
+      cdcrStart(targetSolrClient);
+      cdcrStart(sourceSolrClient);
+      response=getCdcrQueue(sourceSolrClient);
+      System.out.println("Cdcr queue response: " + response.getResponse());
+      long foundDocs=waitForTargetToSync(numDocs,targetSolrClient);
+      assertEquals("Document mismatch on target after sync",numDocs,foundDocs);
+      params=new ModifiableSolrParams();
+      params.set(CommonParams.ACTION,CdcrParams.CdcrAction.COLLECTIONCHECKPOINT.toString());
+      params.set(CommonParams.QT,"/cdcr");
+      response=targetSolrClient.query(params);
+      Long checkpoint=(Long)response.getResponse().get(CdcrParams.CHECKPOINT);
+      assertNotNull(checkpoint);
+      assertEquals("COLLECTIONCHECKPOINT from target cluster should have returned the maximum " + "version across all updates made to source",maxVersion,checkpoint.longValue());
+    }
+  finally {
+      source.shutdown();
+    }
+  }
+  finally {
+    target.shutdown();
+  }
+}

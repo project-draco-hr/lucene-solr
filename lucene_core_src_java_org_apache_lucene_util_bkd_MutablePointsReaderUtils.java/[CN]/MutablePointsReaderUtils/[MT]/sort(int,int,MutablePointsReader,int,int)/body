@@ -1,0 +1,43 @@
+{
+  final int bitsPerDocId=PackedInts.bitsRequired(maxDoc - 1);
+  new MSBRadixSorter(packedBytesLength + (bitsPerDocId + 7) / 8){
+    @Override protected void swap(    int i,    int j){
+      reader.swap(i,j);
+    }
+    @Override protected int byteAt(    int i,    int k){
+      if (k < packedBytesLength) {
+        return Byte.toUnsignedInt(reader.getByteAt(i,k));
+      }
+ else {
+        final int shift=bitsPerDocId - ((k - packedBytesLength + 1) << 3);
+        return (reader.getDocID(i) >>> Math.max(0,shift)) & 0xff;
+      }
+    }
+    @Override protected org.apache.lucene.util.Sorter getFallbackSorter(    int k){
+      return new IntroSorter(){
+        final BytesRef pivot=new BytesRef();
+        final BytesRef scratch=new BytesRef();
+        int pivotDoc;
+        @Override protected void swap(        int i,        int j){
+          reader.swap(i,j);
+        }
+        @Override protected void setPivot(        int i){
+          reader.getValue(i,pivot);
+          pivotDoc=reader.getDocID(i);
+        }
+        @Override protected int comparePivot(        int j){
+          if (k < packedBytesLength) {
+            reader.getValue(j,scratch);
+            int cmp=StringHelper.compare(packedBytesLength - k,pivot.bytes,pivot.offset + k,scratch.bytes,scratch.offset + k);
+            if (cmp != 0) {
+              return cmp;
+            }
+          }
+          return pivotDoc - reader.getDocID(j);
+        }
+      }
+;
+    }
+  }
+.sort(from,to);
+}

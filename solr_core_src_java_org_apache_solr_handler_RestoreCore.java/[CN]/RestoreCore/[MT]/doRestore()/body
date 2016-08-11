@@ -3,11 +3,12 @@
   SimpleDateFormat dateFormat=new SimpleDateFormat(SnapShooter.DATE_FMT,Locale.ROOT);
   String restoreIndexName="restore." + dateFormat.format(new Date());
   String restoreIndexPath=core.getDataDir() + restoreIndexName;
+  String indexDirPath=core.getIndexDir();
   Directory restoreIndexDir=null;
   Directory indexDir=null;
   try {
     restoreIndexDir=core.getDirectoryFactory().get(restoreIndexPath,DirectoryFactory.DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
-    indexDir=core.getDirectoryFactory().get(core.getIndexDir(),DirectoryFactory.DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
+    indexDir=core.getDirectoryFactory().get(indexDirPath,DirectoryFactory.DirContext.DEFAULT,core.getSolrConfig().indexConfig.lockType);
     for (    String filename : backupRepo.listAll(backupPath)) {
       checkInterrupted();
       log.info("Copying file {} to restore directory ",filename);
@@ -62,7 +63,14 @@
     }
     if (success) {
       core.getDirectoryFactory().doneWithDirectory(indexDir);
-      core.getDirectoryFactory().remove(indexDir);
+      SolrSnapshotMetaDataManager snapshotsMgr=core.getSnapshotMetaDataManager();
+      Collection<SnapshotMetaData> snapshots=snapshotsMgr.listSnapshotsInIndexDir(indexDirPath);
+      if (snapshots.isEmpty()) {
+        core.getDirectoryFactory().remove(indexDir);
+      }
+ else {
+        SolrSnapshotManager.deleteNonSnapshotIndexFiles(indexDir,snapshots);
+      }
     }
     return true;
   }

@@ -2,20 +2,20 @@
   String requestURI=((HttpServletRequest)request).getRequestURI();
   if (requestURI.endsWith(PATH)) {
     filterChain.doFilter(request,response);
-    return;
+    return true;
   }
   long receivedTime=System.currentTimeMillis();
   String header=((HttpServletRequest)request).getHeader(HEADER);
   if (header == null) {
     log.error("No SolrAuth header present");
     filterChain.doFilter(request,response);
-    return;
+    return true;
   }
   List<String> authInfo=StrUtils.splitWS(header,false);
   if (authInfo.size() < 2) {
     log.error("Invalid SolrAuth Header {}",header);
     filterChain.doFilter(request,response);
-    return;
+    return true;
   }
   String nodeName=authInfo.get(0);
   String cipher=authInfo.get(1);
@@ -23,13 +23,14 @@
   if (decipher == null) {
     log.error("Could not decipher a header {} . No principal set",header);
     filterChain.doFilter(request,response);
-    return;
+    return true;
   }
   if ((receivedTime - decipher.timestamp) > MAX_VALIDITY) {
     log.error("Invalid key request timestamp: {} , received timestamp: {} , TTL: {}",decipher.timestamp,receivedTime,MAX_VALIDITY);
     filterChain.doFilter(request,response);
-    return;
+    return true;
   }
   final Principal principal="$".equals(decipher.userName) ? SU : new BasicUserPrincipal(decipher.userName);
   filterChain.doFilter(getWrapper((HttpServletRequest)request,principal),response);
+  return true;
 }

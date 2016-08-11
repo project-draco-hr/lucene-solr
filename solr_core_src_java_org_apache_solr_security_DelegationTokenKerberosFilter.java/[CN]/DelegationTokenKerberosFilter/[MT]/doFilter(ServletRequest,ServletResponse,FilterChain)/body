@@ -1,0 +1,26 @@
+{
+  HttpServletRequest httpRequest=(HttpServletRequest)request;
+  String queryString=httpRequest.getQueryString();
+  final String nonNullQueryString=queryString == null ? "" : queryString;
+  HttpServletRequest requestNonNullQueryString=new HttpServletRequestWrapper(httpRequest){
+    @Override public String getQueryString(){
+      return nonNullQueryString;
+    }
+  }
+;
+  FilterChain filterChainWrapper=new FilterChain(){
+    @Override public void doFilter(    ServletRequest servletRequest,    ServletResponse servletResponse) throws IOException, ServletException {
+      HttpServletRequest httpRequest=(HttpServletRequest)servletRequest;
+      UserGroupInformation ugi=HttpUserGroupInformation.get();
+      if (ugi != null && ugi.getAuthenticationMethod() == UserGroupInformation.AuthenticationMethod.PROXY) {
+        UserGroupInformation realUserUgi=ugi.getRealUser();
+        if (realUserUgi != null) {
+          httpRequest.setAttribute(KerberosPlugin.IMPERSONATOR_USER_NAME,realUserUgi.getShortUserName());
+        }
+      }
+      filterChain.doFilter(servletRequest,servletResponse);
+    }
+  }
+;
+  super.doFilter(requestNonNullQueryString,response,filterChainWrapper);
+}

@@ -1,0 +1,36 @@
+{
+  CollectionAdminRequest.createCollection("destinationCollection","ml",2,1).process(cluster.getSolrClient());
+  AbstractDistribZkTestBase.waitForRecoveriesToFinish("destinationCollection",cluster.getSolrClient().getZkStateReader(),false,true,TIMEOUT);
+  UpdateRequest updateRequest=new UpdateRequest();
+  for (int i=0; i < 5000; i+=2) {
+    updateRequest.add(id,String.valueOf(i),"whitetok","a b c d","out_i","1");
+    updateRequest.add(id,String.valueOf(i + 1),"whitetok","a b e f","out_i","0");
+  }
+  updateRequest.commit(cluster.getSolrClient(),COLLECTION);
+  StreamExpression expression;
+  TupleStream stream;
+  List<Tuple> tuples;
+  StreamFactory factory=new StreamFactory().withCollectionZkHost("collection1",cluster.getZkServer().getZkAddress()).withCollectionZkHost("destinationCollection",cluster.getZkServer().getZkAddress()).withFunctionName("featuresSelection",FeaturesSelectionStream.class).withFunctionName("search",CloudSolrStream.class).withFunctionName("update",UpdateStream.class);
+  String featuresExpression="featuresSelection(collection1, q=\"*:*\", featureSet=\"first\", field=\"whitetok\", outcome=\"out_i\", numTerms=4)";
+  expression=StreamExpressionParser.parse(featuresExpression);
+  stream=new FeaturesSelectionStream(expression,factory);
+  tuples=getTuples(stream);
+  assert(tuples.size() == 4);
+  assertTrue(tuples.get(0).get("term_s").equals("c"));
+  assertTrue(tuples.get(1).get("term_s").equals("d"));
+  assertTrue(tuples.get(2).get("term_s").equals("e"));
+  assertTrue(tuples.get(3).get("term_s").equals("f"));
+  expression=StreamExpressionParser.parse("update(destinationCollection, batchSize=5, " + featuresExpression + ")");
+  stream=new UpdateStream(expression,factory);
+  getTuples(stream);
+  cluster.getSolrClient().commit("destinationCollection");
+  expression=StreamExpressionParser.parse("search(destinationCollection, q=featureSet_s:first, fl=\"index_i, term_s\", sort=\"index_i asc\")");
+  stream=new CloudSolrStream(expression,factory);
+  tuples=getTuples(stream);
+  assertEquals(4,tuples.size());
+  assertTrue(tuples.get(0).get("term_s").equals("c"));
+  assertTrue(tuples.get(1).get("term_s").equals("d"));
+  assertTrue(tuples.get(2).get("term_s").equals("e"));
+  assertTrue(tuples.get(3).get("term_s").equals("f"));
+  CollectionAdminRequest.deleteCollection("destinationCollection").process(cluster.getSolrClient());
+}

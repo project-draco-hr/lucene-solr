@@ -1,0 +1,97 @@
+{
+  String collectionName=factory.getValueOperand(expression,0);
+  List<StreamExpressionNamedParameter> namedParams=factory.getNamedOperands(expression);
+  StreamExpressionNamedParameter zkHostExpression=factory.getNamedOperand(expression,"zkHost");
+  List<StreamExpression> streamExpressions=factory.getExpressionOperandsRepresentingTypes(expression,Expressible.class,TupleStream.class);
+  if (expression.getParameters().size() != 1 + namedParams.size() + streamExpressions.size()) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - unknown operands found",expression));
+  }
+  if (null == collectionName) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - collectionName expected as first operand",expression));
+  }
+  if (0 == namedParams.size()) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - at least one named parameter expected. eg. 'q=*:*'",expression));
+  }
+  Map<String,String> params=new HashMap<String,String>();
+  for (  StreamExpressionNamedParameter namedParam : namedParams) {
+    if (!namedParam.getName().equals("zkHost")) {
+      params.put(namedParam.getName(),namedParam.getParameter().toString().trim());
+    }
+  }
+  String name=params.get("name");
+  if (name != null) {
+    params.remove("name");
+  }
+ else {
+    throw new IOException("name param cannot be null for TextLogitStream");
+  }
+  String feature=params.get("field");
+  if (feature != null) {
+    params.remove("field");
+  }
+ else {
+    throw new IOException("field param cannot be null for TextLogitStream");
+  }
+  TupleStream stream=null;
+  if (streamExpressions.size() > 0) {
+    stream=factory.constructStream(streamExpressions.get(0));
+  }
+ else {
+    throw new IOException("features must be present for TextLogitStream");
+  }
+  String maxIterationsParam=params.get("maxIterations");
+  int maxIterations=0;
+  if (maxIterationsParam != null) {
+    maxIterations=Integer.parseInt(maxIterationsParam);
+    params.remove("maxIterations");
+  }
+ else {
+    throw new IOException("maxIterations param cannot be null for TextLogitStream");
+  }
+  String outcomeParam=params.get("outcome");
+  if (outcomeParam != null) {
+    params.remove("outcome");
+  }
+ else {
+    throw new IOException("outcome param cannot be null for TextLogitStream");
+  }
+  String positiveLabelParam=params.get("positiveLabel");
+  int positiveLabel=1;
+  if (positiveLabelParam != null) {
+    positiveLabel=Integer.parseInt(positiveLabelParam);
+    params.remove("positiveLabel");
+  }
+  String thresholdParam=params.get("threshold");
+  double threshold=0.5;
+  if (thresholdParam != null) {
+    threshold=Double.parseDouble(thresholdParam);
+    params.remove("threshold");
+  }
+  int iteration=0;
+  String iterationParam=params.get("iteration");
+  if (iterationParam != null) {
+    iteration=Integer.parseInt(iterationParam);
+    params.remove("iteration");
+  }
+  List<Double> weights=null;
+  String weightsParam=params.get("weights");
+  if (weightsParam != null) {
+    weights=new ArrayList<>();
+    String[] weightsArray=weightsParam.split(",");
+    for (    String weightString : weightsArray) {
+      weights.add(Double.parseDouble(weightString));
+    }
+    params.remove("weights");
+  }
+  String zkHost=null;
+  if (null == zkHostExpression) {
+    zkHost=factory.getCollectionZkHost(collectionName);
+  }
+ else   if (zkHostExpression.getParameter() instanceof StreamExpressionValue) {
+    zkHost=((StreamExpressionValue)zkHostExpression.getParameter()).getValue();
+  }
+  if (null == zkHost) {
+    throw new IOException(String.format(Locale.ROOT,"invalid expression %s - zkHost not found for collection '%s'",expression,collectionName));
+  }
+  init(collectionName,zkHost,params,name,feature,stream,weights,outcomeParam,positiveLabel,threshold,maxIterations,iteration);
+}

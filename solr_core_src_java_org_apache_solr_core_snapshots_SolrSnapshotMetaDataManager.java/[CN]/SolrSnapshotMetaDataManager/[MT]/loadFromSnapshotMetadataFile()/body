@@ -1,0 +1,53 @@
+{
+  log.info("Loading from snapshot metadata file...");
+  long genLoaded=-1;
+  IOException ioe=null;
+  List<String> snapshotFiles=new ArrayList<>();
+  for (  String file : dir.listAll()) {
+    if (file.startsWith(SNAPSHOTS_PREFIX)) {
+      long gen=Long.parseLong(file.substring(SNAPSHOTS_PREFIX.length()));
+      if (genLoaded == -1 || gen > genLoaded) {
+        snapshotFiles.add(file);
+        Map<String,SnapshotMetaData> snapshotMetaDataMapping=new HashMap<>();
+        IndexInput in=dir.openInput(file,IOContext.DEFAULT);
+        try {
+          CodecUtil.checkHeader(in,CODEC_NAME,VERSION_START,VERSION_START);
+          int count=in.readVInt();
+          for (int i=0; i < count; i++) {
+            String name=in.readString();
+            String indexDirPath=in.readString();
+            long commitGen=in.readVLong();
+            snapshotMetaDataMapping.put(name,new SnapshotMetaData(name,indexDirPath,commitGen));
+          }
+        }
+ catch (        IOException ioe2) {
+          if (ioe == null) {
+            ioe=ioe2;
+          }
+        }
+ finally {
+          in.close();
+        }
+        genLoaded=gen;
+        nameToDetailsMapping.clear();
+        nameToDetailsMapping.putAll(snapshotMetaDataMapping);
+      }
+    }
+  }
+  if (genLoaded == -1) {
+    if (ioe != null) {
+      throw ioe;
+    }
+  }
+ else {
+    if (snapshotFiles.size() > 1) {
+      String curFileName=SNAPSHOTS_PREFIX + genLoaded;
+      for (      String file : snapshotFiles) {
+        if (!curFileName.equals(file)) {
+          IOUtils.deleteFilesIgnoringExceptions(dir,file);
+        }
+      }
+    }
+    nextWriteGen=1 + genLoaded;
+  }
+}
