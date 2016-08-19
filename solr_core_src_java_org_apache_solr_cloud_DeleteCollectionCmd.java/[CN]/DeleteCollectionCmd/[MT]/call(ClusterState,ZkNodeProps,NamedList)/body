@@ -1,0 +1,52 @@
+{
+  ZkStateReader zkStateReader=ocmh.zkStateReader;
+  final String collection=message.getStr(NAME);
+  try {
+    if (zkStateReader.getClusterState().getCollectionOrNull(collection) == null) {
+      if (zkStateReader.getZkClient().exists(ZkStateReader.COLLECTIONS_ZKNODE + "/" + collection,true)) {
+        return;
+      }
+    }
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.UNLOAD.toString());
+    params.set(CoreAdminParams.DELETE_INSTANCE_DIR,true);
+    params.set(CoreAdminParams.DELETE_DATA_DIR,true);
+    String asyncId=message.getStr(ASYNC);
+    Map<String,String> requestMap=null;
+    if (asyncId != null) {
+      requestMap=new HashMap<>();
+    }
+    Set<String> okayExceptions=new HashSet<>(1);
+    okayExceptions.add(NonExistentCoreException.class.getName());
+    ocmh.collectionCmd(message,params,results,null,asyncId,requestMap,okayExceptions);
+    ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,DELETE.toLower(),NAME,collection);
+    Overseer.getStateUpdateQueue(zkStateReader.getZkClient()).offer(Utils.toJSON(m));
+    TimeOut timeout=new TimeOut(30,TimeUnit.SECONDS);
+    boolean removed=false;
+    while (!timeout.hasTimedOut()) {
+      Thread.sleep(100);
+      removed=!zkStateReader.getClusterState().hasCollection(collection);
+      if (removed) {
+        Thread.sleep(500);
+        break;
+      }
+    }
+    if (!removed) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Could not fully remove collection: " + collection);
+    }
+  }
+  finally {
+    try {
+      if (zkStateReader.getZkClient().exists(ZkStateReader.COLLECTIONS_ZKNODE + "/" + collection,true)) {
+        zkStateReader.getZkClient().clean(ZkStateReader.COLLECTIONS_ZKNODE + "/" + collection);
+      }
+    }
+ catch (    InterruptedException e) {
+      SolrException.log(log,"Cleaning up collection in zk was interrupted:" + collection,e);
+      Thread.currentThread().interrupt();
+    }
+catch (    KeeperException e) {
+      SolrException.log(log,"Problem cleaning up collection in zk:" + collection,e);
+    }
+  }
+}

@@ -2,109 +2,29 @@
   log.info("OverseerCollectionMessageHandler.processMessage : " + operation + " , "+ message.toString());
   NamedList results=new NamedList();
   try {
-    CollectionParams.CollectionAction action=getCollectionAction(operation);
-switch (action) {
-case CREATE:
-      createCollection(zkStateReader.getClusterState(),message,results);
-    break;
-case DELETE:
-  deleteCollection(message,results);
-break;
-case RELOAD:
-reloadCollection(message,results);
-break;
-case CREATEALIAS:
-createAlias(zkStateReader.getAliases(),message);
-break;
-case DELETEALIAS:
-deleteAlias(zkStateReader.getAliases(),message);
-break;
-case SPLITSHARD:
-splitShard(zkStateReader.getClusterState(),message,results);
-break;
-case DELETESHARD:
-deleteShard(zkStateReader.getClusterState(),message,results);
-break;
-case CREATESHARD:
-createShard(zkStateReader.getClusterState(),message,results);
-break;
-case DELETEREPLICA:
-deleteReplica(zkStateReader.getClusterState(),message,results,null);
-break;
-case MIGRATE:
-migrate(zkStateReader.getClusterState(),message,results);
-break;
-case ADDROLE:
-processRoleCommand(message,operation);
-break;
-case REMOVEROLE:
-processRoleCommand(message,operation);
-break;
-case ADDREPLICA:
-addReplica(zkStateReader.getClusterState(),message,results,null);
-break;
-case OVERSEERSTATUS:
-getOverseerStatus(message,results);
-break;
-case ADDREPLICAPROP:
-processReplicaAddPropertyCommand(message);
-break;
-case DELETEREPLICAPROP:
-processReplicaDeletePropertyCommand(message);
-break;
-case BALANCESHARDUNIQUE:
-balanceProperty(message);
-break;
-case REBALANCELEADERS:
-processRebalanceLeaders(message);
-break;
-case MODIFYCOLLECTION:
-modifyCollection(message,results);
-break;
-case MIGRATESTATEFORMAT:
-migrateStateFormat(message,results);
-break;
-case BACKUP:
-processBackupAction(message,results);
-break;
-case RESTORE:
-processRestoreAction(message,results);
-break;
-case MOCK_COLL_TASK:
-case MOCK_SHARD_TASK:
-case MOCK_REPLICA_TASK:
-{
-Thread.sleep(message.getInt("sleep",1));
-log.info("MOCK_TASK_EXECUTED time {} data {}",System.currentTimeMillis(),Utils.toJSONString(message));
-results.add("MOCK_FINISHED",System.currentTimeMillis());
-break;
-}
-default :
-{
-Cmd command=commandMap.get(action);
-if (command != null) {
-command.call(zkStateReader.getClusterState(),message,results);
-}
+    CollectionAction action=getCollectionAction(operation);
+    Cmd command=commandMap.get(action);
+    if (command != null) {
+      command.call(zkStateReader.getClusterState(),message,results);
+    }
  else {
-throw new SolrException(ErrorCode.BAD_REQUEST,"Unknown operation:" + operation);
-}
-}
-}
-}
- catch (Exception e) {
-String collName=message.getStr("collection");
-if (collName == null) collName=message.getStr(NAME);
-if (collName == null) {
-SolrException.log(log,"Operation " + operation + " failed",e);
-}
+      throw new SolrException(ErrorCode.BAD_REQUEST,"Unknown operation:" + operation);
+    }
+  }
+ catch (  Exception e) {
+    String collName=message.getStr("collection");
+    if (collName == null)     collName=message.getStr(NAME);
+    if (collName == null) {
+      SolrException.log(log,"Operation " + operation + " failed",e);
+    }
  else {
-SolrException.log(log,"Collection: " + collName + " operation: "+ operation+ " failed",e);
-}
-results.add("Operation " + operation + " caused exception:",e);
-SimpleOrderedMap nl=new SimpleOrderedMap();
-nl.add("msg",e.getMessage());
-nl.add("rspCode",e instanceof SolrException ? ((SolrException)e).code() : -1);
-results.add("exception",nl);
-}
-return new OverseerSolrResponse(results);
+      SolrException.log(log,"Collection: " + collName + " operation: "+ operation+ " failed",e);
+    }
+    results.add("Operation " + operation + " caused exception:",e);
+    SimpleOrderedMap nl=new SimpleOrderedMap();
+    nl.add("msg",e.getMessage());
+    nl.add("rspCode",e instanceof SolrException ? ((SolrException)e).code() : -1);
+    results.add("exception",nl);
+  }
+  return new OverseerSolrResponse(results);
 }
