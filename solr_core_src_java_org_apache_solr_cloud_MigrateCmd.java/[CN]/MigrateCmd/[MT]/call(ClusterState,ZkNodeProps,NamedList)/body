@@ -1,0 +1,38 @@
+{
+  String sourceCollectionName=message.getStr("collection");
+  String splitKey=message.getStr("split.key");
+  String targetCollectionName=message.getStr("target.collection");
+  int timeout=message.getInt("forward.timeout",10 * 60) * 1000;
+  DocCollection sourceCollection=clusterState.getCollection(sourceCollectionName);
+  if (sourceCollection == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown source collection: " + sourceCollectionName);
+  }
+  DocCollection targetCollection=clusterState.getCollection(targetCollectionName);
+  if (targetCollection == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Unknown target collection: " + sourceCollectionName);
+  }
+  if (!(sourceCollection.getRouter() instanceof CompositeIdRouter)) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Source collection must use a compositeId router");
+  }
+  if (!(targetCollection.getRouter() instanceof CompositeIdRouter)) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Target collection must use a compositeId router");
+  }
+  CompositeIdRouter sourceRouter=(CompositeIdRouter)sourceCollection.getRouter();
+  CompositeIdRouter targetRouter=(CompositeIdRouter)targetCollection.getRouter();
+  Collection<Slice> sourceSlices=sourceRouter.getSearchSlicesSingle(splitKey,null,sourceCollection);
+  if (sourceSlices.isEmpty()) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No active slices available in source collection: " + sourceCollection + "for given split.key: "+ splitKey);
+  }
+  Collection<Slice> targetSlices=targetRouter.getSearchSlicesSingle(splitKey,null,targetCollection);
+  if (targetSlices.isEmpty()) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No active slices available in target collection: " + targetCollection + "for given split.key: "+ splitKey);
+  }
+  String asyncId=null;
+  if (message.containsKey(ASYNC) && message.get(ASYNC) != null)   asyncId=message.getStr(ASYNC);
+  for (  Slice sourceSlice : sourceSlices) {
+    for (    Slice targetSlice : targetSlices) {
+      log.info("Migrating source shard: {} to target shard: {} for split.key = " + splitKey,sourceSlice,targetSlice);
+      migrateKey(clusterState,sourceCollection,sourceSlice,targetCollection,targetSlice,splitKey,timeout,results,asyncId,message);
+    }
+  }
+}

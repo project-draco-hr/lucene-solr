@@ -1,0 +1,45 @@
+{
+  String collectionName=message.getStr(COLLECTION_PROP);
+  String backupName=message.getStr(NAME);
+  ShardHandler shardHandler=ocmh.shardHandlerFactory.getShardHandler();
+  String asyncId=message.getStr(ASYNC);
+  String repo=message.getStr(CoreAdminParams.BACKUP_REPOSITORY);
+  String location=message.getStr(CoreAdminParams.BACKUP_LOCATION);
+  Map<String,String> requestMap=new HashMap<>();
+  Instant startTime=Instant.now();
+  CoreContainer cc=ocmh.overseer.getZkController().getCoreContainer();
+  BackupRepository repository=cc.newBackupRepository(Optional.ofNullable(repo));
+  BackupManager backupMgr=new BackupManager(repository,ocmh.zkStateReader,collectionName);
+  URI backupPath=repository.createURI(location,backupName);
+  if (repository.exists(backupPath)) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"The backup directory already exists: " + backupPath);
+  }
+  repository.createDirectory(backupPath);
+  log.info("Starting backup of collection={} with backupName={} at location={}",collectionName,backupName,backupPath);
+  for (  Slice slice : ocmh.zkStateReader.getClusterState().getCollection(collectionName).getActiveSlices()) {
+    Replica replica=slice.getLeader();
+    String coreName=replica.getStr(CORE_NAME_PROP);
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.set(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.BACKUPCORE.toString());
+    params.set(NAME,slice.getName());
+    params.set(CoreAdminParams.BACKUP_REPOSITORY,repo);
+    params.set(CoreAdminParams.BACKUP_LOCATION,backupPath.getPath());
+    params.set(CORE_NAME_PROP,coreName);
+    ocmh.sendShardRequest(replica.getNodeName(),params,shardHandler,asyncId,requestMap);
+    log.debug("Sent backup request to core={} for backupName={}",coreName,backupName);
+  }
+  log.debug("Sent backup requests to all shard leaders for backupName={}",backupName);
+  ocmh.processResponses(results,shardHandler,true,"Could not backup all replicas",asyncId,requestMap);
+  log.info("Starting to backup ZK data for backupName={}",backupName);
+  String configName=ocmh.zkStateReader.readConfigName(collectionName);
+  backupMgr.downloadConfigDir(location,backupName,configName);
+  DocCollection collectionState=ocmh.zkStateReader.getClusterState().getCollection(collectionName);
+  backupMgr.writeCollectionState(location,backupName,collectionName,collectionState);
+  Properties properties=new Properties();
+  properties.put(BackupManager.BACKUP_NAME_PROP,backupName);
+  properties.put(BackupManager.COLLECTION_NAME_PROP,collectionName);
+  properties.put(COLL_CONF,configName);
+  properties.put(BackupManager.START_TIME_PROP,startTime.toString());
+  backupMgr.writeBackupProperties(location,backupName,properties);
+  log.info("Completed backing up ZK data for backupName={}",backupName);
+}
