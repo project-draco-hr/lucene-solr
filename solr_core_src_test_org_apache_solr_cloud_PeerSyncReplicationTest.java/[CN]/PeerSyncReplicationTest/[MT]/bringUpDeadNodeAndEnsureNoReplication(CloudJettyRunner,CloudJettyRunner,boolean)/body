@@ -1,0 +1,17 @@
+{
+  System.setProperty("solr.disableFingerprint",String.valueOf(disableFingerprint));
+  long numRequestsBefore=(Long)leaderJetty.jetty.getCoreContainer().getCores().iterator().next().getRequestHandler(ReplicationHandler.PATH).getStatistics().get("requests");
+  indexInBackground(50);
+  ChaosMonkey.start(nodeToBringUp.jetty);
+  nodesDown.remove(nodeToBringUp);
+  waitTillNodesActive();
+  waitForThingsToLevelOut(30);
+  Set<CloudJettyRunner> jetties=new HashSet<>();
+  jetties.addAll(shardToJetty.get("shard1"));
+  jetties.removeAll(nodesDown);
+  assertEquals(getShardCount() - nodesDown.size(),jetties.size());
+  long cloudClientDocs=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
+  assertEquals(docId,cloudClientDocs);
+  long numRequestsAfter=(Long)leaderJetty.jetty.getCoreContainer().getCores().iterator().next().getRequestHandler(ReplicationHandler.PATH).getStatistics().get("requests");
+  assertEquals("PeerSync failed. Had to fail back to replication",numRequestsBefore,numRequestsAfter);
+}
