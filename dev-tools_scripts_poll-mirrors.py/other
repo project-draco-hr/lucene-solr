@@ -1,0 +1,58 @@
+import argparse
+import datetime
+import ftplib
+import re
+import sys
+import time
+try:
+    from urllib.parse import urlparse
+except:
+    from urlparse import urlparse
+try:
+    import http.client as http
+except ImportError:
+    import httplib as http
+parser = argparse.ArgumentParser(description='Checks that all Lucene mirrors contain a copy of a release')
+parser.add_argument('-version', '-v', help='Lucene version to check', required=True)
+parser.add_argument('-interval', '-i', help='seconds to wait to query again pending mirrors', type=int, default=300)
+args = parser.parse_args()
+try:
+    conn = http.HTTPConnection('www.apache.org')
+    conn.request('GET', '/mirrors/')
+    response = conn.getresponse()
+    html = response.read()
+except Exception as e:
+    p('Unable to fetch the Apache mirrors list!\n')
+    sys.exit(1)
+apache_path = 'lucene/java/{}/changes/Changes.html'.format(args.version)
+maven_url = 'http://repo1.maven.org/maven2/org/apache/lucene/lucene-core/{0}/lucene-core-{0}.pom.asc'.format(args.version)
+maven_available = False
+pending_mirrors = []
+for match in re.finditer('<TR>(.*?)</TR>', str(html), ((re.MULTILINE | re.IGNORECASE) | re.DOTALL)):
+    row = match.group(1)
+    if (not ('<TD>ok</TD>' in row)):
+        continue
+    match = re.search('<A\\s+HREF\\s*=\\s*"([^"]+)"\\s*>', row, (re.MULTILINE | re.IGNORECASE))
+    if match:
+        pending_mirrors.append((match.group(1) + apache_path))
+total_mirrors = len(pending_mirrors)
+while True:
+    p(('\n' + str(datetime.datetime.now())))
+    p('\nPolling {} Apache Mirrors'.format(len(pending_mirrors)))
+    if (not maven_available):
+        p(' and Maven Central')
+    p('...\n')
+    if (not maven_available):
+        maven_available = mirror_contains_file(maven_url)
+    start = time.time()
+    pending_mirrors = check_url_list(pending_mirrors)
+    stop = time.time()
+    remaining = (args.interval - (stop - start))
+    available_mirrors = (total_mirrors - len(pending_mirrors))
+    p('\n\n{} is{}downloadable from Maven Central\n'.format(args.version, ((maven_available and ' ') or ' not ')))
+    p('{} is downloadable from {}/{} Apache Mirrors ({:.2f}%)\n'.format(args.version, available_mirrors, total_mirrors, ((available_mirrors * 100) / total_mirrors)))
+    if (len(pending_mirrors) == 0):
+        break
+    if (remaining > 0):
+        p('Sleeping for {} seconds...\n'.format(remaining))
+        time.sleep(remaining)
