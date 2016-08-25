@@ -1,0 +1,46 @@
+{
+  handle.clear();
+  handle.put("timestamp",SKIPVAL);
+  waitForThingsToLevelOut(30);
+  del("*:*");
+  for (int i=0; i < 100; i++) {
+    indexDoc(id,docId,i1,50,tlong,50,t1,"document number " + docId++);
+  }
+  commit();
+  waitForThingsToLevelOut(30);
+  try {
+    checkShardConsistency(false,true);
+    long cloudClientDocs=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
+    assertEquals(docId,cloudClientDocs);
+    CloudJettyRunner initialLeaderJetty=shardToLeaderJetty.get("shard1");
+    List<CloudJettyRunner> otherJetties=getOtherAvailableJetties(initialLeaderJetty);
+    CloudJettyRunner neverLeader=otherJetties.get(otherJetties.size() - 1);
+    otherJetties.remove(neverLeader);
+    forceNodeFailures(Arrays.asList(neverLeader));
+    log.info("Forcing PeerSync");
+    CloudJettyRunner nodePeerSynced=forceNodeFailureAndDoPeerSync(false);
+    indexDoc(id,docId,i1,50,tlong,50,t1,"document number " + docId++);
+    indexDoc(id,docId,i1,50,tlong,50,t1,"document number " + docId++);
+    commit();
+    cloudClientDocs=cloudClient.query(new SolrQuery("*:*")).getResults().getNumFound();
+    assertEquals(docId,cloudClientDocs);
+    otherJetties.remove(nodePeerSynced);
+    forceNodeFailures(otherJetties);
+    waitForThingsToLevelOut(30);
+    checkShardConsistency(false,true);
+    log.info("Now shutting down initial leader");
+    forceNodeFailures(Arrays.asList(initialLeaderJetty));
+    log.info("Updating mappings from zk");
+    Thread.sleep(15000);
+    updateMappingsFromZk(jettys,clients,true);
+    assertEquals("PeerSynced node did not become leader",nodePeerSynced,shardToLeaderJetty.get("shard1"));
+    bringUpDeadNodeAndEnsureNoReplication(shardToLeaderJetty.get("shard1"),neverLeader,false);
+    waitTillNodesActive();
+    checkShardConsistency(false,true);
+    assertEquals(nodePeerSynced,shardToLeaderJetty.get("shard1"));
+    success=true;
+  }
+  finally {
+    System.clearProperty("solr.disableFingerprint");
+  }
+}
