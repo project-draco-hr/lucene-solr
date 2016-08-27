@@ -1,0 +1,41 @@
+{
+  try (CloudSolrClient client=getCloudSolrClient(cluster.getZkServer().getZkAddress())){
+    RequestStatusState state=CollectionAdminRequest.createCollection("foo","conf",1,NODE_COUNT).processAndWait(client,60);
+    if (state == RequestStatusState.COMPLETED) {
+      AbstractDistribZkTestBase.waitForRecoveriesToFinish("foo",client.getZkStateReader(),true,true,TIMEOUT);
+      client.setDefaultCollection("foo");
+      Map<String,String> adminPathToMbean=new HashMap<>(CommonParams.ADMIN_PATHS.size());
+      adminPathToMbean.put(CommonParams.COLLECTIONS_HANDLER_PATH,CollectionsHandler.class.getName());
+      adminPathToMbean.put(CommonParams.CORES_HANDLER_PATH,CoreAdminHandler.class.getName());
+      adminPathToMbean.put(CommonParams.CONFIGSETS_HANDLER_PATH,ConfigSetsHandler.class.getName());
+      for (      String adminPath : adminPathToMbean.keySet()) {
+        long errorsBefore=0;
+        for (        JettySolrRunner runner : cluster.getJettySolrRunners()) {
+          Long numRequests=getNumRequests(runner.getBaseUrl().toString(),"foo","QUERYHANDLER",adminPathToMbean.get(adminPath),true);
+          errorsBefore+=numRequests;
+          log.info("Found {} requests to {} on {}",numRequests,adminPath,runner.getBaseUrl());
+        }
+        ModifiableSolrParams params=new ModifiableSolrParams();
+        params.set("qt",adminPath);
+        params.set("action","foobar");
+        QueryRequest req=new QueryRequest(params);
+        try {
+          NamedList<Object> resp=client.request(req);
+          fail("call to foo for admin path " + adminPath + " should have failed");
+        }
+ catch (        Exception e) {
+        }
+        long errorsAfter=0;
+        for (        JettySolrRunner runner : cluster.getJettySolrRunners()) {
+          Long numRequests=getNumRequests(runner.getBaseUrl().toString(),"foo","QUERYHANDLER",adminPathToMbean.get(adminPath),true);
+          errorsAfter+=numRequests;
+          log.info("Found {} requests to {} on {}",numRequests,adminPath,runner.getBaseUrl());
+        }
+        assertEquals(errorsBefore + 1,errorsAfter);
+      }
+    }
+ else {
+      fail("Collection could not be created within 60 seconds");
+    }
+  }
+ }
