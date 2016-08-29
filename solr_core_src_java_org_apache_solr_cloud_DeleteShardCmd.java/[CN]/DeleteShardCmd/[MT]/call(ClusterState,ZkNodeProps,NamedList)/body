@@ -15,6 +15,15 @@
   if (!(slice.getRange() == null || state == Slice.State.INACTIVE || state == Slice.State.RECOVERY || state == Slice.State.CONSTRUCTION)) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"The slice: " + slice.getName() + " is currently "+ state+ ". Only non-active (or custom-hashed) slices can be deleted.");
   }
+  if (state == Slice.State.RECOVERY) {
+    DistributedQueue inQueue=Overseer.getStateUpdateQueue(ocmh.zkStateReader.getZkClient());
+    Map<String,Object> propMap=new HashMap<>();
+    propMap.put(Overseer.QUEUE_OPERATION,OverseerAction.UPDATESHARDSTATE.toLower());
+    propMap.put(sliceId,Slice.State.CONSTRUCTION.toString());
+    propMap.put(ZkStateReader.COLLECTION_PROP,collectionName);
+    ZkNodeProps m=new ZkNodeProps(propMap);
+    inQueue.offer(Utils.toJSON(m));
+  }
   ShardHandler shardHandler=ocmh.shardHandlerFactory.getShardHandler();
   String asyncId=message.getStr(ASYNC);
   Map<String,String> requestMap=null;
