@@ -2,19 +2,30 @@
   SchemaField sf=fcontext.searcher.getSchema().getField(field);
   FieldType ft=sf.getType();
   boolean multiToken=sf.multiValued() || ft.multiValuedFieldCache();
-  if (method == FacetMethod.ENUM && sf.indexed()) {
-    throw new UnsupportedOperationException();
+  LegacyNumericType ntype=ft.getNumericType();
+  if (ntype != null) {
+    if (prefix != null) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Doesn't make sense to set facet prefix on a numeric field");
+    }
+    if (mincount == 0) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Numeric fields do not support facet mincount=0; try indexing as terms");
+    }
   }
- else   if (method == FacetMethod.STREAM && sf.indexed()) {
+  if (method == FacetMethod.ENUM) {
+    method=FacetMethod.STREAM;
+  }
+  if (method == FacetMethod.STREAM && sf.indexed() && "index".equals(sortVariable) && sortDirection == SortDirection.asc) {
     return new FacetFieldProcessorByEnumTermsStream(fcontext,this,sf);
   }
-  LegacyNumericType ntype=ft.getNumericType();
   if (!multiToken) {
-    if (ntype != null) {
+    if (mincount > 0 && prefix == null && (ntype != null || method == FacetMethod.DVHASH)) {
       return new FacetFieldProcessorByHashNumeric(fcontext,this,sf);
     }
- else {
+ else     if (ntype == null) {
       return new FacetFieldProcessorByArrayDV(fcontext,this,sf);
+    }
+ else {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Couldn't pick facet algorithm for field " + sf);
     }
   }
   if (sf.hasDocValues() || method == FacetMethod.DV) {
