@@ -3,7 +3,12 @@
   ActionThrottle lt;
   try (SolrCore core=cc.getCore(coreName)){
     if (core == null) {
-      throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+      if (cc.isShutDown()) {
+        return;
+      }
+ else {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+      }
     }
     MDCLoggingContext.setCore(core);
     lt=core.getUpdateHandler().getSolrCoreState().getLeaderThrottle();
@@ -27,8 +32,13 @@
     }
     try (SolrCore core=cc.getCore(coreName)){
       if (core == null) {
-        cancelElection();
-        throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+        if (!zkController.getCoreContainer().isShutDown()) {
+          cancelElection();
+          throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+        }
+ else {
+          return;
+        }
       }
       if (weAreReplacement && !shouldIBeLeader(leaderProps,core,weAreReplacement)) {
         rejoinLeaderElection(core);

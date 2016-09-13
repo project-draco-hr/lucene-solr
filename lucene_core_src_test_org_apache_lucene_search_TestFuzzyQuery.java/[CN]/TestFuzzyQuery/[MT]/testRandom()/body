@@ -1,0 +1,82 @@
+{
+  int numTerms=atLeast(100);
+  int digits=TestUtil.nextInt(random(),2,3);
+  Set<String> terms=new HashSet<>();
+  while (terms.size() < numTerms) {
+    terms.add(randomSimpleString(digits));
+  }
+  Directory dir=newDirectory();
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  for (  String term : terms) {
+    Document doc=new Document();
+    doc.add(new StringField("field",term,Field.Store.YES));
+    w.addDocument(doc);
+  }
+  DirectoryReader r=w.getReader();
+  IndexSearcher s=newSearcher(r);
+  int iters=atLeast(1000);
+  for (int iter=0; iter < iters; iter++) {
+    String queryTerm=randomSimpleString(digits);
+    int prefixLength=random().nextInt(queryTerm.length());
+    String queryPrefix=queryTerm.substring(0,prefixLength);
+    List<TermAndScore>[] expected=new List[3];
+    for (int ed=0; ed < 3; ed++) {
+      expected[ed]=new ArrayList<TermAndScore>();
+    }
+    for (    String term : terms) {
+      if (term.startsWith(queryPrefix) == false) {
+        continue;
+      }
+      int ed=getDistance(term,queryTerm);
+      if (Math.min(queryTerm.length(),term.length()) > ed) {
+        float score=1f - (float)ed / (float)Math.min(queryTerm.length(),term.length());
+        while (ed < 3) {
+          expected[ed].add(new TermAndScore(term,score));
+          ed++;
+        }
+      }
+    }
+    for (int ed=0; ed < 3; ed++) {
+      Collections.sort(expected[ed]);
+      int queueSize=TestUtil.nextInt(random(),1,terms.size());
+      FuzzyQuery query=new FuzzyQuery(new Term("field",queryTerm),ed,prefixLength,queueSize,true);
+      TopDocs hits=s.search(query,terms.size());
+      Set<String> actual=new HashSet<>();
+      for (      ScoreDoc hit : hits.scoreDocs) {
+        Document doc=s.doc(hit.doc);
+        actual.add(doc.get("field"));
+      }
+      Set<String> expectedTop=new HashSet<>();
+      int limit=Math.min(queueSize,expected[ed].size());
+      for (int i=0; i < limit; i++) {
+        expectedTop.add(expected[ed].get(i).term);
+      }
+      if (actual.equals(expectedTop) == false) {
+        StringBuilder sb=new StringBuilder();
+        sb.append("FAILED: query=" + queryTerm + " ed="+ ed+ " queueSize="+ queueSize+ " vs expected match size="+ expected[ed].size()+ " prefixLength="+ prefixLength+ "\n");
+        boolean first=true;
+        for (        String term : actual) {
+          if (expectedTop.contains(term) == false) {
+            if (first) {
+              sb.append("  these matched but shouldn't:\n");
+              first=false;
+            }
+            sb.append("    " + term + "\n");
+          }
+        }
+        first=true;
+        for (        String term : expectedTop) {
+          if (actual.contains(term) == false) {
+            if (first) {
+              sb.append("  these did not match but should:\n");
+              first=false;
+            }
+            sb.append("    " + term + "\n");
+          }
+        }
+        throw new AssertionError(sb.toString());
+      }
+    }
+  }
+  IOUtils.close(r,w,dir);
+}
