@@ -1,0 +1,34 @@
+{
+  ZkController zkController=it.handler.coreContainer.getZkController();
+  if (zkController == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Internal SolrCloud API");
+  }
+  final SolrParams params=it.req.getParams();
+  String cname=params.get(CoreAdminParams.CORE);
+  if (cname == null) {
+    throw new IllegalArgumentException(CoreAdminParams.CORE + " is required");
+  }
+  String name=params.get(NAME);
+  if (name == null) {
+    throw new IllegalArgumentException(CoreAdminParams.NAME + " is required");
+  }
+  String repoName=params.get(CoreAdminParams.BACKUP_REPOSITORY);
+  BackupRepository repository=it.handler.coreContainer.newBackupRepository(Optional.ofNullable(repoName));
+  String location=repository.getBackupLocation(params.get(CoreAdminParams.BACKUP_LOCATION));
+  if (location == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"'location' is not specified as a query" + " parameter or as a default repository property");
+  }
+  String commitName=params.get(CoreAdminParams.COMMIT_NAME);
+  URI locationUri=repository.createURI(location);
+  try (SolrCore core=it.handler.coreContainer.getCore(cname)){
+    SnapShooter snapShooter=new SnapShooter(repository,core,locationUri,name,commitName);
+    if (!snapShooter.getBackupRepository().exists(snapShooter.getLocation())) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Directory to contain snapshots doesn't exist: " + snapShooter.getLocation());
+    }
+    snapShooter.validateCreateSnapshot();
+    snapShooter.createSnapshot();
+  }
+ catch (  Exception e) {
+    throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Failed to backup core=" + cname + " because "+ e,e);
+  }
+}

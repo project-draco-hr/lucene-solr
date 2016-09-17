@@ -1,0 +1,29 @@
+{
+  ZkController zkController=it.handler.coreContainer.getZkController();
+  if (zkController == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Only valid for SolrCloud");
+  }
+  final SolrParams params=it.req.getParams();
+  String cname=params.get(CoreAdminParams.CORE);
+  if (cname == null) {
+    throw new IllegalArgumentException(CoreAdminParams.CORE + " is required");
+  }
+  String name=params.get(NAME);
+  if (name == null) {
+    throw new IllegalArgumentException(CoreAdminParams.NAME + " is required");
+  }
+  String repoName=params.get(CoreAdminParams.BACKUP_REPOSITORY);
+  BackupRepository repository=it.handler.coreContainer.newBackupRepository(Optional.ofNullable(repoName));
+  String location=repository.getBackupLocation(params.get(CoreAdminParams.BACKUP_LOCATION));
+  if (location == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"'location' is not specified as a query" + " parameter or as a default repository property");
+  }
+  URI locationUri=repository.createURI(location);
+  try (SolrCore core=it.handler.coreContainer.getCore(cname)){
+    RestoreCore restoreCore=new RestoreCore(repository,core,locationUri,name);
+    boolean success=restoreCore.doRestore();
+    if (!success) {
+      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"Failed to restore core=" + core.getName());
+    }
+  }
+ }
