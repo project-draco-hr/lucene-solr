@@ -1,0 +1,25 @@
+{
+  for (int i=0; i < atLeast(2); i++) {
+    int asyncId=taskNum.incrementAndGet();
+    SolrQueryResponse rsp=new SolrQueryResponse();
+    h.getCoreContainer().getMultiCoreHandler().handleRequest(req(CommonParams.QT,"/admin/cores",CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.RELOAD.toString(),CoreAdminParams.CORE,DEFAULT_TEST_CORENAME,"async","" + asyncId),new SolrQueryResponse());
+    boolean isCompleted;
+    do {
+      String stats=h.query(req(CommonParams.QT,"/admin/mbeans","stats","true"));
+      NamedList<NamedList<Object>> actualStats=SolrInfoMBeanHandler.fromXML(stats).get("CORE");
+      for (      Map.Entry<String,NamedList<Object>> tuple : actualStats) {
+        if (tuple.getKey().contains("earcher")) {
+          NamedList<Object> searcherStats=tuple.getValue();
+          @SuppressWarnings("unchecked") NamedList<Object> statsList=(NamedList<Object>)searcherStats.get("stats");
+          assertEquals("expect to have exactly one indexVersion at " + statsList,1,statsList.getAll("indexVersion").size());
+          assertTrue(statsList.get("indexVersion") instanceof Long);
+        }
+      }
+      h.getCoreContainer().getMultiCoreHandler().handleRequest(req(CoreAdminParams.ACTION,CoreAdminParams.CoreAdminAction.REQUESTSTATUS.toString(),CoreAdminParams.REQUESTID,"" + asyncId),rsp);
+      @SuppressWarnings("unchecked") List<Object> statusLog=rsp.getValues().getAll(CoreAdminAction.STATUS.name());
+      assertFalse("expect status check w/o error, got:" + statusLog,statusLog.contains(CoreAdminHandler.FAILED));
+      isCompleted=statusLog.contains(CoreAdminHandler.COMPLETED);
+    }
+ while (!isCompleted);
+  }
+}
