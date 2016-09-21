@@ -88,10 +88,13 @@
     }
     final DirectoryReader r=w.getReader();
     w.close();
-    final NumericDocValues docIdToFieldId=MultiDocValues.getNumericValues(r,"id");
+    NumericDocValues values=MultiDocValues.getNumericValues(r,"id");
+    final int[] docIDToFieldId=new int[numDocs];
     final int[] fieldIdToDocID=new int[numDocs];
     for (int i=0; i < numDocs; i++) {
-      int fieldId=(int)docIdToFieldId.get(i);
+      assertEquals(i,values.nextDoc());
+      int fieldId=(int)values.longValue();
+      docIDToFieldId[i]=fieldId;
       fieldIdToDocID[fieldId]=i;
     }
     final IndexSearcher s=newSearcher(r);
@@ -99,7 +102,7 @@
     for (int contentID=0; contentID < 3; contentID++) {
       final ScoreDoc[] hits=s.search(new TermQuery(new Term("content","real" + contentID)),numDocs).scoreDocs;
       for (      ScoreDoc hit : hits) {
-        int idValue=(int)docIdToFieldId.get(hit.doc);
+        int idValue=docIDToFieldId[hit.doc];
         final GroupDoc gd=groupDocs[idValue];
         assertEquals(gd.id,idValue);
         seenIDs.add(idValue);
@@ -124,7 +127,7 @@
       int[] expectedGroupHeads=createExpectedGroupHeads(searchTerm,groupDocs,sortWithinGroup,sortByScoreOnly,fieldIdToDocID);
       int[] actualGroupHeads=allGroupHeadsCollector.retrieveGroupHeads();
       for (int i=0; i < actualGroupHeads.length; i++) {
-        actualGroupHeads[i]=(int)docIdToFieldId.get(actualGroupHeads[i]);
+        actualGroupHeads[i]=docIDToFieldId[actualGroupHeads[i]];
       }
       Arrays.sort(expectedGroupHeads);
       Arrays.sort(actualGroupHeads);

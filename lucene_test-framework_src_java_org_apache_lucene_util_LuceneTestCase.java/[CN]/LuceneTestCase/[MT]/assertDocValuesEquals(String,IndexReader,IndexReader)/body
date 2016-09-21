@@ -10,23 +10,26 @@
         assertDocValuesEquals(info,leftReader.maxDoc(),leftValues,rightValues);
       }
  else {
-        assertNull(info,leftValues);
-        assertNull(info,rightValues);
+        assertTrue(info + ": left numeric doc values for field=\"" + field+ "\" are not null",leftValues == null || leftValues.nextDoc() == NO_MORE_DOCS);
+        assertTrue(info + ": right numeric doc values for field=\"" + field+ "\" are not null",rightValues == null || rightValues.nextDoc() == NO_MORE_DOCS);
       }
     }
 {
       BinaryDocValues leftValues=MultiDocValues.getBinaryValues(leftReader,field);
       BinaryDocValues rightValues=MultiDocValues.getBinaryValues(rightReader,field);
       if (leftValues != null && rightValues != null) {
-        for (int docID=0; docID < leftReader.maxDoc(); docID++) {
-          final BytesRef left=BytesRef.deepCopyOf(leftValues.get(docID));
-          final BytesRef right=rightValues.get(docID);
-          assertEquals(info,left,right);
+        while (true) {
+          int docID=leftValues.nextDoc();
+          assertEquals(docID,rightValues.nextDoc());
+          if (docID == NO_MORE_DOCS) {
+            break;
+          }
+          assertEquals(leftValues.binaryValue(),rightValues.binaryValue());
         }
       }
  else {
-        assertNull(info,leftValues);
-        assertNull(info,rightValues);
+        assertTrue(info,leftValues == null || leftValues.nextDoc() == NO_MORE_DOCS);
+        assertTrue(info,rightValues == null || rightValues.nextDoc() == NO_MORE_DOCS);
       }
     }
 {
@@ -40,8 +43,10 @@
           assertEquals(info,left,right);
         }
         for (int docID=0; docID < leftReader.maxDoc(); docID++) {
-          final BytesRef left=BytesRef.deepCopyOf(leftValues.get(docID));
-          final BytesRef right=rightValues.get(docID);
+          assertEquals(docID,leftValues.nextDoc());
+          assertEquals(docID,rightValues.nextDoc());
+          final BytesRef left=BytesRef.deepCopyOf(leftValues.binaryValue());
+          final BytesRef right=rightValues.binaryValue();
           assertEquals(info,left,right);
         }
       }
@@ -60,9 +65,12 @@
           final BytesRef right=rightValues.lookupOrd(i);
           assertEquals(info,left,right);
         }
-        for (int docID=0; docID < leftReader.maxDoc(); docID++) {
-          leftValues.setDocument(docID);
-          rightValues.setDocument(docID);
+        while (true) {
+          int docID=leftValues.nextDoc();
+          assertEquals(docID,rightValues.nextDoc());
+          if (docID == NO_MORE_DOCS) {
+            break;
+          }
           long ord;
           while ((ord=leftValues.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
             assertEquals(info,ord,rightValues.nextOrd());
@@ -79,36 +87,21 @@
       SortedNumericDocValues leftValues=MultiDocValues.getSortedNumericValues(leftReader,field);
       SortedNumericDocValues rightValues=MultiDocValues.getSortedNumericValues(rightReader,field);
       if (leftValues != null && rightValues != null) {
-        for (int i=0; i < leftReader.maxDoc(); i++) {
-          leftValues.setDocument(i);
-          long expected[]=new long[leftValues.count()];
-          for (int j=0; j < expected.length; j++) {
-            expected[j]=leftValues.valueAt(j);
+        while (true) {
+          int docID=leftValues.nextDoc();
+          assertEquals(docID,rightValues.nextDoc());
+          if (docID == NO_MORE_DOCS) {
+            break;
           }
-          rightValues.setDocument(i);
-          for (int j=0; j < expected.length; j++) {
-            assertEquals(info,expected[j],rightValues.valueAt(j));
+          assertEquals(info,leftValues.docValueCount(),rightValues.docValueCount());
+          for (int j=0; j < leftValues.docValueCount(); j++) {
+            assertEquals(info,leftValues.nextValue(),rightValues.nextValue());
           }
-          assertEquals(info,expected.length,rightValues.count());
         }
       }
  else {
         assertNull(info,leftValues);
         assertNull(info,rightValues);
-      }
-    }
-{
-      Bits leftBits=MultiDocValues.getDocsWithField(leftReader,field);
-      Bits rightBits=MultiDocValues.getDocsWithField(rightReader,field);
-      if (leftBits != null && rightBits != null) {
-        assertEquals(info,leftBits.length(),rightBits.length());
-        for (int i=0; i < leftBits.length(); i++) {
-          assertEquals(info,leftBits.get(i),rightBits.get(i));
-        }
-      }
- else {
-        assertNull(info,leftBits);
-        assertNull(info,rightBits);
       }
     }
   }

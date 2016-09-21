@@ -3,17 +3,25 @@
   return new FunctionValues(){
     int bytesRefDoc=-1;
     BytesRefBuilder bytesRef=new BytesRefBuilder();
-    boolean fillBytes(    int doc){
+    boolean fillBytes(    int doc) throws IOException {
       if (bytesRefDoc != doc) {
-        bytesRef.copyBytes(docValues.get(doc));
+        if (docValues.docID() < doc) {
+          docValues.advance(doc);
+        }
+        if (docValues.docID() == doc) {
+          bytesRef.copyBytes(docValues.binaryValue());
+        }
+ else {
+          bytesRef.clear();
+        }
         bytesRefDoc=doc;
       }
       return bytesRef.length() != 0;
     }
-    @Override public boolean exists(    int doc){
+    @Override public boolean exists(    int doc) throws IOException {
       return fillBytes(doc);
     }
-    @Override public boolean bytesVal(    int doc,    BytesRefBuilder target){
+    @Override public boolean bytesVal(    int doc,    BytesRefBuilder target) throws IOException {
       target.clear();
       if (fillBytes(doc)) {
         target.copyBytes(bytesRef);
@@ -23,7 +31,7 @@
         return false;
       }
     }
-    @Override public Object objectVal(    int docId){
+    @Override public Object objectVal(    int docId) throws IOException {
       if (!fillBytes(docId))       return null;
       DataInputStream dataInput=new DataInputStream(new ByteArrayInputStream(bytesRef.bytes(),0,bytesRef.length()));
       try {
@@ -33,10 +41,10 @@
         throw new RuntimeException(e);
       }
     }
-    @Override public Explanation explain(    int doc){
+    @Override public Explanation explain(    int doc) throws IOException {
       return Explanation.match(Float.NaN,toString(doc));
     }
-    @Override public String toString(    int doc){
+    @Override public String toString(    int doc) throws IOException {
       return description() + "=" + objectVal(doc);
     }
   }

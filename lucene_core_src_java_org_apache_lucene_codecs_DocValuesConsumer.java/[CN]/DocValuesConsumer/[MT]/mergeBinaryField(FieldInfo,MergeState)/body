@@ -1,0 +1,55 @@
+{
+  addBinaryField(mergeFieldInfo,new EmptyDocValuesProducer(){
+    @Override public BinaryDocValues getBinary(    FieldInfo fieldInfo) throws IOException {
+      if (fieldInfo != mergeFieldInfo) {
+        throw new IllegalArgumentException("wrong fieldInfo");
+      }
+      List<BinaryDocValuesSub> subs=new ArrayList<>();
+      long cost=0;
+      for (int i=0; i < mergeState.docValuesProducers.length; i++) {
+        BinaryDocValues values=null;
+        DocValuesProducer docValuesProducer=mergeState.docValuesProducers[i];
+        if (docValuesProducer != null) {
+          FieldInfo readerFieldInfo=mergeState.fieldInfos[i].fieldInfo(mergeFieldInfo.name);
+          if (readerFieldInfo != null && readerFieldInfo.getDocValuesType() == DocValuesType.BINARY) {
+            values=docValuesProducer.getBinary(readerFieldInfo);
+          }
+        }
+        if (values != null) {
+          cost+=values.cost();
+          subs.add(new BinaryDocValuesSub(mergeState.docMaps[i],values));
+        }
+      }
+      final DocIDMerger<BinaryDocValuesSub> docIDMerger=new DocIDMerger<>(subs,mergeState.segmentInfo.getIndexSort() != null);
+      final long finalCost=cost;
+      return new BinaryDocValues(){
+        private BinaryDocValuesSub current;
+        private int docID=-1;
+        @Override public int docID(){
+          return docID;
+        }
+        @Override public int nextDoc() throws IOException {
+          current=docIDMerger.next();
+          if (current == null) {
+            docID=NO_MORE_DOCS;
+          }
+ else {
+            docID=current.mappedDocID;
+          }
+          return docID;
+        }
+        @Override public int advance(        int target) throws IOException {
+          throw new UnsupportedOperationException();
+        }
+        @Override public long cost(){
+          return finalCost;
+        }
+        @Override public BytesRef binaryValue(){
+          return current.values.binaryValue();
+        }
+      }
+;
+    }
+  }
+);
+}

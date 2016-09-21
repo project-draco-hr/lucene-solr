@@ -24,6 +24,11 @@
   }
   int currentContext=0;
   int currentDocBase=0;
+  collapseValues=collapseValuesProducer.getSorted(null);
+  if (collapseValues instanceof MultiDocValues.MultiSortedDocValues) {
+    this.multiSortedDocValues=(MultiDocValues.MultiSortedDocValues)collapseValues;
+    this.ordinalMap=multiSortedDocValues.mapping;
+  }
   if (ordinalMap != null) {
     this.segmentValues=this.multiSortedDocValues.values[currentContext];
     this.segmentOrdinalMap=this.ordinalMap.getGlobalOrds(currentContext);
@@ -53,13 +58,20 @@
     int contextDoc=docId - currentDocBase;
     int ord=-1;
     if (this.ordinalMap != null) {
-      ord=segmentValues.getOrd(contextDoc);
-      if (ord > -1) {
-        ord=(int)segmentOrdinalMap.get(ord);
+      if (contextDoc > segmentValues.docID()) {
+        segmentValues.advance(contextDoc);
+      }
+      if (contextDoc == segmentValues.docID()) {
+        ord=(int)segmentOrdinalMap.get(segmentValues.ordValue());
       }
     }
  else {
-      ord=segmentValues.getOrd(docId);
+      if (docId > segmentValues.docID()) {
+        segmentValues.advance(docId);
+      }
+      if (docId == segmentValues.docID()) {
+        ord=segmentValues.ordValue();
+      }
     }
     if (ord > -1) {
       dummy.score=scores[ord];

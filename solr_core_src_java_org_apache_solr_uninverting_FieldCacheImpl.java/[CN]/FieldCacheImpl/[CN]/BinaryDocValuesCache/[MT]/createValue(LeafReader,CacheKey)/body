@@ -1,0 +1,59 @@
+{
+  final int maxDoc=reader.maxDoc();
+  Terms terms=reader.terms(key.field);
+  final float acceptableOverheadRatio=((Float)key.custom).floatValue();
+  final int termCountHardLimit=maxDoc;
+  final PagedBytes bytes=new PagedBytes(15);
+  int startBPV;
+  if (terms != null) {
+    long numUniqueTerms=terms.size();
+    if (numUniqueTerms != -1L) {
+      if (numUniqueTerms > termCountHardLimit) {
+        numUniqueTerms=termCountHardLimit;
+      }
+      startBPV=PackedInts.bitsRequired(numUniqueTerms * 4);
+    }
+ else {
+      startBPV=1;
+    }
+  }
+ else {
+    startBPV=1;
+  }
+  final GrowableWriter docToOffset=new GrowableWriter(startBPV,maxDoc,acceptableOverheadRatio);
+  bytes.copyUsingLengthPrefix(new BytesRef());
+  if (terms != null) {
+    int termCount=0;
+    final TermsEnum termsEnum=terms.iterator();
+    PostingsEnum docs=null;
+    while (true) {
+      if (termCount++ == termCountHardLimit) {
+        break;
+      }
+      final BytesRef term=termsEnum.next();
+      if (term == null) {
+        break;
+      }
+      final long pointer=bytes.copyUsingLengthPrefix(term);
+      docs=termsEnum.postings(docs,PostingsEnum.NONE);
+      while (true) {
+        final int docID=docs.nextDoc();
+        if (docID == DocIdSetIterator.NO_MORE_DOCS) {
+          break;
+        }
+        docToOffset.set(docID,pointer);
+      }
+    }
+  }
+  final PackedInts.Reader offsetReader=docToOffset.getMutable();
+  wrapper.setDocsWithField(reader,key.field,new Bits(){
+    @Override public boolean get(    int index){
+      return offsetReader.get(index) != 0;
+    }
+    @Override public int length(){
+      return maxDoc;
+    }
+  }
+,null);
+  return new BinaryDocValuesImpl(bytes.freeze(true),offsetReader);
+}

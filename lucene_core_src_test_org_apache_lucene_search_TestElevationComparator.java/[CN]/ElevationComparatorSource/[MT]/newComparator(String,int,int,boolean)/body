@@ -3,7 +3,6 @@
     private final int[] values=new int[numHits];
     int bottomVal;
     @Override public LeafFieldComparator getLeafComparator(    LeafReaderContext context) throws IOException {
-      final SortedDocValues idIndex=DocValues.getSorted(context.reader(),fieldname);
       return new LeafFieldComparator(){
         @Override public void setBottom(        int slot){
           bottomVal=values[slot];
@@ -11,21 +10,21 @@
         @Override public int compareTop(        int doc){
           throw new UnsupportedOperationException();
         }
-        private int docVal(        int doc){
-          int ord=idIndex.getOrd(doc);
-          if (ord == -1) {
-            return 0;
-          }
- else {
-            final BytesRef term=idIndex.lookupOrd(ord);
+        private int docVal(        int doc) throws IOException {
+          SortedDocValues idIndex=DocValues.getSorted(context.reader(),fieldname);
+          if (idIndex.advance(doc) == doc) {
+            final BytesRef term=idIndex.binaryValue();
             Integer prio=priority.get(term);
             return prio == null ? 0 : prio.intValue();
           }
+ else {
+            return 0;
+          }
         }
-        @Override public int compareBottom(        int doc){
+        @Override public int compareBottom(        int doc) throws IOException {
           return docVal(doc) - bottomVal;
         }
-        @Override public void copy(        int slot,        int doc){
+        @Override public void copy(        int slot,        int doc) throws IOException {
           values[slot]=docVal(doc);
         }
         @Override public void setScorer(        Scorer scorer){

@@ -1,0 +1,39 @@
+{
+  if (dv.docID() != -1) {
+    throw new RuntimeException("sorted dv iterator for field: " + fieldName + " should start at docID=-1, but got "+ dv.docID());
+  }
+  final int maxOrd=dv.getValueCount() - 1;
+  FixedBitSet seenOrds=new FixedBitSet(dv.getValueCount());
+  int maxOrd2=-1;
+  int docID;
+  while ((docID=dv.nextDoc()) != NO_MORE_DOCS) {
+    int ord=dv.ordValue();
+    if (ord == -1) {
+      throw new RuntimeException("dv for field: " + fieldName + " has -1 ord");
+    }
+ else     if (ord < -1 || ord > maxOrd) {
+      throw new RuntimeException("ord out of bounds: " + ord);
+    }
+ else {
+      maxOrd2=Math.max(maxOrd2,ord);
+      seenOrds.set(ord);
+    }
+  }
+  if (maxOrd != maxOrd2) {
+    throw new RuntimeException("dv for field: " + fieldName + " reports wrong maxOrd="+ maxOrd+ " but this is not the case: "+ maxOrd2);
+  }
+  if (seenOrds.cardinality() != dv.getValueCount()) {
+    throw new RuntimeException("dv for field: " + fieldName + " has holes in its ords, valueCount="+ dv.getValueCount()+ " but only used: "+ seenOrds.cardinality());
+  }
+  BytesRef lastValue=null;
+  for (int i=0; i <= maxOrd; i++) {
+    final BytesRef term=dv.lookupOrd(i);
+    term.isValid();
+    if (lastValue != null) {
+      if (term.compareTo(lastValue) <= 0) {
+        throw new RuntimeException("dv for field: " + fieldName + " has ords out of order: "+ lastValue+ " >="+ term);
+      }
+    }
+    lastValue=BytesRef.deepCopyOf(term);
+  }
+}
