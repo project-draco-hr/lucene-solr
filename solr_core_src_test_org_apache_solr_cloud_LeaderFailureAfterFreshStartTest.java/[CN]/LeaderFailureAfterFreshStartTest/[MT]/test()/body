@@ -1,0 +1,41 @@
+{
+  handle.clear();
+  handle.put("timestamp",SKIPVAL);
+  try {
+    CloudJettyRunner initialLeaderJetty=shardToLeaderJetty.get("shard1");
+    List<CloudJettyRunner> otherJetties=getOtherAvailableJetties(initialLeaderJetty);
+    log.info("Leader node_name: {},  url: {}",initialLeaderJetty.coreNodeName,initialLeaderJetty.url);
+    for (    CloudJettyRunner cloudJettyRunner : otherJetties) {
+      log.info("Nonleader node_name: {},  url: {}",cloudJettyRunner.coreNodeName,cloudJettyRunner.url);
+    }
+    CloudJettyRunner secondNode=otherJetties.get(0);
+    CloudJettyRunner freshNode=otherJetties.get(1);
+    otherJetties.remove(freshNode);
+    forceNodeFailures(singletonList(freshNode));
+    del("*:*");
+    waitForThingsToLevelOut(30);
+    checkShardConsistency(false,true);
+    for (int i=0; i < 100; i++) {
+      indexDoc(id,docId,i1,50,tlong,50,t1,"document number " + docId++);
+    }
+    commit();
+    waitForThingsToLevelOut(30);
+    checkShardConsistency(false,true);
+    ChaosMonkey.start(freshNode.jetty);
+    nodesDown.remove(freshNode);
+    waitTillNodesActive();
+    waitForThingsToLevelOut(30);
+    long numRequestsBefore=(Long)secondNode.jetty.getCoreContainer().getCores().iterator().next().getRequestHandler(ReplicationHandler.PATH).getStatistics().get("requests");
+    log.info("Now shutting down initial leader");
+    forceNodeFailures(singletonList(initialLeaderJetty));
+    waitForNewLeader(cloudClient,"shard1",(Replica)initialLeaderJetty.client.info,15);
+    log.info("Updating mappings from zk");
+    updateMappingsFromZk(jettys,clients,true);
+    long numRequestsAfter=(Long)secondNode.jetty.getCoreContainer().getCores().iterator().next().getRequestHandler(ReplicationHandler.PATH).getStatistics().get("requests");
+    assertEquals("Node went into replication",numRequestsBefore,numRequestsAfter);
+    success=true;
+  }
+  finally {
+    System.clearProperty("solr.disableFingerprint");
+  }
+}
