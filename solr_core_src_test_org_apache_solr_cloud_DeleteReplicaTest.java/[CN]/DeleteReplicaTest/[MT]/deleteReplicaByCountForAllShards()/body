@@ -1,30 +1,7 @@
 {
-  String collectionName="deleteByCountNew";
-  try (CloudSolrClient client=createCloudClient(null)){
-    createCollection(collectionName,2,2,5);
-    waitForRecoveriesToFinish(collectionName,false);
-    DocCollection testcoll=getCommonCloudSolrClient().getZkStateReader().getClusterState().getCollection(collectionName);
-    Collection<Slice> slices=testcoll.getActiveSlices();
-    assertEquals(slices.size(),2);
-    for (    Slice individualShard : slices) {
-      assertEquals(individualShard.getReplicas().size(),2);
-    }
-    String requestIdAsync="1000";
-    try {
-      tryRemoveReplicaByCountAsync(collectionName,client,1,requestIdAsync);
-      String requestStatus=trackRequestStatus(client,requestIdAsync);
-      while ((!requestStatus.equals(RequestStatusState.COMPLETED.getKey())) && (!requestStatus.equals(RequestStatusState.FAILED.getKey()))) {
-        requestStatus=trackRequestStatus(client,requestIdAsync);
-      }
-      testcoll=getCommonCloudSolrClient().getZkStateReader().getClusterState().getCollection(collectionName);
-      slices=testcoll.getActiveSlices();
-      assertEquals(slices.size(),2);
-      for (      Slice individualShard : slices) {
-        assertEquals(individualShard.getReplicas().size(),1);
-      }
-    }
- catch (    SolrException se) {
-      fail("Should have been able to remove the replica successfully");
-    }
-  }
- }
+  final String collectionName="deleteByCountNew";
+  CollectionAdminRequest.createCollection(collectionName,"conf",2,2).process(cluster.getSolrClient());
+  waitForState("Expected two shards with two replicas each",collectionName,clusterShape(2,2));
+  CollectionAdminRequest.deleteReplicasFromAllShards(collectionName,1).process(cluster.getSolrClient());
+  waitForState("Expected two shards with one replica each",collectionName,clusterShape(2,1));
+}
