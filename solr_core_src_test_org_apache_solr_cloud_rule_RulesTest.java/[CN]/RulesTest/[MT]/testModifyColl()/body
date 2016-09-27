@@ -4,22 +4,16 @@
   assumeTrue("testModifyColl needs minGB1=" + minGB1 + " usable disk space",ImplicitSnitch.getUsableSpaceInGB(Paths.get("/")) > minGB1);
   assumeTrue("testModifyColl needs minGB2=" + minGB2 + " usable disk space",ImplicitSnitch.getUsableSpaceInGB(Paths.get("/")) > minGB2);
   String rulesColl="modifyColl";
-  try (SolrClient client=createNewSolrClient("",getBaseUrl((HttpSolrClient)clients.get(0)))){
-    CollectionAdminResponse rsp;
-    CollectionAdminRequest.Create create=new CollectionAdminRequest.Create().setCollectionName(rulesColl).setNumShards(1).setReplicationFactor(2).setRule("cores:<4","node:*,replica:1","freedisk:>" + minGB1).setSnitch("class:ImplicitSnitch");
-    rsp=create.process(client);
-    assertEquals(0,rsp.getStatus());
-    assertTrue(rsp.isSuccess());
-    ModifiableSolrParams p=new ModifiableSolrParams();
-    p.add("collection",rulesColl);
-    p.add("action","MODIFYCOLLECTION");
-    p.add("rule","cores:<5");
-    p.add("rule","node:*,replica:1");
-    p.add("rule","freedisk:>" + minGB2);
-    p.add("autoAddReplicas","true");
-    client.request(new GenericSolrRequest(POST,COLLECTIONS_HANDLER_PATH,p));
-  }
-   DocCollection rulesCollection=ZkStateReader.getCollectionLive(cloudClient.getZkStateReader(),rulesColl);
+  CollectionAdminRequest.createCollection(rulesColl,"conf",1,2).setRule("cores:<4","node:*,replica:1","freedisk:>" + minGB1).setSnitch("class:ImplicitSnitch").process(cluster.getSolrClient());
+  ModifiableSolrParams p=new ModifiableSolrParams();
+  p.add("collection",rulesColl);
+  p.add("action","MODIFYCOLLECTION");
+  p.add("rule","cores:<5");
+  p.add("rule","node:*,replica:1");
+  p.add("rule","freedisk:>" + minGB2);
+  p.add("autoAddReplicas","true");
+  cluster.getSolrClient().request(new GenericSolrRequest(POST,COLLECTIONS_HANDLER_PATH,p));
+  DocCollection rulesCollection=getCollectionState(rulesColl);
   log.info("version_of_coll {}  ",rulesCollection.getZNodeVersion());
   List list=(List)rulesCollection.get("rule");
   assertEquals(3,list.size());
