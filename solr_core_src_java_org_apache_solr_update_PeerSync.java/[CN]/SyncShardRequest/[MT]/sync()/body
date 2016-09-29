@@ -1,6 +1,6 @@
 {
   if (ulog == null) {
-    return false;
+    return PeerSyncResult.failure();
   }
   MDCLoggingContext.setCore(core);
   try {
@@ -11,7 +11,7 @@
       }
     }
     if (doFingerprint && alreadyInSync()) {
-      return true;
+      return PeerSyncResult.success();
     }
     for (    String replica : replicas) {
       requestVersions(replica);
@@ -23,7 +23,7 @@
     if (startingVersions != null) {
       if (startingVersions.size() == 0) {
         log.warn("no frame of reference to tell if we've missed updates");
-        return false;
+        return PeerSyncResult.failure();
       }
       Collections.sort(startingVersions,absComparator);
       ourLowThreshold=percentile(startingVersions,0.8f);
@@ -31,7 +31,7 @@
       long smallestNewUpdate=Math.abs(ourUpdates.get(ourUpdates.size() - 1));
       if (Math.abs(startingVersions.get(0)) < smallestNewUpdate) {
         log.warn(msg() + "too many updates received since start - startingUpdates no longer overlaps with our currentUpdates");
-        return false;
+        return PeerSyncResult.failure();
       }
       List<Long> newList=new ArrayList<>(ourUpdates);
       for (      Long ver : startingVersions) {
@@ -49,7 +49,17 @@
       }
  else {
         log.info(msg() + "DONE.  We have no versions.  sync failed.");
-        return false;
+        for (; ; ) {
+          ShardResponse srsp=shardHandler.takeCompletedOrError();
+          if (srsp == null)           break;
+          if (srsp.getException() == null) {
+            List<Long> otherVersions=(List<Long>)srsp.getSolrResponse().getResponse().get("versions");
+            if (otherVersions != null && !otherVersions.isEmpty()) {
+              return PeerSyncResult.failure(true);
+            }
+          }
+        }
+        return PeerSyncResult.failure(false);
       }
     }
     ourHighest=ourUpdates.get(0);
@@ -62,7 +72,7 @@
       if (!success) {
         log.info(msg() + "DONE. sync failed");
         shardHandler.cancelAll();
-        return false;
+        return PeerSyncResult.failure();
       }
     }
     boolean success=true;
@@ -73,7 +83,7 @@
       }
     }
     log.info(msg() + "DONE. sync " + (success ? "succeeded" : "failed"));
-    return success;
+    return success ? PeerSyncResult.success() : PeerSyncResult.failure();
   }
   finally {
     MDCLoggingContext.clear();
