@@ -1,0 +1,120 @@
+{
+  List<SortedSetDocValues> toMerge=new ArrayList<>();
+  for (int i=0; i < mergeState.docValuesProducers.length; i++) {
+    SortedSetDocValues values=null;
+    DocValuesProducer docValuesProducer=mergeState.docValuesProducers[i];
+    if (docValuesProducer != null) {
+      FieldInfo fieldInfo=mergeState.fieldInfos[i].fieldInfo(mergeFieldInfo.name);
+      if (fieldInfo != null && fieldInfo.getDocValuesType() == DocValuesType.SORTED_SET) {
+        values=docValuesProducer.getSortedSet(fieldInfo);
+      }
+    }
+    if (values == null) {
+      values=DocValues.emptySortedSet();
+    }
+    toMerge.add(values);
+  }
+  TermsEnum liveTerms[]=new TermsEnum[toMerge.size()];
+  long[] weights=new long[liveTerms.length];
+  for (int sub=0; sub < liveTerms.length; sub++) {
+    SortedSetDocValues dv=toMerge.get(sub);
+    Bits liveDocs=mergeState.liveDocs[sub];
+    int maxDoc=mergeState.maxDocs[sub];
+    if (liveDocs == null) {
+      liveTerms[sub]=dv.termsEnum();
+      weights[sub]=dv.getValueCount();
+    }
+ else {
+      LongBitSet bitset=new LongBitSet(dv.getValueCount());
+      int docID;
+      while ((docID=dv.nextDoc()) != NO_MORE_DOCS) {
+        if (liveDocs.get(docID)) {
+          long ord;
+          while ((ord=dv.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+            bitset.set(ord);
+          }
+        }
+      }
+      liveTerms[sub]=new BitsFilteredTermsEnum(dv.termsEnum(),bitset);
+      weights[sub]=bitset.cardinality();
+    }
+  }
+  final OrdinalMap map=OrdinalMap.build(this,liveTerms,weights,PackedInts.COMPACT);
+  addSortedSetField(mergeFieldInfo,new EmptyDocValuesProducer(){
+    @Override public SortedSetDocValues getSortedSet(    FieldInfo fieldInfo){
+      if (fieldInfo != mergeFieldInfo) {
+        throw new IllegalArgumentException("wrong FieldInfo");
+      }
+      List<SortedSetDocValuesSub> subs=new ArrayList<>();
+      long cost=0;
+      for (int i=0; i < mergeState.docValuesProducers.length; i++) {
+        SortedSetDocValues values=null;
+        DocValuesProducer docValuesProducer=mergeState.docValuesProducers[i];
+        if (docValuesProducer != null) {
+          FieldInfo readerFieldInfo=mergeState.fieldInfos[i].fieldInfo(mergeFieldInfo.name);
+          if (readerFieldInfo != null && readerFieldInfo.getDocValuesType() == DocValuesType.SORTED_SET) {
+            try {
+              values=docValuesProducer.getSortedSet(readerFieldInfo);
+            }
+ catch (            IOException ioe) {
+              throw new RuntimeException(ioe);
+            }
+          }
+        }
+        if (values == null) {
+          values=DocValues.emptySortedSet();
+        }
+        cost+=values.cost();
+        subs.add(new SortedSetDocValuesSub(mergeState.docMaps[i],values,map.getGlobalOrds(i)));
+      }
+      final DocIDMerger<SortedSetDocValuesSub> docIDMerger;
+      try {
+        docIDMerger=new DocIDMerger<>(subs,mergeState.segmentInfo.getIndexSort() != null);
+      }
+ catch (      IOException ioe) {
+        throw new RuntimeException(ioe);
+      }
+      final long finalCost=cost;
+      return new SortedSetDocValues(){
+        private int docID=-1;
+        private SortedSetDocValuesSub currentSub;
+        @Override public int docID(){
+          return docID;
+        }
+        @Override public int nextDoc() throws IOException {
+          currentSub=docIDMerger.next();
+          if (currentSub == null) {
+            docID=NO_MORE_DOCS;
+          }
+ else {
+            docID=currentSub.mappedDocID;
+          }
+          return docID;
+        }
+        @Override public int advance(        int target) throws IOException {
+          throw new UnsupportedOperationException();
+        }
+        @Override public long nextOrd() throws IOException {
+          long subOrd=currentSub.values.nextOrd();
+          if (subOrd == NO_MORE_ORDS) {
+            return NO_MORE_ORDS;
+          }
+          return currentSub.map.get(subOrd);
+        }
+        @Override public long cost(){
+          return finalCost;
+        }
+        @Override public BytesRef lookupOrd(        long ord){
+          int segmentNumber=map.getFirstSegmentNumber(ord);
+          long segmentOrd=map.getFirstSegmentOrd(ord);
+          return toMerge.get(segmentNumber).lookupOrd(segmentOrd);
+        }
+        @Override public long getValueCount(){
+          return map.getValueCount();
+        }
+      }
+;
+    }
+  }
+);
+}

@@ -24,20 +24,35 @@
   }
   final SortedDocValues sindex=SortedSetSelector.wrap(DocValues.getSortedSet(r,field),SortedSetSelector.Type.MIN);
   return new IntDocValues(this){
+    private int lastDocID;
+    private int getOrdForDoc(    int docID) throws IOException {
+      if (docID < lastDocID) {
+        throw new IllegalArgumentException("docs out of order: lastDocID=" + lastDocID + " docID="+ docID);
+      }
+      if (docID > sindex.docID()) {
+        sindex.advance(docID);
+      }
+      if (docID == sindex.docID()) {
+        return sindex.ordValue();
+      }
+ else {
+        return -1;
+      }
+    }
     protected String toTerm(    String readableValue){
       return readableValue;
     }
-    @Override public int intVal(    int doc){
-      return sindex.getOrd(doc + off);
+    @Override public int intVal(    int doc) throws IOException {
+      return getOrdForDoc(doc + off);
     }
-    @Override public int ordVal(    int doc){
-      return sindex.getOrd(doc + off);
+    @Override public int ordVal(    int doc) throws IOException {
+      return getOrdForDoc(doc + off);
     }
     @Override public int numOrd(){
       return sindex.getValueCount();
     }
-    @Override public boolean exists(    int doc){
-      return sindex.getOrd(doc + off) != 0;
+    @Override public boolean exists(    int doc) throws IOException {
+      return getOrdForDoc(doc + off) != 0;
     }
     @Override public ValueFiller getValueFiller(){
       return new ValueFiller(){
@@ -45,8 +60,8 @@
         @Override public MutableValue getValue(){
           return mval;
         }
-        @Override public void fillValue(        int doc){
-          mval.value=sindex.getOrd(doc);
+        @Override public void fillValue(        int doc) throws IOException {
+          mval.value=getOrdForDoc(doc);
           mval.exists=mval.value != 0;
         }
       }

@@ -1,0 +1,36 @@
+{
+  ocmh.checkRequired(message,COLLECTION_PROP,COUNT_PROP);
+  int count=Integer.parseInt(message.getStr(COUNT_PROP));
+  String collectionName=message.getStr(COLLECTION_PROP);
+  String shard=message.getStr(SHARD_ID_PROP);
+  DocCollection coll=clusterState.getCollection(collectionName);
+  Slice slice=null;
+  if (shard != null) {
+    slice=coll.getSlice(shard);
+    if (slice == null) {
+      throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Invalid shard name : " + shard + " in collection : "+ collectionName);
+    }
+  }
+  Map<Slice,Set<String>> shardToReplicasMapping=new HashMap<Slice,Set<String>>();
+  if (slice != null) {
+    Set<String> replicasToBeDeleted=pickReplicasTobeDeleted(slice,shard,collectionName,count);
+    shardToReplicasMapping.put(slice,replicasToBeDeleted);
+  }
+ else {
+    Collection<Slice> allSlices=coll.getSlices();
+    for (    Slice individualSlice : allSlices) {
+      Set<String> replicasToBeDeleted=pickReplicasTobeDeleted(individualSlice,individualSlice.getName(),collectionName,count);
+      shardToReplicasMapping.put(individualSlice,replicasToBeDeleted);
+    }
+  }
+  for (  Slice shardSlice : shardToReplicasMapping.keySet()) {
+    String shardId=shardSlice.getName();
+    Set<String> replicas=shardToReplicasMapping.get(shardSlice);
+    for (    String replica : replicas) {
+      log.debug("Deleting replica {}  for shard {} based on count {}",replica,shardId,count);
+      deleteCore(shardSlice,collectionName,replica,message,shard,results,onComplete,parallel);
+    }
+    results.add("shard_id",shardId);
+    results.add("replicas_deleted",replicas);
+  }
+}

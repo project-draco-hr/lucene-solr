@@ -1,0 +1,50 @@
+{
+  Model model=null;
+  long currentTime=new Date().getTime();
+synchronized (this) {
+    model=models.get(modelID);
+    if (model != null && ((currentTime - model.getLastChecked()) <= checkMillis)) {
+      return model.getTuple();
+    }
+    if (model != null) {
+      models.remove(modelID);
+    }
+  }
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set("q","name_s:" + modelID);
+  params.set("fl","terms_ss, idfs_ds, weights_ds, iteration_i, _version_");
+  params.set("sort","iteration_i desc");
+  StreamContext streamContext=new StreamContext();
+  streamContext.setSolrClientCache(solrClientCache);
+  CloudSolrStream stream=new CloudSolrStream(zkHost,collection,params);
+  stream.setStreamContext(streamContext);
+  Tuple tuple=null;
+  try {
+    stream.open();
+    tuple=stream.read();
+    if (tuple.EOF) {
+      return null;
+    }
+  }
+  finally {
+    stream.close();
+  }
+synchronized (this) {
+    Model m=models.get(modelID);
+    if (m != null) {
+      Tuple t=m.getTuple();
+      long v=t.getLong("_version_");
+      if (v >= tuple.getLong("_version_")) {
+        return t;
+      }
+ else {
+        models.put(modelID,new Model(tuple,currentTime));
+        return tuple;
+      }
+    }
+ else {
+      models.put(modelID,new Model(tuple,currentTime));
+      return tuple;
+    }
+  }
+}

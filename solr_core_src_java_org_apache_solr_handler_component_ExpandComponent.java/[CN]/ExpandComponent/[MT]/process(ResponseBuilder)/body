@@ -148,8 +148,11 @@
       }
       int contextDoc=globalDoc - currentDocBase;
       if (ordinalMap != null) {
-        int ord=currentValues.getOrd(contextDoc);
-        if (ord > -1) {
+        if (contextDoc > currentValues.docID()) {
+          currentValues.advance(contextDoc);
+        }
+        if (contextDoc == currentValues.docID()) {
+          int ord=currentValues.ordValue();
           ++count;
           BytesRef ref=currentValues.lookupOrd(ord);
           ord=(int)segmentOrdinalMap.get(ord);
@@ -159,8 +162,11 @@
         }
       }
  else {
-        int ord=values.getOrd(globalDoc);
-        if (ord > -1) {
+        if (globalDoc > values.docID()) {
+          values.advance(globalDoc);
+        }
+        if (globalDoc == values.docID()) {
+          int ord=values.ordValue();
           ++count;
           BytesRef ref=values.lookupOrd(ord);
           ordBytes.put(ord,BytesRef.deepCopyOf(ref));
@@ -191,7 +197,17 @@
         collapseValues=contexts.get(currentContext).reader().getNumericDocValues(field);
       }
       int contextDoc=globalDoc - currentDocBase;
-      long value=collapseValues.get(contextDoc);
+      int valueDocID=collapseValues.docID();
+      if (valueDocID < contextDoc) {
+        valueDocID=collapseValues.advance(contextDoc);
+      }
+      long value;
+      if (valueDocID == contextDoc) {
+        value=collapseValues.longValue();
+      }
+ else {
+        value=0;
+      }
       if (value != nullValue) {
         ++count;
         groupSet.add(value);
@@ -206,6 +222,15 @@
   if (sort != null)   sort=sort.rewrite(searcher);
   Collector groupExpandCollector=null;
   if (values != null) {
+    if (CollapsingQParserPlugin.HINT_TOP_FC.equals(hint)) {
+      Map<String,UninvertingReader.Type> mapping=new HashMap();
+      mapping.put(field,UninvertingReader.Type.SORTED);
+      UninvertingReader uninvertingReader=new UninvertingReader(new ReaderWrapper(searcher.getLeafReader(),field),mapping);
+      values=uninvertingReader.getSortedDocValues(field);
+    }
+ else {
+      values=DocValues.getSorted(reader,field);
+    }
     groupExpandCollector=new GroupExpandCollector(values,groupBits,collapsedSet,limit,sort);
   }
  else {

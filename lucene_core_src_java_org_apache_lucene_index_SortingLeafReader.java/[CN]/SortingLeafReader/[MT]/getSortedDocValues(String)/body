@@ -1,9 +1,21 @@
 {
-  SortedDocValues sortedDV=in.getSortedDocValues(field);
-  if (sortedDV == null) {
+  SortedDocValues oldDocValues=in.getSortedDocValues(field);
+  if (oldDocValues == null) {
     return null;
   }
- else {
-    return new SortingSortedDocValues(sortedDV,docMap);
+  int[] ords;
+synchronized (cachedSortedDVs) {
+    ords=cachedSortedDVs.get(field);
+    if (ords == null) {
+      ords=new int[maxDoc()];
+      Arrays.fill(ords,-1);
+      int docID;
+      while ((docID=oldDocValues.nextDoc()) != NO_MORE_DOCS) {
+        int newDocID=docMap.oldToNew(docID);
+        ords[newDocID]=oldDocValues.ordValue();
+      }
+      cachedSortedDVs.put(field,ords);
+    }
   }
+  return new SortingSortedDocValues(oldDocValues,ords);
 }

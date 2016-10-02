@@ -1,9 +1,24 @@
 {
-  BinaryDocValues oldDocValues=in.getBinaryDocValues(field);
-  if (oldDocValues == null) {
-    return null;
+  final BinaryDocValues oldDocValues=in.getBinaryDocValues(field);
+  if (oldDocValues == null)   return null;
+  CachedBinaryDVs dvs;
+synchronized (cachedBinaryDVs) {
+    dvs=cachedBinaryDVs.get(field);
+    if (dvs == null) {
+      FixedBitSet docsWithField=new FixedBitSet(maxDoc());
+      BytesRef[] values=new BytesRef[maxDoc()];
+      while (true) {
+        int docID=oldDocValues.nextDoc();
+        if (docID == NO_MORE_DOCS) {
+          break;
+        }
+        int newDocID=docMap.oldToNew(docID);
+        docsWithField.set(newDocID);
+        values[newDocID]=BytesRef.deepCopyOf(oldDocValues.binaryValue());
+      }
+      dvs=new CachedBinaryDVs(values,docsWithField);
+      cachedBinaryDVs.put(field,dvs);
+    }
   }
- else {
-    return new SortingBinaryDocValues(oldDocValues,docMap);
-  }
+  return new SortingBinaryDocValues(dvs);
 }

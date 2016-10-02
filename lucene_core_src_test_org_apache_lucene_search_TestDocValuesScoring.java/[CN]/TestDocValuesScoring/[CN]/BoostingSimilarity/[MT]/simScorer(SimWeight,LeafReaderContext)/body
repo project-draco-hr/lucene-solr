@@ -2,8 +2,23 @@
   final SimScorer sub=sim.simScorer(stats,context);
   final NumericDocValues values=DocValues.getNumeric(context.reader(),boostField);
   return new SimScorer(){
-    @Override public float score(    int doc,    float freq){
-      return Float.intBitsToFloat((int)values.get(doc)) * sub.score(doc,freq);
+    private float getValueForDoc(    int doc) throws IOException {
+      int curDocID=values.docID();
+      if (doc < curDocID) {
+        throw new IllegalArgumentException("doc=" + doc + " is before curDocID="+ curDocID);
+      }
+      if (doc > curDocID) {
+        curDocID=values.advance(doc);
+      }
+      if (curDocID == doc) {
+        return Float.intBitsToFloat((int)values.longValue());
+      }
+ else {
+        return 0f;
+      }
+    }
+    @Override public float score(    int doc,    float freq) throws IOException {
+      return getValueForDoc(doc) * sub.score(doc,freq);
     }
     @Override public float computeSlopFactor(    int distance){
       return sub.computeSlopFactor(distance);
@@ -11,8 +26,8 @@
     @Override public float computePayloadFactor(    int doc,    int start,    int end,    BytesRef payload){
       return sub.computePayloadFactor(doc,start,end,payload);
     }
-    @Override public Explanation explain(    int doc,    Explanation freq){
-      Explanation boostExplanation=Explanation.match(Float.intBitsToFloat((int)values.get(doc)),"indexDocValue(" + boostField + ")");
+    @Override public Explanation explain(    int doc,    Explanation freq) throws IOException {
+      Explanation boostExplanation=Explanation.match(getValueForDoc(doc),"indexDocValue(" + boostField + ")");
       Explanation simExplanation=sub.explain(doc,freq);
       return Explanation.match(boostExplanation.getValue() * simExplanation.getValue(),"product of:",boostExplanation,simExplanation);
     }

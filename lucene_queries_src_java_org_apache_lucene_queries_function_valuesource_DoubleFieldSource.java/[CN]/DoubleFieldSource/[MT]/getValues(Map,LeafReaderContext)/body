@@ -1,12 +1,29 @@
 {
-  final NumericDocValues arr=DocValues.getNumeric(readerContext.reader(),field);
-  final Bits valid=DocValues.getDocsWithField(readerContext.reader(),field);
+  final NumericDocValues values=DocValues.getNumeric(readerContext.reader(),field);
   return new DoubleDocValues(this){
-    @Override public double doubleVal(    int doc){
-      return Double.longBitsToDouble(arr.get(doc));
+    int lastDocID;
+    private double getValueForDoc(    int doc) throws IOException {
+      if (doc < lastDocID) {
+        throw new IllegalArgumentException("docs were sent out-of-order: lastDocID=" + lastDocID + " vs docID="+ doc);
+      }
+      lastDocID=doc;
+      int curDocID=values.docID();
+      if (doc > curDocID) {
+        curDocID=values.advance(doc);
+      }
+      if (doc == curDocID) {
+        return Double.longBitsToDouble(values.longValue());
+      }
+ else {
+        return 0.0;
+      }
     }
-    @Override public boolean exists(    int doc){
-      return arr.get(doc) != 0 || valid.get(doc);
+    @Override public double doubleVal(    int doc) throws IOException {
+      return getValueForDoc(doc);
+    }
+    @Override public boolean exists(    int doc) throws IOException {
+      getValueForDoc(doc);
+      return doc == values.docID();
     }
     @Override public ValueFiller getValueFiller(){
       return new ValueFiller(){
@@ -14,9 +31,9 @@
         @Override public MutableValue getValue(){
           return mval;
         }
-        @Override public void fillValue(        int doc){
-          mval.value=doubleVal(doc);
-          mval.exists=mval.value != 0 || valid.get(doc);
+        @Override public void fillValue(        int doc) throws IOException {
+          mval.value=getValueForDoc(doc);
+          mval.exists=exists(doc);
         }
       }
 ;

@@ -1,0 +1,32 @@
+{
+  AtomicInteger countReplayLog=new AtomicInteger(0);
+  DirectUpdateHandler2.commitOnClose=false;
+  UpdateLog.testing_logReplayFinishHook=new Runnable(){
+    @Override public void run(){
+      countReplayLog.incrementAndGet();
+    }
+  }
+;
+  String testCollectionName="testCollection";
+  createCollection(testCollectionName,2,2,1);
+  waitForRecoveriesToFinish(false);
+  cloudClient.setDefaultCollection(testCollectionName);
+  cloudClient.add(sdoc("id","1"));
+  cloudClient.add(sdoc("id","2"));
+  cloudClient.add(sdoc("id","3"));
+  cloudClient.add(sdoc("id","4"));
+  ModifiableSolrParams params=new ModifiableSolrParams();
+  params.set("q","*:*");
+  QueryResponse resp=cloudClient.query(params);
+  assertEquals(0,resp.getResults().getNumFound());
+  ChaosMonkey.stop(jettys);
+  ChaosMonkey.stop(controlJetty);
+  assertTrue("Timeout waiting for all not live",ClusterStateUtil.waitForAllReplicasNotLive(cloudClient.getZkStateReader(),45000));
+  ChaosMonkey.start(jettys);
+  ChaosMonkey.start(controlJetty);
+  assertTrue("Timeout waiting for all live and active",ClusterStateUtil.waitForAllActiveAndLiveReplicas(cloudClient.getZkStateReader(),testCollectionName,120000));
+  cloudClient.commit();
+  resp=cloudClient.query(params);
+  assertEquals(4,resp.getResults().getNumFound());
+  assertEquals(4,countReplayLog.get());
+}

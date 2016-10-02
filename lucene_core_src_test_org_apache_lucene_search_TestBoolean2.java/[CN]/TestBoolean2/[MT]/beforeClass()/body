@@ -1,13 +1,19 @@
 {
   NUM_FILLER_DOCS=random().nextBoolean() ? 0 : BooleanScorer.SIZE;
   PRE_FILLER_DOCS=TestUtil.nextInt(random(),0,(NUM_FILLER_DOCS / 2));
+  if (VERBOSE) {
+    System.out.println("TEST: NUM_FILLER_DOCS=" + NUM_FILLER_DOCS + " PRE_FILLER_DOCS="+ PRE_FILLER_DOCS);
+  }
   if (NUM_FILLER_DOCS * PRE_FILLER_DOCS > 100000) {
     directory=newFSDirectory(createTempDir());
   }
  else {
     directory=newDirectory();
   }
-  RandomIndexWriter writer=new RandomIndexWriter(random(),directory,newIndexWriterConfig(new MockAnalyzer(random())).setMergePolicy(newLogMergePolicy()));
+  IndexWriterConfig iwc=newIndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setCodec(Codec.forName("Lucene62"));
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),directory,iwc);
   FieldType ft=new FieldType(TextField.TYPE_NOT_STORED);
   ft.setOmitNorms(true);
   Document doc=new Document();
@@ -39,7 +45,8 @@
     singleSegmentDirectory.copyFrom(directory,fileName,fileName,IOContext.DEFAULT);
     singleSegmentDirectory.sync(Collections.singleton(fileName));
   }
-  IndexWriterConfig iwc=newIndexWriterConfig(new MockAnalyzer(random()));
+  iwc=newIndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setCodec(Codec.forName("Lucene62"));
   iwc.setMergePolicy(newLogMergePolicy());
   try (IndexWriter w=new IndexWriter(singleSegmentDirectory,iwc)){
     w.forceMerge(1,true);
@@ -47,7 +54,7 @@
    singleSegmentReader=DirectoryReader.open(singleSegmentDirectory);
   singleSegmentSearcher=newSearcher(singleSegmentReader);
   singleSegmentSearcher.setSimilarity(searcher.getSimilarity(true));
-  dir2=new MockDirectoryWrapper(random(),TestUtil.ramCopyOf(directory));
+  dir2=copyOf(directory);
   mulFactor=1;
   int docCount=0;
   if (VERBOSE) {
@@ -57,15 +64,21 @@
     if (VERBOSE) {
       System.out.println("\nTEST: cycle...");
     }
-    final Directory copy=new MockDirectoryWrapper(random(),TestUtil.ramCopyOf(dir2));
-    RandomIndexWriter w=new RandomIndexWriter(random(),dir2);
+    final Directory copy=copyOf(dir2);
+    iwc=newIndexWriterConfig(new MockAnalyzer(random()));
+    iwc.setCodec(Codec.forName("Lucene62"));
+    RandomIndexWriter w=new RandomIndexWriter(random(),dir2,iwc);
     w.addIndexes(copy);
+    copy.close();
     docCount=w.maxDoc();
     w.close();
     mulFactor*=2;
   }
  while (docCount < 3000 * NUM_FILLER_DOCS);
-  RandomIndexWriter w=new RandomIndexWriter(random(),dir2,newIndexWriterConfig(new MockAnalyzer(random())).setMaxBufferedDocs(TestUtil.nextInt(random(),50,1000)));
+  iwc=newIndexWriterConfig(new MockAnalyzer(random()));
+  iwc.setMaxBufferedDocs(TestUtil.nextInt(random(),50,1000));
+  iwc.setCodec(Codec.forName("Lucene62"));
+  RandomIndexWriter w=new RandomIndexWriter(random(),dir2,iwc);
   doc=new Document();
   doc.add(new Field("field2","xxx",ft));
   for (int i=0; i < NUM_EXTRA_DOCS / 2; i++) {

@@ -4,7 +4,7 @@
     Random rand=random();
     boolean validate=validateResponses;
     ModifiableSolrParams params=params("facet","true","wt","json","indent","true","omitHeader","true");
-    params.add("q","*:*","rows","0");
+    params.add("q","*:*");
     params.add("rows","0");
     SchemaField sf=req.getSchema().getField(ftype.fname);
     boolean multiValued=sf.getType().multiValuedFieldCache();
@@ -38,6 +38,9 @@
     if (rand.nextInt(100) < 20) {
       params.add("facet.missing","true");
     }
+    if (rand.nextBoolean()) {
+      params.add("facet.enum.cache.minDf","" + rand.nextInt(indexSize));
+    }
     String key=ftype.fname;
     String facet_field=ftype.fname;
     if (random().nextBoolean()) {
@@ -48,16 +51,33 @@
     List<String> methods=multiValued ? multiValuedMethods : singleValuedMethods;
     List<String> responses=new ArrayList<>(methods.size());
     for (    String method : methods) {
-      params.set("facet.method",method);
-      String strResponse=h.query(req(params));
-      responses.add(strResponse);
-    }
-    if (validate) {
-      for (int i=1; i < methods.size(); i++) {
-        String err=JSONTestUtil.match("/",responses.get(i),responses.get(0),0.0);
-        if (err != null) {
-          log.error("ERROR: mismatch facet response: " + err + "\n expected ="+ responses.get(0)+ "\n response = "+ responses.get(i)+ "\n request = "+ params);
-          fail(err);
+      for (      boolean exists : new boolean[]{false,true}) {
+        if (method != null) {
+          params.set("facet.method",method);
+        }
+ else {
+          params.remove("facet.method");
+        }
+        params.set("facet.exists","" + exists);
+        if (!exists && rand.nextBoolean()) {
+          params.remove("facet.exists");
+        }
+        if (params.getInt("facet.limit",100) != 0) {
+          if (exists && params.getInt("facet.mincount",0) > 1) {
+            assertQEx("no mincount on facet.exists",rand.nextBoolean() ? "facet.exists" : "facet.mincount",req(params),ErrorCode.BAD_REQUEST);
+            continue;
+          }
+          final boolean notEnum=method != null && !method.equals("enum");
+          final boolean trieField=trieFields.matcher(ftype.fname).matches();
+          if ((notEnum || trieField) && exists) {
+            assertQEx("facet.exists only when enum or ommitted","facet.exists",req(params),ErrorCode.BAD_REQUEST);
+            continue;
+          }
+        }
+        String strResponse=h.query(req(params));
+        responses.add(strResponse);
+        if (responses.size() > 1) {
+          validateResponse(responses.get(0),strResponse,params,method,methods);
         }
       }
     }

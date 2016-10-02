@@ -3,7 +3,12 @@
   ActionThrottle lt;
   try (SolrCore core=cc.getCore(coreName)){
     if (core == null) {
-      throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+      if (cc.isShutDown()) {
+        return;
+      }
+ else {
+        throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+      }
     }
     MDCLoggingContext.setCore(core);
     lt=core.getUpdateHandler().getSolrCoreState().getLeaderThrottle();
@@ -12,7 +17,7 @@
     lt.minimumWaitBetweenActions();
     lt.markAttemptingAction();
     int leaderVoteWait=cc.getZkController().getLeaderVoteWait();
-    log.info("Running the leader process for shard={} and weAreReplacement={} and leaderVoteWait={}",shardId,weAreReplacement,leaderVoteWait);
+    log.debug("Running the leader process for shard={} and weAreReplacement={} and leaderVoteWait={}",shardId,weAreReplacement,leaderVoteWait);
     ZkNodeProps m=new ZkNodeProps(Overseer.QUEUE_OPERATION,OverseerAction.LEADER.toLower(),ZkStateReader.SHARD_ID_PROP,shardId,ZkStateReader.COLLECTION_PROP,collection);
     Overseer.getStateUpdateQueue(zkClient).offer(Utils.toJSON(m));
     boolean allReplicasInLine=false;
@@ -27,8 +32,13 @@
     }
     try (SolrCore core=cc.getCore(coreName)){
       if (core == null) {
-        cancelElection();
-        throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+        if (!zkController.getCoreContainer().isShutDown()) {
+          cancelElection();
+          throw new SolrException(ErrorCode.SERVER_ERROR,"SolrCore not found:" + coreName + " in "+ cc.getCoreNames());
+        }
+ else {
+          return;
+        }
       }
       if (weAreReplacement && !shouldIBeLeader(leaderProps,core,weAreReplacement)) {
         rejoinLeaderElection(core);
@@ -45,13 +55,15 @@
           throw new SolrException(ErrorCode.SERVICE_UNAVAILABLE,e);
         }
       }
+      PeerSync.PeerSyncResult result=null;
       boolean success=false;
       try {
-        success=syncStrategy.sync(zkController,core,leaderProps,weAreReplacement);
+        result=syncStrategy.sync(zkController,core,leaderProps,weAreReplacement);
+        success=result.isSuccess();
       }
  catch (      Exception e) {
         SolrException.log(log,"Exception while trying to sync",e);
-        success=false;
+        result=PeerSync.PeerSyncResult.failure();
       }
       UpdateLog ulog=core.getUpdateHandler().getUpdateLog();
       if (!success) {
@@ -62,8 +74,14 @@
           }
          }
         if (!hasRecentUpdates) {
-          log.info("We failed sync, but we have no versions - we can't sync in that case - we were active before, so become leader anyway");
-          success=true;
+          if (result.getOtherHasVersions().orElse(false)) {
+            log.info("We failed sync, but we have no versions - we can't sync in that case. But others have some versions, so we should not become leader");
+            success=false;
+          }
+ else {
+            log.info("We failed sync, but we have no versions - we can't sync in that case - we were active before, so become leader anyway");
+            success=true;
+          }
         }
       }
       if (log.isDebugEnabled()) {

@@ -1,0 +1,63 @@
+{
+  Analyzer analyzer=new MockAnalyzer(random());
+  Directory directory=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(analyzer);
+  conf.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter w=new RandomIndexWriter(random(),directory,conf);
+  int numChunks=atLeast(10);
+  int id=0;
+  Set<Integer> missingSet=new HashSet<>();
+  for (int i=0; i < numChunks; i++) {
+    double sparseChance=random().nextDouble();
+    int docCount=atLeast(1000);
+    for (int j=0; j < docCount; j++) {
+      Document doc=new Document();
+      doc.add(new StoredField("id",id));
+      if (random().nextDouble() > sparseChance) {
+        doc.add(fieldCreator.next());
+      }
+ else {
+        missingSet.add(id);
+      }
+      id++;
+      w.addDocument(doc);
+    }
+  }
+  if (random().nextBoolean()) {
+    w.forceMerge(1);
+  }
+  IndexReader r=w.getReader();
+  BitSet missing=new FixedBitSet(r.maxDoc());
+  for (int docID=0; docID < r.maxDoc(); docID++) {
+    Document doc=r.document(docID);
+    if (missingSet.contains(doc.getField("id").numericValue())) {
+      missing.set(docID);
+    }
+  }
+  for (int iter=0; iter < 100; iter++) {
+    DocIdSetIterator values=fieldCreator.iterator(r);
+    assertEquals(-1,values.docID());
+    while (true) {
+      int docID;
+      if (random().nextBoolean()) {
+        docID=values.nextDoc();
+      }
+ else {
+        int range;
+        if (random().nextInt(10) == 7) {
+          range=r.maxDoc() - values.docID();
+        }
+ else {
+          range=25;
+        }
+        int inc=TestUtil.nextInt(random(),1,range);
+        docID=values.advance(values.docID() + inc);
+      }
+      if (docID == NO_MORE_DOCS) {
+        break;
+      }
+      assertFalse(missing.get(docID));
+    }
+  }
+  IOUtils.close(r,w,directory);
+}

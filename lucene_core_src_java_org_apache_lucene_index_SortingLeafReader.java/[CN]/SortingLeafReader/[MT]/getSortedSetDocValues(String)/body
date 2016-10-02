@@ -1,9 +1,32 @@
 {
-  SortedSetDocValues sortedSetDV=in.getSortedSetDocValues(field);
-  if (sortedSetDV == null) {
+  SortedSetDocValues oldDocValues=in.getSortedSetDocValues(field);
+  if (oldDocValues == null) {
     return null;
   }
- else {
-    return new SortingSortedSetDocValues(sortedSetDV,docMap);
+  long[][] ords;
+synchronized (cachedSortedSetDVs) {
+    ords=cachedSortedSetDVs.get(field);
+    if (ords == null) {
+      ords=new long[maxDoc()][];
+      int docID;
+      while ((docID=oldDocValues.nextDoc()) != NO_MORE_DOCS) {
+        int newDocID=docMap.oldToNew(docID);
+        long[] docOrds=new long[1];
+        int upto=0;
+        while (true) {
+          long ord=oldDocValues.nextOrd();
+          if (ord == NO_MORE_ORDS) {
+            break;
+          }
+          if (upto == docOrds.length) {
+            docOrds=ArrayUtil.grow(docOrds);
+          }
+          docOrds[upto++]=ord;
+        }
+        ords[newDocID]=Arrays.copyOfRange(docOrds,0,upto);
+      }
+      cachedSortedSetDVs.put(field,ords);
+    }
   }
+  return new SortingSortedSetDocValues(oldDocValues,ords);
 }

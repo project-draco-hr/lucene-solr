@@ -1,0 +1,20 @@
+{
+  final String configsetName="managed-config";
+  try (SolrZkClient client=new SuspendingZkClient(zkServer.getZkHost(),30)){
+    client.upConfig(configset("cloud-managed-upgrade"),configsetName);
+  }
+   ExecutorService executor=ExecutorUtil.newMDCAwareCachedThreadPool("threadpool");
+  try (SolrZkClient raceJudge=new SuspendingZkClient(zkServer.getZkHost(),30)){
+    ZkController zkController=createZkController(raceJudge);
+    List<Future<?>> futures=new ArrayList<>();
+    for (int i=0; i < 2; i++) {
+      futures.add(executor.submit(indexSchemaLoader(configsetName,zkController)));
+    }
+    for (    Future<?> future : futures) {
+      future.get();
+    }
+  }
+  finally {
+    ExecutorUtil.shutdownAndAwaitTermination(executor);
+  }
+}

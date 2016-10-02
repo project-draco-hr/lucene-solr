@@ -1,0 +1,85 @@
+{
+  SolrParams params=req.getParams();
+  Collection<String> fields=returnFields.getRequestedFieldNames();
+  Object responseObj=rsp.getValues().get("response");
+  boolean returnOnlyStored=false;
+  if (fields == null || returnFields.hasPatternMatching()) {
+    if (responseObj instanceof SolrDocumentList) {
+      if (fields == null) {
+        fields=new LinkedHashSet<String>();
+      }
+      for (      SolrDocument sdoc : (SolrDocumentList)responseObj) {
+        fields.addAll(sdoc.getFieldNames());
+      }
+    }
+ else {
+      Iterable<String> all=req.getSearcher().getFieldNames();
+      if (fields == null) {
+        fields=Sets.newHashSet(all);
+      }
+ else {
+        Iterables.addAll(fields,all);
+      }
+    }
+    if (returnFields.wantsScore()) {
+      fields.add("score");
+    }
+ else {
+      fields.remove("score");
+    }
+    returnOnlyStored=true;
+  }
+  for (  String field : fields) {
+    if (!returnFields.wantsField(field)) {
+      continue;
+    }
+    if (field.equals("score")) {
+      XLField xlField=new XLField();
+      xlField.name="score";
+      xlFields.put("score",xlField);
+      continue;
+    }
+    SchemaField sf=schema.getFieldOrNull(field);
+    if (sf == null) {
+      FieldType ft=new StrField();
+      sf=new SchemaField(field,ft);
+    }
+    if (returnOnlyStored && sf != null && !sf.stored()) {
+      continue;
+    }
+    XLField xlField=new XLField();
+    xlField.name=field;
+    xlField.sf=sf;
+    xlFields.put(field,xlField);
+  }
+  wb.addRow();
+  for (  XLField xlField : xlFields.values()) {
+    String printName=xlField.name;
+    int colWidth=14;
+    String niceName=colNamesMap.get(xlField.name);
+    if (niceName != null) {
+      printName=niceName;
+    }
+    Integer niceWidth=colWidthsMap.get(xlField.name);
+    if (niceWidth != null) {
+      colWidth=niceWidth.intValue();
+    }
+    writeStr(xlField.name,printName,false);
+    wb.setColWidth(colWidth);
+    wb.setHeaderCell();
+  }
+  wb.setHeaderRow();
+  wb.addRow();
+  if (responseObj instanceof ResultContext) {
+    writeDocuments(null,(ResultContext)responseObj);
+  }
+ else   if (responseObj instanceof DocList) {
+    ResultContext ctx=new BasicResultContext((DocList)responseObj,returnFields,null,null,req);
+    writeDocuments(null,ctx);
+  }
+ else   if (responseObj instanceof SolrDocumentList) {
+    writeSolrDocumentList(null,(SolrDocumentList)responseObj,returnFields);
+  }
+  wb.flush(out);
+  wb=null;
+}

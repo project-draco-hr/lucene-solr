@@ -7,6 +7,7 @@
   LegacyIntField field=new LegacyIntField("f",0,Store.YES);
   doc.add(field);
   final int[] values=new int[TestUtil.nextInt(random(),1,10)];
+  Set<Integer> missing=new HashSet<>();
   for (int i=0; i < values.length; ++i) {
     final int v;
 switch (random().nextInt(10)) {
@@ -26,6 +27,7 @@ break;
 values[i]=v;
 if (v == 0 && random().nextBoolean()) {
 iw.addDocument(new Document());
+missing.add(i);
 }
  else {
 field.setIntValue(v);
@@ -34,10 +36,14 @@ iw.addDocument(doc);
 }
 iw.forceMerge(1);
 final DirectoryReader reader=iw.getReader();
-final NumericDocValues ints=FieldCache.DEFAULT.getNumerics(getOnlyLeafReader(reader),"f",FieldCache.LEGACY_INT_PARSER,false);
+final NumericDocValues ints=FieldCache.DEFAULT.getNumerics(getOnlyLeafReader(reader),"f",FieldCache.LEGACY_INT_PARSER);
 for (int i=0; i < values.length; ++i) {
-assertEquals(values[i],ints.get(i));
+if (missing.contains(i) == false) {
+assertEquals(i,ints.nextDoc());
+assertEquals(values[i],ints.longValue());
 }
+}
+assertEquals(NO_MORE_DOCS,ints.nextDoc());
 reader.close();
 iw.close();
 dir.close();

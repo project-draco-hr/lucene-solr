@@ -1,0 +1,70 @@
+{
+  addSortedNumericField(mergeFieldInfo,new EmptyDocValuesProducer(){
+    @Override public SortedNumericDocValues getSortedNumeric(    FieldInfo fieldInfo){
+      if (fieldInfo != mergeFieldInfo) {
+        throw new IllegalArgumentException("wrong FieldInfo");
+      }
+      List<SortedNumericDocValuesSub> subs=new ArrayList<>();
+      long cost=0;
+      for (int i=0; i < mergeState.docValuesProducers.length; i++) {
+        DocValuesProducer docValuesProducer=mergeState.docValuesProducers[i];
+        SortedNumericDocValues values=null;
+        if (docValuesProducer != null) {
+          FieldInfo readerFieldInfo=mergeState.fieldInfos[i].fieldInfo(mergeFieldInfo.name);
+          if (readerFieldInfo != null && readerFieldInfo.getDocValuesType() == DocValuesType.SORTED_NUMERIC) {
+            try {
+              values=docValuesProducer.getSortedNumeric(readerFieldInfo);
+            }
+ catch (            IOException ioe) {
+              throw new RuntimeException(ioe);
+            }
+          }
+        }
+        if (values == null) {
+          values=DocValues.emptySortedNumeric(mergeState.maxDocs[i]);
+        }
+        cost+=values.cost();
+        subs.add(new SortedNumericDocValuesSub(mergeState.docMaps[i],values));
+      }
+      final long finalCost=cost;
+      final DocIDMerger<SortedNumericDocValuesSub> docIDMerger;
+      try {
+        docIDMerger=new DocIDMerger<>(subs,mergeState.segmentInfo.getIndexSort() != null);
+      }
+ catch (      IOException ioe) {
+        throw new RuntimeException(ioe);
+      }
+      return new SortedNumericDocValues(){
+        private int docID=-1;
+        private SortedNumericDocValuesSub currentSub;
+        @Override public int docID(){
+          return docID;
+        }
+        @Override public int nextDoc() throws IOException {
+          currentSub=docIDMerger.next();
+          if (currentSub == null) {
+            docID=NO_MORE_DOCS;
+          }
+ else {
+            docID=currentSub.mappedDocID;
+          }
+          return docID;
+        }
+        @Override public int advance(        int target) throws IOException {
+          throw new UnsupportedOperationException();
+        }
+        @Override public int docValueCount(){
+          return currentSub.values.docValueCount();
+        }
+        @Override public long cost(){
+          return finalCost;
+        }
+        @Override public long nextValue() throws IOException {
+          return currentSub.values.nextValue();
+        }
+      }
+;
+    }
+  }
+);
+}

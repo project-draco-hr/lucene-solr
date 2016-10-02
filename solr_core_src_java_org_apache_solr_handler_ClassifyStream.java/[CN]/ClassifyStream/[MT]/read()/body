@@ -1,0 +1,48 @@
+{
+  if (modelTuple == null) {
+    modelTuple=modelStream.read();
+    if (modelTuple == null || modelTuple.EOF) {
+      throw new IOException("Model tuple not found for classify stream!");
+    }
+    termToIndex=new HashMap<>();
+    List<String> terms=modelTuple.getStrings("terms_ss");
+    for (int i=0; i < terms.size(); i++) {
+      termToIndex.put(terms.get(i),i);
+    }
+    idfs=modelTuple.getDoubles("idfs_ds");
+    modelWeights=modelTuple.getDoubles("weights_ds");
+  }
+  Tuple docTuple=docStream.read();
+  if (docTuple.EOF)   return docTuple;
+  String text=docTuple.getString(field);
+  double tfs[]=new double[termToIndex.size()];
+  TokenStream tokenStream=analyzer.tokenStream(analyzerField,text);
+  CharTermAttribute termAtt=tokenStream.getAttribute(CharTermAttribute.class);
+  tokenStream.reset();
+  int termCount=0;
+  while (tokenStream.incrementToken()) {
+    termCount++;
+    if (termToIndex.containsKey(termAtt.toString())) {
+      tfs[termToIndex.get(termAtt.toString())]++;
+    }
+  }
+  tokenStream.end();
+  tokenStream.close();
+  List<Double> tfidfs=new ArrayList<>(termToIndex.size());
+  tfidfs.add(1.0);
+  for (int i=0; i < tfs.length; i++) {
+    if (tfs[i] != 0) {
+      tfs[i]=1 + Math.log(tfs[i]);
+    }
+    tfidfs.add(this.idfs.get(i) * tfs[i]);
+  }
+  double total=0.0;
+  for (int i=0; i < tfidfs.size(); i++) {
+    total+=tfidfs.get(i) * modelWeights.get(i);
+  }
+  double score=total * ((float)(1.0 / Math.sqrt(termCount)));
+  double positiveProb=sigmoid(total);
+  docTuple.put("probability_d",positiveProb);
+  docTuple.put("score_d",score);
+  return docTuple;
+}

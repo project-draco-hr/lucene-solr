@@ -2,12 +2,16 @@
   if (multiValued) {
     boolean exists=false;
     if (setValues != null) {
-      setValues.setDocument(doc);
-      int term;
-      while ((term=(int)setValues.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
-        exists=true;
-        final BytesRef value=setValues.lookupOrd(term);
-        parent.collectField(doc,name,parser.parse(value));
+      if (doc > setValues.docID()) {
+        setValues.advance(doc);
+      }
+      if (doc == setValues.docID()) {
+        int term;
+        while ((term=(int)setValues.nextOrd()) != SortedSetDocValues.NO_MORE_ORDS) {
+          exists=true;
+          final BytesRef value=setValues.lookupOrd(term);
+          parent.collectField(doc,name,parser.parse(value));
+        }
       }
     }
     if (!exists) {
@@ -17,9 +21,12 @@
  else {
     if (numField) {
       if (numValues != null) {
-        long v=numValues.get(doc);
-        if (v != 0 || numValuesBits.get(doc)) {
-          parent.collectField(doc,name,((NumericParser)parser).parseNum(v));
+        int valuesDocID=numValues.docID();
+        if (valuesDocID < doc) {
+          valuesDocID=numValues.advance(doc);
+        }
+        if (valuesDocID == doc) {
+          parent.collectField(doc,name,((NumericParser)parser).parseNum(numValues.longValue()));
         }
  else {
           parent.collectField(doc,name,FacetingAccumulator.MISSING_VALUE);
@@ -31,12 +38,14 @@
     }
  else {
       if (sortValues != null) {
-        final int ord=sortValues.getOrd(doc);
-        if (ord < 0) {
-          parent.collectField(doc,name,FacetingAccumulator.MISSING_VALUE);
+        if (doc > sortValues.docID()) {
+          sortValues.advance(doc);
+        }
+        if (doc == sortValues.docID()) {
+          parent.collectField(doc,name,parser.parse(sortValues.lookupOrd(sortValues.ordValue())));
         }
  else {
-          parent.collectField(doc,name,parser.parse(sortValues.lookupOrd(ord)));
+          parent.collectField(doc,name,FacetingAccumulator.MISSING_VALUE);
         }
       }
  else {

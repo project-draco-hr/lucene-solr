@@ -1,7 +1,4 @@
 {
-  assumeTrue("Codec does not support getDocsWithField",codecSupportsDocsWithField());
-  assumeTrue("Codec does not support SORTED_SET",codecSupportsSortedSet());
-  assumeTrue("Codec does not support SORTED_NUMERIC",codecSupportsSortedNumeric());
   Directory dir=newDirectory();
   IndexWriterConfig conf=newIndexWriterConfig(new MockAnalyzer(random()));
   RandomIndexWriter writer=new RandomIndexWriter(random(),dir,conf);
@@ -75,46 +72,33 @@
           for (          LeafReaderContext context : ir.leaves()) {
             LeafReader r=context.reader();
             BinaryDocValues binaries=r.getBinaryDocValues("dvBin");
-            Bits binaryBits=r.getDocsWithField("dvBin");
             SortedDocValues sorted=r.getSortedDocValues("dvSorted");
-            Bits sortedBits=r.getDocsWithField("dvSorted");
             NumericDocValues numerics=r.getNumericDocValues("dvNum");
-            Bits numericBits=r.getDocsWithField("dvNum");
             SortedSetDocValues sortedSet=r.getSortedSetDocValues("dvSortedSet");
-            Bits sortedSetBits=r.getDocsWithField("dvSortedSet");
             SortedNumericDocValues sortedNumeric=r.getSortedNumericDocValues("dvSortedNumeric");
-            Bits sortedNumericBits=r.getDocsWithField("dvSortedNumeric");
             for (int j=0; j < r.maxDoc(); j++) {
               BytesRef binaryValue=r.document(j).getBinaryValue("storedBin");
               if (binaryValue != null) {
                 if (binaries != null) {
-                  BytesRef scratch=binaries.get(j);
+                  assertEquals(j,binaries.nextDoc());
+                  BytesRef scratch=binaries.binaryValue();
                   assertEquals(binaryValue,scratch);
-                  scratch=sorted.get(j);
+                  assertEquals(j,sorted.nextDoc());
+                  scratch=sorted.binaryValue();
                   assertEquals(binaryValue,scratch);
-                  assertTrue(binaryBits.get(j));
-                  assertTrue(sortedBits.get(j));
                 }
-              }
- else               if (binaries != null) {
-                assertFalse(binaryBits.get(j));
-                assertFalse(sortedBits.get(j));
-                assertEquals(-1,sorted.getOrd(j));
               }
               String number=r.document(j).get("storedNum");
               if (number != null) {
                 if (numerics != null) {
-                  assertEquals(Long.parseLong(number),numerics.get(j));
+                  assertEquals(j,numerics.advance(j));
+                  assertEquals(Long.parseLong(number),numerics.longValue());
                 }
-              }
- else               if (numerics != null) {
-                assertFalse(numericBits.get(j));
-                assertEquals(0,numerics.get(j));
               }
               String values[]=r.document(j).getValues("storedSortedSet");
               if (values.length > 0) {
                 assertNotNull(sortedSet);
-                sortedSet.setDocument(j);
+                assertEquals(j,sortedSet.nextDoc());
                 for (int k=0; k < values.length; k++) {
                   long ord=sortedSet.nextOrd();
                   assertTrue(ord != SortedSetDocValues.NO_MORE_ORDS);
@@ -122,28 +106,16 @@
                   assertEquals(values[k],value.utf8ToString());
                 }
                 assertEquals(SortedSetDocValues.NO_MORE_ORDS,sortedSet.nextOrd());
-                assertTrue(sortedSetBits.get(j));
-              }
- else               if (sortedSet != null) {
-                sortedSet.setDocument(j);
-                assertEquals(SortedSetDocValues.NO_MORE_ORDS,sortedSet.nextOrd());
-                assertFalse(sortedSetBits.get(j));
               }
               String numValues[]=r.document(j).getValues("storedSortedNumeric");
               if (numValues.length > 0) {
                 assertNotNull(sortedNumeric);
-                sortedNumeric.setDocument(j);
-                assertEquals(numValues.length,sortedNumeric.count());
+                assertEquals(j,sortedNumeric.nextDoc());
+                assertEquals(numValues.length,sortedNumeric.docValueCount());
                 for (int k=0; k < numValues.length; k++) {
-                  long v=sortedNumeric.valueAt(k);
+                  long v=sortedNumeric.nextValue();
                   assertEquals(numValues[k],Long.toString(v));
                 }
-                assertTrue(sortedNumericBits.get(j));
-              }
- else               if (sortedNumeric != null) {
-                sortedNumeric.setDocument(j);
-                assertEquals(0,sortedNumeric.count());
-                assertFalse(sortedNumericBits.get(j));
               }
             }
           }

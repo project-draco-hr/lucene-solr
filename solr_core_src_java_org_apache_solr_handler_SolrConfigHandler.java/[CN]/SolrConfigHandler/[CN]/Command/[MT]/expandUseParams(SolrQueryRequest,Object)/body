@@ -1,0 +1,34 @@
+{
+  Map<String,Object> pluginInfo=null;
+  if (plugin instanceof Map) {
+    pluginInfo=(Map)plugin;
+  }
+ else   if (plugin instanceof PluginInfo) {
+    pluginInfo=((PluginInfo)plugin).toMap(new LinkedHashMap<>());
+  }
+  String useParams=(String)pluginInfo.get(USEPARAM);
+  String useparamsInReq=req.getOriginalParams().get(USEPARAM);
+  if (useParams != null || useparamsInReq != null) {
+    Map m=new LinkedHashMap<>();
+    pluginInfo.put("_useParamsExpanded_",m);
+    List<String> params=new ArrayList<>();
+    if (useParams != null)     params.addAll(StrUtils.splitSmart(useParams,','));
+    if (useparamsInReq != null)     params.addAll(StrUtils.splitSmart(useparamsInReq,','));
+    for (    String param : params) {
+      RequestParams.ParamSet p=this.req.getCore().getSolrConfig().getRequestParams().getParams(param);
+      if (p != null) {
+        m.put(param,p);
+      }
+ else {
+        m.put(param,"[NOT AVAILABLE]");
+      }
+    }
+    LocalSolrQueryRequest r=new LocalSolrQueryRequest(req.getCore(),req.getOriginalParams());
+    r.getContext().put(USEPARAM,useParams);
+    NamedList nl=new PluginInfo(SolrRequestHandler.TYPE,pluginInfo).initArgs;
+    SolrPluginUtils.setDefaults(r,getSolrParamsFromNamedList(nl,DEFAULTS),getSolrParamsFromNamedList(nl,APPENDS),getSolrParamsFromNamedList(nl,INVARIANTS));
+    MapSolrParams mask=new MapSolrParams(ImmutableMap.<String,String>builder().put("componentName","").put("expandParams","").build());
+    pluginInfo.put("_effectiveParams_",SolrParams.wrapDefaults(mask,r.getParams()));
+  }
+  return pluginInfo;
+}

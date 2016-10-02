@@ -4,19 +4,23 @@
   Terms t=MultiFields.getTerms(top,qfield);
   final TermsEnum termsEnum=t == null ? TermsEnum.EMPTY : t.iterator();
   return new IntDocValues(this){
-    @Override public int intVal(    int doc){
-      try {
-        final BytesRef term=terms.get(doc);
+    int lastDocID=-1;
+    @Override public int intVal(    int doc) throws IOException {
+      if (doc < lastDocID) {
+        throw new IllegalArgumentException("docs were sent out-of-order: lastDocID=" + lastDocID + " vs docID="+ doc);
+      }
+      lastDocID=doc;
+      int curDocID=terms.docID();
+      if (doc > curDocID) {
+        curDocID=terms.advance(doc);
+      }
+      if (doc == curDocID) {
+        BytesRef term=terms.binaryValue();
         if (termsEnum.seekExact(term)) {
           return termsEnum.docFreq();
         }
- else {
-          return 0;
-        }
       }
- catch (      IOException e) {
-        throw new RuntimeException("caught exception in function " + description() + " : doc="+ doc,e);
-      }
+      return 0;
     }
   }
 ;

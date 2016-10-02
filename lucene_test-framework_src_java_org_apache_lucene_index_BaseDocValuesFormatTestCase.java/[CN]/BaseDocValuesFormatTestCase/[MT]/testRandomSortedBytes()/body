@@ -1,9 +1,6 @@
 {
   Directory dir=newDirectory();
   IndexWriterConfig cfg=newIndexWriterConfig(new MockAnalyzer(random()));
-  if (!codecSupportsDocsWithField()) {
-    cfg.setMergePolicy(newLogMergePolicy());
-  }
   RandomIndexWriter w=new RandomIndexWriter(random(),dir,cfg);
   int numDocs=atLeast(100);
   BytesRefHash hash=new BytesRefHash();
@@ -28,15 +25,8 @@
     doc.add(newTextField("id","noValue",Field.Store.YES));
     w.addDocument(doc);
   }
-  if (!codecSupportsDocsWithField()) {
-    BytesRef bytesRef=new BytesRef();
-    hash.add(bytesRef);
-  }
   if (rarely()) {
     w.commit();
-  }
-  if (!codecSupportsDocsWithField()) {
-    w.forceMerge(1);
   }
   for (int i=0; i < numDocs; i++) {
     Document doc=new Document();
@@ -67,7 +57,9 @@
     PostingsEnum termPostingsEnum=TestUtil.docs(random(),reader,"id",new BytesRef(entry.getKey()),null,0);
     int docId=termPostingsEnum.nextDoc();
     expected=new BytesRef(entry.getValue());
-    final BytesRef actual=docValues.get(docId);
+    docValues=MultiDocValues.getSortedValues(reader,"field");
+    assertEquals(docId,docValues.advance(docId));
+    final BytesRef actual=docValues.binaryValue();
     assertEquals(expected,actual);
   }
   reader.close();
