@@ -1,18 +1,20 @@
 {
-  HttpSolrClient delegationTokenServer=new HttpSolrClient.Builder(client.getBaseURL().toString()).withDelegationToken(token).withResponseParser(client.getParser()).build();
+  SolrClient delegationTokenClient;
+  if (random().nextBoolean())   delegationTokenClient=new HttpSolrClient.Builder(client.getBaseURL().toString()).withKerberosDelegationToken(token).withResponseParser(client.getParser()).build();
+ else   delegationTokenClient=new CloudSolrClient.Builder().withZkHost((miniCluster.getZkServer().getZkAddress())).withLBHttpSolrClientBuilder(new LBHttpSolrClient.Builder().withResponseParser(client.getParser()).withHttpSolrClientBuilder(new HttpSolrClient.Builder().withKerberosDelegationToken(token))).build();
   try {
     ModifiableSolrParams p=new ModifiableSolrParams();
     if (user != null)     p.set(USER_PARAM,user);
     if (op != null)     p.set("op",op);
     SolrRequest req=getAdminRequest(p);
     if (user != null || op != null) {
-      Set<String> queryParams=new HashSet<String>();
+      Set<String> queryParams=new HashSet<>();
       if (user != null)       queryParams.add(USER_PARAM);
       if (op != null)       queryParams.add("op");
       req.setQueryParams(queryParams);
     }
     try {
-      delegationTokenServer.request(req,null,null);
+      delegationTokenClient.request(req,null);
       return HttpStatus.SC_OK;
     }
  catch (    HttpSolrClient.RemoteSolrException re) {
@@ -20,6 +22,6 @@
     }
   }
   finally {
-    delegationTokenServer.close();
+    delegationTokenClient.close();
   }
 }
