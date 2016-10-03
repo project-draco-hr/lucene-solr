@@ -1,0 +1,48 @@
+{
+  final long valueCount=binaries.get(field.name).count;
+  final LongBinaryDocValues binary=(LongBinaryDocValues)getLegacyBinary(field);
+  final LongValues ordinals=getNumeric(ords.get(field.name));
+  final LongValues ordIndex=getOrdIndexInstance(field,ordIndexes.get(field.name));
+  return new LegacySortedSetDocValuesWrapper(new LegacySortedSetDocValues(){
+    long startOffset;
+    long offset;
+    long endOffset;
+    @Override public long nextOrd(){
+      if (offset == endOffset) {
+        return NO_MORE_ORDS;
+      }
+ else {
+        long ord=ordinals.get(offset);
+        offset++;
+        return ord;
+      }
+    }
+    @Override public void setDocument(    int docID){
+      startOffset=offset=ordIndex.get(docID);
+      endOffset=ordIndex.get(docID + 1L);
+    }
+    @Override public BytesRef lookupOrd(    long ord){
+      return binary.get(ord);
+    }
+    @Override public long getValueCount(){
+      return valueCount;
+    }
+    @Override public long lookupTerm(    BytesRef key){
+      if (binary instanceof CompressedBinaryDocValues) {
+        return ((CompressedBinaryDocValues)binary).lookupTerm(key);
+      }
+ else {
+        return super.lookupTerm(key);
+      }
+    }
+    @Override public TermsEnum termsEnum(){
+      if (binary instanceof CompressedBinaryDocValues) {
+        return ((CompressedBinaryDocValues)binary).getTermsEnum();
+      }
+ else {
+        return super.termsEnum();
+      }
+    }
+  }
+,maxDoc);
+}

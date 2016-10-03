@@ -1,0 +1,66 @@
+{
+  NumericEntry entry=numerics.get(field.name);
+  DocIdSetIterator docsWithField;
+  if (entry.format == SPARSE_COMPRESSED) {
+    return getSparseNumericDocValues(entry);
+  }
+ else {
+    if (entry.missingOffset == ALL_MISSING) {
+      return DocValues.emptyNumeric();
+    }
+ else     if (entry.missingOffset == ALL_LIVE) {
+      LongValues values=getNumeric(entry);
+      return new NumericDocValues(){
+        private int docID=-1;
+        @Override public int docID(){
+          return docID;
+        }
+        @Override public int nextDoc(){
+          docID++;
+          if (docID == maxDoc) {
+            docID=NO_MORE_DOCS;
+          }
+          return docID;
+        }
+        @Override public int advance(        int target){
+          if (target >= maxDoc) {
+            docID=NO_MORE_DOCS;
+          }
+ else {
+            docID=target;
+          }
+          return docID;
+        }
+        @Override public long cost(){
+          return entry.count;
+        }
+        @Override public long longValue(){
+          return values.get(docID);
+        }
+      }
+;
+    }
+ else {
+      docsWithField=getDocsWithField(entry.missingOffset,maxDoc);
+      LongValues values=getNumeric(entry);
+      return new NumericDocValues(){
+        @Override public long longValue(){
+          return values.get(docsWithField.docID());
+        }
+        @Override public int docID(){
+          return docsWithField.docID();
+        }
+        @Override public int nextDoc() throws IOException {
+          return docsWithField.nextDoc();
+        }
+        @Override public int advance(        int target) throws IOException {
+          return docsWithField.advance(target);
+        }
+        @Override public long cost(){
+          return docsWithField.cost();
+        }
+      }
+;
+    }
+  }
+}
