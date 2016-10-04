@@ -1,0 +1,28 @@
+{
+  SortedSetEntry entry=new SortedSetEntry();
+  entry.format=meta.readVInt();
+  if (entry.format == SORTED_SET_TABLE) {
+    final int totalTableLength=meta.readInt();
+    if (totalTableLength > 256) {
+      throw new CorruptIndexException("SORTED_SET_TABLE cannot have more than 256 values in its dictionary, got=" + totalTableLength,meta);
+    }
+    entry.table=new long[totalTableLength];
+    for (int i=0; i < totalTableLength; ++i) {
+      entry.table[i]=meta.readLong();
+    }
+    ramBytesUsed.addAndGet(RamUsageEstimator.sizeOf(entry.table));
+    final int tableSize=meta.readInt();
+    if (tableSize > totalTableLength + 1) {
+      throw new CorruptIndexException("SORTED_SET_TABLE cannot have more set ids than ords in its dictionary, got " + totalTableLength + " ords and "+ tableSize+ " sets",meta);
+    }
+    entry.tableOffsets=new int[tableSize + 1];
+    for (int i=1; i < entry.tableOffsets.length; ++i) {
+      entry.tableOffsets[i]=entry.tableOffsets[i - 1] + meta.readInt();
+    }
+    ramBytesUsed.addAndGet(RamUsageEstimator.sizeOf(entry.tableOffsets));
+  }
+ else   if (entry.format != SORTED_SINGLE_VALUED && entry.format != SORTED_WITH_ADDRESSES) {
+    throw new CorruptIndexException("Unknown format: " + entry.format,meta);
+  }
+  return entry;
+}

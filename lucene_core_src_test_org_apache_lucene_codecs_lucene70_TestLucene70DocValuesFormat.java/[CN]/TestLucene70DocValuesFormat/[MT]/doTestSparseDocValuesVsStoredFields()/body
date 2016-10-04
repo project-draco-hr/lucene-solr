@@ -1,0 +1,93 @@
+{
+  final long[] values=new long[TestUtil.nextInt(random(),1,500)];
+  for (int i=0; i < values.length; ++i) {
+    values[i]=random().nextLong();
+  }
+  Directory dir=newFSDirectory(createTempDir());
+  IndexWriterConfig conf=newIndexWriterConfig(new MockAnalyzer(random()));
+  conf.setMergeScheduler(new SerialMergeScheduler());
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,conf);
+  final int avgGap=100;
+  final int numDocs=atLeast(200);
+  for (int i=random().nextInt(avgGap * 2); i >= 0; --i) {
+    writer.addDocument(new Document());
+  }
+  final int maxNumValuesPerDoc=random().nextBoolean() ? 1 : TestUtil.nextInt(random(),2,5);
+  for (int i=0; i < numDocs; ++i) {
+    Document doc=new Document();
+    long docValue=values[random().nextInt(values.length)];
+    doc.add(new NumericDocValuesField("numeric",docValue));
+    doc.add(new SortedDocValuesField("sorted",new BytesRef(Long.toString(docValue))));
+    doc.add(new BinaryDocValuesField("binary",new BytesRef(Long.toString(docValue))));
+    doc.add(new StoredField("value",docValue));
+    final int numValues=TestUtil.nextInt(random(),1,maxNumValuesPerDoc);
+    for (int j=0; j < numValues; ++j) {
+      docValue=values[random().nextInt(values.length)];
+      doc.add(new SortedNumericDocValuesField("sorted_numeric",docValue));
+      doc.add(new SortedSetDocValuesField("sorted_set",new BytesRef(Long.toString(docValue))));
+      doc.add(new StoredField("values",docValue));
+    }
+    writer.addDocument(doc);
+    for (int j=TestUtil.nextInt(random(),0,avgGap * 2); j >= 0; --j) {
+      writer.addDocument(new Document());
+    }
+  }
+  if (random().nextBoolean()) {
+    writer.forceMerge(1);
+  }
+  final IndexReader indexReader=writer.getReader();
+  writer.close();
+  for (  LeafReaderContext context : indexReader.leaves()) {
+    final LeafReader reader=context.reader();
+    final NumericDocValues numeric=DocValues.getNumeric(reader,"numeric");
+    final SortedDocValues sorted=DocValues.getSorted(reader,"sorted");
+    final BinaryDocValues binary=DocValues.getBinary(reader,"binary");
+    final SortedNumericDocValues sortedNumeric=DocValues.getSortedNumeric(reader,"sorted_numeric");
+    final SortedSetDocValues sortedSet=DocValues.getSortedSet(reader,"sorted_set");
+    for (int i=0; i < reader.maxDoc(); ++i) {
+      final Document doc=reader.document(i);
+      final IndexableField valueField=doc.getField("value");
+      final Long value=valueField == null ? null : valueField.numericValue().longValue();
+      if (value == null) {
+        assertTrue(numeric.docID() + " vs " + i,numeric.docID() < i);
+      }
+ else {
+        assertEquals(i,numeric.nextDoc());
+        assertEquals(i,binary.nextDoc());
+        assertEquals(i,sorted.nextDoc());
+        assertEquals(value.longValue(),numeric.longValue());
+        assertTrue(sorted.ordValue() >= 0);
+        assertEquals(new BytesRef(Long.toString(value)),sorted.lookupOrd(sorted.ordValue()));
+        assertEquals(new BytesRef(Long.toString(value)),binary.binaryValue());
+      }
+      final IndexableField[] valuesFields=doc.getFields("values");
+      if (valuesFields.length == 0) {
+        assertTrue(sortedNumeric.docID() + " vs " + i,sortedNumeric.docID() < i);
+      }
+ else {
+        final Set<Long> valueSet=new HashSet<>();
+        for (        IndexableField sf : valuesFields) {
+          valueSet.add(sf.numericValue().longValue());
+        }
+        assertEquals(i,sortedNumeric.nextDoc());
+        assertEquals(valuesFields.length,sortedNumeric.docValueCount());
+        for (int j=0; j < sortedNumeric.docValueCount(); ++j) {
+          assertTrue(valueSet.contains(sortedNumeric.nextValue()));
+        }
+        assertEquals(i,sortedSet.nextDoc());
+        int sortedSetCount=0;
+        while (true) {
+          long ord=sortedSet.nextOrd();
+          if (ord == SortedSetDocValues.NO_MORE_ORDS) {
+            break;
+          }
+          assertTrue(valueSet.contains(Long.parseLong(sortedSet.lookupOrd(ord).utf8ToString())));
+          sortedSetCount++;
+        }
+        assertEquals(valueSet.size(),sortedSetCount);
+      }
+    }
+  }
+  indexReader.close();
+  dir.close();
+}

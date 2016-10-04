@@ -1,0 +1,52 @@
+{
+  if (offset == ALL_MISSING) {
+    return DocIdSetIterator.empty();
+  }
+ else   if (offset == ALL_LIVE) {
+    return DocIdSetIterator.all(count);
+  }
+ else {
+    int length=(int)((count + 63L) >>> 6);
+    final RandomAccessInput in=data.randomAccessSlice(offset,length << 3);
+    return new DocIdSetIterator(){
+      int doc=-1;
+      int wordIndex=-1;
+      long word=0;
+      private int nextSetBit(      int index) throws IOException {
+        int i=index >>> 6;
+        if (wordIndex != i) {
+          wordIndex=i;
+          word=in.readLong(i << 3);
+        }
+        long w=word >>> index;
+        if (w != 0) {
+          return index + Long.numberOfTrailingZeros(w);
+        }
+        while (++i < length) {
+          wordIndex=i;
+          word=in.readLong(i << 3);
+          if (word != 0) {
+            return (i << 6) + Long.numberOfTrailingZeros(word);
+          }
+        }
+        return DocIdSetIterator.NO_MORE_DOCS;
+      }
+      @Override public int nextDoc() throws IOException {
+        return advance(docID() + 1);
+      }
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public long cost(){
+        return count;
+      }
+      @Override public int advance(      int target) throws IOException {
+        if (target >= count) {
+          return doc=NO_MORE_DOCS;
+        }
+        return doc=nextSetBit(target);
+      }
+    }
+;
+  }
+}

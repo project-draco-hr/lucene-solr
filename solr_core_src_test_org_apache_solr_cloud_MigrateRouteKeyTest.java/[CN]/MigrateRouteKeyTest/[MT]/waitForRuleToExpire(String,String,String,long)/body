@@ -1,0 +1,21 @@
+{
+  DocCollection state;
+  Slice slice;
+  boolean ruleRemoved=false;
+  long expiryTime=finishTime + TimeUnit.NANOSECONDS.convert(60,TimeUnit.SECONDS);
+  while (System.nanoTime() < expiryTime) {
+    cluster.getSolrClient().getZkStateReader().forceUpdateCollection(collection);
+    state=getCollectionState(collection);
+    slice=state.getSlice(shard);
+    Map<String,RoutingRule> routingRules=slice.getRoutingRules();
+    if (routingRules == null || routingRules.isEmpty() || !routingRules.containsKey(splitKey)) {
+      ruleRemoved=true;
+      break;
+    }
+    SolrInputDocument doc=new SolrInputDocument();
+    doc.addField("id",splitKey + random().nextInt());
+    cluster.getSolrClient().add(collection,doc);
+    Thread.sleep(1000);
+  }
+  return ruleRemoved;
+}
