@@ -1,0 +1,29 @@
+{
+  Directory dir=newDirectory();
+  indexAnalyzer=new MockAnalyzer(random(),MockTokenizer.SIMPLE,true);
+  IndexWriterConfig iwc=newIndexWriterConfig(indexAnalyzer);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  Field body=new Field("body","",fieldType);
+  Document doc=new Document();
+  doc.add(body);
+  body.setStringValue("This has only foo foo. " + "On the other hand this sentence contains both foo and bar. " + "This has only bar bar bar bar bar bar bar bar bar bar bar bar.");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  UnifiedHighlighter highlighter=new UnifiedHighlighter(searcher,indexAnalyzer){
+    @Override protected PassageScorer getScorer(    String field){
+      return new PassageScorer(0,0.75f,87);
+    }
+  }
+;
+  BooleanQuery query=new BooleanQuery.Builder().add(new TermQuery(new Term("body","foo")),BooleanClause.Occur.SHOULD).add(new TermQuery(new Term("body","bar")),BooleanClause.Occur.SHOULD).build();
+  TopDocs topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  assertEquals(1,topDocs.totalHits);
+  String snippets[]=highlighter.highlight("body",query,topDocs,1);
+  assertEquals(1,snippets.length);
+  assertTrue(snippets[0].startsWith("On the other hand"));
+  ir.close();
+  dir.close();
+}

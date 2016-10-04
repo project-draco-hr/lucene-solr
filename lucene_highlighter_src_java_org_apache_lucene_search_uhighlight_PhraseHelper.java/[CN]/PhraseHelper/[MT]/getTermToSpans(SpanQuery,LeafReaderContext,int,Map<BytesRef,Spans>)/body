@@ -1,0 +1,49 @@
+{
+  final IndexSearcher searcher=new IndexSearcher(readerContext);
+  searcher.setQueryCache(null);
+  if (willRewrite) {
+    spanQuery=(SpanQuery)searcher.rewrite(spanQuery);
+  }
+  TreeSet<Term> termSet=new TreeSet<>();
+  searcher.createWeight(spanQuery,false,1.0f).extractTerms(termSet);
+  SpanWeight spanWeight=(SpanWeight)searcher.createNormalizedWeight(spanQuery,false);
+  Spans spans=spanWeight.getSpans(readerContext,SpanWeight.Postings.POSITIONS);
+  if (spans == null) {
+    return;
+  }
+  TwoPhaseIterator twoPhaseIterator=spans.asTwoPhaseIterator();
+  if (twoPhaseIterator != null) {
+    if (twoPhaseIterator.approximation().advance(doc) != doc || !twoPhaseIterator.matches()) {
+      return;
+    }
+  }
+ else   if (spans.advance(doc) != doc) {
+    return;
+  }
+  CachedSpans cachedSpansSource=new CachedSpans(spans);
+  spans=null;
+  for (  final Term queryTerm : termSet) {
+    if (fieldName != null && fieldName.equals(queryTerm.field()) == false) {
+      continue;
+    }
+    if (positionInsensitiveTerms.contains(queryTerm)) {
+      continue;
+    }
+    CachedSpans cachedSpans=new CachedSpans(cachedSpansSource);
+    Spans existingSpans=result.get(queryTerm.bytes());
+    if (existingSpans != null) {
+      if (existingSpans instanceof MultiSpans) {
+        ((MultiSpans)existingSpans).addSpans(cachedSpans);
+      }
+ else {
+        MultiSpans multiSpans=new MultiSpans();
+        multiSpans.addSpans(existingSpans);
+        multiSpans.addSpans(cachedSpans);
+        result.put(queryTerm.bytes(),multiSpans);
+      }
+    }
+ else {
+      result.put(queryTerm.bytes(),cachedSpans);
+    }
+  }
+}

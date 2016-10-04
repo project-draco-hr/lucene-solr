@@ -1,0 +1,38 @@
+{
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,indexAnalyzer);
+  final int numTvFields=1 + random().nextInt(3);
+  List<String> fields=new ArrayList<>(numTvFields);
+  List<FieldType> fieldTypes=new ArrayList<>(numTvFields);
+  for (int i=0; i < numTvFields; i++) {
+    fields.add("body" + i);
+    fieldTypes.add(UHTestHelper.randomFieldType(random()));
+  }
+  fieldTypes.set(random().nextInt(fieldTypes.size()),UHTestHelper.tvType);
+  final int numDocs=1 + random().nextInt(3);
+  for (int i=0; i < numDocs; i++) {
+    Document doc=new Document();
+    for (    String field : fields) {
+      doc.add(new Field(field,"some test text",UHTestHelper.tvType));
+    }
+    iw.addDocument(doc);
+  }
+  DirectoryReader originalReader=iw.getReader();
+  IndexReader ir=new AssertOnceTermVecDirectoryReader(originalReader);
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  UnifiedHighlighter highlighter=new UnifiedHighlighter(searcher,indexAnalyzer);
+  BooleanQuery.Builder queryBuilder=new BooleanQuery.Builder();
+  for (  String field : fields) {
+    queryBuilder.add(new TermQuery(new Term(field,"test")),BooleanClause.Occur.MUST);
+  }
+  BooleanQuery query=queryBuilder.build();
+  TopDocs topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  assertEquals(numDocs,topDocs.totalHits);
+  Map<String,String[]> fieldToSnippets=highlighter.highlightFields(fields.toArray(new String[numTvFields]),query,topDocs);
+  String[] expectedSnippetsByDoc=new String[numDocs];
+  Arrays.fill(expectedSnippetsByDoc,"some <b>test</b> text");
+  for (  String field : fields) {
+    assertArrayEquals(expectedSnippetsByDoc,fieldToSnippets.get(field));
+  }
+  ir.close();
+}

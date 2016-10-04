@@ -1,0 +1,57 @@
+{
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,indexAnalyzer);
+  Field body=new Field("body","",fieldType);
+  Document doc=new Document();
+  doc.add(body);
+  body.setStringValue("Alpha Bravo foo foo foo. Foo foo Alpha Bravo");
+  if (random().nextBoolean()) {
+    doc.add(new Field("body","2nd value Alpha Bravo",fieldType));
+  }
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  Analyzer buggyAnalyzer=new Analyzer(){
+    @Override protected TokenStreamComponents createComponents(    String fieldName){
+      Tokenizer buggyTokenizer=new Tokenizer(){
+        @Override public boolean incrementToken() throws IOException {
+          throw new IOException("EXPECTED");
+        }
+      }
+;
+      return new TokenStreamComponents(buggyTokenizer);
+    }
+  }
+;
+  IndexSearcher searcher=newSearcher(ir);
+  UnifiedHighlighter highlighter=new UnifiedHighlighter(searcher,buggyAnalyzer);
+  highlighter.setHandleMultiTermQuery(true);
+  if (rarely()) {
+    highlighter.setMaxLength(25);
+  }
+  boolean hasClauses=false;
+  BooleanQuery.Builder queryBuilder=new BooleanQuery.Builder();
+  if (random().nextBoolean()) {
+    hasClauses=true;
+    queryBuilder.add(new TermQuery(new Term("body","alpha")),BooleanClause.Occur.MUST);
+  }
+  if (!hasClauses || random().nextBoolean()) {
+    queryBuilder.add(new PrefixQuery(new Term("body","bra")),BooleanClause.Occur.MUST);
+  }
+  BooleanQuery query=queryBuilder.build();
+  TopDocs topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  try {
+    String snippets[]=highlighter.highlight("body",query,topDocs,2);
+    if (fieldType == UHTestHelper.reanalysisType) {
+      fail("Expecting EXPECTED IOException");
+    }
+  }
+ catch (  IOException e) {
+    if (!e.getMessage().equals("EXPECTED")) {
+      throw e;
+    }
+  }
+  ir.close();
+  try (TokenStream ts=buggyAnalyzer.tokenStream("body","anything")){
+    ts.reset();
+  }
+ }

@@ -1,0 +1,28 @@
+{
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,indexAnalyzer);
+  Field body=new Field("body","",fieldType);
+  Field title=new Field("title","",UHTestHelper.randomFieldType(random()));
+  Document doc=new Document();
+  doc.add(body);
+  doc.add(title);
+  body.setStringValue("This is a test. Just a test highlighting from postings. Feel free to ignore.");
+  title.setStringValue("I am hoping for the best.");
+  iw.addDocument(doc);
+  body.setStringValue("Highlighting the first term. Hope it works.");
+  title.setStringValue("But best may not be good enough.");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  UnifiedHighlighter highlighter=new UnifiedHighlighter(searcher,indexAnalyzer);
+  BooleanQuery query=new BooleanQuery.Builder().add(new TermQuery(new Term("body","highlighting")),BooleanClause.Occur.SHOULD).add(new TermQuery(new Term("title","best")),BooleanClause.Occur.SHOULD).build();
+  TopDocs topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  assertEquals(2,topDocs.totalHits);
+  Map<String,String[]> snippets=highlighter.highlightFields(new String[]{"body","title"},query,topDocs);
+  assertEquals(2,snippets.size());
+  assertEquals("Just a test <b>highlighting</b> from postings. ",snippets.get("body")[0]);
+  assertEquals("<b>Highlighting</b> the first term. ",snippets.get("body")[1]);
+  assertEquals("I am hoping for the <b>best</b>.",snippets.get("title")[0]);
+  assertEquals("But <b>best</b> may not be good enough.",snippets.get("title")[1]);
+  ir.close();
+}

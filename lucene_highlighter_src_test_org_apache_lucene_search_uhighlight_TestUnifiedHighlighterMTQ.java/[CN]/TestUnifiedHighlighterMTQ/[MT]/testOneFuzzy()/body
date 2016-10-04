@@ -1,0 +1,36 @@
+{
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,indexAnalyzer);
+  Field body=new Field("body","",fieldType);
+  Document doc=new Document();
+  doc.add(body);
+  body.setStringValue("This is a test.");
+  iw.addDocument(doc);
+  body.setStringValue("Test a one sentence document.");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  UnifiedHighlighter highlighter=new UnifiedHighlighter(searcher,indexAnalyzer);
+  Query query=new FuzzyQuery(new Term("body","tets"),1);
+  TopDocs topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  assertEquals(2,topDocs.totalHits);
+  String snippets[]=highlighter.highlight("body",query,topDocs);
+  assertEquals(2,snippets.length);
+  assertEquals("This is a <b>test</b>.",snippets[0]);
+  assertEquals("<b>Test</b> a one sentence document.",snippets[1]);
+  query=new FuzzyQuery(new Term("body","tets"),1,2);
+  topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  assertEquals(2,topDocs.totalHits);
+  snippets=highlighter.highlight("body",query,topDocs);
+  assertEquals(2,snippets.length);
+  assertEquals("This is a <b>test</b>.",snippets[0]);
+  assertEquals("<b>Test</b> a one sentence document.",snippets[1]);
+  BooleanQuery bq=new BooleanQuery.Builder().add(new MatchAllDocsQuery(),BooleanClause.Occur.SHOULD).add(new FuzzyQuery(new Term("bogus","tets"),1),BooleanClause.Occur.SHOULD).build();
+  topDocs=searcher.search(bq,10,Sort.INDEXORDER);
+  assertEquals(2,topDocs.totalHits);
+  snippets=highlighter.highlight("body",bq,topDocs);
+  assertEquals(2,snippets.length);
+  assertEquals("This is a test.",snippets[0]);
+  assertEquals("Test a one sentence document.",snippets[1]);
+  ir.close();
+}

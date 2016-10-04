@@ -1,0 +1,27 @@
+{
+  final Map<BytesRef,Spans> strictPhrasesTermToSpans=strictPhrases.getTermToSpans(atomicReader,doc);
+  final List<BytesRef> sourceTerms=strictPhrases.expandTermsIfRewrite(terms,strictPhrasesTermToSpans);
+  final List<OffsetsEnum> offsetsEnums=new ArrayList<>(sourceTerms.size() + 1);
+  Terms termsIndex=atomicReader == null || sourceTerms.isEmpty() ? null : atomicReader.terms(field);
+  if (termsIndex != null) {
+    TermsEnum termsEnum=termsIndex.iterator();
+    for (    BytesRef term : sourceTerms) {
+      if (!termsEnum.seekExact(term)) {
+        continue;
+      }
+      PostingsEnum postingsEnum=termsEnum.postings(null,PostingsEnum.OFFSETS);
+      if (postingsEnum == null) {
+        throw new IllegalArgumentException("field '" + field + "' was indexed without offsets, cannot highlight");
+      }
+      if (doc != postingsEnum.advance(doc)) {
+        continue;
+      }
+      postingsEnum=strictPhrases.filterPostings(term,postingsEnum,strictPhrasesTermToSpans.get(term));
+      if (postingsEnum == null) {
+        continue;
+      }
+      offsetsEnums.add(new OffsetsEnum(term,postingsEnum));
+    }
+  }
+  return offsetsEnums;
+}

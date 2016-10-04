@@ -1,0 +1,47 @@
+{
+  this.fieldName=field;
+  positionInsensitiveTerms=field != null ? new FieldFilteringTermHashSet(field) : new HashSet<>();
+  spanQueries=new HashSet<>();
+  boolean[] mustRewriteHolder={false};
+  new WeightedSpanTermExtractor(field){
+{
+      setExpandMultiTermQuery(true);
+      try {
+        extract(query,1f,null);
+      }
+ catch (      Exception e) {
+        throw new RuntimeException(e);
+      }
+    }
+    @Override protected boolean isQueryUnsupported(    Class<? extends Query> clazz){
+      if (clazz.isAssignableFrom(MultiTermQuery.class)) {
+        return true;
+      }
+      return true;
+    }
+    @Override protected void extractWeightedTerms(    Map<String,WeightedSpanTerm> terms,    Query query,    float boost) throws IOException {
+      query.createWeight(UnifiedHighlighter.EMPTY_INDEXSEARCHER,false,boost).extractTerms(positionInsensitiveTerms);
+    }
+    @Override protected void extractWeightedSpanTerms(    Map<String,WeightedSpanTerm> terms,    SpanQuery spanQuery,    float boost) throws IOException {
+      if (field != null) {
+        Set<String> fieldNameSet=new HashSet<>();
+        collectSpanQueryFields(spanQuery,fieldNameSet);
+        if (!fieldNameSet.contains(field)) {
+          return;
+        }
+      }
+      boolean mustRewriteQuery=mustRewriteQuery(spanQuery);
+      if (ignoreQueriesNeedingRewrite && mustRewriteQuery) {
+        return;
+      }
+      mustRewriteHolder[0]|=mustRewriteQuery;
+      spanQueries.add(spanQuery);
+    }
+    @Override protected boolean mustRewriteQuery(    SpanQuery spanQuery){
+      Boolean rewriteQ=rewriteQueryPred.apply(spanQuery);
+      return rewriteQ != null ? rewriteQ : super.mustRewriteQuery(spanQuery);
+    }
+  }
+;
+  willRewrite=mustRewriteHolder[0];
+}

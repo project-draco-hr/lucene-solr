@@ -1,0 +1,29 @@
+{
+  Directory dir=newDirectory();
+  indexAnalyzer=new MockAnalyzer(random(),MockTokenizer.SIMPLE,true);
+  IndexWriterConfig iwc=newIndexWriterConfig(indexAnalyzer);
+  iwc.setMergePolicy(newLogMergePolicy());
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,iwc);
+  Field body=new Field("body","",fieldType);
+  Document doc=new Document();
+  doc.add(body);
+  body.setStringValue("This is a test.  This test is a better test but the sentence is excruiatingly long, " + "you have no idea how painful it was for me to type this long sentence into my IDE.");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  UnifiedHighlighter highlighter=new UnifiedHighlighter(searcher,indexAnalyzer){
+    @Override protected PassageScorer getScorer(    String field){
+      return new PassageScorer(1.2f,0,87);
+    }
+  }
+;
+  Query query=new TermQuery(new Term("body","test"));
+  TopDocs topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  assertEquals(1,topDocs.totalHits);
+  String snippets[]=highlighter.highlight("body",query,topDocs,1);
+  assertEquals(1,snippets.length);
+  assertTrue(snippets[0].startsWith("This <b>test</b> is a better <b>test</b>"));
+  ir.close();
+  dir.close();
+}

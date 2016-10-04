@@ -1,0 +1,33 @@
+{
+  RandomIndexWriter iw=new RandomIndexWriter(random(),dir,indexAnalyzer);
+  Field body=new Field("body","",fieldType);
+  Document doc=new Document();
+  doc.add(body);
+  body.setStringValue("This is a test. Just a test highlighting from postings. Feel free to ignore.");
+  iw.addDocument(doc);
+  IndexReader ir=iw.getReader();
+  iw.close();
+  IndexSearcher searcher=newSearcher(ir);
+  UnifiedHighlighter highlighter=new UnifiedHighlighter(searcher,indexAnalyzer){
+    @Override protected PassageFormatter getFormatter(    String field){
+      return new PassageFormatter(){
+        PassageFormatter defaultFormatter=new DefaultPassageFormatter();
+        @Override public String[] format(        Passage passages[],        String content){
+          return new String[]{"blah blah",defaultFormatter.format(passages,content).toString()};
+        }
+      }
+;
+    }
+  }
+;
+  Query query=new TermQuery(new Term("body","highlighting"));
+  TopDocs topDocs=searcher.search(query,10,Sort.INDEXORDER);
+  assertEquals(1,topDocs.totalHits);
+  int[] docIDs=new int[1];
+  docIDs[0]=topDocs.scoreDocs[0].doc;
+  Map<String,Object[]> snippets=highlighter.highlightFieldsAsObjects(new String[]{"body"},query,docIDs,new int[]{1});
+  Object[] bodySnippets=snippets.get("body");
+  assertEquals(1,bodySnippets.length);
+  assertTrue(Arrays.equals(new String[]{"blah blah","Just a test <b>highlighting</b> from postings. "},(String[])bodySnippets[0]));
+  ir.close();
+}
