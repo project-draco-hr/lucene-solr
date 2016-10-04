@@ -1,0 +1,40 @@
+{
+  MergeRecordingDocValueFormatWrapper dvf1=new MergeRecordingDocValueFormatWrapper(TestUtil.getDefaultDocValuesFormat());
+  MergeRecordingDocValueFormatWrapper dvf2=new MergeRecordingDocValueFormatWrapper(TestUtil.getDefaultDocValuesFormat());
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  iwc.setCodec(new AssertingCodec(){
+    @Override public DocValuesFormat getDocValuesFormatForField(    String field){
+switch (field) {
+case "dv1":
+case "dv2":
+        return dvf1;
+case "dv3":
+      return dvf2;
+default :
+    return super.getDocValuesFormatForField(field);
+}
+}
+}
+);
+Directory directory=newDirectory();
+IndexWriter iwriter=new IndexWriter(directory,iwc);
+Document doc=new Document();
+doc.add(new NumericDocValuesField("dv1",5));
+doc.add(new NumericDocValuesField("dv2",42));
+doc.add(new BinaryDocValuesField("dv3",new BytesRef("hello world")));
+iwriter.addDocument(doc);
+iwriter.commit();
+doc=new Document();
+doc.add(new NumericDocValuesField("dv1",8));
+doc.add(new NumericDocValuesField("dv2",45));
+doc.add(new BinaryDocValuesField("dv3",new BytesRef("goodbye world")));
+iwriter.addDocument(doc);
+iwriter.commit();
+iwriter.forceMerge(1,true);
+iwriter.close();
+assertEquals(1,dvf1.nbMergeCalls);
+assertEquals(new HashSet<>(Arrays.asList("dv1","dv2")),new HashSet<>(dvf1.fieldNames));
+assertEquals(1,dvf2.nbMergeCalls);
+assertEquals(Collections.singletonList("dv3"),dvf2.fieldNames);
+directory.close();
+}

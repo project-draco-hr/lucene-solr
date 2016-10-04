@@ -1,0 +1,43 @@
+{
+  MergeRecordingPostingsFormatWrapper pf1=new MergeRecordingPostingsFormatWrapper(TestUtil.getDefaultPostingsFormat());
+  MergeRecordingPostingsFormatWrapper pf2=new MergeRecordingPostingsFormatWrapper(TestUtil.getDefaultPostingsFormat());
+  IndexWriterConfig iwc=newIndexWriterConfig();
+  iwc.setCodec(new AssertingCodec(){
+    @Override public PostingsFormat getPostingsFormatForField(    String field){
+switch (field) {
+case "f1":
+case "f2":
+        return pf1;
+case "f3":
+case "f4":
+      return pf2;
+default :
+    return super.getPostingsFormatForField(field);
+}
+}
+}
+);
+Directory directory=newDirectory();
+IndexWriter iwriter=new IndexWriter(directory,iwc);
+Document doc=new Document();
+doc.add(new StringField("f1","val1",Field.Store.NO));
+doc.add(new StringField("f2","val2",Field.Store.YES));
+doc.add(new IntPoint("f3",3));
+doc.add(new StringField("f4","val4",Field.Store.NO));
+iwriter.addDocument(doc);
+iwriter.commit();
+doc=new Document();
+doc.add(new StringField("f1","val5",Field.Store.NO));
+doc.add(new StringField("f2","val6",Field.Store.YES));
+doc.add(new IntPoint("f3",7));
+doc.add(new StringField("f4","val8",Field.Store.NO));
+iwriter.addDocument(doc);
+iwriter.commit();
+iwriter.forceMerge(1,true);
+iwriter.close();
+assertEquals(1,pf1.nbMergeCalls);
+assertEquals(new HashSet<>(Arrays.asList("f1","f2")),new HashSet<>(pf1.fieldNames));
+assertEquals(1,pf2.nbMergeCalls);
+assertEquals(Collections.singletonList("f4"),pf2.fieldNames);
+directory.close();
+}

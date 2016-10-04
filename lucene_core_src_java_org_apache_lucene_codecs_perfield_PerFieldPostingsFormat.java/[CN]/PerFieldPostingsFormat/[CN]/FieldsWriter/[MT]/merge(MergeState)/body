@@ -1,23 +1,19 @@
 {
-  Map<PostingsFormat,FieldsGroup> formatToGroups=buildFieldsGroupMapping(fields);
+  Map<PostingsFormat,FieldsGroup> formatToGroups=buildFieldsGroupMapping(new MultiFields(mergeState.fieldsProducers,null));
+  PerFieldMergeState pfMergeState=new PerFieldMergeState(mergeState);
   boolean success=false;
   try {
     for (    Map.Entry<PostingsFormat,FieldsGroup> ent : formatToGroups.entrySet()) {
       PostingsFormat format=ent.getKey();
       final FieldsGroup group=ent.getValue();
-      Fields maskedFields=new FilterFields(fields){
-        @Override public Iterator<String> iterator(){
-          return group.fields.iterator();
-        }
-      }
-;
       FieldsConsumer consumer=format.fieldsConsumer(group.state);
       toClose.add(consumer);
-      consumer.write(maskedFields);
+      consumer.merge(pfMergeState.apply(group.fields));
     }
     success=true;
   }
   finally {
+    pfMergeState.reset();
     if (!success) {
       IOUtils.closeWhileHandlingException(toClose);
     }
