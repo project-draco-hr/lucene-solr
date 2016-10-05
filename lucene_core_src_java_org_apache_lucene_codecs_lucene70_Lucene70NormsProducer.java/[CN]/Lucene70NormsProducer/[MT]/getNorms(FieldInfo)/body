@@ -1,0 +1,56 @@
+{
+  final NormsEntry entry=norms.get(field.number);
+  if (entry.docsWithFieldOffset == -2) {
+    return DocValues.emptyNumeric();
+  }
+ else   if (entry.docsWithFieldOffset == -1) {
+    final LongValues normValues=getNormValues(entry);
+    return new NumericDocValues(){
+      int doc=-1;
+      @Override public long longValue() throws IOException {
+        return normValues.get(doc);
+      }
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public int nextDoc() throws IOException {
+        return advance(doc + 1);
+      }
+      @Override public int advance(      int target) throws IOException {
+        if (target >= maxDoc) {
+          return doc=NO_MORE_DOCS;
+        }
+        return doc=target;
+      }
+      @Override public long cost(){
+        return maxDoc;
+      }
+    }
+;
+  }
+ else {
+    final LongValues normValues=getNormValues(entry);
+    final SparseDISI disi;
+synchronized (data) {
+      disi=new SparseDISI(maxDoc,data,entry.docsWithFieldOffset,entry.numDocsWithField);
+    }
+    return new NumericDocValues(){
+      @Override public int advance(      int target) throws IOException {
+        return disi.advance(target);
+      }
+      @Override public int nextDoc() throws IOException {
+        return disi.nextDoc();
+      }
+      @Override public int docID(){
+        return disi.docID();
+      }
+      @Override public long cost(){
+        return entry.numDocsWithField;
+      }
+      @Override public long longValue() throws IOException {
+        return normValues.get(disi.index());
+      }
+    }
+;
+  }
+}
