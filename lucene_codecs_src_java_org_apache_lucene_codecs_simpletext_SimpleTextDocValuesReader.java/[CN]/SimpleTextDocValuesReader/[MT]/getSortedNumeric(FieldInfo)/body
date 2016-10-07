@@ -1,9 +1,29 @@
 {
-  final LegacyBinaryDocValues binary=getLegacyBinary(field);
-  return new LegacySortedNumericDocValuesWrapper(new LegacySortedNumericDocValues(){
+  final BinaryDocValues binary=getBinary(field);
+  return new SortedNumericDocValues(){
+    @Override public int nextDoc() throws IOException {
+      int doc=binary.nextDoc();
+      setCurrentDoc();
+      return doc;
+    }
+    @Override public int docID(){
+      return binary.docID();
+    }
+    @Override public long cost(){
+      return binary.cost();
+    }
+    @Override public int advance(    int target) throws IOException {
+      int doc=binary.advance(target);
+      setCurrentDoc();
+      return doc;
+    }
     long values[];
-    @Override public void setDocument(    int doc){
-      String csv=binary.get(doc).utf8ToString();
+    int index;
+    private void setCurrentDoc() throws IOException {
+      if (docID() == NO_MORE_DOCS) {
+        return;
+      }
+      String csv=binary.binaryValue().utf8ToString();
       if (csv.length() == 0) {
         values=new long[0];
       }
@@ -14,13 +34,14 @@
           values[i]=Long.parseLong(s[i]);
         }
       }
+      index=0;
     }
-    @Override public long valueAt(    int index){
-      return values[index];
+    @Override public long nextValue() throws IOException {
+      return values[index++];
     }
-    @Override public int count(){
+    @Override public int docValueCount(){
       return values.length;
     }
   }
-,maxDoc);
+;
 }
