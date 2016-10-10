@@ -1,0 +1,69 @@
+{
+  Tuple EOFTuple=null;
+  List<Tuple> batch=new ArrayList();
+  for (int i=0; i < batchSize; i++) {
+    Tuple tuple=stream.read();
+    if (tuple.EOF) {
+      EOFTuple=tuple;
+      break;
+    }
+ else {
+      batch.add(tuple);
+    }
+  }
+  if (batch.size() > 0) {
+    StringBuilder buf=new StringBuilder();
+    buf.append(rightKey);
+    buf.append(":(");
+    for (int i=0; i < batch.size(); i++) {
+      if (i > 0) {
+        buf.append(" ");
+      }
+      Tuple tuple=batch.get(i);
+      String key=tuple.getString(leftKey);
+      buf.append(key);
+    }
+    buf.append(")");
+    ModifiableSolrParams params=new ModifiableSolrParams();
+    params.add("q",buf.toString());
+    params.add("fl",fieldList + appendFields());
+    params.add("rows",Integer.toString(batchSize));
+    params.add("sort","_version_ desc");
+    CloudSolrStream cloudSolrStream=new CloudSolrStream(zkHost,collection,params);
+    StreamContext newContext=new StreamContext();
+    newContext.setSolrClientCache(streamContext.getSolrClientCache());
+    cloudSolrStream.setStreamContext(newContext);
+    Map<String,Tuple> fetched=new HashMap();
+    try {
+      cloudSolrStream.open();
+      while (true) {
+        Tuple t=cloudSolrStream.read();
+        if (t.EOF) {
+          break;
+        }
+ else {
+          String rightValue=t.getString(rightKey);
+          fetched.put(rightValue,t);
+        }
+      }
+    }
+  finally {
+      cloudSolrStream.close();
+    }
+    for (    Tuple batchTuple : batch) {
+      Tuple fetchedTuple=fetched.get(batchTuple.getString(leftKey));
+      if (fetchedTuple != null) {
+        for (        String field : fields) {
+          Object value=fetchedTuple.get(field);
+          if (value != null) {
+            batchTuple.put(field,value);
+          }
+        }
+      }
+    }
+  }
+  if (EOFTuple != null) {
+    batch.add(EOFTuple);
+  }
+  this.tuples=batch.iterator();
+}
