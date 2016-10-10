@@ -1,0 +1,26 @@
+{
+  Directory dir=newDirectory();
+  IndexWriter writer=new IndexWriter(dir,newIndexWriterConfig(new MockAnalyzer(random())));
+  FieldType type=new FieldType(TextField.TYPE_STORED);
+  type.setStoreTermVectorOffsets(true);
+  type.setStoreTermVectorPositions(true);
+  type.setStoreTermVectors(true);
+  type.freeze();
+  Document doc=new Document();
+  doc.add(new Field("field","the quick brown fox",type));
+  writer.addDocument(doc);
+  FastVectorHighlighter highlighter=new FastVectorHighlighter();
+  IndexReader reader=DirectoryReader.open(writer);
+  int docId=0;
+  SynonymQuery synQuery=new SynonymQuery(new Term("field","quick"),new Term("field","fast"));
+  FieldQuery fieldQuery=highlighter.getFieldQuery(synQuery,reader);
+  String[] bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,"field",54,1);
+  assertEquals("the <b>quick</b> brown fox",bestFragments[0]);
+  BooleanQuery.Builder bq=new BooleanQuery.Builder().add(new BooleanClause(synQuery,Occur.MUST)).add(new BooleanClause(new TermQuery(new Term("field","fox")),Occur.MUST));
+  fieldQuery=highlighter.getFieldQuery(bq.build(),reader);
+  bestFragments=highlighter.getBestFragments(fieldQuery,reader,docId,"field",54,1);
+  assertEquals("the <b>quick</b> brown <b>fox</b>",bestFragments[0]);
+  reader.close();
+  writer.close();
+  dir.close();
+}
