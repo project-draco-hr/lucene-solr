@@ -1,0 +1,29 @@
+{
+  try (Directory dir=newDirectory()){
+    FixedBitSet set=new FixedBitSet(200000);
+    int start=65536 + random().nextInt(100);
+    set.set(start,start + IndexedDISI.MAX_ARRAY_LENGTH);
+    long length;
+    try (IndexOutput out=dir.createOutput("sparse",IOContext.DEFAULT)){
+      IndexedDISI.writeBitSet(new BitSetIterator(set,IndexedDISI.MAX_ARRAY_LENGTH),out);
+      length=out.getFilePointer();
+    }
+     try (IndexInput in=dir.openInput("sparse",IOContext.DEFAULT)){
+      IndexedDISI disi=new IndexedDISI(in,0L,length,IndexedDISI.MAX_ARRAY_LENGTH);
+      assertEquals(start,disi.nextDoc());
+      assertEquals(IndexedDISI.Method.SPARSE,disi.method);
+    }
+     doTest(set,dir);
+    set.set(start + IndexedDISI.MAX_ARRAY_LENGTH + random().nextInt(100));
+    try (IndexOutput out=dir.createOutput("bar",IOContext.DEFAULT)){
+      IndexedDISI.writeBitSet(new BitSetIterator(set,IndexedDISI.MAX_ARRAY_LENGTH + 1),out);
+      length=out.getFilePointer();
+    }
+     try (IndexInput in=dir.openInput("bar",IOContext.DEFAULT)){
+      IndexedDISI disi=new IndexedDISI(in,0L,length,IndexedDISI.MAX_ARRAY_LENGTH + 1);
+      assertEquals(start,disi.nextDoc());
+      assertEquals(IndexedDISI.Method.DENSE,disi.method);
+    }
+     doTest(set,dir);
+  }
+ }
