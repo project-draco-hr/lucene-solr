@@ -1,4 +1,5 @@
 {
+  float density=codecSupportsSparsity() == false || random().nextBoolean() ? 1f : random().nextFloat();
   int numDocs=atLeast(500);
   final FixedBitSet docsWithField=new FixedBitSet(numDocs);
   final int numDocsWithField=Math.max(1,(int)(density * numDocs));
@@ -17,7 +18,7 @@
   }
   long norms[]=new long[numDocsWithField];
   for (int i=0; i < numDocsWithField; i++) {
-    norms[i]=longs.next();
+    norms[i]=random().nextLong();
   }
   Directory dir=newDirectory();
   Analyzer analyzer=new MockAnalyzer(random(),MockTokenizer.KEYWORD,false);
@@ -49,19 +50,33 @@
       writer.commit();
     }
   }
-  int numDeletions=random().nextInt(numDocs / 20);
-  for (int i=0; i < numDeletions; i++) {
-    int id=random().nextInt(numDocs);
-    writer.deleteDocuments(new Term("id",Integer.toString(id)));
-  }
-  writer.commit();
-  DirectoryReader ir=DirectoryReader.open(dir);
-  checkNormsVsDocValues(ir);
-  ir.close();
-  writer.forceMerge(1);
-  ir=DirectoryReader.open(dir);
-  checkNormsVsDocValues(ir);
+  DirectoryReader reader=writer.getReader();
   writer.close();
-  ir.close();
+  final int numThreads=TestUtil.nextInt(random(),3,30);
+  Thread[] threads=new Thread[numThreads];
+  final CountDownLatch latch=new CountDownLatch(1);
+  for (int i=0; i < numThreads; ++i) {
+    threads[i]=new Thread(new Runnable(){
+      @Override public void run(){
+        try {
+          latch.await();
+          checkNormsVsDocValues(reader);
+          TestUtil.checkReader(reader);
+        }
+ catch (        Exception e) {
+          throw new RuntimeException(e);
+        }
+      }
+    }
+);
+  }
+  for (  Thread thread : threads) {
+    thread.start();
+  }
+  latch.countDown();
+  for (  Thread thread : threads) {
+    thread.join();
+  }
+  reader.close();
   dir.close();
 }
