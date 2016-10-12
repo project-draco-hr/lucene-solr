@@ -1,0 +1,32 @@
+{
+  final long size=values.getValueCount();
+  meta.writeInt(Lucene70DocValuesFormat.TERMS_DICT_REVERSE_INDEX_SHIFT);
+  long start=data.getFilePointer();
+  long numBlocks=1L + ((size + Lucene70DocValuesFormat.TERMS_DICT_REVERSE_INDEX_MASK) >>> Lucene70DocValuesFormat.TERMS_DICT_REVERSE_INDEX_SHIFT);
+  RAMOutputStream addressBuffer=new RAMOutputStream();
+  DirectMonotonicWriter writer=DirectMonotonicWriter.getInstance(meta,addressBuffer,numBlocks,DIRECT_MONOTONIC_BLOCK_SHIFT);
+  TermsEnum iterator=values.termsEnum();
+  BytesRefBuilder previous=new BytesRefBuilder();
+  long offset=0;
+  long ord=0;
+  for (BytesRef term=iterator.next(); term != null; term=iterator.next()) {
+    if ((ord & Lucene70DocValuesFormat.TERMS_DICT_REVERSE_INDEX_MASK) == 0) {
+      writer.add(offset);
+      int sortKeyLength=StringHelper.sortKeyLength(previous.get(),term);
+      offset+=sortKeyLength;
+      data.writeBytes(term.bytes,term.offset,sortKeyLength);
+    }
+ else     if ((ord & Lucene70DocValuesFormat.TERMS_DICT_REVERSE_INDEX_MASK) == Lucene70DocValuesFormat.TERMS_DICT_REVERSE_INDEX_MASK) {
+      previous.copyBytes(term);
+    }
+    ++ord;
+  }
+  writer.add(offset);
+  writer.finish();
+  meta.writeLong(start);
+  meta.writeLong(data.getFilePointer() - start);
+  start=data.getFilePointer();
+  addressBuffer.writeTo(data);
+  meta.writeLong(start);
+  meta.writeLong(data.getFilePointer() - start);
+}

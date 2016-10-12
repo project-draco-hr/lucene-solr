@@ -1,0 +1,42 @@
+{
+  SortedDocValues values=valuesProducer.getSorted(field);
+  int numDocsWithField=0;
+  for (int doc=values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=values.nextDoc()) {
+    numDocsWithField++;
+  }
+  if (numDocsWithField == 0) {
+    meta.writeLong(-2);
+    meta.writeLong(0L);
+  }
+ else   if (numDocsWithField == maxDoc) {
+    meta.writeLong(-1);
+    meta.writeLong(0L);
+  }
+ else {
+    long offset=data.getFilePointer();
+    meta.writeLong(offset);
+    values=valuesProducer.getSorted(field);
+    IndexedDISI.writeBitSet(values,data);
+    meta.writeLong(data.getFilePointer() - offset);
+  }
+  meta.writeInt(numDocsWithField);
+  if (values.getValueCount() <= 1) {
+    meta.writeByte((byte)0);
+    meta.writeLong(0L);
+    meta.writeLong(0L);
+  }
+ else {
+    int numberOfBitsPerOrd=DirectWriter.unsignedBitsRequired(values.getValueCount() - 1);
+    meta.writeByte((byte)numberOfBitsPerOrd);
+    long start=data.getFilePointer();
+    meta.writeLong(start);
+    DirectWriter writer=DirectWriter.getInstance(data,numDocsWithField,numberOfBitsPerOrd);
+    values=valuesProducer.getSorted(field);
+    for (int doc=values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=values.nextDoc()) {
+      writer.add(values.ordValue());
+    }
+    writer.finish();
+    meta.writeLong(data.getFilePointer() - start);
+  }
+  addTermsDict(DocValues.singleton(valuesProducer.getSorted(field)));
+}

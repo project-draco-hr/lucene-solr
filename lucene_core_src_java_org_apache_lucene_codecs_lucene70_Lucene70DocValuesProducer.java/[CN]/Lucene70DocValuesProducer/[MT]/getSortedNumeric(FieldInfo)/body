@@ -1,158 +1,81 @@
 {
-  SortedSetEntry ss=sortedNumerics.get(field.name);
-  if (ss.format == SORTED_SINGLE_VALUED) {
-    NumericEntry numericEntry=numerics.get(field.name);
-    final LongValues values=getNumeric(numericEntry);
-    if (numericEntry.format == SPARSE_COMPRESSED) {
-      SparseNumericDocValues sparseValues=((SparseNumericDocValuesRandomAccessWrapper)values).values;
-      return new SortedNumericDocValues(){
-        @Override public long nextValue() throws IOException {
-          return sparseValues.longValue();
-        }
-        @Override public int docValueCount(){
-          return 1;
-        }
-        @Override public int docID(){
-          return sparseValues.docID();
-        }
-        @Override public int nextDoc() throws IOException {
-          return sparseValues.nextDoc();
-        }
-        @Override public int advance(        int target) throws IOException {
-          return sparseValues.advance(target);
-        }
-        @Override public long cost(){
-          return sparseValues.cost();
-        }
-      }
-;
-    }
-    final DocIdSetIterator docsWithField=getDocsWithField(numericEntry.missingOffset,maxDoc);
+  SortedNumericEntry entry=sortedNumerics.get(field.name);
+  if (entry.numValues == entry.numDocsWithField) {
+    return DocValues.singleton(getNumeric(entry));
+  }
+  final RandomAccessInput addressesInput=data.randomAccessSlice(entry.addressesOffset,entry.addressesLength);
+  final LongValues addresses=DirectMonotonicReader.getInstance(entry.addressesMeta,addressesInput);
+  final LongValues values=getNumericValues(entry);
+  if (entry.docsWithFieldOffset == -1) {
     return new SortedNumericDocValues(){
-      @Override public int docID(){
-        return docsWithField.docID();
-      }
+      int doc=-1;
+      long start, end;
+      int count;
       @Override public int nextDoc() throws IOException {
-        return docsWithField.nextDoc();
+        return advance(doc + 1);
+      }
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public long cost(){
+        return maxDoc;
       }
       @Override public int advance(      int target) throws IOException {
-        return docsWithField.advance(target);
-      }
-      @Override public long cost(){
-        return docsWithField.cost();
-      }
-      @Override public int docValueCount(){
-        return 1;
-      }
-      @Override public long nextValue(){
-        return values.get(docsWithField.docID());
-      }
-    }
-;
-  }
- else   if (ss.format == SORTED_WITH_ADDRESSES) {
-    NumericEntry numericEntry=numerics.get(field.name);
-    final LongValues values=getNumeric(numericEntry);
-    final LongValues ordIndex=getOrdIndexInstance(field,ordIndexes.get(field.name));
-    return new SortedNumericDocValues(){
-      long startOffset;
-      long endOffset;
-      int docID=-1;
-      long upto;
-      @Override public int docID(){
-        return docID;
-      }
-      @Override public int nextDoc(){
-        while (true) {
-          docID++;
-          if (docID == maxDoc) {
-            docID=NO_MORE_DOCS;
-            return docID;
-          }
-          startOffset=ordIndex.get(docID);
-          endOffset=ordIndex.get(docID + 1L);
-          if (endOffset > startOffset) {
-            break;
-          }
-        }
-        upto=startOffset;
-        return docID;
-      }
-      @Override public int advance(      int target){
         if (target >= maxDoc) {
-          docID=NO_MORE_DOCS;
-          return docID;
+          return doc=NO_MORE_DOCS;
         }
- else {
-          docID=target - 1;
-          return nextDoc();
-        }
+        start=addresses.get(target);
+        end=addresses.get(target + 1L);
+        count=(int)(end - start);
+        return doc=target;
       }
-      @Override public long cost(){
-        return 0;
+      @Override public long nextValue() throws IOException {
+        return values.get(start++);
       }
       @Override public int docValueCount(){
-        return (int)(endOffset - startOffset);
-      }
-      @Override public long nextValue(){
-        return values.get(upto++);
+        return count;
       }
     }
 ;
   }
- else   if (ss.format == SORTED_SET_TABLE) {
-    NumericEntry entry=ords.get(field.name);
-    final LongValues ordinals=getNumeric(entry);
-    final long[] table=ss.table;
-    final int[] offsets=ss.tableOffsets;
+ else {
+    final IndexedDISI disi=new IndexedDISI(data,entry.docsWithFieldOffset,entry.docsWithFieldLength,entry.numDocsWithField);
     return new SortedNumericDocValues(){
-      int startOffset;
-      int endOffset;
-      int docID=-1;
-      int upto;
+      boolean set;
+      long start, end;
+      int count;
+      @Override public int nextDoc() throws IOException {
+        set=false;
+        return disi.nextDoc();
+      }
       @Override public int docID(){
-        return docID;
-      }
-      @Override public int nextDoc(){
-        while (true) {
-          docID++;
-          if (docID == maxDoc) {
-            docID=NO_MORE_DOCS;
-            return docID;
-          }
-          int ord=(int)ordinals.get(docID);
-          startOffset=offsets[ord];
-          endOffset=offsets[ord + 1];
-          if (endOffset > startOffset) {
-            break;
-          }
-        }
-        upto=startOffset;
-        return docID;
-      }
-      @Override public int advance(      int target){
-        if (target >= maxDoc) {
-          docID=NO_MORE_DOCS;
-          return docID;
-        }
- else {
-          docID=target - 1;
-          return nextDoc();
-        }
+        return disi.docID();
       }
       @Override public long cost(){
-        return 0;
+        return disi.cost();
+      }
+      @Override public int advance(      int target) throws IOException {
+        set=false;
+        return disi.advance(target);
+      }
+      @Override public long nextValue() throws IOException {
+        set();
+        return values.get(start++);
       }
       @Override public int docValueCount(){
-        return endOffset - startOffset;
+        set();
+        return count;
       }
-      @Override public long nextValue(){
-        return table[upto++];
+      private void set(){
+        if (set == false) {
+          final int index=disi.index();
+          start=addresses.get(index);
+          end=addresses.get(index + 1L);
+          count=(int)(end - start);
+          set=true;
+        }
       }
     }
 ;
-  }
- else {
-    throw new AssertionError();
   }
 }

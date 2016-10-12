@@ -1,68 +1,52 @@
 {
-switch (entry.format) {
-case CONST_COMPRESSED:
-{
-      final long constant=entry.minValue;
-      final Bits live=getLiveBits(entry.missingOffset,(int)entry.count);
-      return new LongValues(){
-        @Override public long get(        long index){
-          return live.get((int)index) ? constant : 0;
+  if (entry.docsWithFieldOffset == -2) {
+    return DocValues.emptyNumeric();
+  }
+ else   if (entry.docsWithFieldOffset == -1) {
+    final LongValues normValues=getNumericValues(entry);
+    return new NumericDocValues(){
+      int doc=-1;
+      @Override public long longValue() throws IOException {
+        return normValues.get(doc);
+      }
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public int nextDoc() throws IOException {
+        return advance(doc + 1);
+      }
+      @Override public int advance(      int target) throws IOException {
+        if (target >= maxDoc) {
+          return doc=NO_MORE_DOCS;
         }
+        return doc=target;
       }
-;
-    }
-case DELTA_COMPRESSED:
-{
-    RandomAccessInput slice=this.data.randomAccessSlice(entry.offset,entry.endOffset - entry.offset);
-    final long delta=entry.minValue;
-    final LongValues values=DirectReader.getInstance(slice,entry.bitsPerValue,0);
-    return new LongValues(){
-      @Override public long get(      long id){
-        return delta + values.get(id);
+      @Override public long cost(){
+        return maxDoc;
       }
     }
 ;
   }
-case GCD_COMPRESSED:
-{
-  RandomAccessInput slice=this.data.randomAccessSlice(entry.offset,entry.endOffset - entry.offset);
-  final long min=entry.minValue;
-  final long mult=entry.gcd;
-  final LongValues quotientReader=DirectReader.getInstance(slice,entry.bitsPerValue,0);
-  return new LongValues(){
-    @Override public long get(    long id){
-      return min + mult * quotientReader.get(id);
+ else {
+    final LongValues values=getNumericValues(entry);
+    final IndexedDISI disi=new IndexedDISI(data,entry.docsWithFieldOffset,entry.docsWithFieldLength,entry.numValues);
+    return new NumericDocValues(){
+      @Override public int advance(      int target) throws IOException {
+        return disi.advance(target);
+      }
+      @Override public int nextDoc() throws IOException {
+        return disi.nextDoc();
+      }
+      @Override public int docID(){
+        return disi.docID();
+      }
+      @Override public long cost(){
+        return disi.cost();
+      }
+      @Override public long longValue() throws IOException {
+        return values.get(disi.index());
+      }
     }
-  }
 ;
-}
-case TABLE_COMPRESSED:
-{
-RandomAccessInput slice=this.data.randomAccessSlice(entry.offset,entry.endOffset - entry.offset);
-final long table[]=entry.table;
-final LongValues ords=DirectReader.getInstance(slice,entry.bitsPerValue,0);
-return new LongValues(){
-  @Override public long get(  long id){
-    return table[(int)ords.get(id)];
   }
-}
-;
-}
-case SPARSE_COMPRESSED:
-final SparseNumericDocValues values=getSparseNumericDocValues(entry);
-final long missingValue;
-switch (entry.numberType) {
-case ORDINAL:
-missingValue=-1L;
-break;
-case VALUE:
-missingValue=0L;
-break;
-default :
-throw new AssertionError();
-}
-return new SparseNumericDocValuesRandomAccessWrapper(values,missingValue);
-default :
-throw new AssertionError();
-}
 }

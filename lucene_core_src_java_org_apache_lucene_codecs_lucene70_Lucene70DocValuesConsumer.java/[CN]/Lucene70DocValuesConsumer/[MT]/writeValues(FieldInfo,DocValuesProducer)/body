@@ -1,0 +1,99 @@
+{
+  SortedNumericDocValues values=valuesProducer.getSortedNumeric(field);
+  int numDocsWithValue=0;
+  long numValues=0;
+  long min=Long.MAX_VALUE;
+  long max=Long.MIN_VALUE;
+  long gcd=0;
+  Set<Long> uniqueValues=new HashSet<>();
+  for (int doc=values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=values.nextDoc()) {
+    for (int i=0, count=values.docValueCount(); i < count; ++i) {
+      long v=values.nextValue();
+      if (gcd != 1) {
+        if (v < Long.MIN_VALUE / 2 || v > Long.MAX_VALUE / 2) {
+          gcd=1;
+        }
+ else         if (numValues != 0) {
+          gcd=MathUtil.gcd(gcd,v - min);
+        }
+      }
+      min=Math.min(min,v);
+      max=Math.max(max,v);
+      if (uniqueValues != null && uniqueValues.add(v) && uniqueValues.size() > 256) {
+        uniqueValues=null;
+      }
+      numValues++;
+    }
+    numDocsWithValue++;
+  }
+  if (numDocsWithValue == 0) {
+    meta.writeLong(-2);
+    meta.writeLong(0L);
+  }
+ else   if (numDocsWithValue == maxDoc) {
+    meta.writeLong(-1);
+    meta.writeLong(0L);
+  }
+ else {
+    long offset=data.getFilePointer();
+    meta.writeLong(offset);
+    values=valuesProducer.getSortedNumeric(field);
+    IndexedDISI.writeBitSet(values,data);
+    meta.writeLong(data.getFilePointer() - offset);
+  }
+  meta.writeLong(numValues);
+  final int numBitsPerValue;
+  Map<Long,Integer> encode=null;
+  if (min >= max) {
+    numBitsPerValue=0;
+    meta.writeInt(-1);
+  }
+ else {
+    if (uniqueValues != null && uniqueValues.size() > 1 && DirectWriter.unsignedBitsRequired(uniqueValues.size() - 1) < DirectWriter.unsignedBitsRequired((max - min) / gcd)) {
+      numBitsPerValue=DirectWriter.unsignedBitsRequired(uniqueValues.size() - 1);
+      final Long[] sortedUniqueValues=uniqueValues.toArray(new Long[0]);
+      Arrays.sort(sortedUniqueValues);
+      meta.writeInt(sortedUniqueValues.length);
+      for (      Long v : sortedUniqueValues) {
+        meta.writeLong(v);
+      }
+      encode=new HashMap<>();
+      for (int i=0; i < sortedUniqueValues.length; ++i) {
+        encode.put(sortedUniqueValues[i],i);
+      }
+      min=0;
+      gcd=1;
+    }
+ else {
+      uniqueValues=null;
+      numBitsPerValue=DirectWriter.unsignedBitsRequired((max - min) / gcd);
+      if (gcd == 1 && min > 0 && DirectWriter.unsignedBitsRequired(max) == DirectWriter.unsignedBitsRequired(max - min)) {
+        min=0;
+      }
+      meta.writeInt(-1);
+    }
+  }
+  meta.writeByte((byte)numBitsPerValue);
+  meta.writeLong(min);
+  meta.writeLong(gcd);
+  long startOffset=data.getFilePointer();
+  meta.writeLong(startOffset);
+  if (numBitsPerValue != 0) {
+    values=valuesProducer.getSortedNumeric(field);
+    DirectWriter writer=DirectWriter.getInstance(data,numValues,numBitsPerValue);
+    for (int doc=values.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc=values.nextDoc()) {
+      for (int i=0, count=values.docValueCount(); i < count; ++i) {
+        long v=values.nextValue();
+        if (encode == null) {
+          writer.add((v - min) / gcd);
+        }
+ else {
+          writer.add(encode.get(v));
+        }
+      }
+    }
+    writer.finish();
+  }
+  meta.writeLong(data.getFilePointer() - startOffset);
+  return new long[]{numDocsWithValue,numValues};
+}

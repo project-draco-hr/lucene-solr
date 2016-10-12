@@ -1,13 +1,80 @@
 {
-  SortedSetEntry ss=sortedSets.get(field.name);
-switch (ss.format) {
-case SORTED_SINGLE_VALUED:
-    return DocValues.singleton(getSorted(field));
-case SORTED_WITH_ADDRESSES:
-  return getSortedSetWithAddresses(field);
-case SORTED_SET_TABLE:
-return getSortedSetTable(field,ss);
-default :
-throw new AssertionError();
-}
+  SortedSetEntry entry=sortedSets.get(field.name);
+  if (entry.singleValueEntry != null) {
+    return DocValues.singleton(getSorted(entry.singleValueEntry));
+  }
+  final RandomAccessInput slice=data.randomAccessSlice(entry.ordsOffset,entry.ordsLength);
+  final LongValues ords=DirectReader.getInstance(slice,entry.bitsPerValue);
+  final RandomAccessInput addressesInput=data.randomAccessSlice(entry.addressesOffset,entry.addressesLength);
+  final LongValues addresses=DirectMonotonicReader.getInstance(entry.addressesMeta,addressesInput);
+  if (entry.docsWithFieldOffset == -1) {
+    return new BaseSortedSetDocValues(entry,data){
+      int doc=-1;
+      long start;
+      long end;
+      @Override public int nextDoc() throws IOException {
+        return advance(doc + 1);
+      }
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public long cost(){
+        return maxDoc;
+      }
+      @Override public int advance(      int target) throws IOException {
+        if (target >= maxDoc) {
+          return doc=NO_MORE_DOCS;
+        }
+        start=addresses.get(target);
+        end=addresses.get(target + 1L);
+        return doc=target;
+      }
+      @Override public long nextOrd() throws IOException {
+        if (start == end) {
+          return NO_MORE_ORDS;
+        }
+        return ords.get(start++);
+      }
+    }
+;
+  }
+ else {
+    final IndexedDISI disi=new IndexedDISI(data,entry.docsWithFieldOffset,entry.docsWithFieldLength,entry.numDocsWithField);
+    return new BaseSortedSetDocValues(entry,data){
+      boolean set;
+      long start;
+      long end=0;
+      @Override public int nextDoc() throws IOException {
+        set=false;
+        return disi.nextDoc();
+      }
+      @Override public int docID(){
+        return disi.docID();
+      }
+      @Override public long cost(){
+        return disi.cost();
+      }
+      @Override public int advance(      int target) throws IOException {
+        set=false;
+        return disi.advance(target);
+      }
+      @Override public long nextOrd() throws IOException {
+        if (set == false) {
+          final int index=disi.index();
+          final long start=addresses.get(index);
+          this.start=start + 1;
+          end=addresses.get(index + 1L);
+          set=true;
+          return ords.get(start);
+        }
+ else         if (start == end) {
+          return NO_MORE_ORDS;
+        }
+ else {
+          return ords.get(start++);
+        }
+      }
+    }
+;
+  }
 }

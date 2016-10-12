@@ -1,23 +1,79 @@
 {
-  BinaryEntry be=binaries.get(field.name);
-  DocIdSetIterator docsWithField=getDocsWithField(be.missingOffset,maxDoc);
-  LegacyBinaryDocValues values=getLegacyBinary(field);
-  return new BinaryDocValues(){
-    @Override public int nextDoc() throws IOException {
-      return docsWithField.nextDoc();
-    }
-    @Override public int docID(){
-      return docsWithField.docID();
-    }
-    @Override public long cost(){
-      return docsWithField.cost();
-    }
-    @Override public int advance(    int target) throws IOException {
-      return docsWithField.advance(target);
-    }
-    @Override public BytesRef binaryValue(){
-      return values.get(docsWithField.docID());
-    }
+  BinaryEntry entry=binaries.get(field.name);
+  if (entry.docsWithFieldOffset == -2) {
+    return DocValues.emptyBinary();
   }
+  IndexInput bytesSlice=data.slice("fixed-binary",entry.dataOffset,entry.dataLength);
+  BytesRefs bytesRefs;
+  if (entry.minLength == entry.maxLength) {
+    bytesRefs=new BytesRefs(){
+      BytesRef bytes=new BytesRef(new byte[entry.maxLength],0,entry.maxLength);
+      @Override public BytesRef get(      int index) throws IOException {
+        bytesSlice.seek((long)index * bytes.length);
+        bytesSlice.readBytes(bytes.bytes,0,bytes.length);
+        return bytes;
+      }
+    }
 ;
+  }
+ else {
+    final RandomAccessInput addressesData=this.data.randomAccessSlice(entry.addressesOffset,entry.addressesLength);
+    final LongValues addresses=DirectMonotonicReader.getInstance(entry.addressesMeta,addressesData);
+    bytesRefs=new BytesRefs(){
+      BytesRef bytes=new BytesRef(entry.maxLength);
+      @Override BytesRef get(      int index) throws IOException {
+        long startOffset=addresses.get(index);
+        bytes.length=(int)(addresses.get(index + 1L) - startOffset);
+        bytesSlice.seek(startOffset);
+        bytesSlice.readBytes(bytes.bytes,0,bytes.length);
+        return bytes;
+      }
+    }
+;
+  }
+  if (entry.docsWithFieldOffset == -1) {
+    return new BinaryDocValues(){
+      int doc=-1;
+      @Override public int nextDoc() throws IOException {
+        return advance(doc + 1);
+      }
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public long cost(){
+        return maxDoc;
+      }
+      @Override public int advance(      int target) throws IOException {
+        if (target >= maxDoc) {
+          return doc=NO_MORE_DOCS;
+        }
+        return doc=target;
+      }
+      @Override public BytesRef binaryValue() throws IOException {
+        return bytesRefs.get(doc);
+      }
+    }
+;
+  }
+ else {
+    final IndexedDISI disi=new IndexedDISI(data,entry.docsWithFieldOffset,entry.docsWithFieldLength,entry.numDocsWithField);
+    return new BinaryDocValues(){
+      @Override public int nextDoc() throws IOException {
+        return disi.nextDoc();
+      }
+      @Override public int docID(){
+        return disi.docID();
+      }
+      @Override public long cost(){
+        return disi.cost();
+      }
+      @Override public int advance(      int target) throws IOException {
+        return disi.advance(target);
+      }
+      @Override public BytesRef binaryValue() throws IOException {
+        return bytesRefs.get(disi.index());
+      }
+    }
+;
+  }
 }

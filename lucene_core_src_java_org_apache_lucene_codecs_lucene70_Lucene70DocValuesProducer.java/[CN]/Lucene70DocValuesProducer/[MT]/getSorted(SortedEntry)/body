@@ -1,0 +1,63 @@
+{
+  if (entry.docsWithFieldOffset == -2) {
+    return DocValues.emptySorted();
+  }
+  final LongValues ords;
+  if (entry.bitsPerValue == 0) {
+    ords=new LongValues(){
+      @Override public long get(      long index){
+        return 0L;
+      }
+    }
+;
+  }
+ else {
+    final RandomAccessInput slice=data.randomAccessSlice(entry.ordsOffset,entry.ordsLength);
+    ords=DirectReader.getInstance(slice,entry.bitsPerValue);
+  }
+  if (entry.docsWithFieldOffset == -1) {
+    return new BaseSortedDocValues(entry,data){
+      int doc=-1;
+      @Override public int nextDoc() throws IOException {
+        return advance(doc + 1);
+      }
+      @Override public int docID(){
+        return doc;
+      }
+      @Override public long cost(){
+        return maxDoc;
+      }
+      @Override public int advance(      int target) throws IOException {
+        if (target >= maxDoc) {
+          return doc=NO_MORE_DOCS;
+        }
+        return doc=target;
+      }
+      @Override public int ordValue(){
+        return (int)ords.get(doc);
+      }
+    }
+;
+  }
+ else {
+    final IndexedDISI disi=new IndexedDISI(data,entry.docsWithFieldOffset,entry.docsWithFieldLength,entry.numDocsWithField);
+    return new BaseSortedDocValues(entry,data){
+      @Override public int nextDoc() throws IOException {
+        return disi.nextDoc();
+      }
+      @Override public int docID(){
+        return disi.docID();
+      }
+      @Override public long cost(){
+        return disi.cost();
+      }
+      @Override public int advance(      int target) throws IOException {
+        return disi.advance(target);
+      }
+      @Override public int ordValue(){
+        return (int)ords.get(disi.index());
+      }
+    }
+;
+  }
+}
