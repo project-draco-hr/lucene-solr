@@ -6,73 +6,85 @@
     if (pointsReader != null) {
       FieldInfo readerFieldInfo=mergeState.fieldInfos[i].fieldInfo(fieldInfo.name);
       if (readerFieldInfo != null && readerFieldInfo.getPointDimensionCount() > 0) {
-        maxPointCount+=pointsReader.size(fieldInfo.name);
-        docCount+=pointsReader.getDocCount(fieldInfo.name);
+        PointValues values=pointsReader.getValues(fieldInfo.name);
+        if (values != null) {
+          maxPointCount+=values.size();
+          docCount+=values.getDocCount();
+        }
       }
     }
   }
   final long finalMaxPointCount=maxPointCount;
   final int finalDocCount=docCount;
   writeField(fieldInfo,new PointsReader(){
-    @Override public void intersect(    String fieldName,    IntersectVisitor mergedVisitor) throws IOException {
+    @Override public long ramBytesUsed(){
+      return 0;
+    }
+    @Override public void close() throws IOException {
+    }
+    @Override public PointValues getValues(    String fieldName){
       if (fieldName.equals(fieldInfo.name) == false) {
         throw new IllegalArgumentException("field name must match the field being merged");
       }
-      for (int i=0; i < mergeState.pointsReaders.length; i++) {
-        PointsReader pointsReader=mergeState.pointsReaders[i];
-        if (pointsReader == null) {
-          continue;
-        }
-        FieldInfo readerFieldInfo=mergeState.fieldInfos[i].fieldInfo(fieldName);
-        if (readerFieldInfo == null) {
-          continue;
-        }
-        if (readerFieldInfo.getPointDimensionCount() == 0) {
-          continue;
-        }
-        MergeState.DocMap docMap=mergeState.docMaps[i];
-        pointsReader.intersect(fieldInfo.name,new IntersectVisitor(){
-          @Override public void visit(          int docID){
-            throw new IllegalStateException();
-          }
-          @Override public void visit(          int docID,          byte[] packedValue) throws IOException {
-            int newDocID=docMap.get(docID);
-            if (newDocID != -1) {
-              mergedVisitor.visit(newDocID,packedValue);
+      return new PointValues(){
+        @Override public void intersect(        IntersectVisitor mergedVisitor) throws IOException {
+          for (int i=0; i < mergeState.pointsReaders.length; i++) {
+            PointsReader pointsReader=mergeState.pointsReaders[i];
+            if (pointsReader == null) {
+              continue;
             }
-          }
-          @Override public Relation compare(          byte[] minPackedValue,          byte[] maxPackedValue){
-            return Relation.CELL_CROSSES_QUERY;
+            FieldInfo readerFieldInfo=mergeState.fieldInfos[i].fieldInfo(fieldName);
+            if (readerFieldInfo == null) {
+              continue;
+            }
+            if (readerFieldInfo.getPointDimensionCount() == 0) {
+              continue;
+            }
+            PointValues values=pointsReader.getValues(fieldName);
+            if (values == null) {
+              continue;
+            }
+            MergeState.DocMap docMap=mergeState.docMaps[i];
+            values.intersect(new IntersectVisitor(){
+              @Override public void visit(              int docID){
+                throw new IllegalStateException();
+              }
+              @Override public void visit(              int docID,              byte[] packedValue) throws IOException {
+                int newDocID=docMap.get(docID);
+                if (newDocID != -1) {
+                  mergedVisitor.visit(newDocID,packedValue);
+                }
+              }
+              @Override public Relation compare(              byte[] minPackedValue,              byte[] maxPackedValue){
+                return Relation.CELL_CROSSES_QUERY;
+              }
+            }
+);
           }
         }
-);
+        @Override public byte[] getMinPackedValue(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public byte[] getMaxPackedValue(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public int getNumDimensions(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public int getBytesPerDimension(){
+          throw new UnsupportedOperationException();
+        }
+        @Override public long size(){
+          return finalMaxPointCount;
+        }
+        @Override public int getDocCount(){
+          return finalDocCount;
+        }
       }
+;
     }
-    @Override public void checkIntegrity(){
+    @Override public void checkIntegrity() throws IOException {
       throw new UnsupportedOperationException();
-    }
-    @Override public long ramBytesUsed(){
-      return 0L;
-    }
-    @Override public void close(){
-    }
-    @Override public byte[] getMinPackedValue(    String fieldName){
-      throw new UnsupportedOperationException();
-    }
-    @Override public byte[] getMaxPackedValue(    String fieldName){
-      throw new UnsupportedOperationException();
-    }
-    @Override public int getNumDimensions(    String fieldName){
-      throw new UnsupportedOperationException();
-    }
-    @Override public int getBytesPerDimension(    String fieldName){
-      throw new UnsupportedOperationException();
-    }
-    @Override public long size(    String fieldName){
-      return finalMaxPointCount;
-    }
-    @Override public int getDocCount(    String fieldName){
-      return finalDocCount;
     }
   }
 );
