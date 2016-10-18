@@ -7,17 +7,26 @@
   if (after != null && after.doc >= limit) {
     throw new IllegalArgumentException("after.doc exceeds the number of documents in the reader: after.doc=" + after.doc + " limit="+ limit);
   }
-  TopDocsCollector<?> hitsCollector;
-  if (sort != null) {
-    if (after != null && !(after instanceof FieldDoc)) {
-      throw new IllegalArgumentException("after must be a FieldDoc; got " + after);
-    }
-    boolean fillFields=true;
-    hitsCollector=TopFieldCollector.create(sort,n,(FieldDoc)after,fillFields,doDocScores,doMaxScore);
+  TopDocs topDocs=null;
+  if (n == 0) {
+    TotalHitCountCollector totalHitCountCollector=new TotalHitCountCollector();
+    searcher.search(q,MultiCollector.wrap(totalHitCountCollector,fc));
+    topDocs=new TopDocs(totalHitCountCollector.getTotalHits(),new ScoreDoc[0],Float.NaN);
   }
  else {
-    hitsCollector=TopScoreDocCollector.create(n,after);
+    TopDocsCollector<?> hitsCollector;
+    if (sort != null) {
+      if (after != null && !(after instanceof FieldDoc)) {
+        throw new IllegalArgumentException("after must be a FieldDoc; got " + after);
+      }
+      boolean fillFields=true;
+      hitsCollector=TopFieldCollector.create(sort,n,(FieldDoc)after,fillFields,doDocScores,doMaxScore);
+    }
+ else {
+      hitsCollector=TopScoreDocCollector.create(n,after);
+    }
+    searcher.search(q,MultiCollector.wrap(hitsCollector,fc));
+    topDocs=hitsCollector.topDocs();
   }
-  searcher.search(q,MultiCollector.wrap(hitsCollector,fc));
-  return hitsCollector.topDocs();
+  return topDocs;
 }
