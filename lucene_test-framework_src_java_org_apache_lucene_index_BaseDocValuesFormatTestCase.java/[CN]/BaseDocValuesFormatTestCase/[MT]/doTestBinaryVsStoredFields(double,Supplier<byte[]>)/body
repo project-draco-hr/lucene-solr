@@ -1,0 +1,75 @@
+{
+  Directory dir=newDirectory();
+  IndexWriterConfig conf=newIndexWriterConfig(new MockAnalyzer(random()));
+  RandomIndexWriter writer=new RandomIndexWriter(random(),dir,conf);
+  Document doc=new Document();
+  Field idField=new StringField("id","",Field.Store.NO);
+  Field storedField=new StoredField("stored",new byte[0]);
+  Field dvField=new BinaryDocValuesField("dv",new BytesRef());
+  doc.add(idField);
+  doc.add(storedField);
+  doc.add(dvField);
+  int numDocs=atLeast(300);
+  for (int i=0; i < numDocs; i++) {
+    if (random().nextDouble() > density) {
+      writer.addDocument(new Document());
+      continue;
+    }
+    idField.setStringValue(Integer.toString(i));
+    byte[] buffer=bytes.get();
+    storedField.setBytesValue(buffer);
+    dvField.setBytesValue(buffer);
+    writer.addDocument(doc);
+    if (random().nextInt(31) == 0) {
+      writer.commit();
+    }
+  }
+  int numDeletions=random().nextInt(numDocs / 10);
+  for (int i=0; i < numDeletions; i++) {
+    int id=random().nextInt(numDocs);
+    writer.deleteDocuments(new Term("id",Integer.toString(id)));
+  }
+  DirectoryReader ir=writer.getReader();
+  TestUtil.checkReader(ir);
+  for (  LeafReaderContext context : ir.leaves()) {
+    LeafReader r=context.reader();
+    BinaryDocValues docValues=DocValues.getBinary(r,"dv");
+    docValues.nextDoc();
+    for (int i=0; i < r.maxDoc(); i++) {
+      BytesRef binaryValue=r.document(i).getBinaryValue("stored");
+      if (binaryValue == null) {
+        assertTrue(docValues.docID() > i);
+      }
+ else {
+        assertEquals(i,docValues.docID());
+        assertEquals(binaryValue,docValues.binaryValue());
+        docValues.nextDoc();
+      }
+    }
+    assertEquals(DocIdSetIterator.NO_MORE_DOCS,docValues.docID());
+  }
+  ir.close();
+  writer.forceMerge(1);
+  ir=writer.getReader();
+  TestUtil.checkReader(ir);
+  for (  LeafReaderContext context : ir.leaves()) {
+    LeafReader r=context.reader();
+    BinaryDocValues docValues=DocValues.getBinary(r,"dv");
+    docValues.nextDoc();
+    for (int i=0; i < r.maxDoc(); i++) {
+      BytesRef binaryValue=r.document(i).getBinaryValue("stored");
+      if (binaryValue == null) {
+        assertTrue(docValues.docID() > i);
+      }
+ else {
+        assertEquals(i,docValues.docID());
+        assertEquals(binaryValue,docValues.binaryValue());
+        docValues.nextDoc();
+      }
+    }
+    assertEquals(DocIdSetIterator.NO_MORE_DOCS,docValues.docID());
+  }
+  ir.close();
+  writer.close();
+  dir.close();
+}
