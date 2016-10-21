@@ -1,0 +1,81 @@
+{
+  String collectionName=message.getStr(COLLECTION_PROP);
+  String commitName=message.getStr(CoreAdminParams.COMMIT_NAME);
+  String asyncId=message.getStr(ASYNC);
+  SolrZkClient zkClient=this.ocmh.overseer.getZkController().getZkClient();
+  Date creationDate=new Date();
+  if (SolrSnapshotManager.snapshotExists(zkClient,collectionName,commitName)) {
+    throw new SolrException(ErrorCode.BAD_REQUEST,"Snapshot with name " + commitName + " already exists for collection "+ collectionName);
+  }
+  log.info("Creating a snapshot for collection={} with commitName={}",collectionName,commitName);
+  SolrSnapshotManager.createCollectionLevelSnapshot(zkClient,collectionName,new CollectionSnapshotMetaData(commitName));
+  log.info("Created a ZK path to store snapshot information for collection={} with commitName={}",collectionName,commitName);
+  Map<String,String> requestMap=new HashMap<>();
+  NamedList shardRequestResults=new NamedList();
+  Map<String,Slice> shardByCoreName=new HashMap<>();
+  ShardHandler shardHandler=ocmh.shardHandlerFactory.getShardHandler();
+  for (  Slice slice : ocmh.zkStateReader.getClusterState().getCollection(collectionName).getSlices()) {
+    for (    Replica replica : slice.getReplicas()) {
+      if (replica.getState() != State.ACTIVE) {
+        log.info("Replica {} is not active. Hence not sending the createsnapshot request",replica.getCoreName());
+        continue;
+      }
+      String coreName=replica.getStr(CORE_NAME_PROP);
+      ModifiableSolrParams params=new ModifiableSolrParams();
+      params.set(CoreAdminParams.ACTION,CoreAdminAction.CREATESNAPSHOT.toString());
+      params.set(NAME,slice.getName());
+      params.set(CORE_NAME_PROP,coreName);
+      params.set(CoreAdminParams.COMMIT_NAME,commitName);
+      ocmh.sendShardRequest(replica.getNodeName(),params,shardHandler,asyncId,requestMap);
+      log.debug("Sent createsnapshot request to core={} with commitName={}",coreName,commitName);
+      shardByCoreName.put(coreName,slice);
+    }
+  }
+  Set<String> failedShards=new HashSet<>();
+  ocmh.processResponses(shardRequestResults,shardHandler,false,null,asyncId,requestMap);
+  NamedList success=(NamedList)shardRequestResults.get("success");
+  List<CoreSnapshotMetaData> replicas=new ArrayList<>();
+  if (success != null) {
+    for (int i=0; i < success.size(); i++) {
+      NamedList resp=(NamedList)success.getVal(i);
+      String coreName=(String)resp.get(CoreAdminParams.CORE);
+      Slice slice=shardByCoreName.remove(coreName);
+      boolean leader=(slice.getLeader() != null && slice.getLeader().getCoreName().equals(coreName));
+      resp.add(SolrSnapshotManager.SHARD_ID,slice.getName());
+      resp.add(SolrSnapshotManager.LEADER,leader);
+      CoreSnapshotMetaData c=new CoreSnapshotMetaData(resp);
+      replicas.add(c);
+      log.info("Snapshot with commitName {} is created successfully for core {}",commitName,c.getCoreName());
+    }
+  }
+  if (!shardByCoreName.isEmpty()) {
+    log.warn("Unable to create a snapshot with name {} for following cores {}",commitName,shardByCoreName.keySet());
+    Map<String,Integer> failuresByShardId=new HashMap<>();
+    for (    Map.Entry<String,Slice> entry : shardByCoreName.entrySet()) {
+      int f=0;
+      if (failuresByShardId.get(entry.getValue().getName()) != null) {
+        f=failuresByShardId.get(entry.getValue().getName());
+      }
+      failuresByShardId.put(entry.getValue().getName(),f + 1);
+    }
+    DocCollection collectionStatus=ocmh.zkStateReader.getClusterState().getCollection(collectionName);
+    for (    Map.Entry<String,Integer> entry : failuresByShardId.entrySet()) {
+      int replicaCount=collectionStatus.getSlice(entry.getKey()).getReplicas().size();
+      if (replicaCount <= entry.getValue()) {
+        failedShards.add(entry.getKey());
+      }
+    }
+  }
+  if (failedShards.isEmpty()) {
+    CollectionSnapshotMetaData meta=new CollectionSnapshotMetaData(commitName,SnapshotStatus.Successful,creationDate,replicas);
+    SolrSnapshotManager.updateCollectionLevelSnapshot(zkClient,collectionName,meta);
+    log.info("Saved following snapshot information for collection={} with commitName={} in Zookeeper : {}",collectionName,commitName,meta.toNamedList());
+  }
+ else {
+    log.warn("Failed to create a snapshot for collection {} with commitName = {}. Snapshot could not be captured for following shards {}",collectionName,commitName,failedShards);
+    CollectionSnapshotMetaData meta=new CollectionSnapshotMetaData(commitName,SnapshotStatus.Failed,creationDate,replicas);
+    SolrSnapshotManager.updateCollectionLevelSnapshot(zkClient,collectionName,meta);
+    log.info("Saved following snapshot information for collection={} with commitName={} in Zookeeper : {}",collectionName,commitName,meta.toNamedList());
+    throw new SolrException(ErrorCode.SERVER_ERROR,"Failed to create snapshot on shards " + failedShards);
+  }
+}
