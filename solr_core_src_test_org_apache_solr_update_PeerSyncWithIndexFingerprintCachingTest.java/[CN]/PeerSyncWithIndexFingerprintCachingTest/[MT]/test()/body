@@ -1,0 +1,24 @@
+{
+  handle.clear();
+  handle.put("timestamp",SKIPVAL);
+  handle.put("score",SKIPVAL);
+  handle.put("maxScore",SKIPVAL);
+  SolrClient client0=clients.get(0);
+  SolrClient client1=clients.get(1);
+  long v=1;
+  for (; v < 8; ++v) {
+    add(client0,seenLeader,sdoc("id","" + v,"_version_",v));
+    add(client1,seenLeader,sdoc("id","" + v,"_version_",v));
+  }
+  client0.commit();
+  client1.commit();
+  IndexFingerprint before=getFingerprint(client0,Long.MAX_VALUE);
+  del(client0,params(DISTRIB_UPDATE_PARAM,FROM_LEADER,"_version_",Long.toString(-++v)),"2");
+  client0.commit();
+  IndexFingerprint after=getFingerprint(client0,Long.MAX_VALUE);
+  Assert.assertTrue(IndexFingerprint.compare(before,after) != 0);
+  assertSync(client1,numVersions,true,shardsArr[0]);
+  client0.commit();
+  client1.commit();
+  queryAndCompare(params("q","*:*","sort","_version_ desc"),client0,client1);
+}
