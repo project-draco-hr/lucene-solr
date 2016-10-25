@@ -1,0 +1,51 @@
+{
+  MultiDocValues.OrdinalMap ordinalMap;
+  if (dv instanceof MultiDocValues.MultiSortedSetDocValues) {
+    ordinalMap=((MultiSortedSetDocValues)dv).mapping;
+  }
+ else {
+    ordinalMap=null;
+  }
+  IndexReader origReader=state.getOrigReader();
+  for (  LeafReaderContext context : origReader.leaves()) {
+    LeafReader reader=context.reader();
+    SortedSetDocValues segValues=reader.getSortedSetDocValues(field);
+    if (segValues == null) {
+      continue;
+    }
+    Bits liveDocs=reader.getLiveDocs();
+    if (ordinalMap != null) {
+      final LongValues ordMap=ordinalMap.getGlobalOrds(context.ord);
+      int numSegOrds=(int)segValues.getValueCount();
+      final int[] segCounts=new int[numSegOrds];
+      int docID;
+      while ((docID=segValues.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+        if (liveDocs == null || liveDocs.get(docID)) {
+          int term=(int)segValues.nextOrd();
+          while (term != SortedSetDocValues.NO_MORE_ORDS) {
+            segCounts[term]++;
+            term=(int)segValues.nextOrd();
+          }
+        }
+      }
+      for (int ord=0; ord < numSegOrds; ord++) {
+        int count=segCounts[ord];
+        if (count != 0) {
+          counts[(int)ordMap.get(ord)]+=count;
+        }
+      }
+    }
+ else {
+      int docID;
+      while ((docID=segValues.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+        if (liveDocs == null || liveDocs.get(docID)) {
+          int term=(int)segValues.nextOrd();
+          while (term != SortedSetDocValues.NO_MORE_ORDS) {
+            counts[term]++;
+            term=(int)segValues.nextOrd();
+          }
+        }
+      }
+    }
+  }
+}
