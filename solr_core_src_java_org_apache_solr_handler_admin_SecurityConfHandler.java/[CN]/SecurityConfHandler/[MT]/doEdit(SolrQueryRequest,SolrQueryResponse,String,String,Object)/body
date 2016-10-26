@@ -16,11 +16,12 @@
   if (ops == null) {
     throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"No commands");
   }
-  for (; ; ) {
-    ConfigData data=getSecurityProps(true);
-    Map<String,Object> latestConf=(Map<String,Object>)data.data.get(key);
+  for (int count=1; count <= 3; count++) {
+    SecurityConfig securityConfig=getSecurityConfig(true);
+    Map<String,Object> data=securityConfig.getData();
+    Map<String,Object> latestConf=(Map<String,Object>)data.get(key);
     if (latestConf == null) {
-      throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"No configuration present for " + key);
+      throw new SolrException(SERVER_ERROR,"No configuration present for " + key);
     }
     List<CommandOperation> commandsCopy=CommandOperation.clone(ops);
     Map<String,Object> out=configEditablePlugin.edit(Utils.getDeepCopy(latestConf,4),commandsCopy);
@@ -30,16 +31,22 @@
         rsp.add(CommandOperation.ERR_MSGS,errs);
         return;
       }
+      log.debug("No edits made");
       return;
     }
  else {
       if (!Objects.equals(latestConf.get("class"),out.get("class"))) {
-        throw new SolrException(SolrException.ErrorCode.SERVER_ERROR,"class cannot be modified");
+        throw new SolrException(SERVER_ERROR,"class cannot be modified");
       }
       Map meta=getMapValue(out,"");
-      meta.put("v",data.version + 1);
-      data.data.put(key,out);
-      if (persistConf("/security.json",Utils.toJSON(data.data),data.version))       return;
+      meta.put("v",securityConfig.getVersion() + 1);
+      data.put(key,out);
+      if (persistConf(securityConfig)) {
+        securityConfEdited();
+        return;
+      }
     }
+    log.debug("Security edit operation failed {} time(s)" + count);
   }
+  throw new SolrException(SERVER_ERROR,"Failed to persist security config after 3 attempts. Giving up");
 }
