@@ -1,10 +1,33 @@
 {
   StatusTool status=new StatusTool();
+  long timeout=System.nanoTime() + TimeUnit.NANOSECONDS.convert(timeoutMs.orElse(1000L),TimeUnit.MILLISECONDS);
   try {
-    status.waitToSeeSolrUp(url,5);
-    return exitOrException("Solr is running on url " + url);
+    attemptHttpHead(url,getHttpClient());
   }
- catch (  Exception e) {
+ catch (  SolrException se) {
+    throw se;
+  }
+catch (  IOException e) {
+    log.debug("Opening connection to " + url + " failed, Solr does not seem to be running",e);
     return 0;
   }
+  while (System.nanoTime() < timeout) {
+    try {
+      status.waitToSeeSolrUp(url,1);
+      try {
+        log.debug("Solr still up. Waiting before trying again to see if it was stopped");
+        Thread.sleep(1000L);
+      }
+ catch (      InterruptedException interrupted) {
+        timeout=0;
+      }
+    }
+ catch (    Exception se) {
+      if (exceptionIsAuthRelated(se)) {
+        throw se;
+      }
+      return exitOrException(se.getMessage());
+    }
+  }
+  return exitOrException("Solr is still running at " + url + " after "+ timeoutMs.orElse(1000L) / 1000 + "s");
 }
