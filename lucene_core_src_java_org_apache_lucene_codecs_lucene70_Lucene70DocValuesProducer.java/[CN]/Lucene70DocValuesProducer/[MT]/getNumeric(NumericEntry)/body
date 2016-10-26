@@ -3,57 +3,70 @@
     return DocValues.emptyNumeric();
   }
  else   if (entry.docsWithFieldOffset == -1) {
-    final LongValues normValues=getNumericValues(entry);
-    return new NumericDocValues(){
-      int doc=-1;
-      @Override public long longValue() throws IOException {
-        return normValues.get(doc);
-      }
-      @Override public int docID(){
-        return doc;
-      }
-      @Override public int nextDoc() throws IOException {
-        return advance(doc + 1);
-      }
-      @Override public int advance(      int target) throws IOException {
-        if (target >= maxDoc) {
-          return doc=NO_MORE_DOCS;
+    if (entry.bitsPerValue == 0) {
+      return new DenseNumericDocValues(maxDoc){
+        @Override public long longValue() throws IOException {
+          return entry.minValue;
         }
-        return doc=target;
       }
-      @Override public boolean advanceExact(      int target){
-        doc=target;
-        return true;
+;
+    }
+ else {
+      final RandomAccessInput slice=data.randomAccessSlice(entry.valuesOffset,entry.valuesLength);
+      final LongValues values=DirectReader.getInstance(slice,entry.bitsPerValue);
+      if (entry.table != null) {
+        final long[] table=entry.table;
+        return new DenseNumericDocValues(maxDoc){
+          @Override public long longValue() throws IOException {
+            return table[(int)values.get(doc)];
+          }
+        }
+;
       }
-      @Override public long cost(){
-        return maxDoc;
+ else {
+        final long mul=entry.gcd;
+        final long delta=entry.minValue;
+        return new DenseNumericDocValues(maxDoc){
+          @Override public long longValue() throws IOException {
+            return mul * values.get(doc) + delta;
+          }
+        }
+;
       }
     }
-;
   }
  else {
-    final LongValues values=getNumericValues(entry);
     final IndexedDISI disi=new IndexedDISI(data,entry.docsWithFieldOffset,entry.docsWithFieldLength,entry.numValues);
-    return new NumericDocValues(){
-      @Override public int advance(      int target) throws IOException {
-        return disi.advance(target);
+    if (entry.bitsPerValue == 0) {
+      return new SparseNumericDocValues(disi){
+        @Override public long longValue() throws IOException {
+          return entry.minValue;
+        }
       }
-      @Override public boolean advanceExact(      int target) throws IOException {
-        return disi.advanceExact(target);
+;
+    }
+ else {
+      final RandomAccessInput slice=data.randomAccessSlice(entry.valuesOffset,entry.valuesLength);
+      final LongValues values=DirectReader.getInstance(slice,entry.bitsPerValue);
+      if (entry.table != null) {
+        final long[] table=entry.table;
+        return new SparseNumericDocValues(disi){
+          @Override public long longValue() throws IOException {
+            return table[(int)values.get(disi.index())];
+          }
+        }
+;
       }
-      @Override public int nextDoc() throws IOException {
-        return disi.nextDoc();
-      }
-      @Override public int docID(){
-        return disi.docID();
-      }
-      @Override public long cost(){
-        return disi.cost();
-      }
-      @Override public long longValue() throws IOException {
-        return values.get(disi.index());
+ else {
+        final long mul=entry.gcd;
+        final long delta=entry.minValue;
+        return new SparseNumericDocValues(disi){
+          @Override public long longValue() throws IOException {
+            return mul * values.get(disi.index()) + delta;
+          }
+        }
+;
       }
     }
-;
   }
 }
