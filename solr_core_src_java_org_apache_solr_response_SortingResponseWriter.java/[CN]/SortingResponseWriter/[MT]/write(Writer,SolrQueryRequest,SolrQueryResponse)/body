@@ -8,17 +8,19 @@
   }
   SolrRequestInfo info=SolrRequestInfo.getRequestInfo();
   SortSpec sortSpec=info.getResponseBuilder().getSortSpec();
-  Exception exception=null;
   if (sortSpec == null) {
-    exception=new IOException(new SyntaxError("No sort criteria was provided."));
+    writeException((new IOException(new SyntaxError("No sort criteria was provided."))),writer,true);
+    return;
   }
   SolrIndexSearcher searcher=req.getSearcher();
   Sort sort=searcher.weightSort(sortSpec.getSort());
   if (sort == null) {
-    exception=new IOException(new SyntaxError("No sort criteria was provided."));
+    writeException((new IOException(new SyntaxError("No sort criteria was provided."))),writer,true);
+    return;
   }
   if (sort != null && sort.needsScores()) {
-    exception=new IOException(new SyntaxError("Scoring is not currently supported with xsort."));
+    writeException((new IOException(new SyntaxError("Scoring is not currently supported with xsort."))),writer,true);
+    return;
   }
   int totalHits=0;
   FixedBitSet[] sets=null;
@@ -26,22 +28,24 @@
     totalHits=((Integer)req.getContext().get("totalHits")).intValue();
     sets=(FixedBitSet[])req.getContext().get("export");
     if (sets == null) {
-      exception=new IOException(new SyntaxError("xport RankQuery is required for xsort: rq={!xport}"));
+      writeException((new IOException(new SyntaxError("xport RankQuery is required for xsort: rq={!xport}"))),writer,true);
+      return;
     }
   }
   SolrParams params=req.getParams();
   String fl=params.get("fl");
   String[] fields=null;
   if (fl == null) {
-    exception=new IOException(new SyntaxError("export field list (fl) must be specified."));
+    writeException((new IOException(new SyntaxError("export field list (fl) must be specified."))),writer,true);
+    return;
   }
  else {
     fields=fl.split(",");
     for (int i=0; i < fields.length; i++) {
       fields[i]=fields[i].trim();
       if (fields[i].equals("score")) {
-        exception=new IOException(new SyntaxError("Scoring is not currently supported with xsort."));
-        break;
+        writeException((new IOException(new SyntaxError("Scoring is not currently supported with xsort."))),writer,true);
+        return;
       }
     }
   }
@@ -50,10 +54,7 @@
     fieldWriters=getFieldWriters(fields,req.getSearcher());
   }
  catch (  Exception e) {
-    exception=e;
-  }
-  if (exception != null) {
-    writeException(exception,writer,true);
+    writeException(e,writer,true);
     return;
   }
   writer.write("{\"responseHeader\": {\"status\": 0}, \"response\":{\"numFound\":" + totalHits + ", \"docs\":[");
