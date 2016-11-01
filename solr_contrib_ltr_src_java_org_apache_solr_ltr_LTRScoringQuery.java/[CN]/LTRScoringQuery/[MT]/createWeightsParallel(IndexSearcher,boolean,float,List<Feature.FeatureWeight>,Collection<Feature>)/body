@@ -1,0 +1,21 @@
+{
+  final SolrQueryRequest req=getRequest();
+  List<Future<Feature.FeatureWeight>> futures=new ArrayList<>(features.size());
+  try {
+    for (    final Feature f : features) {
+      CreateWeightCallable callable=new CreateWeightCallable(f,searcher,needsScores,req);
+      RunnableFuture<Feature.FeatureWeight> runnableFuture=new FutureTask<>(callable);
+      querySemaphore.acquire();
+      ltrThreadMgr.acquireLTRSemaphore();
+      ltrThreadMgr.execute(runnableFuture);
+      futures.add(runnableFuture);
+    }
+    for (    final Future<Feature.FeatureWeight> future : futures) {
+      featureWeights.add(future.get());
+    }
+  }
+ catch (  Exception e) {
+    log.info("Error while creating weights in LTR: InterruptedException",e);
+    throw new RuntimeException("Error while creating weights in LTR: " + e.getMessage(),e);
+  }
+}

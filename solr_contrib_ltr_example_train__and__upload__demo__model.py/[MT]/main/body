@@ -1,0 +1,25 @@
+def main(argv=None):
+    if (argv is None):
+        argv = sys.argv
+    parser = OptionParser(usage='usage: %prog [options] ', version='%prog 1.0')
+    parser.add_option('-c', '--config', dest='configFile', help='File of configuration for the test')
+    (options, args) = parser.parse_args()
+    if (options.configFile == None):
+        parser.print_help()
+        return 1
+    with open(options.configFile) as configFile:
+        config = json.load(configFile)
+        print 'Uploading feature space to Solr'
+        setupSolr(config)
+        print 'Generating feature extraction Solr queries'
+        reRankQueries = generateQueries(config)
+        print 'Extracting features'
+        fvGenerator = generateTrainingData(reRankQueries, config)
+        formatter = libsvm_formatter.LibSvmFormatter()
+        formatter.processQueryDocFeatureVector(fvGenerator, config['trainingFile'])
+        print 'Training ranksvm model'
+        libsvm_formatter.trainLibSvm(config['trainingLibraryLocation'], config['trainingFile'])
+        print 'Converting ranksvm model to solr model'
+        formatter.convertLibSvmModelToLtrModel((config['trainingFile'] + '.model'), config['solrModelFile'], config['solrModelName'])
+        print 'Uploading model to solr'
+        uploadModel(config['collection'], config['host'], config['port'], config['solrModelFile'])

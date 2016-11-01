@@ -1,0 +1,40 @@
+{
+  super(SolrFeature.this,searcher,request,originalQuery,efi);
+  try {
+    String solrQuery=q;
+    final List<String> fqs=fq;
+    if ((solrQuery == null) || solrQuery.isEmpty()) {
+      solrQuery="*:*";
+    }
+    solrQuery=macroExpander.expand(solrQuery);
+    if (solrQuery == null) {
+      throw new FeatureException(this.getClass().getSimpleName() + " requires efi parameter that was not passed in request.");
+    }
+    final SolrQueryRequest req=makeRequest(request.getCore(),solrQuery,fqs,df);
+    if (req == null) {
+      throw new IOException("ERROR: No parameters provided");
+    }
+    queryAndFilters=new ArrayList<Query>();
+    if (fqs != null) {
+      for (      String fq : fqs) {
+        if ((fq != null) && (fq.trim().length() != 0)) {
+          fq=macroExpander.expand(fq);
+          final QParser fqp=QParser.getParser(fq,req);
+          final Query filterQuery=fqp.getQuery();
+          if (filterQuery != null) {
+            queryAndFilters.add(filterQuery);
+          }
+        }
+      }
+    }
+    final QParser parser=QParser.getParser(solrQuery,req);
+    query=parser.parse();
+    if (query != null) {
+      queryAndFilters.add(query);
+      solrQueryWeight=searcher.createNormalizedWeight(query,true);
+    }
+  }
+ catch (  final SyntaxError e) {
+    throw new FeatureException("Failed to parse feature query.",e);
+  }
+}

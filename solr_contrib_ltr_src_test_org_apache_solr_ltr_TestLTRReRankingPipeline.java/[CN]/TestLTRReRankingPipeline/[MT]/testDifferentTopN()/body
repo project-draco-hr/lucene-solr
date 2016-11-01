@@ -1,0 +1,68 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  doc.add(newStringField("id","0",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz oz oz oz oz",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",1.0f));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(newStringField("id","1",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz oz oz oz the",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",2.0f));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(newStringField("id","2",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz oz oz the the ",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",3.0f));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(newStringField("id","3",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz oz the the the the ",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",4.0f));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(newStringField("id","4",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz the the the the the the",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",5.0f));
+  w.addDocument(doc);
+  final IndexReader r=w.getReader();
+  w.close();
+  final BooleanQuery.Builder bqBuilder=new BooleanQuery.Builder();
+  bqBuilder.add(new TermQuery(new Term("field","wizard")),BooleanClause.Occur.SHOULD);
+  bqBuilder.add(new TermQuery(new Term("field","oz")),BooleanClause.Occur.SHOULD);
+  final IndexSearcher searcher=getSearcher(r);
+  TopDocs hits=searcher.search(bqBuilder.build(),10);
+  assertEquals(5,hits.totalHits);
+  assertEquals("0",searcher.doc(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("1",searcher.doc(hits.scoreDocs[1].doc).get("id"));
+  assertEquals("2",searcher.doc(hits.scoreDocs[2].doc).get("id"));
+  assertEquals("3",searcher.doc(hits.scoreDocs[3].doc).get("id"));
+  assertEquals("4",searcher.doc(hits.scoreDocs[4].doc).get("id"));
+  final List<Feature> features=makeFieldValueFeatures(new int[]{0,1,2},"final-score");
+  final List<Normalizer> norms=new ArrayList<Normalizer>(Collections.nCopies(features.size(),IdentityNormalizer.INSTANCE));
+  final List<Feature> allFeatures=makeFieldValueFeatures(new int[]{0,1,2,3,4,5,6,7,8,9},"final-score");
+  final LTRScoringModel ltrScoringModel=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,null);
+  final LTRRescorer rescorer=new LTRRescorer(new LTRScoringQuery(ltrScoringModel));
+  hits=rescorer.rescore(searcher,hits,0);
+  assertEquals("0",searcher.doc(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("1",searcher.doc(hits.scoreDocs[1].doc).get("id"));
+  assertEquals("2",searcher.doc(hits.scoreDocs[2].doc).get("id"));
+  assertEquals("3",searcher.doc(hits.scoreDocs[3].doc).get("id"));
+  assertEquals("4",searcher.doc(hits.scoreDocs[4].doc).get("id"));
+  for (int topN=1; topN <= 5; topN++) {
+    log.info("rerank {} documents ",topN);
+    hits=searcher.search(bqBuilder.build(),10);
+    final ScoreDoc[] slice=new ScoreDoc[topN];
+    System.arraycopy(hits.scoreDocs,0,slice,0,topN);
+    hits=new TopDocs(hits.totalHits,slice,hits.getMaxScore());
+    hits=rescorer.rescore(searcher,hits,topN);
+    for (int i=topN - 1, j=0; i >= 0; i--, j++) {
+      log.info("doc {} in pos {}",searcher.doc(hits.scoreDocs[j].doc).get("id"),j);
+      assertEquals(i,Integer.parseInt(searcher.doc(hits.scoreDocs[j].doc).get("id")));
+      assertEquals(i + 1,hits.scoreDocs[j].score,0.00001);
+    }
+  }
+  r.close();
+  dir.close();
+}

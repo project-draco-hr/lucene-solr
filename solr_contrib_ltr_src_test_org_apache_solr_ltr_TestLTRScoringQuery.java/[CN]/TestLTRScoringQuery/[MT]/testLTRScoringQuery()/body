@@ -1,0 +1,87 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  doc.add(newStringField("id","0",Field.Store.YES));
+  doc.add(newTextField("field","wizard the the the the the oz",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",1.0f));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(newStringField("id","1",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz the the the the the the",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",2.0f));
+  w.addDocument(doc);
+  final IndexReader r=w.getReader();
+  w.close();
+  final BooleanQuery.Builder bqBuilder=new BooleanQuery.Builder();
+  bqBuilder.add(new TermQuery(new Term("field","wizard")),BooleanClause.Occur.SHOULD);
+  bqBuilder.add(new TermQuery(new Term("field","oz")),BooleanClause.Occur.SHOULD);
+  final IndexSearcher searcher=getSearcher(r);
+  final TopDocs hits=searcher.search(bqBuilder.build(),10);
+  assertEquals(2,hits.totalHits);
+  assertEquals("0",searcher.doc(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("1",searcher.doc(hits.scoreDocs[1].doc).get("id"));
+  List<Feature> features=makeFeatures(new int[]{0,1,2});
+  final List<Feature> allFeatures=makeFeatures(new int[]{0,1,2,3,4,5,6,7,8,9});
+  List<Normalizer> norms=new ArrayList<Normalizer>(Collections.nCopies(features.size(),IdentityNormalizer.INSTANCE));
+  LTRScoringModel ltrScoringModel=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,makeFeatureWeights(features));
+  LTRScoringQuery.ModelWeight modelWeight=performQuery(hits,searcher,hits.scoreDocs[0].doc,new LTRScoringQuery(ltrScoringModel));
+  assertEquals(3,modelWeight.getModelFeatureValuesNormalized().length);
+  for (int i=0; i < 3; i++) {
+    assertEquals(i,modelWeight.getModelFeatureValuesNormalized()[i],0.0001);
+  }
+  int[] posVals=new int[]{0,1,2};
+  int pos=0;
+  for (  LTRScoringQuery.FeatureInfo fInfo : modelWeight.getFeaturesInfo()) {
+    if (fInfo == null) {
+      continue;
+    }
+    assertEquals(posVals[pos],fInfo.getValue(),0.0001);
+    assertEquals("f" + posVals[pos],fInfo.getName());
+    pos++;
+  }
+  final int[] mixPositions=new int[]{8,2,4,9,0};
+  features=makeFeatures(mixPositions);
+  norms=new ArrayList<Normalizer>(Collections.nCopies(features.size(),IdentityNormalizer.INSTANCE));
+  ltrScoringModel=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,makeFeatureWeights(features));
+  modelWeight=performQuery(hits,searcher,hits.scoreDocs[0].doc,new LTRScoringQuery(ltrScoringModel));
+  assertEquals(mixPositions.length,modelWeight.getModelFeatureWeights().length);
+  for (int i=0; i < mixPositions.length; i++) {
+    assertEquals(mixPositions[i],modelWeight.getModelFeatureValuesNormalized()[i],0.0001);
+  }
+  final ModelException expectedModelException=new ModelException("no features declared for model test");
+  final int[] noPositions=new int[]{};
+  features=makeFeatures(noPositions);
+  norms=new ArrayList<Normalizer>(Collections.nCopies(features.size(),IdentityNormalizer.INSTANCE));
+  try {
+    ltrScoringModel=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,makeFeatureWeights(features));
+    fail("unexpectedly got here instead of catching " + expectedModelException);
+    modelWeight=performQuery(hits,searcher,hits.scoreDocs[0].doc,new LTRScoringQuery(ltrScoringModel));
+    assertEquals(0,modelWeight.getModelFeatureWeights().length);
+  }
+ catch (  ModelException actualModelException) {
+    assertEquals(expectedModelException.toString(),actualModelException.toString());
+  }
+  features=makeFilterFeatures(mixPositions);
+  final Normalizer norm=new Normalizer(){
+    @Override public float normalize(    float value){
+      return 42.42f;
+    }
+    @Override public LinkedHashMap<String,Object> paramsToMap(){
+      return null;
+    }
+    @Override protected void validate() throws NormalizerException {
+    }
+  }
+;
+  norms=new ArrayList<Normalizer>(Collections.nCopies(features.size(),norm));
+  final LTRScoringModel normMeta=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,makeFeatureWeights(features));
+  modelWeight=performQuery(hits,searcher,hits.scoreDocs[0].doc,new LTRScoringQuery(normMeta));
+  normMeta.normalizeFeaturesInPlace(modelWeight.getModelFeatureValuesNormalized());
+  assertEquals(mixPositions.length,modelWeight.getModelFeatureWeights().length);
+  for (int i=0; i < mixPositions.length; i++) {
+    assertEquals(42.42f,modelWeight.getModelFeatureValuesNormalized()[i],0.0001);
+  }
+  r.close();
+  dir.close();
+}

@@ -1,0 +1,31 @@
+def generateTrainingData(solrQueries, config):
+    'Given a list of solr queries, yields a tuple of query , docId , score , source , feature vector for each query.\n    Feature Vector is a list of strings of form "key:value"'
+    conn = httplib.HTTPConnection(config['host'], config['port'])
+    headers = {'Connection': ' keep-alive', }
+    try:
+        for (queryUrl, query, docId, score, source) in solrQueries:
+            conn.request('GET', queryUrl, headers=headers)
+            r = conn.getresponse()
+            msg = r.read()
+            msgDict = json.loads(msg)
+            fv = ''
+            docs = msgDict['response']['docs']
+            if ((len(docs) > 0) and ('[features]' in docs[0])):
+                if (not (msgDict['response']['docs'][0]['[features]'] == None)):
+                    fv = msgDict['response']['docs'][0]['[features]']
+                else:
+                    print ('ERROR NULL FV FOR: ' + docId)
+                    print msg
+                    continue
+            else:
+                print ('ERROR FOR: ' + docId)
+                print msg
+                continue
+            if (r.status == httplib.OK):
+                yield (query, docId, score, source, fv.split(';'))
+            else:
+                raise Exception('Status: {0} {1}\nResponse: {2}'.format(r.status, r.reason, msg))
+    except Exception as e:
+        print msg
+        print e
+    conn.close()

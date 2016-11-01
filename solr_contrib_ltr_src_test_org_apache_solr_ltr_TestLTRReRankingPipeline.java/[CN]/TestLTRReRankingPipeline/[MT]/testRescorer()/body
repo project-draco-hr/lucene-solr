@@ -1,0 +1,34 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  doc.add(newStringField("id","0",Field.Store.YES));
+  doc.add(newTextField("field","wizard the the the the the oz",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",1.0f));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(newStringField("id","1",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz the the the the the the",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",2.0f));
+  w.addDocument(doc);
+  final IndexReader r=w.getReader();
+  w.close();
+  final BooleanQuery.Builder bqBuilder=new BooleanQuery.Builder();
+  bqBuilder.add(new TermQuery(new Term("field","wizard")),BooleanClause.Occur.SHOULD);
+  bqBuilder.add(new TermQuery(new Term("field","oz")),BooleanClause.Occur.SHOULD);
+  final IndexSearcher searcher=getSearcher(r);
+  TopDocs hits=searcher.search(bqBuilder.build(),10);
+  assertEquals(2,hits.totalHits);
+  assertEquals("0",searcher.doc(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("1",searcher.doc(hits.scoreDocs[1].doc).get("id"));
+  final List<Feature> features=makeFieldValueFeatures(new int[]{0,1,2},"final-score");
+  final List<Normalizer> norms=new ArrayList<Normalizer>(Collections.nCopies(features.size(),IdentityNormalizer.INSTANCE));
+  final List<Feature> allFeatures=makeFieldValueFeatures(new int[]{0,1,2,3,4,5,6,7,8,9},"final-score");
+  final LTRScoringModel ltrScoringModel=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,null);
+  final LTRRescorer rescorer=new LTRRescorer(new LTRScoringQuery(ltrScoringModel));
+  hits=rescorer.rescore(searcher,hits,2);
+  assertEquals("1",searcher.doc(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("0",searcher.doc(hits.scoreDocs[1].doc).get("id"));
+  r.close();
+  dir.close();
+}

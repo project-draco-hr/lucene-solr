@@ -1,0 +1,47 @@
+{
+  int readerUpto=-1;
+  int endDoc=0;
+  int docBase=0;
+  LTRScoringQuery.ModelWeight.ModelScorer scorer=null;
+  int hitUpto=0;
+  final FeatureLogger<?> featureLogger=scoringQuery.getFeatureLogger();
+  while (hitUpto < hits.length) {
+    final ScoreDoc hit=hits[hitUpto];
+    final int docID=hit.doc;
+    LeafReaderContext readerContext=null;
+    while (docID >= endDoc) {
+      readerUpto++;
+      readerContext=leaves.get(readerUpto);
+      endDoc=readerContext.docBase + readerContext.reader().maxDoc();
+    }
+    if (readerContext != null) {
+      docBase=readerContext.docBase;
+      scorer=modelWeight.scorer(readerContext);
+    }
+    assert(scorer != null);
+    final int targetDoc=docID - docBase;
+    scorer.docID();
+    scorer.iterator().advance(targetDoc);
+    scorer.getDocInfo().setOriginalDocScore(new Float(hit.score));
+    hit.score=scorer.score();
+    if (hitUpto < topN) {
+      reranked[hitUpto]=hit;
+      if (featureLogger != null) {
+        featureLogger.log(hit.doc,scoringQuery,solrIndexSearch,modelWeight.getFeaturesInfo());
+      }
+    }
+ else     if (hitUpto == topN) {
+      heapify(reranked,topN);
+    }
+    if (hitUpto >= topN) {
+      if (hit.score > reranked[0].score) {
+        reranked[0]=hit;
+        heapAdjust(reranked,topN,0);
+        if (featureLogger != null) {
+          featureLogger.log(hit.doc,scoringQuery,solrIndexSearch,modelWeight.getFeaturesInfo());
+        }
+      }
+    }
+    hitUpto++;
+  }
+}

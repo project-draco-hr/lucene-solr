@@ -1,0 +1,23 @@
+{
+  final String modelName=localParams.get(LTRQParserPlugin.MODEL);
+  if ((modelName == null) || modelName.isEmpty()) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"Must provide model in the request");
+  }
+  final LTRScoringModel ltrScoringModel=mr.getModel(modelName);
+  if (ltrScoringModel == null) {
+    throw new SolrException(SolrException.ErrorCode.BAD_REQUEST,"cannot find " + LTRQParserPlugin.MODEL + " "+ modelName);
+  }
+  final String modelFeatureStoreName=ltrScoringModel.getFeatureStoreName();
+  final boolean extractFeatures=SolrQueryRequestContextUtils.isExtractingFeatures(req);
+  final String fvStoreName=SolrQueryRequestContextUtils.getFvStoreName(req);
+  final boolean featuresRequestedFromSameStore=(modelFeatureStoreName.equals(fvStoreName) || fvStoreName == null) ? extractFeatures : false;
+  final LTRScoringQuery scoringQuery=new LTRScoringQuery(ltrScoringModel,extractEFIParams(localParams),featuresRequestedFromSameStore,threadManager);
+  if (featuresRequestedFromSameStore) {
+    scoringQuery.setFeatureLogger(SolrQueryRequestContextUtils.getFeatureLogger(req));
+  }
+  SolrQueryRequestContextUtils.setScoringQuery(req,scoringQuery);
+  int reRankDocs=localParams.getInt(RERANK_DOCS,DEFAULT_RERANK_DOCS);
+  reRankDocs=Math.max(1,reRankDocs);
+  scoringQuery.setRequest(req);
+  return new LTRQuery(scoringQuery,reRankDocs);
+}

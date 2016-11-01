@@ -1,0 +1,57 @@
+{
+  final Directory dir=newDirectory();
+  final RandomIndexWriter w=new RandomIndexWriter(random(),dir);
+  Document doc=new Document();
+  doc.add(newStringField("id","0",Field.Store.YES));
+  doc.add(newTextField("field","wizard the the the the the oz",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",1.0f));
+  w.addDocument(doc);
+  doc=new Document();
+  doc.add(newStringField("id","1",Field.Store.YES));
+  doc.add(newTextField("field","wizard oz the the the the the the",Field.Store.NO));
+  doc.add(new FloatDocValuesField("final-score",2.0f));
+  w.addDocument(doc);
+  final IndexReader r=w.getReader();
+  w.close();
+  final BooleanQuery.Builder bqBuilder=new BooleanQuery.Builder();
+  bqBuilder.add(new TermQuery(new Term("field","wizard")),BooleanClause.Occur.SHOULD);
+  bqBuilder.add(new TermQuery(new Term("field","oz")),BooleanClause.Occur.SHOULD);
+  final IndexSearcher searcher=getSearcher(r);
+  final TopDocs hits=searcher.search(bqBuilder.build(),10);
+  assertEquals(2,hits.totalHits);
+  assertEquals("0",searcher.doc(hits.scoreDocs[0].doc).get("id"));
+  assertEquals("1",searcher.doc(hits.scoreDocs[1].doc).get("id"));
+  List<Feature> features=makeFeatures(new int[]{0,1,2});
+  final List<Feature> allFeatures=makeFeatures(new int[]{0,1,2,3,4,5,6,7,8,9});
+  final List<Normalizer> norms=new ArrayList<>();
+  for (int k=0; k < features.size(); ++k) {
+    norms.add(IdentityNormalizer.INSTANCE);
+  }
+  final LTRScoringModel ltrScoringModel1=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,makeFeatureWeights(features));
+  LTRScoringQuery.ModelWeight modelWeight=performQuery(hits,searcher,hits.scoreDocs[0].doc,new LTRScoringQuery(ltrScoringModel1,false));
+  LTRScoringQuery.FeatureInfo[] featuresInfo=modelWeight.getFeaturesInfo();
+  assertEquals(features.size(),modelWeight.getModelFeatureValuesNormalized().length);
+  int validFeatures=0;
+  for (int i=0; i < featuresInfo.length; ++i) {
+    if (featuresInfo[i] != null && featuresInfo[i].isUsed()) {
+      validFeatures+=1;
+    }
+  }
+  assertEquals(validFeatures,features.size());
+  final LTRScoringModel ltrScoringModel2=TestLinearModel.createLinearModel("test",features,norms,"test",allFeatures,makeFeatureWeights(features));
+  modelWeight=performQuery(hits,searcher,hits.scoreDocs[0].doc,new LTRScoringQuery(ltrScoringModel2,true));
+  featuresInfo=modelWeight.getFeaturesInfo();
+  assertEquals(features.size(),modelWeight.getModelFeatureValuesNormalized().length);
+  assertEquals(allFeatures.size(),modelWeight.getExtractedFeatureWeights().length);
+  validFeatures=0;
+  for (int i=0; i < featuresInfo.length; ++i) {
+    if (featuresInfo[i] != null && featuresInfo[i].isUsed()) {
+      validFeatures+=1;
+    }
+  }
+  assertEquals(validFeatures,allFeatures.size());
+  assertU(delI("0"));
+  assertU(delI("1"));
+  r.close();
+  dir.close();
+}
